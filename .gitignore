@@ -1,0 +1,18 @@
+# Secrets never enter this repo. Database credentials, proxy keys, and host
+# access live in the deployment secret store, not in git.
+*.env
+.env
+secrets/
+*.key
+*.pem
+
+# Artifacts pulled in during a deploy
+*.jar
+*.phar
+
+# Backups and dumps
+*.sql.gz
+backups/
+
+CLAUDE.local.md
+.claude/settings.local.json
