@@ -19,14 +19,19 @@ The world-split. This is the core scaling operation on RiftalGames. Rehearse it 
 
 ## 1. Provision
 
-- [ ] Bring up the host. Ubuntu 24.04.
-- [ ] Install the core build from `pmmp-core`, at the same tag every other instance runs. Mixed core versions behind one proxy is a protocol mismatch waiting to happen.
-- [ ] Install the plugin phars for this instance's worlds. An instance loads only the plugins it needs, but the shared library version must match everywhere, because they share a schema.
-- [ ] Create `instances/<instance_id>/` in this repo holding its `server.properties`, `pocketmine.yml`, and plugin configs. The host is disposable, the definition in git is not.
+Instances are containers from one shared image. There is no host to build and no software to install. What makes this container a specific instance is its mounted config and its `instance_id`, never a separately built image.
+
+- [ ] Create `instances/<instance_id>/` in this repo holding its `server.properties`, `pocketmine.yml`, plugin configs, and world list. The container is disposable, the definition in git is not. This is the actual provisioning step.
+- [ ] Run the core image **at the same tag every other instance runs**. Mixed core versions behind one proxy is a protocol mismatch waiting to happen, and with containers there is no excuse for it, because the tag is right there.
+- [ ] Mount the plugin phars for this instance's worlds. An instance loads only the plugins it needs, but the shared library version must match everywhere, because they share a schema.
+- [ ] Mount the world directory on a volume. Never in the container layer. A world in a container layer is a world that a redeploy destroys.
+- [ ] Join it to the stack network.
 - [ ] Downstream config, both required:
   - `server.properties`: `xbox-auth=false`
   - `pocketmine.yml`: `player.verify-xuid: false`
-- [ ] Firewall the instance port so only the proxy host can reach it. The instance is in offline mode and must never be publicly reachable.
+- [ ] **Do not publish the instance port to a host interface.** It is reachable on the container network by the proxy and by nothing else. The instance is in offline mode and must never be publicly reachable. Under containers this is a publish decision rather than a firewall rule, which makes it easier to get wrong and easier to fix.
+
+If this step feels like it is taking real time, something has drifted. Adding an instance should be a config directory plus a container run. That was the reason for the container decision.
 
 ## 2. Move the world
 
@@ -37,7 +42,7 @@ The world-split. This is the core scaling operation on RiftalGames. Rehearse it 
 
 ## 3. Register with the proxy
 
-- [ ] Add the downstream to `proxy/config.yml` under the server list, with its host and port.
+- [ ] Add the downstream to `proxy/config.yml` under the server list, addressed by **container name** on the stack network, not by IP. Container IPs change on restart.
 - [ ] Update any forced host or routing rule that pointed at the old instance for this world.
 - [ ] Update whatever the game plugins use to route a player to a world, so a transfer targets the new instance. This is config in this repo, not a code change.
 - [ ] Reload the proxy.
@@ -53,6 +58,8 @@ The world-split. This is the core scaling operation on RiftalGames. Rehearse it 
 Do not skip any of these. Each one catches a different failure.
 
 - [ ] The instance boots clean and every plugin enables.
+- [ ] It is running the same image tag as every other instance. Check, do not assume.
+- [ ] Restart the container and confirm the world survived. This proves the world is on a volume and not in the container layer.
 - [ ] A player joins through the proxy and lands in the moved world.
 - [ ] The XUID arrived: the player's identity on the new instance matches their identity elsewhere. If ranks or balances look wrong or empty, the xuid or auth config is wrong.
 - [ ] **Cross-instance transfer** in both directions: walk or command from another instance into this world and back.
@@ -73,5 +80,7 @@ Do not skip any of these. Each one catches a different failure.
 ## Rollback
 
 At any point before cut-over: point the proxy back at the source instance, unfreeze the source world copy, reload the proxy. State is in the shared database and was never moved, so nothing is lost.
+
+The new container can simply be stopped and removed. It holds no state that matters, which is the property to preserve.
 
 After cut-over, rollback means moving the world back the same way. The window for a cheap rollback closes when players start writing to the new copy, so verify before you cut over, not after.

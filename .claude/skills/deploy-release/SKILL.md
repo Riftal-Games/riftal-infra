@@ -19,12 +19,13 @@ The proxy goes last because it is the gate that admits clients. Opening the gate
 
 ## Before anything
 
-- [ ] Know exactly what is shipping: core tag, plugin versions, migration numbers. Write it down.
+- [ ] Know exactly what is shipping: **image tag**, core tag, plugin versions, migration numbers. Write it down. The image tag is the deployable artifact and everything else is a description of it.
+- [ ] The image is built and pushed to the registry before the window opens. Never build during a rollout, and never build on a host that runs instances.
 - [ ] Confirm `pmmp-core` passed its boot test and `riftal-game` passed `/test-server`. Deployment does not discover bugs, it ships verified builds.
 - [ ] Every instance will run the same core tag and the same shared library version when this finishes. Mixed library versions against one schema is a data bug.
 - [ ] Database backup taken. Confirm the file exists and its size is plausible.
 - [ ] Announce in Discord: what is changing, when the window starts, how long it should take. For a protocol update, announce before work begins, not at rollout.
-- [ ] Rollback path written down for every stage below, including which backup restores what.
+- [ ] Rollback path written down for every stage below, including which backup restores what. For instances and the proxy this is the previous image tag, and it must still be in the registry. Confirm that, do not assume it.
 
 ## Stage 1: Database migrations
 
@@ -40,8 +41,8 @@ The proxy goes last because it is the gate that admits clients. Opening the gate
 For each instance:
 
 - [ ] Drain it. Stop routing new players to it at the proxy and let the current ones leave or transfer.
-- [ ] Stop it cleanly. A hard kill risks unsaved world chunks.
-- [ ] Deploy the new core build and plugin phars.
+- [ ] Stop it cleanly, with a real stop signal and enough grace time to save. A hard kill risks unsaved world chunks, and a container runtime will kill a slow-stopping container by default, so check the timeout rather than trusting it.
+- [ ] Replace the container with one from the new image tag. Same volumes, same mounted config from `instances/`, same `instance_id`. Only the tag changes.
 - [ ] Start it. Confirm it reaches "Done", every plugin enables, and no schema errors appear.
 - [ ] Smoke it: join directly, confirm a database read and write round-trips.
 - [ ] Return it to rotation.
@@ -49,22 +50,23 @@ For each instance:
 
 Never do all instances at once. Serial rollout means the first failure costs one instance, not the server.
 
-**Rollback:** stop the instance, redeploy the previous core tag and plugin phars, start it. The database is shared and already migrated, which is safe because the migrations were additive.
+**Rollback:** stop the container, run one from the previous image tag against the same volumes and config, start it. The database is shared and already migrated, which is safe because the migrations were additive. This rollback is cheap and exact, so use it early rather than debugging a bad release in production.
 
 ## Stage 3: Proxy
 
-- [ ] Update WaterdogPE if the release includes a proxy change or a protocol update. Java 17 or newer required.
+- [ ] Update the proxy image if the release includes a proxy change or a protocol update. Java 17 or newer in the image.
 - [ ] Update `proxy/config.yml` if the instance list or routing changed.
 - [ ] Restart or reload the proxy. A restart disconnects everyone, so do it inside the window, not after announcing completion.
 - [ ] Verify: join through the proxy on the target client version, land in the right world, transfer between two instances, confirm identity and balance are correct.
 
-**Rollback:** restore the previous proxy jar and `config.yml`, restart. If the release was a protocol update, rolling the proxy back also means rolling every instance back, because a proxy on the old protocol cannot serve clients that already auto-updated. Decide that before starting, not during.
+**Rollback:** run the previous proxy image tag with the previous `config.yml`, restart. If the release was a protocol update, rolling the proxy back also means rolling every instance back, because a proxy on the old protocol cannot serve clients that already auto-updated. Decide that before starting, not during.
 
 ## After
 
 - [ ] Announce completion in Discord, naming the version and, for a protocol update, the Bedrock version now supported.
 - [ ] Watch logs and player reports through the next peak.
-- [ ] Tag the deployed state in this repo so the running configuration is reproducible.
+- [ ] Tag the deployed state in this repo so the running configuration is reproducible. Record which image tag each instance is running.
+- [ ] Keep the previous image tag in the registry until the release has survived a full peak. It is the rollback.
 - [ ] Add a dated entry to `../docs/decision-log.md`: what shipped, actual window length, and anything that went wrong.
 
 ## Rules
