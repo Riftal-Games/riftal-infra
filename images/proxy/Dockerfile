@@ -1,0 +1,3 @@
+FROM ubuntu:latest
+
+RUN apt-get update && apt-get install openjdk-17-jre-headless
