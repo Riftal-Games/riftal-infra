@@ -55,6 +55,21 @@ expect_policy_finding() {
   done
 }
 
+# expect_lists <compose|scripts> <root> <needle>
+# Discovery is a check in its own right: a file nothing looks at passes with
+# exit 0 and says nothing, which reads exactly like clean.
+expect_lists() {
+  local kind="$1" root="$2" needle="$3" out status
+  out="$(python3 "$CHECKER" "$root" --list "$kind" 2>&1)"
+  status=$?
+  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -q "$needle"; then
+    pass "walk lists $needle as $kind"
+  else
+    fail "expected $needle in the $kind list of ${root#"$REPO_ROOT"/}, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
 # expect_cmd <expected-status: pass|fail> <label> <command...>
 expect_cmd() {
   local want="$1" label="$2"; shift 2
@@ -74,6 +89,9 @@ expect_cmd() {
 section "port policy, must stay clean"
 expect_policy_clean "$FIXTURES/good/compose.yaml"
 expect_policy_clean "$FIXTURES/good/run-proxy.sh"
+# Ordinary shell is not a publish. If this goes red, the next person to hit it
+# weakens the rule or excludes the file, and the gate dies quietly.
+expect_policy_clean "$FIXTURES/good/ops.sh"
 
 section "port policy, must stay red"
 expect_policy_finding "$FIXTURES/bad/tcp-publish.compose.yaml" BEDROCK_TCP_PUBLISH
@@ -84,6 +102,20 @@ expect_policy_finding "$FIXTURES/bad/schema.compose.yaml" COMPOSE_SCHEMA
 expect_policy_finding "$FIXTURES/bad/unparseable.compose.yaml" COMPOSE_UNPARSEABLE
 expect_policy_finding "$FIXTURES/bad/run-instance.sh" \
   HOST_PUBLISH_NOT_ALLOWED BEDROCK_TCP_PUBLISH PUBLISH_ALL_NOT_ALLOWED
+# The word proxy on the line buys nothing. Pair this with good/run-proxy.sh,
+# which passes on its --name: the two point in opposite directions, so a rule
+# that classified by the whole line again would flip exactly one of them.
+expect_policy_finding "$FIXTURES/bad/run-downstream-proxy-net.sh" \
+  HOST_PUBLISH_NOT_ALLOWED
+expect_policy_finding "$FIXTURES/bad/run-attached-publish.sh" \
+  BEDROCK_TCP_PUBLISH HOST_PUBLISH_NOT_ALLOWED
+expect_policy_finding "$FIXTURES/bad/stack.yaml" \
+  BEDROCK_TCP_PUBLISH HOST_PUBLISH_NOT_ALLOWED HOST_NETWORK_MODE
+
+section "discovery, by content and not by filename"
+expect_lists compose "$FIXTURES/bad" "stack.yaml"
+expect_lists compose "$FIXTURES/good" "compose.yaml"
+expect_lists scripts "$FIXTURES/good" "ops.sh"
 
 section "hadolint"
 expect_cmd pass "good Dockerfile lints clean" \

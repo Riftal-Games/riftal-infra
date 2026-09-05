@@ -13,6 +13,17 @@ network only. The allowlist below is therefore closed: a service nobody has
 named is denied, because a security check that only catches the names someone
 thought of catches nothing on the day it matters.
 
+Both paths decide the same way. A compose service is classified by its service
+name, a run command by its --name, or by its image when it has no --name.
+Nothing else on the line grants permission: instance ports live on the proxy's
+container network by house convention, so a downstream run command names a
+proxy network right next to its -p, and anything that read the whole line
+would hand that downstream the proxy's permission.
+
+Discovery is by content, not by filename. Any *.yml or *.yaml that parses to a
+mapping with a top-level services key is compose, because a file called
+stack.yaml is the one that gets missed, and being missed is silent.
+
 Exit 0 when clean, 1 when there are findings, 2 on a usage error.
 """
 
@@ -22,6 +33,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import sys
 
 try:
@@ -51,13 +63,45 @@ LOOPBACK_IPS = {"127.0.0.1", "::1", "[::1]", "localhost"}
 
 COMPOSE_NAME = re.compile(r"^(docker-)?compose([.-][\w-]+)?\.ya?ml$", re.IGNORECASE)
 COMPOSE_SUFFIX = re.compile(r"\.compose\.ya?ml$", re.IGNORECASE)
+YAML_NAME = re.compile(r"\.ya?ml$", re.IGNORECASE)
+SERVICES_KEY = re.compile(r"^services\s*:", re.MULTILINE)
 
-# -p / --publish in a shell script or runbook command.
-PUBLISH_FLAG = re.compile(
-    r"(?:^|\s)(?:-p|--publish)(?:[=\s]+)([\"']?)([^\s\"';|&]+)\1"
-)
-PUBLISH_ALL_FLAG = re.compile(r"(?:^|\s)(?:-P|--publish-all)(?:\s|$)")
-PROXY_HINT = re.compile(r"proxy|waterdog", re.IGNORECASE)
+# Only these command lines are container publishes. `mkdir -p /opt/riftal/state`
+# is not one, and a gate that reddens on ordinary shell gets weakened by the
+# first person who hits it, which kills the control by attrition.
+CONTAINER_BINARIES = {"docker", "podman", "nerdctl", "wslc"}
+RUN_SUBCOMMANDS = {"run", "create"}
+# Where a run command stops and the next shell command starts.
+SHELL_BREAKS = {";", "&&", "||", "|", "&", "(", ")", "{", "}", ">", ">>", "<"}
+
+PUBLISH_FLAGS = {"-p", "--publish"}
+PUBLISH_ALL_FLAGS = {"-P", "--publish-all"}
+NAME_FLAGS = {"--name"}
+
+# Short flags that consume a value, so `-p19132:19132` and `-p 19132:19132`
+# are the same publish. Docker accepts the attached form and a match that
+# required a separator never saw it.
+SHORT_VALUE_FLAGS = set("pveuwlhm")
+
+# Long flags that consume the following token. Anything not listed is treated
+# as a boolean, so an unknown flag can at worst end the scan of a command
+# early. It can never turn ordinary shell into a publish.
+LONG_VALUE_FLAGS = {
+    "--add-host", "--annotation", "--attach", "--blkio-weight", "--cap-add",
+    "--cap-drop", "--cgroup-parent", "--cgroupns", "--cidfile", "--cpus",
+    "--cpuset-cpus", "--detach-keys", "--device", "--device-read-bps",
+    "--device-write-bps", "--dns", "--dns-option", "--dns-search",
+    "--entrypoint", "--env", "--env-file", "--expose", "--gpus", "--group-add",
+    "--health-cmd", "--health-interval", "--health-retries",
+    "--health-start-period", "--health-timeout", "--hostname", "--ip", "--ip6",
+    "--ipc", "--isolation", "--label", "--link", "--log-driver", "--log-opt",
+    "--mac-address", "--memory", "--memory-swap", "--mount", "--name", "--net",
+    "--network", "--network-alias", "--oom-score-adj", "--pid", "--pids-limit",
+    "--platform", "--pod", "--publish", "--pull", "--restart", "--runtime",
+    "--secret", "--security-opt", "--shm-size", "--stop-signal",
+    "--stop-timeout", "--storage-opt", "--sysctl", "--tmpfs", "--ulimit",
+    "--user", "--userns", "--uts", "--volume", "--volumes-from", "--workdir",
+}
 
 
 class Finding:
@@ -237,6 +281,116 @@ def check_compose(path, findings):
             )
 
 
+def shell_tokens(line):
+    """Split a shell line into words, tolerating anything shlex chokes on."""
+    try:
+        return shlex.split(line, comments=True)
+    except ValueError:
+        return line.split()
+
+
+def flag_events(tokens, index):
+    """Expand one flag token into (flag, value) pairs. Returns (events, index).
+
+    Handles `--publish 19132:19132`, `--publish=19132:19132`, `-p 19132:19132`,
+    the attached `-p19132:19132`, and short clusters such as `-dP`.
+    """
+    token = tokens[index]
+    if token.startswith("--"):
+        flag, sep, attached = token.partition("=")
+        if sep:
+            return [(flag, attached)], index
+        if flag in LONG_VALUE_FLAGS and index + 1 < len(tokens):
+            return [(flag, tokens[index + 1])], index + 1
+        return [(flag, None)], index
+
+    events = []
+    body = token[1:]
+    for position, char in enumerate(body):
+        if char in SHORT_VALUE_FLAGS:
+            rest = body[position + 1 :]
+            if rest:
+                events.append(("-" + char, rest))
+            elif index + 1 < len(tokens):
+                index += 1
+                events.append(("-" + char, tokens[index]))
+            else:
+                events.append(("-" + char, None))
+            return events, index
+        events.append(("-" + char, None))
+    return events, index
+
+
+def parse_run(tokens, index):
+    """Read one container run command. Returns (publishes, publish_all, name,
+    image, index-after-the-command)."""
+    publishes, publish_all, name, image = [], False, None, None
+    while index < len(tokens):
+        token = tokens[index]
+        if token in SHELL_BREAKS:
+            break
+        if token.startswith("-") and token != "-":
+            events, index = flag_events(tokens, index)
+            for flag, value in events:
+                if flag in PUBLISH_FLAGS and value:
+                    publishes.append(value)
+                elif flag in PUBLISH_ALL_FLAGS:
+                    publish_all = True
+                elif flag in NAME_FLAGS and value:
+                    name = value
+            index += 1
+            continue
+        # The first bare word is the image. Everything after it is the
+        # container's own command, which docker does not interpret, so neither
+        # do we: `docker run img sh -c "mkdir -p /data"` is not a publish.
+        image = token
+        index += 1
+        break
+    return publishes, publish_all, name, image, index
+
+
+def image_role(image):
+    """The role an image name claims: ghcr.io/riftal-games/waterdogpe:tag ->
+    waterdogpe."""
+    ref = image.split("@", 1)[0]
+    last = ref.rsplit("/", 1)[-1]
+    return last.split(":", 1)[0]
+
+
+def run_tier(name, image):
+    """Classify a run command exactly as the compose path classifies a service:
+    by the name it goes by. Nothing else on the line is evidence of a role."""
+    if name:
+        return classify(name), f"--name {name}"
+    if image:
+        return classify(image_role(image)), f"image {image}"
+    return None, "unnamed container"
+
+
+def container_runs(tokens):
+    """Yield each container run/create command found in a line of shell."""
+    runs = []
+    index = 0
+    while index < len(tokens):
+        base = os.path.basename(tokens[index]).lower()
+        if base in CONTAINER_BINARIES:
+            cursor = index + 1
+            while cursor < len(tokens) and tokens[cursor].startswith("-"):
+                cursor += 1
+            if cursor < len(tokens) and tokens[cursor].lower() == "container":
+                cursor += 1
+                while cursor < len(tokens) and tokens[cursor].startswith("-"):
+                    cursor += 1
+            if cursor < len(tokens) and tokens[cursor].lower() in RUN_SUBCOMMANDS:
+                publishes, publish_all, name, image, index = parse_run(
+                    tokens, cursor + 1
+                )
+                runs.append((publishes, publish_all, name, image))
+                continue
+        index += 1
+    return runs
+
+
 def check_script(path, findings):
     with open(path, "r", encoding="utf-8") as handle:
         raw = handle.read()
@@ -245,33 +399,49 @@ def check_script(path, findings):
     for lineno, line in enumerate(folded.splitlines(), start=1):
         if line.lstrip().startswith("#"):
             continue
-        where = f"line {lineno}"
-        if PUBLISH_ALL_FLAG.search(line):
-            findings.append(
-                Finding(
-                    "PUBLISH_ALL_NOT_ALLOWED",
-                    path,
-                    where,
-                    "-P / --publish-all publishes every exposed port to the host.",
+        for publishes, publish_all, name, image in container_runs(shell_tokens(line)):
+            tier, role = run_tier(name, image)
+            where = f"line {lineno} ({role})"
+            if publish_all:
+                findings.append(
+                    Finding(
+                        "PUBLISH_ALL_NOT_ALLOWED",
+                        path,
+                        where,
+                        "-P / --publish-all publishes every exposed port to the host.",
+                    )
                 )
-            )
-        for match in PUBLISH_FLAG.finditer(line):
-            host_ip, published, target, proto = parse_mapping(match.group(2))
-            # A run command names its own role: the proxy is the only thing in
-            # this repo allowed to publish publicly, so require it to say so.
-            if PROXY_HINT.search(line):
-                tier = "public"
-            elif (host_ip or "") in LOOPBACK_IPS:
-                tier = "loopback"
-            else:
-                tier = None
-            check_publish(
-                findings, path, where, host_ip, published, target, proto, tier
-            )
+            for spec in publishes:
+                host_ip, published, target, proto = parse_mapping(spec)
+                check_publish(
+                    findings, path, where, host_ip, published, target, proto, tier
+                )
 
 
-def is_compose(name):
-    return bool(COMPOSE_NAME.match(name) or COMPOSE_SUFFIX.search(name))
+def has_services_key(path):
+    """True when a YAML file is a compose file, decided by what is in it."""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError:
+        return False
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        # Unparseable YAML cannot be probed, so fall back to the literal key. A
+        # file that claims to be compose and does not parse is a finding to
+        # report, not a file to walk past.
+        return bool(SERVICES_KEY.search(text))
+    return isinstance(doc, dict) and "services" in doc
+
+
+def is_compose(path, name=None):
+    name = name if name is not None else os.path.basename(path)
+    if COMPOSE_NAME.match(name) or COMPOSE_SUFFIX.search(name):
+        return True
+    if not YAML_NAME.search(name):
+        return False
+    return has_services_key(path)
 
 
 def collect(roots, excludes):
@@ -279,7 +449,7 @@ def collect(roots, excludes):
     for root in roots:
         if os.path.isfile(root):
             name = os.path.basename(root)
-            if is_compose(name):
+            if is_compose(root, name):
                 compose.append(root)
             elif name.endswith(".sh"):
                 scripts.append(root)
@@ -297,7 +467,7 @@ def collect(roots, excludes):
             ]
             for filename in filenames:
                 full = os.path.join(dirpath, filename)
-                if is_compose(filename):
+                if is_compose(full, filename):
                     compose.append(full)
                 elif filename.endswith(".sh"):
                     scripts.append(full)
@@ -314,10 +484,21 @@ def main(argv=None):
         help="directory path suffix to skip, repeatable",
     )
     parser.add_argument("--json", action="store_true", help="machine readable output")
+    parser.add_argument(
+        "--list",
+        choices=["compose", "scripts"],
+        help="print the discovered files and exit, so a caller never has to "
+        "re-implement discovery and drift away from it",
+    )
     args = parser.parse_args(argv)
 
     roots = args.paths or ["."]
     compose_files, scripts = collect(roots, args.exclude)
+
+    if args.list:
+        for path in compose_files if args.list == "compose" else scripts:
+            print(path)
+        return 0
 
     findings = []
     for path in compose_files:

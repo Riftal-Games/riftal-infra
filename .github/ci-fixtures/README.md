@@ -13,5 +13,17 @@ Every file's first comment states the finding it must produce. If you change a
 rule in `check_port_policy.py`, change the fixture that covers it in the same
 commit, or the self-test goes red, which is the intended behaviour.
 
+`good/` is not decoration. A rule that fires on `mkdir -p` is as broken as a
+rule that misses a publish, because the first person it blocks weakens it, so
+`good/ops.sh` must stay clean for the same reason `bad/run-instance.sh` must
+stay red.
+
+The pairs are chosen so that no rule can be judged by a fixture that shares its
+mechanism. `good/run-proxy.sh` passes because its `--name` is the proxy, and
+`bad/run-downstream-proxy-net.sh` fails despite the word proxy being on the
+line: one fixture wants the classifier to say yes and the other wants it to say
+no, so a rule that went back to reading the whole line flips exactly one of
+them and the self-test names it.
+
 The scans exclude this directory. If they ever stop excluding it, CI is red
 forever and the reason is here.

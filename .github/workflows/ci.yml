@@ -63,14 +63,17 @@ jobs:
           printf '  %s\n' "${files[@]}"
           hadolint "${files[@]}"
 
+      # Discovery comes from the checker, not a second find that drifts away
+      # from it. It is content based: any *.y*ml that parses to a mapping with
+      # a top-level services key is compose, so a file called stack.yaml is
+      # validated here and port-checked below instead of being silently
+      # skipped by both.
       - name: Validate compose files
         run: |
           set -euo pipefail
           mapfile -t files < <(
-            find . -path "./.git" -prune -o -path "./${FIXTURES}" -prune -o \
-              \( -name "compose.y*ml" -o -name "docker-compose.y*ml" \
-                 -o -name "compose.*.y*ml" -o -name "docker-compose.*.y*ml" \
-                 -o -name "*.compose.y*ml" \) -print
+            python3 .github/scripts/check_port_policy.py . \
+              --exclude "${FIXTURES}" --list compose
           )
           echo "found ${#files[@]} compose file(s) outside the fixtures"
           if [ "${#files[@]}" -eq 0 ]; then

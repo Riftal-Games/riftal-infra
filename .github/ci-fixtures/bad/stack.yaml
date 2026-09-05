@@ -1,0 +1,17 @@
+# Expected findings: BEDROCK_TCP_PUBLISH, HOST_PUBLISH_NOT_ALLOWED,
+# HOST_NETWORK_MODE.
+#
+# A compose file whose name matches none of the conventions. CLAUDE.md predicts
+# exactly this file, "the local dev stack composition" under images/. While
+# discovery was by filename, a file like this was linted by nothing, validated
+# by nothing and port-checked by nothing, and it passed with exit 0. Discovery
+# is by content now: any YAML mapping with a top-level services key.
+services:
+  mine-h:
+    image: ghcr.io/riftal-games/riftal-core:fixture
+    ports:
+      - "19132:19132"
+
+  plots-1:
+    image: ghcr.io/riftal-games/riftal-core:fixture
+    network_mode: host
