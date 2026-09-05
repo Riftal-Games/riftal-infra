@@ -1,0 +1,6 @@
+# Expected finding: COMPOSE_UNPARSEABLE. Broken YAML, not merely broken compose.
+services:
+  proxy:
+    image: ghcr.io/riftal-games/waterdogpe:fixture
+   ports:
+      - "19132:19132/udp"

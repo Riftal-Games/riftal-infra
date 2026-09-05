@@ -1,0 +1,14 @@
+# Expected findings: HOST_PUBLISH_NOT_ALLOWED and HOST_NETWORK_MODE.
+#
+# A downstream instance runs in offline mode, xbox-auth=false and
+# player.verify-xuid: false. On a host interface that is an open door, and
+# network_mode: host is the same door with the publish list bypassed.
+services:
+  mine-h:
+    image: ghcr.io/riftal-games/riftal-core:fixture
+    ports:
+      - "19133:19132/udp"
+
+  plots-1:
+    image: ghcr.io/riftal-games/riftal-core:fixture
+    network_mode: host

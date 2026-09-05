@@ -1,0 +1,10 @@
+# Expected finding: BEDROCK_TCP_PUBLISH.
+#
+# Compose defaults to tcp when the protocol is left off. This container comes
+# up, reports healthy, and no Bedrock client can ever join it, because Bedrock
+# is RakNet over UDP.
+services:
+  proxy:
+    image: ghcr.io/riftal-games/waterdogpe:fixture
+    ports:
+      - "19132:19132"

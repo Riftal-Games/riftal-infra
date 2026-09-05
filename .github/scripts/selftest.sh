@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Self-test for the CI checks.
+#
+# `images/` and `proxy/` hold nothing but a .gitkeep today, so a scan of the
+# real tree finds no files and passes by being empty. A check that has never
+# been observed printing anything is decoration. This script therefore feeds
+# every check a fixture that must fail and a fixture that must pass, and fails
+# CI if a check stops discriminating. It keeps working after real files land:
+# if someone weakens a rule, the matching bad fixture goes quiet and this goes
+# red.
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+FIXTURES="$REPO_ROOT/.github/ci-fixtures"
+CHECKER="$REPO_ROOT/.github/scripts/check_port_policy.py"
+HADOLINT="${HADOLINT:-hadolint}"
+FAILURES=0
+
+pass() { printf '  ok    %s\n' "$1"; }
+fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
+
+section() { printf '\n== %s\n' "$1"; }
+
+# expect_policy_clean <file>
+expect_policy_clean() {
+  local target="$1" out status
+  out="$(python3 "$CHECKER" "$target" 2>&1)"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    pass "policy clean: ${target#"$REPO_ROOT"/}"
+  else
+    fail "expected ${target#"$REPO_ROOT"/} to be clean, checker exited $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+# expect_policy_finding <file> <code>...
+expect_policy_finding() {
+  local target="$1"; shift
+  local out status code
+  out="$(python3 "$CHECKER" "$target" 2>&1)"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    fail "expected ${target#"$REPO_ROOT"/} to fail the port policy, it passed"
+    printf '%s\n' "$out"
+    return
+  fi
+  for code in "$@"; do
+    if printf '%s' "$out" | grep -q "$code"; then
+      pass "${target#"$REPO_ROOT"/} -> $code"
+    else
+      fail "expected $code from ${target#"$REPO_ROOT"/}, did not get it"
+      printf '%s\n' "$out"
+    fi
+  done
+}
+
+# expect_cmd <expected-status: pass|fail> <label> <command...>
+expect_cmd() {
+  local want="$1" label="$2"; shift 2
+  local out status
+  out="$("$@" 2>&1)"
+  status=$?
+  if [ "$want" = pass ] && [ "$status" -eq 0 ]; then
+    pass "$label"
+  elif [ "$want" = fail ] && [ "$status" -ne 0 ]; then
+    pass "$label (exited $status as required)"
+  else
+    fail "$label: wanted $want, got exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+section "port policy, must stay clean"
+expect_policy_clean "$FIXTURES/good/compose.yaml"
+expect_policy_clean "$FIXTURES/good/run-proxy.sh"
+
+section "port policy, must stay red"
+expect_policy_finding "$FIXTURES/bad/tcp-publish.compose.yaml" BEDROCK_TCP_PUBLISH
+expect_policy_finding "$FIXTURES/bad/instance-published.compose.yaml" \
+  HOST_PUBLISH_NOT_ALLOWED HOST_NETWORK_MODE
+expect_policy_finding "$FIXTURES/bad/db-public.compose.yaml" LOOPBACK_BIND_REQUIRED
+expect_policy_finding "$FIXTURES/bad/schema.compose.yaml" COMPOSE_SCHEMA
+expect_policy_finding "$FIXTURES/bad/unparseable.compose.yaml" COMPOSE_UNPARSEABLE
+expect_policy_finding "$FIXTURES/bad/run-instance.sh" \
+  HOST_PUBLISH_NOT_ALLOWED BEDROCK_TCP_PUBLISH PUBLISH_ALL_NOT_ALLOWED
+
+section "hadolint"
+expect_cmd pass "good Dockerfile lints clean" \
+  "$HADOLINT" "$FIXTURES/good/Dockerfile"
+expect_cmd fail "bad Dockerfile is rejected" \
+  "$HADOLINT" "$FIXTURES/bad/Dockerfile"
+
+if [ "${SKIP_COMPOSE_SELFTEST:-0}" != 1 ]; then
+  section "compose validation"
+  expect_cmd pass "good compose validates" \
+    docker compose -f "$FIXTURES/good/compose.yaml" config --quiet
+  expect_cmd fail "invalid compose schema is rejected" \
+    docker compose -f "$FIXTURES/bad/schema.compose.yaml" config --quiet
+  expect_cmd fail "unparseable compose is rejected" \
+    docker compose -f "$FIXTURES/bad/unparseable.compose.yaml" config --quiet
+fi
+
+printf '\n'
+if [ "$FAILURES" -ne 0 ]; then
+  printf '%s self-test assertion(s) failed. A check has stopped discriminating.\n' "$FAILURES"
+  exit 1
+fi
+printf 'every check was observed passing on good input and failing on bad input\n'

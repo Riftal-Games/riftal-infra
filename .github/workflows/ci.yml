@@ -1,0 +1,92 @@
+name: CI
+
+# Pull requests gate every merge. Pushes are watched on main only, so a branch
+# push and its pull request do not bill two runs for the same commit. These are
+# private repositories and workflow minutes are metered.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned. An unpinned linter changes the meaning of a merge gate without a commit.
+  HADOLINT_VERSION: v2.12.0
+  FIXTURES: .github/ci-fixtures
+
+jobs:
+  checks:
+    name: lint and port policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install hadolint
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /usr/local/bin/hadolint \
+            "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
+          chmod +x /usr/local/bin/hadolint
+          hadolint --version
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet --disable-pip-version-check pyyaml
+
+      # Runs before the real scans on purpose. images/ and proxy/ hold only a
+      # .gitkeep today, so the scans below have nothing to look at and would go
+      # green by being empty. This step feeds every check a fixture it must
+      # reject and a fixture it must accept, so the checks are known to
+      # discriminate on this commit and not only on the day they were written.
+      - name: Self-test, prove every check can fail
+        run: bash .github/scripts/selftest.sh
+
+      - name: Lint Dockerfiles
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(
+            find . -path "./.git" -prune -o -path "./${FIXTURES}" -prune -o \
+              \( -name Dockerfile -o -name "Dockerfile.*" -o -name "*.Dockerfile" \) -print
+          )
+          echo "found ${#files[@]} Dockerfile(s) outside the fixtures"
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "nothing to lint yet; the self-test above is what proves hadolint is wired"
+            exit 0
+          fi
+          printf '  %s\n' "${files[@]}"
+          hadolint "${files[@]}"
+
+      - name: Validate compose files
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(
+            find . -path "./.git" -prune -o -path "./${FIXTURES}" -prune -o \
+              \( -name "compose.y*ml" -o -name "docker-compose.y*ml" \
+                 -o -name "compose.*.y*ml" -o -name "docker-compose.*.y*ml" \
+                 -o -name "*.compose.y*ml" \) -print
+          )
+          echo "found ${#files[@]} compose file(s) outside the fixtures"
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "nothing to validate yet; the self-test above is what proves this is wired"
+            exit 0
+          fi
+          status=0
+          for file in "${files[@]}"; do
+            echo "validating $file"
+            docker compose -f "$file" config --quiet || status=1
+          done
+          exit "$status"
+
+      # Rule 1: a publish of 19132 must be udp, because Bedrock is RakNet over
+      # UDP and a tcp publish yields a healthy container nobody can join.
+      # Rule 2: default deny on host publishing, because downstream instances
+      # run offline mode and a host-published instance port is an open door.
+      - name: Port policy
+        run: python3 .github/scripts/check_port_policy.py . --exclude "${FIXTURES}"

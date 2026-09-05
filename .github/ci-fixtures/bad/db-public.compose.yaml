@@ -1,0 +1,8 @@
+# Expected finding: LOOPBACK_BIND_REQUIRED.
+#
+# The shared database on every host interface, reachable from off the host.
+services:
+  mysql:
+    image: mysql:8
+    ports:
+      - "3306:3306"

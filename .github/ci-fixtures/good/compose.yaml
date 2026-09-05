@@ -1,0 +1,34 @@
+# Expected: clean. The shape the real dev stack has to take.
+#
+# The proxy is the only public entry point and it publishes 19132/udp.
+# The instance publishes nothing at all: the proxy reaches it by container
+# name on the shared network. The database is inspectable from the machine
+# running the stack and from nowhere else.
+services:
+  proxy:
+    image: ghcr.io/riftal-games/waterdogpe:fixture
+    networks: [stack]
+    ports:
+      - "19132:19132/udp"
+
+  mine-h:
+    image: ghcr.io/riftal-games/riftal-core:fixture
+    networks: [stack]
+    expose:
+      - "19132"
+
+  mysql:
+    image: mysql:8
+    networks: [stack]
+    ports:
+      - "127.0.0.1:3306:3306"
+    environment:
+      MYSQL_DATABASE: riftal_fixture
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+networks:
+  stack:
+
+volumes:
+  mysql-data:
