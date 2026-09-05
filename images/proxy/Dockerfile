@@ -1,3 +1,5 @@
-FROM ubuntu:latest
+FROM ubuntu:24.04
 
-RUN apt-get update && apt-get install openjdk-17-jre-headless
+USER 10001
+
+CMD ["/bin/bash"]
