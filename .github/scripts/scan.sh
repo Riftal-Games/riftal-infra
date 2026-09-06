@@ -19,14 +19,15 @@ check_compose() { docker compose -f "$1" config --quiet; }
 # LISTER is how the self-test makes discovery fail on demand.
 case "$kind" in
   dockerfiles) label='Dockerfile(s)'
-    mapfile -t files < <(find "$root" -path "$root/.git" -prune -o -path "$prune" -prune -o \
+    found="$(find "$root" -path "$root/.git" -prune -o -path "$prune" -prune -o \
       -type f \( -name Dockerfile -o -name 'Dockerfile.*' \
-        -o -name '*.Dockerfile' \) -print) ;;
+        -o -name '*.Dockerfile' \) -print)" ;;
   compose) label='compose file(s)'
-    mapfile -t files < <(bash "${LISTER:-$scripts/list_compose.sh}" "$root" "$prune") ;;
+    found="$(bash "${LISTER:-$scripts/list_compose.sh}" "$root" "$prune")" ;;
   *) printf 'unknown scan: %s\n' "$kind" >&2; exit 2 ;;
 esac
 
+mapfile -t files < <(printf '%s' "$found")
 printf 'found %d %s outside the fixtures\n' "${#files[@]}" "$label"
 if [ "${#files[@]}" -eq 0 ]; then
   printf 'nothing to check yet; the self-test is what proves this is wired\n'

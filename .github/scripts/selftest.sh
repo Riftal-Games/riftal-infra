@@ -124,6 +124,12 @@ expect_listed "$FIXTURES/good" compose.yaml
 expect_listed "$FIXTURES/good" stack.yaml
 expect_not_listed "$FIXTURES/good" rollout.yml
 
+section "compose validation"
+expect_compose_valid "$FIXTURES/good/compose.yaml"
+expect_compose_valid "$FIXTURES/good/stack.yaml"
+expect_compose_rejected "$FIXTURES/bad/schema.compose.yaml" ports
+expect_compose_rejected "$FIXTURES/bad/unparseable.compose.yml" yaml
+
 section "a failed discovery fails the scan, it does not read as an empty tree"
 expect_scan_fails dockerfiles "$REPO_ROOT/no-such-tree"
 expect_scan_fails compose "$FIXTURES/good" "$REPO_ROOT/no-such-lister.sh"
