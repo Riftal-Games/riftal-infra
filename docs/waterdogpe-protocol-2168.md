@@ -174,16 +174,42 @@ packet serialization **without bumping the protocol number**, so telling 1.26.40
 separate `Bedrock_v2168_hotfix4` codec.
 
 Be precise about what is new there, because it is easy to overstate. The
-`protocolInternal` field is not new: it exists at `v2.0.3` (line 129 of that file),
-where `MINECRAFT_PE_1_21_50_29(765, 766, ...)` used it as a plain second protocol
-number. What `c98ee3f6` changed on 2026-08-20 is the encoding, to
-`this.protocolInternal = (protocol << 2) | (internalPatch & 0x3);` (master line 183),
-which is what `isBefore()` orders on. The same commit is what gave
-`MINECRAFT_PE_1_26_44` its `internalPatch` of `1`; when 1.26.44 support first landed
-six days earlier in `5d300de8` the entry read
-`MINECRAFT_PE_1_26_44(2168, Bedrock_v2168_hotfix4.CODEC, "26.44")`, with no
-discriminator at all. So the mechanism that separates the two 2168 variants was
-reworked after the variant it exists to serve.
+`protocolInternal` field is not new. It exists at `v2.0.3` (line 130 of that file),
+where `MINECRAFT_PE_1_21_50_29(765, 766, ...)` at line 118 used it as a plain second
+protocol number: a private ordering key borrowed from the protocol number space. What
+changed on `master` is the encoding, to
+`this.protocolInternal = (protocol << 2) | (internalPatch & 0x3);`, at line 183 of that
+file at `23c834e1`. That is what `isBefore()` orders on.
+
+The reason it changed is worth following, because it is a collision between two of the
+three options below. Reconstructed from the three commit patches, with timestamps from
+the API:
+
+| When | Commit | The 1.26.44 entry after it |
+|---|---|---|
+| 2026-08-14T19:46:55Z | `5d300de8` | `MINECRAFT_PE_1_26_44(2168, 2169, Bedrock_v2168_hotfix4.CODEC, "26.44")` |
+| 2026-08-20T12:48:17Z | `6bfbb132` | `MINECRAFT_PE_1_26_44(2168, Bedrock_v2168_hotfix4.CODEC, "26.44")` |
+| 2026-08-20T14:16:42Z | `c98ee3f6` | `MINECRAFT_PE_1_26_44(2168, 1, Bedrock_v2168_hotfix4.CODEC, "26.44")` |
+
+1.26.44 had a discriminator from the day it landed, in the old raw-second-number form,
+and the number it borrowed was **2169**. Six days later `6bfbb132` gave 2169 to a real
+protocol, 1.26.45, and in the same hunk stripped the `2169` argument off 1.26.44. Under
+the old constructor, which defaulted `protocolInternal` to `protocol`, that left
+1.26.44 and 1.26.40 with the same ordering key and nothing to tell them apart.
+`c98ee3f6` restored the distinction 1 hour 28 minutes later by packing a two-bit patch
+index into the low bits, freeing the ordering key from the protocol number space, and
+cleaned up the two other raw-second-number entries (1.19.62 and 1.21.110) in the same
+commit.
+
+The causal reading, that assigning 2169 to 1.26.45 is what forced the re-encoding, is
+inference from that sequence and from `c98ee3f6`'s message, "Fix internal protocol
+inconsistency". No commit message states it outright. The collision itself is not
+inference: one hunk of `6bfbb132` both assigns 2169 to 1.26.45 and removes 2169 from
+1.26.44.
+
+Two things this does **not** say. The discriminator was never missing by oversight; it
+was displaced for 88 minutes by the arrival of 2169. And issue #456 was opened
+2026-08-15, before that window and after `5d300de8`, so it is not a symptom of it.
 
 This lands on us. `pmmp-core` pins `axolotl-pm/bedrock-protocol` at
 `59.0.1+bedrock-1.26.40` (`composer.json:39`; `composer.lock:147` names the package,
@@ -216,8 +242,9 @@ production.
 **B. Wait for a stable v2.0.4.**
 The `release` branch head is `2dfd9fa8`, dated 2024-12-04, the v2.0.3 release commit.
 It has not moved in the 21 months to this evidence date. There is no `2.0.4` tag, no
-`2.0.4` ghcr tag, and one unrelated open PR (#455). I found no announced date. Waiting
-has no visible end, and M0's sentence needs a proxy.
+`2.0.4` ghcr tag, and one unrelated open PR (#455). I found no announced date. The cost
+is therefore an unbounded wait: nothing observable here predicts when it ends, and M0
+has no proxy until it does.
 
 **C. Move the protocol target to 2169.**
 Not gated either way, and not free either way. `master` carries 2168 and 2169 in the
@@ -227,10 +254,18 @@ narrow claim must not be widened:
 
 - At **2168** the proxy has to tell 1.26.40 from 1.26.44 at one protocol number, using
   `protocolInternal` and a second codec, `Bedrock_v2168_hotfix4`. That discrimination
-  landed 2026-08-14, which is 24 days before this evidence date, was reworked six days
-  later in `c98ee3f6`, and is the subject of open upstream issue #456.
+  landed 2026-08-14, 24 days before this evidence date, changed encoding twice inside
+  six days, and is the subject of open upstream issue #456.
 - At **2169** there is one codec, `Bedrock_v2169`, and nothing to discriminate. The
   ambiguity that #456 lives in does not exist there.
+
+There is a direct interaction between C and the status quo, and it is the reason this
+section is worth reading rather than skimming. **Adopting 2169 upstream is what broke
+2168's discrimination**, because 1.26.44 had borrowed 2169 as its private ordering key
+and 1.26.45 took the number. See the timeline above. The encoding that 2168's
+two-variant handling now depends on exists because of 2169's arrival, and it is 18 days
+old. Choosing C does not walk away from that machinery; it is the event that created
+it.
 
 So C buys a genuinely simpler proxy path. What it costs is a `pmmp-core` protocol move
 Nasir has deferred, on top of everything in `pmmp-core#4`, and 2169's WaterdogPE
@@ -271,11 +306,22 @@ README or a changelog summary. Where a claim rests on someone else's report rath
 than a measurement, it says so. Upstream file paths are cited at a commit SHA, because
 `master` is a moving target and this document's own argument turns on that.
 
-One caution for anyone extending this. Two different queries look alike and are not:
-`commits?sha=<ref>` lists commits on a branch, `commits?sha=<ref>&path=<file>` lists
-only those touching that file. Attributing a row from the first to the second
-overstates where a change happened, which is why the late-August fixes are in their own
-table with the files they touched.
+Two cautions for anyone extending this. Both are recorded because both produced a
+wrong claim in an earlier draft of this file, and they are the same mistake wearing
+different clothes: provenance inferred instead of established.
+
+`commits?sha=<ref>` lists commits on a branch. `commits?sha=<ref>&path=<file>` lists
+only those touching that file. They look alike and are not, and attributing a row from
+the first to the second overstates where a change happened. This is why the late-August
+fixes are in their own table with the files they touched.
+
+A diff hunk's removed lines are the state **before that commit**, not the state created
+by whichever commit introduced the feature. Reading
+`- MINECRAFT_PE_1_26_44(2168, Bedrock_v2168_hotfix4.CODEC, "26.44")` out of
+`c98ee3f6` says only that the line existed at `c98ee3f6~1`. Establishing which commit
+wrote it needs its own lookup, and here the answer was a different commit six days
+later than the one it was attributed to, which inverted the story. To attribute a line,
+find the commit whose `+` side added it.
 
 ## Verdict against the original risk
 
