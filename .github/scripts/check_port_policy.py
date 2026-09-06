@@ -359,8 +359,6 @@ def parse_run(tokens, index):
         if token in SHELL_BREAKS:
             break
         if token.startswith("-") and token != "-":
-            if unknown_long_flag(token):
-                image_boundary_known = False
             events, index = flag_events(tokens, index)
             for flag, value in events:
                 if flag in PUBLISH_FLAGS and value:
