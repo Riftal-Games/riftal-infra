@@ -12,11 +12,16 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURES="$REPO_ROOT/.github/ci-fixtures"
 LIST="$REPO_ROOT/.github/scripts/list_compose.sh"
+SCAN="$REPO_ROOT/.github/scripts/scan.sh"
 HADOLINT="${HADOLINT:-hadolint}"
 FAILURES=0
+PASSES=0
+# Every assertion below must run. A harness that quietly runs fewer and still
+# prints its closing line is the exact failure it exists to catch.
+EXPECTED_ASSERTIONS=11
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
-pass() { printf '  ok    %s\n' "$1"; }
+pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
 
@@ -96,6 +101,20 @@ expect_not_listed() {
   fi
 }
 
+# A scan is only as good as its discovery. A discovery that dies must fail the
+# scan: reported as an empty tree it goes green over files nothing looked at.
+expect_scan_fails() {
+  local out status
+  out="$(LISTER="${3:-}" bash "$SCAN" "$1" "$2" 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    pass "scan $1 fails when discovery fails"
+  else
+    fail "expected scan $1 to fail when discovery fails, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
 section "hadolint"
 expect_hadolint_clean "$FIXTURES/good/Dockerfile"
 expect_hadolint_code "$FIXTURES/bad/Dockerfile" DL3007
@@ -105,17 +124,25 @@ expect_listed "$FIXTURES/good" compose.yaml
 expect_listed "$FIXTURES/good" stack.yaml
 expect_not_listed "$FIXTURES/good" rollout.yml
 
-if [ "${SKIP_COMPOSE_SELFTEST:-0}" != 1 ]; then
-  section "compose validation"
-  expect_compose_valid "$FIXTURES/good/compose.yaml"
-  expect_compose_valid "$FIXTURES/good/stack.yaml"
-  expect_compose_rejected "$FIXTURES/bad/schema.compose.yaml" ports
-  expect_compose_rejected "$FIXTURES/bad/unparseable.compose.yml" yaml
-fi
+section "compose validation"
+expect_compose_valid "$FIXTURES/good/compose.yaml"
+expect_compose_valid "$FIXTURES/good/stack.yaml"
+expect_compose_rejected "$FIXTURES/bad/schema.compose.yaml" ports
+expect_compose_rejected "$FIXTURES/bad/unparseable.compose.yml" yaml
+
+section "a failed discovery fails the scan, it does not read as an empty tree"
+expect_scan_fails dockerfiles "$REPO_ROOT/no-such-tree"
+expect_scan_fails compose "$FIXTURES/good" "$REPO_ROOT/no-such-lister.sh"
 
 printf '\n'
+ran=$((PASSES + FAILURES))
+if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
+  printf '%s of %s assertions ran, so one did not run and cannot have passed\n' \
+    "$ran" "$EXPECTED_ASSERTIONS"
+  exit 1
+fi
 if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed. A check has stopped discriminating.\n' "$FAILURES"
   exit 1
 fi
-printf 'every check was observed passing on good input and failing on bad input\n'
+printf 'all %s checks were observed passing on good input and failing on bad input\n' "$PASSES"

@@ -19,7 +19,6 @@ env:
   # Pinned. An unpinned linter changes the meaning of a merge gate with no
   # commit to point at.
   HADOLINT_VERSION: v2.12.0
-  FIXTURES: .github/ci-fixtures
 
 jobs:
   checks:
@@ -46,38 +45,11 @@ jobs:
       - name: Self-test, prove every check can fail
         run: bash .github/scripts/selftest.sh
 
+      # Both scans are the script the self-test drives, so the code proven to
+      # discriminate is the code running here. A body inlined in this file would
+      # be exercised by nothing until a real file lands in the tree.
       - name: Lint Dockerfiles
-        run: |
-          set -euo pipefail
-          mapfile -t files < <(
-            find . -path ./.git -prune -o -path "./${FIXTURES}" -prune -o \
-              -type f \( -name Dockerfile -o -name "Dockerfile.*" \
-                -o -name "*.Dockerfile" \) -print
-          )
-          echo "found ${#files[@]} Dockerfile(s) outside the fixtures"
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "nothing to lint yet; the self-test above is what proves hadolint is wired"
-            exit 0
-          fi
-          printf '  %s\n' "${files[@]}"
-          hadolint "${files[@]}"
+        run: bash .github/scripts/scan.sh dockerfiles
 
-      # Discovery comes from the same script the self-test exercises, so the
-      # thing proven to find stack.yaml is the thing running here. A second find
-      # in this file would drift from it, and the half that drifted is the half
-      # nothing looks at.
       - name: Validate compose files
-        run: |
-          set -euo pipefail
-          mapfile -t files < <(bash .github/scripts/list_compose.sh . "./${FIXTURES}")
-          echo "found ${#files[@]} compose file(s) outside the fixtures"
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "nothing to validate yet; the self-test above is what proves this is wired"
-            exit 0
-          fi
-          status=0
-          for file in "${files[@]}"; do
-            echo "validating $file"
-            docker compose -f "$file" config --quiet || status=1
-          done
-          exit "$status"
+        run: bash .github/scripts/scan.sh compose
