@@ -1,0 +1,4 @@
+services:
+  proxy:
+    image: ghcr.io/riftal-games/waterdogpe:proof
+    ports: "19132:19132/udp"
