@@ -110,10 +110,21 @@ expect_policy_finding "$FIXTURES/bad/run-downstream-proxy-net.sh" \
 expect_policy_finding "$FIXTURES/bad/run-attached-publish.sh" \
   BEDROCK_TCP_PUBLISH HOST_PUBLISH_NOT_ALLOWED
 # A flag the parser cannot size must not hide the -p behind it. Guessing it
-# boolean read the flag's value as the image and ended the scan, so the whole
-# command went unseen and the checker exited 0 on an open downstream.
+# boolean reads the flag's value as the image and ends the scan, so the whole
+# command goes unseen and the checker exits 0 on an open downstream. Long and
+# short are separate fixtures because they are separate tables, and the short
+# one shipped unguarded while the long one was fixed.
 expect_policy_finding "$FIXTURES/bad/run-unlisted-flag.sh" \
   HOST_PUBLISH_NOT_ALLOWED BEDROCK_TCP_PUBLISH
+expect_policy_finding "$FIXTURES/bad/run-unlisted-short-flag.sh" \
+  HOST_PUBLISH_NOT_ALLOWED BEDROCK_TCP_PUBLISH
+# Seeing the publish is half of it. An uncertain parse must also refuse to read
+# a permission tier out of the word it is uncertain about. The second string
+# asserts which path produced the finding: swap that fixture's flag for one the
+# tables size and the deny arrives from the image instead, which is a different
+# rule passing for a different reason.
+expect_policy_finding "$FIXTURES/bad/run-unsized-no-name.sh" \
+  HOST_PUBLISH_NOT_ALLOWED "unidentified"
 expect_policy_finding "$FIXTURES/bad/stack.yaml" \
   BEDROCK_TCP_PUBLISH HOST_PUBLISH_NOT_ALLOWED HOST_NETWORK_MODE
 

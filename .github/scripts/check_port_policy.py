@@ -18,7 +18,9 @@ name, a run command by its --name, or by its image when it has no --name.
 Nothing else on the line grants permission: instance ports live on the proxy's
 container network by house convention, so a downstream run command names a
 proxy network right next to its -p, and anything that read the whole line
-would hand that downstream the proxy's permission.
+would hand that downstream the proxy's permission. A parse that cannot say
+which word is the image grants nothing at all, because a word that might be a
+flag's value is not an identity.
 
 Discovery is by content, not by filename. Any *.yml or *.yaml that parses to a
 mapping with a top-level services key is compose, because a file called
@@ -78,19 +80,25 @@ PUBLISH_FLAGS = {"-p", "--publish"}
 PUBLISH_ALL_FLAGS = {"-P", "--publish-all"}
 NAME_FLAGS = {"--name"}
 
-# Short flags that consume a value, so `-p19132:19132` and `-p 19132:19132`
-# are the same publish. Docker accepts the attached form and a match that
-# required a separator never saw it.
-SHORT_VALUE_FLAGS = set("pveuwlhm")
+# Flag arity, in both directions and for both spellings: flags that consume the
+# following token, and flags that consume nothing. Arity is the only thing that
+# tells the image apart from a flag's value, so a flag in neither table is one
+# this parser cannot size, and parse_run fails closed on it rather than
+# guessing. Guessing by omission is a silent false negative: the flag's value
+# is read as the image, the scan of the command stops there, and every -p
+# behind it goes unseen. `-c` is docker's own short form of `--cpu-shares` and
+# `-a` of `--attach`, so the short table is exactly as capable of an arbitrary
+# omission as the long one. Neither table can ever be complete: docker gains
+# flags between releases and wslc's set has never been enumerated. Ordinary
+# shell such as `mkdir -p` is kept out by the container-binary gate in
+# container_runs, not by these tables, so failing closed here costs nothing
+# outside a run command.
+#
+# Short flags cluster and may carry an attached value, so `-p19132:19132`,
+# `-p 19132:19132` and `-dp 19132:19132` are all the same publish.
+SHORT_VALUE_FLAGS = set("acehlmpuvw")
+SHORT_BOOLEAN_FLAGS = set("diPqt")
 
-# Long flags that consume the following token, and long flags that take no
-# value. Both are listed, because a flag in neither table is one this parser
-# does not know, and an unknown flag is handled by failing closed rather than
-# by guessing: see parse_run. Guessing boolean was a silent false negative,
-# because the flag's value was then read as the image and the rest of the
-# command, including any -p, was never scanned. Ordinary shell such as
-# `mkdir -p` is kept out by the container-binary gate in container_runs, not by
-# these tables, so failing closed here costs nothing outside a run command.
 LONG_VALUE_FLAGS = {
     "--add-host", "--annotation", "--attach", "--blkio-weight", "--cap-add",
     "--cap-drop", "--cgroup-parent", "--cgroupns", "--cidfile", "--cpus",
@@ -117,15 +125,24 @@ LONG_BOOLEAN_FLAGS = {
 }
 
 
-def unknown_long_flag(token):
-    """True for a long flag this parser has no arity for.
+def unknown_flag(token):
+    """True for a flag this parser has no arity for.
 
-    `--memory-reservation=1g` is self-describing and needs no table; a bare
-    `--memory-reservation` does not, and neither table names it.
+    `--memory-reservation=1g` carries its own value and needs no table entry; a
+    bare `--memory-reservation` does not, and neither table names it. In a
+    short cluster the first value flag ends the question, because every
+    character after it is that flag's value rather than another flag.
     """
-    if not token.startswith("--") or "=" in token:
-        return False
-    return token not in LONG_VALUE_FLAGS and token not in LONG_BOOLEAN_FLAGS
+    if token.startswith("--"):
+        if "=" in token:
+            return False
+        return token not in LONG_VALUE_FLAGS and token not in LONG_BOOLEAN_FLAGS
+    for char in token[1:]:
+        if char in SHORT_VALUE_FLAGS:
+            return False
+        if char not in SHORT_BOOLEAN_FLAGS:
+            return True
+    return False
 
 
 class Finding:
@@ -347,20 +364,22 @@ def flag_events(tokens, index):
 
 def parse_run(tokens, index):
     """Read one container run command. Returns (publishes, publish_all, name,
-    image, index-after-the-command)."""
+    image, unsized, index-after-the-command).
+
+    `unsized` is the first flag whose arity the tables do not give, or None.
+    While it is None the parse is certain; once it is set, the word taken for
+    the image may instead be that flag's value, and every consumer of this
+    parse has to treat the image as unknown.
+    """
     publishes, publish_all, name, image = [], False, None, None
-    # Fail closed on a flag we cannot size. If an unknown long flag consumes a
-    # value, that value looks exactly like the image, so the image boundary is
-    # no longer trustworthy and we keep reading publish flags to the end of the
-    # command instead of stopping at it.
-    image_boundary_known = True
+    unsized = None
     while index < len(tokens):
         token = tokens[index]
         if token in SHELL_BREAKS:
             break
         if token.startswith("-") and token != "-":
-            if unknown_long_flag(token):
-                image_boundary_known = False
+            if unsized is None and unknown_flag(token):
+                unsized = token
             events, index = flag_events(tokens, index)
             for flag, value in events:
                 if flag in PUBLISH_FLAGS and value:
@@ -374,16 +393,15 @@ def parse_run(tokens, index):
         # The first bare word is the image. Everything after it is the
         # container's own command, which docker does not interpret, so neither
         # do we: `docker run img sh -c "mkdir -p /data"` is not a publish.
-        # That holds only while every flag ahead of it was one we can size; if
-        # one was not, this word may be that flag's value, so we go on looking
-        # for a publish to the end of the command. A misread image name lands
-        # on the deny side, because classify() grants nothing it cannot match.
+        # That boundary is only real while every flag ahead of it could be
+        # sized; behind an unsized flag this word may be that flag's value, so
+        # the search for a publish runs to the end of the command instead.
         if image is None:
             image = token
         index += 1
-        if image_boundary_known:
+        if unsized is None:
             break
-    return publishes, publish_all, name, image, index
+    return publishes, publish_all, name, image, unsized, index
 
 
 def image_role(image):
@@ -394,11 +412,18 @@ def image_role(image):
     return last.split(":", 1)[0]
 
 
-def run_tier(name, image):
+def run_tier(name, image, unsized=None):
     """Classify a run command exactly as the compose path classifies a service:
     by the name it goes by. Nothing else on the line is evidence of a role."""
     if name:
         return classify(name), f"--name {name}"
+    if unsized:
+        # With no --name the image is the only identity on offer, and behind an
+        # unsized flag the word taken for the image may be that flag's value.
+        # A word that might be anything must not grant a permission tier:
+        # `--conmon-pidfile /run/riftal-proxy.pid` would otherwise buy a
+        # downstream the proxy's right to publish to a host interface.
+        return None, f"unidentified, {unsized} has an arity this parser lacks"
     if image:
         return classify(image_role(image)), f"image {image}"
     return None, "unnamed container"
@@ -419,10 +444,10 @@ def container_runs(tokens):
                 while cursor < len(tokens) and tokens[cursor].startswith("-"):
                     cursor += 1
             if cursor < len(tokens) and tokens[cursor].lower() in RUN_SUBCOMMANDS:
-                publishes, publish_all, name, image, index = parse_run(
+                publishes, publish_all, name, image, unsized, index = parse_run(
                     tokens, cursor + 1
                 )
-                runs.append((publishes, publish_all, name, image))
+                runs.append((publishes, publish_all, name, image, unsized))
                 continue
         index += 1
     return runs
@@ -436,8 +461,9 @@ def check_script(path, findings):
     for lineno, line in enumerate(folded.splitlines(), start=1):
         if line.lstrip().startswith("#"):
             continue
-        for publishes, publish_all, name, image in container_runs(shell_tokens(line)):
-            tier, role = run_tier(name, image)
+        for run in container_runs(shell_tokens(line)):
+            publishes, publish_all, name, image, unsized = run
+            tier, role = run_tier(name, image, unsized)
             where = f"line {lineno} ({role})"
             if publish_all:
                 findings.append(

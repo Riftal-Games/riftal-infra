@@ -25,5 +25,10 @@ line: one fixture wants the classifier to say yes and the other wants it to say
 no, so a rule that went back to reading the whole line flips exactly one of
 them and the self-test names it.
 
+In a fixture with more than one command, each asserted code belongs to exactly
+one of them. A file where any single command carries every asserted code stays
+green when the other commands are neutered, so it stops pinning the thing it
+was written for while still looking like coverage.
+
 The scans exclude this directory. If they ever stop excluding it, CI is red
 forever and the reason is here.
