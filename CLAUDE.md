@@ -25,6 +25,7 @@ Concretely:
 | `migrations/` | Production migration runner and applied-state records. Migration files themselves are authored in `riftal-game/lib/resources/sql/migrations/`. |
 | `deploy/` | Rollout and rollback scripts, backup jobs, health checks |
 | `images/` | Dockerfiles we own: the WaterdogPE proxy image, and any wrapper around the core image. Plus the local dev stack composition. |
+| `docs/` | Findings that outlive the session that produced them: version and protocol evidence, and anything a later decision has to be able to re-check. Runbooks stay in skills. |
 
 ## Platform facts
 
