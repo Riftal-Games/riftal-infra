@@ -83,9 +83,14 @@ NAME_FLAGS = {"--name"}
 # required a separator never saw it.
 SHORT_VALUE_FLAGS = set("pveuwlhm")
 
-# Long flags that consume the following token. Anything not listed is treated
-# as a boolean, so an unknown flag can at worst end the scan of a command
-# early. It can never turn ordinary shell into a publish.
+# Long flags that consume the following token, and long flags that take no
+# value. Both are listed, because a flag in neither table is one this parser
+# does not know, and an unknown flag is handled by failing closed rather than
+# by guessing: see parse_run. Guessing boolean was a silent false negative,
+# because the flag's value was then read as the image and the rest of the
+# command, including any -p, was never scanned. Ordinary shell such as
+# `mkdir -p` is kept out by the container-binary gate in container_runs, not by
+# these tables, so failing closed here costs nothing outside a run command.
 LONG_VALUE_FLAGS = {
     "--add-host", "--annotation", "--attach", "--blkio-weight", "--cap-add",
     "--cap-drop", "--cgroup-parent", "--cgroupns", "--cidfile", "--cpus",
@@ -102,6 +107,25 @@ LONG_VALUE_FLAGS = {
     "--stop-timeout", "--storage-opt", "--sysctl", "--tmpfs", "--ulimit",
     "--user", "--userns", "--uts", "--volume", "--volumes-from", "--workdir",
 }
+
+LONG_BOOLEAN_FLAGS = {
+    "--detach", "--disable-content-trust", "--help", "--http-proxy", "--init",
+    "--interactive", "--no-healthcheck", "--no-hostname", "--no-hosts",
+    "--oom-kill-disable", "--passwd", "--privileged", "--publish-all",
+    "--quiet", "--read-only", "--replace", "--rm", "--rmi", "--rootfs",
+    "--sig-proxy", "--tty", "--unsetenv-all",
+}
+
+
+def unknown_long_flag(token):
+    """True for a long flag this parser has no arity for.
+
+    `--memory-reservation=1g` is self-describing and needs no table; a bare
+    `--memory-reservation` does not, and neither table names it.
+    """
+    if not token.startswith("--") or "=" in token:
+        return False
+    return token not in LONG_VALUE_FLAGS and token not in LONG_BOOLEAN_FLAGS
 
 
 class Finding:
@@ -325,11 +349,18 @@ def parse_run(tokens, index):
     """Read one container run command. Returns (publishes, publish_all, name,
     image, index-after-the-command)."""
     publishes, publish_all, name, image = [], False, None, None
+    # Fail closed on a flag we cannot size. If an unknown long flag consumes a
+    # value, that value looks exactly like the image, so the image boundary is
+    # no longer trustworthy and we keep reading publish flags to the end of the
+    # command instead of stopping at it.
+    image_boundary_known = True
     while index < len(tokens):
         token = tokens[index]
         if token in SHELL_BREAKS:
             break
         if token.startswith("-") and token != "-":
+            if unknown_long_flag(token):
+                image_boundary_known = False
             events, index = flag_events(tokens, index)
             for flag, value in events:
                 if flag in PUBLISH_FLAGS and value:
@@ -343,9 +374,15 @@ def parse_run(tokens, index):
         # The first bare word is the image. Everything after it is the
         # container's own command, which docker does not interpret, so neither
         # do we: `docker run img sh -c "mkdir -p /data"` is not a publish.
-        image = token
+        # That holds only while every flag ahead of it was one we can size; if
+        # one was not, this word may be that flag's value, so we go on looking
+        # for a publish to the end of the command. A misread image name lands
+        # on the deny side, because classify() grants nothing it cannot match.
+        if image is None:
+            image = token
         index += 1
-        break
+        if image_boundary_known:
+            break
     return publishes, publish_all, name, image, index
 
 

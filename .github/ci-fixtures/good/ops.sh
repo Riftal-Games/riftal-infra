@@ -20,3 +20,9 @@ mkdir -p /srv/worlds && docker run -d --name mine-h \
 # The -p here belongs to the container's own command, after the image, not to
 # docker.
 docker run --detach ghcr.io/riftal-games/riftal-core:fixture sh -c "mkdir -p /data/tmp"
+
+# The same thing unquoted. This one only stays clean while --rm is a flag the
+# parser can size: an unsized flag makes the image boundary untrustworthy and
+# the scan runs on past it, which is what bad/run-unlisted-flag.sh requires.
+# Drop --rm from LONG_BOOLEAN_FLAGS and this line reports a publish of /data.
+docker run --rm ghcr.io/riftal-games/riftal-core:fixture sh -c mkdir -p /data/tmp

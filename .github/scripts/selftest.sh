@@ -109,6 +109,11 @@ expect_policy_finding "$FIXTURES/bad/run-downstream-proxy-net.sh" \
   HOST_PUBLISH_NOT_ALLOWED
 expect_policy_finding "$FIXTURES/bad/run-attached-publish.sh" \
   BEDROCK_TCP_PUBLISH HOST_PUBLISH_NOT_ALLOWED
+# A flag the parser cannot size must not hide the -p behind it. Guessing it
+# boolean read the flag's value as the image and ended the scan, so the whole
+# command went unseen and the checker exited 0 on an open downstream.
+expect_policy_finding "$FIXTURES/bad/run-unlisted-flag.sh" \
+  HOST_PUBLISH_NOT_ALLOWED BEDROCK_TCP_PUBLISH
 expect_policy_finding "$FIXTURES/bad/stack.yaml" \
   BEDROCK_TCP_PUBLISH HOST_PUBLISH_NOT_ALLOWED HOST_NETWORK_MODE
 
