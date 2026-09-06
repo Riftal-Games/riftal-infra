@@ -30,7 +30,7 @@ esac
 mapfile -t files < <(printf '%s' "$found")
 printf 'found %d %s outside the fixtures\n' "${#files[@]}" "$label"
 if [ "${#files[@]}" -eq 0 ]; then
-  printf 'nothing to check yet; the self-test is what proves this is wired\n'
+  printf 'nothing to check yet; the self-test proves the rules, not this scan\n'
   exit 0
 fi
 
