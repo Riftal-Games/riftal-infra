@@ -1,0 +1,3 @@
+# These scripts are authored on Windows and run on Linux, in CI and in
+# containers. A CRLF shebang makes the interpreter unfindable.
+*.sh text eol=lf

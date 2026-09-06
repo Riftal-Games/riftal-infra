@@ -1,0 +1,55 @@
+name: CI
+
+# Pull requests gate every merge. Pushes are watched on main only, so a branch
+# push and its pull request do not bill two runs for the same commit. These are
+# private repositories and workflow minutes are metered.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned. An unpinned linter changes the meaning of a merge gate with no
+  # commit to point at.
+  HADOLINT_VERSION: v2.12.0
+
+jobs:
+  checks:
+    name: lint and validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install hadolint
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /usr/local/bin/hadolint \
+            "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
+          chmod +x /usr/local/bin/hadolint
+          hadolint --version
+
+      # Runs before the real scans on purpose. images/ and proxy/ hold only a
+      # .gitkeep today, so the scans below have nothing to look at and would go
+      # green by being empty. This step feeds every check a fixture it must
+      # reject and a fixture it must accept, so the checks are known to
+      # discriminate on this commit and not only on the day they were written.
+      - name: Self-test, prove every check can fail
+        run: bash .github/scripts/selftest.sh
+
+      # Both scans run the shared script: discovery and dispatch are the code
+      # the self-test proves can fail. Its check bodies are covered by neither
+      # the self-test nor this job on an empty tree; riftal-infra#23 closes that.
+      - name: Lint Dockerfiles
+        run: bash .github/scripts/scan.sh dockerfiles
+
+      - name: Validate compose files
+        run: bash .github/scripts/scan.sh compose

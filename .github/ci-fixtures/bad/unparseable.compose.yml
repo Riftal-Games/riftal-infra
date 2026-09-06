@@ -1,0 +1,12 @@
+# Expected: `docker compose config` rejects it with a YAML parser error. Broken
+# YAML, not merely broken compose, so it fails one step earlier than
+# schema.compose.yaml does.
+#
+# The .yml extension keeps the word yaml out of this file's path, so the
+# self-test asserting that word in the error is asserting the parser complained
+# rather than matching the path it printed back.
+services:
+  proxy:
+    image: ghcr.io/riftal-games/waterdogpe:fixture
+   ports:
+      - "19132:19132/udp"
