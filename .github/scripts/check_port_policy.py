@@ -137,6 +137,11 @@ def unknown_flag(token):
         if "=" in token:
             return False
         return token not in LONG_VALUE_FLAGS and token not in LONG_BOOLEAN_FLAGS
+    for char in token[1:]:
+        if char in SHORT_VALUE_FLAGS:
+            return False
+        if char not in SHORT_BOOLEAN_FLAGS:
+            return True
     return False
 
 
@@ -412,6 +417,13 @@ def run_tier(name, image, unsized=None):
     by the name it goes by. Nothing else on the line is evidence of a role."""
     if name:
         return classify(name), f"--name {name}"
+    if unsized:
+        # With no --name the image is the only identity on offer, and behind an
+        # unsized flag the word taken for the image may be that flag's value.
+        # A word that might be anything must not grant a permission tier:
+        # `--conmon-pidfile /run/riftal-proxy.pid` would otherwise buy a
+        # downstream the proxy's right to publish to a host interface.
+        return None, f"unidentified, {unsized} has an arity this parser lacks"
     if image:
         return classify(image_role(image)), f"image {image}"
     return None, "unnamed container"
