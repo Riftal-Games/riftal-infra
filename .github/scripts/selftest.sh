@@ -143,5 +143,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed. A check has stopped discriminating.\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: each rule rejected bad input and accepted good.\n' "$PASSES"
-printf 'The tool calls in scan.sh are not among them; riftal-infra#23 covers those.\n'
+printf 'all %s assertions passed, both sides for hadolint, discovery and compose.\n' "$PASSES"
+printf 'The scan is asserted failing only, its tool calls not at all: riftal-infra#23.\n'
