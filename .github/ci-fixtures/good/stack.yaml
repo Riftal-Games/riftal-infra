@@ -1,0 +1,11 @@
+# Expected: discovered, and valid compose.
+#
+# A compose file whose name matches none of the conventions. riftal-infra's
+# CLAUDE.md predicts exactly this file, "the local dev stack composition" under
+# images/. Discovery by filename would validate nothing here and still report
+# success, so this fixture holds discovery to the top-level services key.
+services:
+  mine-h:
+    image: ghcr.io/riftal-games/riftal-core:fixture
+    expose:
+      - "19132"

@@ -1,0 +1,8 @@
+# Expected: `docker compose config` rejects it, naming ports.
+#
+# Valid YAML, invalid compose: ports must be a sequence. A file like this fails
+# at bring-up rather than in review unless something validates it here.
+services:
+  proxy:
+    image: ghcr.io/riftal-games/waterdogpe:fixture
+    ports: "19132:19132/udp"

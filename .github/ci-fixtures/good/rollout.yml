@@ -1,0 +1,10 @@
+# Expected: not discovered. YAML whose services key is nested rather than top
+# level, so it is not a stack definition.
+#
+# Handing this to `docker compose config` would fail it, and the gate would be
+# red over a file that was never a stack. Discovery has to be narrow in both
+# directions.
+rollout:
+  order: [migrations, instances, proxy]
+  restart:
+    services: [mine-h, plots-1, proxy]
