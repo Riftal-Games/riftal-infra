@@ -45,9 +45,9 @@ jobs:
       - name: Self-test, prove every check can fail
         run: bash .github/scripts/selftest.sh
 
-      # Both scans are the script the self-test drives, so the code proven to
-      # discriminate is the code running here. A body inlined in this file would
-      # be exercised by nothing until a real file lands in the tree.
+      # Both scans run the shared script: discovery and dispatch are the code
+      # the self-test proves can fail. Its check bodies are covered by neither
+      # the self-test nor this job on an empty tree; riftal-infra#23 closes that.
       - name: Lint Dockerfiles
         run: bash .github/scripts/scan.sh dockerfiles
 

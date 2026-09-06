@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # Self-test for the CI checks.
 #
-# `images/` and `proxy/` hold nothing but a .gitkeep today, so a scan of the real
-# tree finds no files and passes by being empty. A check that has never been
-# observed printing anything is decoration. This script feeds every check input
-# it must reject and input it must accept, and fails CI if a check stops
-# discriminating. It keeps working after real files land: weaken a rule and the
-# matching bad fixture goes quiet, which turns this red.
+# `images/` and `proxy/` hold only a .gitkeep today, so a scan of the real tree
+# passes by being empty, and a check never observed printing anything is
+# decoration. Each rule below gets input it must reject and input it must accept,
+# through this script's own hadolint and `docker compose` calls, not scan.sh's.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -145,4 +143,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed. A check has stopped discriminating.\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s checks were observed passing on good input and failing on bad input\n' "$PASSES"
+printf 'all %s assertions passed: each rule rejected bad input and accepted good.\n' "$PASSES"
+printf 'The tool calls in scan.sh are not among them; riftal-infra#23 covers those.\n'
