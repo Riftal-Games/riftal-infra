@@ -131,10 +131,8 @@ def _axes_from(order: Sequence[str], to: Sequence[str]) -> list[int]:
     return [list(order).index(axis) for axis in to]
 
 
-def decode_rle(
-    payload: Mapping[str, Any], *, order: Sequence[str] = RLE_ORDER
-) -> tuple[np.ndarray, list[str]]:
-    """Expand a region payload into ``blocks[y][z][x]`` int16 with air at palette index 0."""
+def expand_runs(payload: Mapping[str, Any], *, order: Sequence[str] = RLE_ORDER) -> tuple[np.ndarray, list[Any]]:
+    """Expand a payload's runs into palette indices ``[y][z][x]``; the palette is returned as sent."""
     claimed = payload.get("order")
     if claimed is not None and tuple(claimed) != tuple(order):
         raise RLEError(f"payload order {claimed!r} does not match expected {''.join(order)!r}")
@@ -156,8 +154,14 @@ def decode_rle(
         raise RLEError(f"run count below 1: {int(counts.min())}")
 
     flat = np.repeat(indices, counts)
-    blocks = flat.reshape([size[axis] for axis in order]).transpose(_axes_from(order, ARRAY_AXES))
+    return flat.reshape([size[axis] for axis in order]).transpose(_axes_from(order, ARRAY_AXES)), palette
 
+
+def decode_rle(
+    payload: Mapping[str, Any], *, order: Sequence[str] = RLE_ORDER
+) -> tuple[np.ndarray, list[str]]:
+    """Expand a region payload into ``blocks[y][z][x]`` int16 with air at palette index 0."""
+    blocks, palette = expand_runs(payload, order=order)
     if AIR not in palette:
         palette.insert(0, AIR)
         blocks = blocks + 1

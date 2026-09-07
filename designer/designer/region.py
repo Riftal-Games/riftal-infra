@@ -10,7 +10,7 @@ from typing import Any, ClassVar, Self
 
 import numpy as np
 
-from designer.blocks import AIR, BlockClass, base_name, class_lut, decode_rle, encode_rle
+from designer.blocks import AIR, BlockClass, RLEError, base_name, class_lut, decode_rle, encode_rle, expand_runs
 from designer.bridge import Bridge
 
 # The bridge's ``max_region_edge``; any request with a longer edge is refused.
@@ -330,10 +330,80 @@ class Heightmap:
         return self.palette[int(self.top[self.bounds.local((x, z))])]
 
 
+@dataclass(eq=False)
+class LightRegion:
+    """Light levels 0 to 15 inside ``bounds`` as ``block[y][z][x]`` and ``sky[y][z][x]`` uint8.
+
+    ``stale_chunks`` names the chunks ``(cx, cz)`` whose light the server had
+    not repopulated when it answered, so their levels may predate an edit.
+    """
+
+    world: str
+    bounds: Bounds
+    block: np.ndarray
+    sky: np.ndarray
+    stale_chunks: list[tuple[int, int]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        for name, array in (("block", self.block), ("sky", self.sky)):
+            if array.shape != self.bounds.shape or array.dtype != np.uint8:
+                raise ValueError(f"{name} must be uint8 of shape {self.bounds.shape}, got {array.dtype} {array.shape}")
+
+    @classmethod
+    def merge(cls, tiles: Iterable[LightRegion]) -> LightRegion:
+        """One light region over the union of the tiles: later tiles win overlaps, uncovered cells are dark."""
+        tiles = list(tiles)
+        if not tiles:
+            raise ValueError("merge needs at least one tile")
+        if len({t.world for t in tiles}) != 1:
+            raise ValueError(f"tiles span several worlds: {sorted({t.world for t in tiles})}")
+        bounds = reduce(Bounds.union, (t.bounds for t in tiles))
+        out = cls(tiles[0].world, bounds, np.zeros(bounds.shape, dtype=np.uint8), np.zeros(bounds.shape, dtype=np.uint8))
+        for tile in tiles:
+            at = bounds.slices(tile.bounds)
+            out.block[at], out.sky[at] = tile.block, tile.sky
+        out.stale_chunks = sorted({chunk for t in tiles for chunk in t.stale_chunks})
+        return out
+
+    def level(self, x: int, y: int, z: int) -> tuple[int, int]:
+        """``(block, sky)`` light at the cell."""
+        at = self.bounds.local((x, y, z))
+        return int(self.block[at]), int(self.sky[at])
+
+
 def fetch_region(bridge: Bridge, world: str, bounds: Bounds, *, max_edge: int = MAX_EDGE) -> Region:
     """The blocks inside ``bounds``, one ``get_region`` job per tile of ``max_edge``."""
     return Region.merge(
         Region.from_rle(world, bridge.call_job("get_region", world=world, bounds=t.to_json())["result"])
+        for t in bounds.tiles(max_edge)
+    )
+
+
+def decode_light(payload: dict[str, Any], world: str | None = None) -> LightRegion:
+    """Decode a ``get_light`` payload, whose palette packs ``sky << 4 | block`` per entry.
+
+    ``world`` is checked against the payload's own when both are given, and at
+    least one of the two must name it.
+    """
+    claimed = payload.get("world")
+    if world is not None and claimed is not None and claimed != world:
+        raise ValueError(f"payload is from world {claimed!r}, expected {world!r}")
+    if claimed is None and world is None:
+        raise ValueError("payload names no world and none was given")
+    indices, palette = expand_runs(payload)
+    packed = np.asarray(palette, dtype=np.int64)
+    if packed.size and (packed.min() < 0 or packed.max() > 0xFF):
+        raise RLEError("light palette entry outside 0..255")
+    levels = packed[indices].astype(np.uint8)
+    stale = [(int(c["cx"]), int(c["cz"])) for c in payload.get("chunks", ()) if c.get("light") == "stale"]
+    bounds = Bounds(tuple(payload["min"]), tuple(payload["max"]))
+    return LightRegion(str(claimed if claimed is not None else world), bounds, levels & 0xF, levels >> 4, stale)
+
+
+def fetch_light(bridge: Bridge, world: str, bounds: Bounds, *, max_edge: int = MAX_EDGE) -> LightRegion:
+    """The light inside ``bounds``, one ``get_light`` job per tile of ``max_edge``."""
+    return LightRegion.merge(
+        decode_light(bridge.call_job("get_light", world=world, bounds=t.to_json())["result"], world)
         for t in bounds.tiles(max_edge)
     )
 
