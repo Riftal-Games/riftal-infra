@@ -1,0 +1,37 @@
+# One core container and nothing else. This stack builds worlds, it does not
+# serve players: there is no proxy because nobody logs in through it, and no
+# database because the design world holds no player state. The server runs in
+# offline mode, so both publishes stay on 127.0.0.1.
+#
+# Every server setting travels as a command-line flag, because flags beat
+# server.properties in ServerConfigGroup. That leaves the world volume as the
+# only durable state and needs no config file mounted in.
+services:
+  designer:
+    image: local-pocketmine-mp
+    stdin_open: true
+    ports:
+      - "127.0.0.1:19132:19132/udp"
+      - "127.0.0.1:19140:19140/tcp"
+    volumes:
+      - designer-world:/data
+      - ./plugins:/plugins
+      - ${DESIGNBRIDGE_SRC:-../../../riftal-game/designbridge}:/plugins/DesignBridge:ro
+    environment:
+      DESIGNBRIDGE_TOKEN: ${DESIGNBRIDGE_TOKEN:-local-dev-only}
+      POCKETMINE_ARGS: >-
+        --level-name=design
+        --level-type=normal
+        --level-seed=20260907
+        --xbox-auth=false
+        --gamemode=1
+        --max-players=4
+        --view-distance=16
+        --motd=riftal-designer
+
+volumes:
+  # Pinned so the volume is the same one whether the container was started by
+  # compose or by hand from this file. Not a riftal_smoke_ name on purpose: the
+  # guard refuses to remove it, and that is what protects a hand-built world.
+  designer-world:
+    name: designer-world
