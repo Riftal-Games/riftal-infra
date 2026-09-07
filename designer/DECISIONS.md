@@ -114,3 +114,23 @@ are, so a pond survives downsampling and a single wet column does not flood a
 cell. `summary` calls a column flat when it sits at the most common height,
 which is the number a builder wants: how much of the area is already the
 platform it will stand on.
+
+## 2026-09-08 `apply` batches 4096 blocks; `COALESCE_RUN` is 8; the first error stops it and nothing is resent; `Text` has no bounds
+
+The bridge accepts 65536 blocks per `set_blocks` but writes `blocks_per_tick`
+50000, so a batch at the cap spans ticks and every one of them needs a poll.
+4096 is a twelfth of a tick: the batch settles inline in the tick that
+received it, and a batch that goes `sent_unconfirmed` on a dropped
+connection is 4096 blocks to inspect and resend by hand, which is cheap,
+where a lost 65536 is a real question of what landed. Eight is the run
+length at which a `fill` starts paying for itself: a `fill` is its own job
+with its own chunk pinning and audit line, while eight `set_blocks` entries
+ride in a batch that is being sent anyway, and a shorter run is more often
+two neighbouring single blocks than a deliberate line. `apply` stops at the
+first `BridgeError` and resends nothing because a write is not idempotent,
+so a resend after an unclear failure is a possible second edit, and a later
+op may depend on the one that failed; the result carries every job that ran
+so the caller knows exactly how far it got, and the undo entry covers the
+rest. `Text` changes no block, so it has no bounds, counts for nothing and
+lies outside `before()`: the snapshot exists to reverse block changes, and a
+text is reversed by `remove_text` with the id its own job returns.

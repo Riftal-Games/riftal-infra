@@ -225,6 +225,18 @@ class Region:
             raise ValueError(f"{bounds.min}..{bounds.max} does not touch {self.bounds.min}..{self.bounds.max}")
         return Region(self.world, inner, self.blocks[self.bounds.slices(inner)], self.palette, _parent=self)
 
+    def fill(self, bounds: Bounds, name: str) -> None:
+        """Every block inside ``bounds`` becomes ``name``."""
+        self.sub(bounds).blocks[...] = self.index_of(name)
+        self._invalidate()
+
+    def replace(self, bounds: Bounds, sources: Iterable[str], name: str) -> None:
+        """Every block inside ``bounds`` whose name is in ``sources`` becomes ``name``."""
+        view, wanted = self.sub(bounds), set(sources)
+        matches = [i for i, entry in enumerate(self.palette) if entry in wanted]
+        view.blocks[np.isin(view.blocks, matches)] = self.index_of(name)
+        self._invalidate()
+
     def classes(self) -> np.ndarray:
         """``BlockClass`` per block as uint8, cached until the next ``set``."""
         if self._parent is not None:
