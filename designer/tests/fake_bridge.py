@@ -1,7 +1,7 @@
 """In-process stand-in for the DesignBridge plugin, so no test needs a server.
 
 Speaks the wire contract on a loopback port from a daemon thread. Each fault
-knob applies to the next request only and resets itself.
+knob applies to the next request only and resets itself; ``omit_top`` stands.
 """
 
 from __future__ import annotations
@@ -11,6 +11,47 @@ import json
 import threading
 from typing import Any
 
+import numpy as np
+
+from designer.blocks import encode_rle
+from designer.region import MAX_EDGE, Bounds, Bounds2D
+
+
+class FakeOpError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class FakeWorld:
+    """Flat terrain: stone below ``SURFACE``, grass on it, air above and outside ``extent`` or y 0..127.
+
+    Air is last in the palette on purpose, so the toolkit's remap to index 0 is exercised.
+    """
+
+    PALETTE = ["minecraft:stone", "minecraft:grass_block", "minecraft:air"]
+    SURFACE, HEIGHT = 63, 128
+
+    def __init__(self, extent: tuple[tuple[int, int], tuple[int, int]] = ((0, 0), (255, 255))) -> None:
+        self.extent = Bounds2D(*extent)
+
+    def _inside(self, x: np.ndarray, z: np.ndarray) -> np.ndarray:
+        (x0, z0), (x1, z1) = self.extent.min, self.extent.max
+        return (x >= x0) & (x <= x1) & (z >= z0) & (z <= z1)
+
+    def blocks(self, bounds: Bounds) -> np.ndarray:
+        """Palette indices ``[y][z][x]`` inside ``bounds``."""
+        xs, ys, zs = (np.arange(lo, hi + 1) for lo, hi in zip(bounds.min, bounds.max))
+        y, z, x = ys[:, None, None], zs[None, :, None], xs[None, None, :]
+        column = np.where(y < self.SURFACE, 0, np.where(y == self.SURFACE, 1, 2))
+        inside = self._inside(x, z) & (y >= 0) & (y < self.HEIGHT)
+        return np.where(inside, column, 2).astype(np.int16)
+
+    def heightmap(self, bounds: Bounds2D) -> tuple[np.ndarray, np.ndarray]:
+        xs, zs = (np.arange(lo, hi + 1) for lo, hi in zip(bounds.min, bounds.max))
+        inside = self._inside(xs[None, :], zs[:, None])
+        return np.where(inside, self.SURFACE, -1), np.where(inside, 1, 2)
+
 
 class FakeBridge:
     def __init__(self, token: str = "hunter2-do-not-print") -> None:
@@ -19,6 +60,9 @@ class FakeBridge:
         self.drop_next_response = False
         self.delay_next = 0.0
         self.wrong_id_next = False
+        self.queue_next = False
+        self.omit_top = False
+        self.worlds: dict[str, FakeWorld] = {"design": FakeWorld()}
         self.requests: list[dict[str, Any]] = []
         self.port = 0
         self._loop = asyncio.new_event_loop()
@@ -82,10 +126,62 @@ class FakeBridge:
         handler = getattr(self, f"op_{request.get('op')}", None)
         if handler is None:
             return {"ok": False, "error": f"unknown op {request.get('op')!r}", "code": "UNKNOWN_OP"}
-        return {"ok": True, "data": handler(request.get("args") or {})}
+        try:
+            return {"ok": True, "data": handler(request.get("args") or {})}
+        except FakeOpError as exc:
+            return {"ok": False, "error": str(exc), "code": exc.code}
+
+    def _world(self, name: str) -> FakeWorld:
+        if name not in self.worlds:
+            raise FakeOpError("WORLD_NOT_FOUND", f"no world {name!r}")
+        return self.worlds[name]
+
+    def _bounds(self, args: dict[str, Any], cls: type[Bounds] | type[Bounds2D]) -> Any:
+        box = cls.from_json(args["bounds"])
+        if max(box.size) > MAX_EDGE:
+            raise FakeOpError("BOUNDS_TOO_LARGE", f"edge {max(box.size)} over {MAX_EDGE}")
+        return box
+
+    def _job(self, op: str, result: dict[str, Any]) -> dict[str, Any]:
+        status = {"job": f"j{len(self.requests)}", "op": op, "state": "done", "result": result, "elapsed_ms": 0}
+        if self.queue_next:
+            self.queue_next = False
+            status.update(state="queued", result=None)
+        return status
 
     def op_ping(self, args: dict[str, Any]) -> dict[str, Any]:
         return {"pong": True, "tick": len(self.requests)}
 
     def op_server_info(self, args: dict[str, Any]) -> dict[str, Any]:
         return {"designer": self.designer, "pmmp_version": "fake", "protocol": 2168, "worlds": []}
+
+    def op_list_worlds(self, args: dict[str, Any]) -> list[dict[str, Any]]:
+        return [{"name": name, "loaded": True} for name in self.worlds]
+
+    def op_load_world(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._world(args["name"])
+        return {"spawn": [0, FakeWorld.SURFACE + 1, 0], "seed": 0, "generator": "flat"}
+
+    def op_create_world(self, args: dict[str, Any]) -> dict[str, Any]:
+        if args["name"] in self.worlds:
+            raise FakeOpError("WORLD_EXISTS", f"world {args['name']!r} exists")
+        self.worlds[args["name"]] = FakeWorld()
+        return {}
+
+    def op_save_world(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._world(args["name"])
+        return {}
+
+    def op_get_region(self, args: dict[str, Any]) -> dict[str, Any]:
+        world, box = self._world(args["world"]), self._bounds(args, Bounds)
+        payload = encode_rle(world.blocks(box), FakeWorld.PALETTE, origin=box.min)
+        payload["world"] = args["world"]
+        return self._job("get_region", payload)
+
+    def op_get_heightmap(self, args: dict[str, Any]) -> dict[str, Any]:
+        world, box = self._world(args["world"]), self._bounds(args, Bounds2D)
+        heights, top = world.heightmap(box)
+        result = {**box.to_json(), "heights": heights.ravel().tolist(), "palette": FakeWorld.PALETTE}
+        if not self.omit_top:
+            result["top"] = top.ravel().tolist()
+        return self._job("get_heightmap", result)

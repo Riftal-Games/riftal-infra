@@ -169,3 +169,33 @@ def test_merge_of_tiles_reproduces_the_region() -> None:
         Region.merge([])
     with pytest.raises(ValueError):
         Region.merge([tiles[0], Region.empty("other", tiles[0].bounds)])
+
+
+def test_merge_later_tile_wins_where_tiles_overlap() -> None:
+    a = Region.empty(WORLD, Bounds((0, 0, 0), (3, 0, 0)), fill="minecraft:stone")
+    b = Region.empty(WORLD, Bounds((2, 0, 0), (5, 0, 0)), fill="minecraft:dirt")
+    assert [Region.merge([a, b]).get(x, 0, 0) for x in range(6)] == ["minecraft:stone"] * 2 + ["minecraft:dirt"] * 4
+    assert [Region.merge([b, a]).get(x, 0, 0) for x in range(6)] == ["minecraft:stone"] * 4 + ["minecraft:dirt"] * 2
+
+
+def test_merge_fills_a_gap_between_tiles_with_air() -> None:
+    a = Region.empty(WORLD, Bounds((0, 0, 0), (3, 0, 0)), fill="minecraft:stone")
+    b = Region.empty(WORLD, Bounds((6, 0, 0), (6, 0, 0)), fill="minecraft:dirt")
+    merged = Region.merge([a, b])
+    assert merged.bounds == Bounds((0, 0, 0), (6, 0, 0))
+    assert merged.get(4, 0, 0) == AIR == merged.get(5, 0, 0)
+    assert merged.counts() == {AIR: 2, "minecraft:stone": 4, "minecraft:dirt": 1}
+
+
+def test_from_rle_rejects_a_payload_from_another_world() -> None:
+    payload = Region.empty(WORLD, Bounds((0, 0, 0), (1, 1, 1))).to_rle()
+    assert Region.from_rle(WORLD, payload).world == WORLD
+    with pytest.raises(ValueError, match="world"):
+        Region.from_rle("other", payload)
+    del payload["world"]
+    assert Region.from_rle("other", payload).world == "other"
+
+
+def test_region_rejects_blocks_that_are_not_int16() -> None:
+    with pytest.raises(ValueError, match="int16"):
+        Region(WORLD, Bounds((0, 0, 0), (0, 0, 0)), np.zeros((1, 1, 1), dtype=np.int32), [AIR])
