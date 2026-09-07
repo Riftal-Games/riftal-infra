@@ -53,7 +53,7 @@ Names `^[a-z0-9_]+$`, unique across locations and regions. Worlds: `mine_a`, `mi
 
 ## Checks
 
-`checks.yaml` binds `path_exists`, `travel_time`, `warp_safe`, `entity_clear`, `region_inside`, `light_ok`, `no_holes` and `mine_valid` to names. Two standing assertions for every mine, both from the spec's Phase 3 acceptance: `path_exists` from `<name>_spawn` to `<name>_exit` under 10 seconds on foot, and from `<name>_exit` to `sell_npc_<suffix>` under 10 seconds on foot. The second is the brief's map principle that the walk from mine exit to sell point stays short.
+`checks.yaml` binds `path_exists`, `travel_time`, `warp_safe`, `entity_clear`, `region_inside`, `light_ok`, `no_holes` and `mine_valid` to names. Two standing assertions for every mine, both from the spec's Phase 3 acceptance: `travel_time` from `<name>_spawn` to `<name>_exit` under 10 seconds on foot, and from `<name>_exit` to `sell_npc_<suffix>` under 10 seconds on foot. `travel_time` is the check that yields seconds; `path_exists` alone only proves reachability. The second is the brief's map principle that the walk from mine exit to sell point stays short.
 
 ## Map principles
 
@@ -103,7 +103,7 @@ Names `^[a-z0-9_]+$`, unique across locations and regions. Worlds: `mine_a`, `mi
 | riftal-infra#45 | perimeter, room, plot_grid, signage | | open |
 | riftal-infra#46 | isometric render, remaining tools | | open |
 
-Phase 4, the map itself, is driven through the MCP tools once Phase 3 closes: `mine_a`, `mine_b`, `mine_c`, `lumber`, `quarry`, `farm`, each sited, terraformed, built, checked and rendered before and after. The `plots` world is created and pregenerated only.
+Phase 4, the map itself, is driven through the MCP tools once Phase 3 closes: `mine_a`, `mine_b`, `mine_c` and `lumber`, each sited, terraformed, built, checked and rendered before and after. That is the M1 scope on the roadmap. The `quarry`, `farm`, `contested` and `plots` worlds are created and pregenerated only; their builds belong to the milestones that need them.
 
 ## Open questions
 
