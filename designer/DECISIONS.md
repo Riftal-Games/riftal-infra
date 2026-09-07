@@ -134,3 +134,38 @@ so the caller knows exactly how far it got, and the undo entry covers the
 rest. `Text` changes no block, so it has no bounds, counts for nothing and
 lies outside `before()`: the snapshot exists to reverse block changes, and a
 text is reversed by `remove_text` with the id its own job returns.
+
+## 2026-09-08 A snapshot is one self-describing `.npz` under `snapshots/<world>/<ts>-<label>.npz`; `diff` remaps by name; `restore` sends only what differs and snapshots first; the manifest is replaced whole; `prune` is never automatic
+
+The file carries its own palette, bounds and a JSON `meta` naming the world,
+the timestamp, the label, the toolkit version and `RLE_ORDER`, so a snapshot
+found on disk months later still says what it is and `load` can refuse one
+written in another axis order. `diff` maps the second region into the first
+one's palette by name because an index means one block inside one region and
+nothing across two. `restore` fetches the current state and sends only the
+cells that differ, coalesced like any edit list, because a full rewrite of a
+128^3 box is two million blocks of jobs to reverse a hundred, and it takes a
+`restore` snapshot first through `before` so an undo is itself undoable. The
+undo manifest is written to a temp file and moved over the old one, so a
+crash mid-write leaves the previous manifest rather than half of a new one.
+`prune` only runs when called and defaults to a dry run, because the undo
+trail is the one thing that makes an agent edit on a hand-built map safe to
+try, and deleting it is a choice someone makes on purpose.
+
+## 2026-09-08 `session` is a label; `undo` is global and newest-first; an undo pushes an `op="undo"` entry that `undo` skips unless asked; the manifest has one writer; `prune` keeps 14 days
+
+`session` is written on every entry a stack pushes and is what
+`entries(session=...)` filters on, nothing more. `undo` ignores it and walks
+every session's entries newest first, because the MCP server restarts with
+each Claude Code session and the edits most in need of reversing are the
+ones a crashed session left behind, which only the next session can reach.
+The `restore` snapshot an undo takes is pushed as an `op="undo"` entry so it
+is listed, walkable and pruned like any other; plain `undo` skips those
+entries, because two undos must reverse two edits rather than toggle the
+newest one back and forth, so undoing an undo is `include_undo=True`, asked
+for by name. Push is read-modify-write with ids from `max + 1`, so the
+manifest assumes one writer at a time; two concurrent sessions would race,
+and the current model runs one. `prune` keeps 14 days because a design
+session's edits are reviewed within the week they land and a fortnight
+covers a missed one, while snapshots of 128^3 tiles are large enough that an
+unbounded default would fill the disk before anyone chose to.

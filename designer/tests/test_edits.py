@@ -107,7 +107,9 @@ def test_a_fill_wider_than_max_edge_is_sent_as_one_job_per_tile(fake: FakeBridge
     assert reduce(Bounds.union, tiles) == wide and sum(blocks for op, _, blocks in requests if op == "fill") == 300
     assert all(a.intersect(b) is None for a, b in combinations(tiles, 2)) and max(max(t.size) for t in tiles) <= MAX_EDGE
     assert [op for op, _, _ in EditList(WORLD, [Replace(wide, STONE, DIRT)]).requests()] == ["replace"] * 3
-    result = edits.apply(bridge)
+    seen: list[Bounds] = []
+    result = edits.apply(bridge, before=lambda world, bounds: seen.append(bounds))
+    assert seen == [Bounds((0, 64, 0), (299, 65, 0))]
     assert (result.ok, result.blocks, [r["op"] for r in fake.requests]) == (True, 301, ["set_blocks", "fill", "fill", "fill", "set_text"])
     assert (fake.worlds[WORLD].blocks(wide) == fake.worlds[WORLD].index_of(GLASS)).all()
 
@@ -119,6 +121,8 @@ def test_json_round_trip() -> None:
     assert EditList.from_json(data) == edits and EditList.from_json(EditList(WORLD).to_json()) == EditList(WORLD)
     assert data["ops"][0] == {"op": "set_block", "pos": [0, 64, 0], "block": PLANKS} and data["ops"][-1]["from"] == [STONE, DIRT]
     assert EditList(WORLD).bounds is None and data["ops"][-2]["id"] == "sign_1"
+    by_hand = {"world": WORLD, "ops": [{"op": "replace", "bounds": BOX.to_json(), "from": "stone", "to": "dirt"}]}
+    assert EditList.from_json(by_hand).ops == [Replace(BOX, STONE, DIRT)]
     with pytest.raises(ValueError, match="no block ops"):
         EditList(WORLD).to_region()
     with pytest.raises(ValueError, match="unknown op"):

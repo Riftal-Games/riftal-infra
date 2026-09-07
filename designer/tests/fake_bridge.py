@@ -36,7 +36,7 @@ class FakeWorld:
     """Flat terrain: stone below ``SURFACE``, grass on it, air above and outside ``extent`` or y 0..127.
 
     Air is last in the palette on purpose, so the toolkit's remap to index 0 is exercised.
-    Writes land in ``edits`` on top of the terrain; the heightmap ignores them.
+    Writes land in ``edits`` on top of the terrain, and the heightmap is read from the same ``blocks``.
     """
 
     PALETTE = ["minecraft:stone", "minecraft:grass_block", "minecraft:air"]
@@ -72,9 +72,12 @@ class FakeWorld:
         return out
 
     def heightmap(self, bounds: Bounds2D) -> tuple[np.ndarray, np.ndarray]:
-        xs, zs = (np.arange(lo, hi + 1) for lo, hi in zip(bounds.min, bounds.max))
-        inside = self._inside(xs[None, :], zs[:, None])
-        return np.where(inside, self.SURFACE, -1), np.where(inside, 1, 2)
+        (x0, z0), (x1, z1) = bounds.min, bounds.max
+        blocks = self.blocks(Bounds((x0, 0, z0), (x1, self.HEIGHT - 1, z1)))
+        solid = blocks != self.palette.index("minecraft:air")
+        iy = solid.shape[0] - 1 - solid[::-1].argmax(axis=0)
+        found = solid.any(axis=0)
+        return np.where(found, iy, -1), np.where(found, np.take_along_axis(blocks, iy[None], axis=0)[0], 2)
 
 
 class FakeBridge:
