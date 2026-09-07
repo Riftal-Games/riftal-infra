@@ -1,9 +1,17 @@
+import numpy as np
 import pytest
 
 from designer.blocks import AIR
 from designer.bridge import Bridge
+from designer.builders.mine_spec import MineSpec
 from designer.region import Bounds, Region
 from tests.fake_bridge import FakeBridge
+
+MINE_SPEC = {
+    "name": "box", "world": "design", "origin": [0, 0, 0], "size": [20, 10, 20], "wall_thickness": 2, "floor_y": 2,
+    "entrance": {"side": "north", "width": 3, "height": 3}, "exit_path": {"length": 5, "width": 3},
+    "ores": {"stone": 60, "coal_ore": 30, "iron_ore": 10}, "seed": 1, "lights_every": 4, "reset_percent": 60,
+}
 
 
 @pytest.fixture
@@ -45,3 +53,27 @@ def ramp_with_ceiling(ramp_region: Region) -> Region:
     for x in range(24):
         ramp_region.fill(Bounds((x, x // 3 + 3, 0), (x, x // 3 + 3, 9)), "minecraft:stone")
     return ramp_region
+
+
+@pytest.fixture
+def box_mine_region() -> tuple[Region, MineSpec]:
+    """20x10x20 stone box, two-thick walls, interior 60/30/10 stone, coal, iron from seed 1, a 3x3 north opening onto a 3x5 platform, with the padding ring."""
+    spec = MineSpec.from_dict(MINE_SPEC)
+    geo = spec.geometry()
+    region = Region.empty(spec.world, geo.padding.union(geo.exit_platform))
+    region.fill(geo.outer, "minecraft:stone")
+    lut = np.array([region.index_of(name) for name in spec.ores], dtype=np.int16)
+    weights = np.array(list(spec.ores.values())) / sum(spec.ores.values())
+    inner = region.sub(geo.interior)
+    inner.blocks[...] = lut[np.random.default_rng(spec.seed).choice(len(lut), size=inner.blocks.shape, p=weights)]
+    region.fill(geo.entrance, AIR)
+    region.fill(geo.exit_platform, "minecraft:stone")
+    return region, spec
+
+
+@pytest.fixture
+def leaky_mine_region(box_mine_region: tuple[Region, MineSpec]) -> tuple[Region, MineSpec]:
+    """The box mine with a one-block hole through the east wall at y=3, z=10."""
+    region, spec = box_mine_region
+    region.fill(Bounds((18, 3, 10), (19, 3, 10)), AIR)
+    return region, spec

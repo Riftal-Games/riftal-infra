@@ -1,4 +1,4 @@
-"""Standing, pathing, travel time, light and floor checks over a ``Region``. Pure numpy, no server."""
+"""Standing, pathing, travel time, light, floor and mine checks over a ``Region``. Pure numpy, no server."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ from typing import Any
 
 import numpy as np
 
-from designer.blocks import BlockClass
+from designer.blocks import BlockClass, format_name, parse_name
+from designer.builders.mine_spec import MineSpec
 from designer.region import Bounds, LightRegion, Region
 
 # Bedrock player speeds on level ground, blocks per second.
@@ -35,6 +36,7 @@ RING = [(dz, dx) for dz in (-1, 0, 1) for dx in (-1, 0, 1)]
 # shape of the problem, few enough to read.
 LIGHT_WORST = 20
 HOLES_REPORTED = 50
+LEAKS_REPORTED = 20
 
 LIGHT_KINDS = ("block", "sky", "max")
 
@@ -63,6 +65,16 @@ class TravelResult(Check):
     seconds: float = 0.0
     blocks: float = 0.0
     path: list[Pos] = field(default_factory=list)
+
+
+@dataclass
+class MineResult(Check):
+    """``leaks`` are padding cells the interior reaches; ``composition`` observed fractions; ``deviations`` their distance from the spec."""
+
+    leaks: list[Pos] = field(default_factory=list)
+    entrances_found: int = 0
+    composition: dict[str, float] = field(default_factory=dict)
+    deviations: dict[str, float] = field(default_factory=dict)
 
 
 def stand_mask(region: Region) -> np.ndarray:
@@ -331,6 +343,99 @@ def no_holes(region: Region, floor_y: int, walkway_mask: np.ndarray) -> Check:
         for iz, ix in np.argwhere(holes)[:HOLES_REPORTED]
     ]
     return Check(False, f"{count} holes in the walkway", coords, {"holes": count})
+
+
+def _flood(open_: np.ndarray, seed: tuple[Any, ...], stop: np.ndarray) -> np.ndarray:
+    """Cells six-connected to the ``seed`` index of ``open_`` by dilation until stable; a ``stop`` cell is reached but never passed."""
+    reach = np.zeros(open_.shape, dtype=bool)
+    reach[seed] = True
+    while True:
+        front, grown = reach & ~stop, reach.copy()
+        for axis in range(3):
+            lo, hi = [slice(None)] * 3, [slice(None)] * 3
+            lo[axis], hi[axis] = slice(1, None), slice(None, -1)
+            grown[tuple(lo)] |= front[tuple(hi)]
+            grown[tuple(hi)] |= front[tuple(lo)]
+        grown &= open_
+        if grown.sum() == reach.sum():
+            return reach
+        reach = grown
+
+
+def _fractions(blocks: np.ndarray, names: list[str]) -> dict[str, float]:
+    """Share of each canonical name among the non-air cells of ``blocks``."""
+    counts = np.bincount(blocks[blocks != 0].ravel(), minlength=len(names))
+    out: dict[str, float] = {}
+    for name, share in zip(names, counts / max(int(counts.sum()), 1)):
+        if share:
+            out[name] = out.get(name, 0.0) + float(share)
+    return out
+
+
+def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> MineResult:
+    """The mine in ``region`` is enclosed, opens only where declared, holds the declared ores and stands on a floor.
+
+    Enclosure floods from the whole interior, passable since all of it gets mined, never through the entrance; a
+    padding ring cell it reaches is a leak. The entrance must be passable through the whole wall, and any other
+    passable surface component is undeclared. Composition compares each block's share of the non-air interior to the
+    normalised weights, per ore layer where given and ``ores`` elsewhere; an unnamed block deviates by its whole share
+    and an empty band passes, so does a mined-out mine. The floor is solid under every interior column. ``detail`` names
+    every failing rule; ``coords`` holds leaks, undeclared cells, then missing floor cells, ``LEAKS_REPORTED`` of each.
+    """
+    geo = spec.geometry()
+    if region.world != spec.world:
+        raise ValueError(f"region is from world {region.world!r}, spec names {spec.world!r}")
+    if region.bounds.intersect(geo.padding) != geo.padding:
+        raise ValueError(f"region {region.bounds.min}..{region.bounds.max} does not cover the padding {geo.padding.min}..{geo.padding.max}")
+    open_ = region.sub(geo.padding).passable().copy()
+    open_[geo.padding.slices(geo.interior)] = True
+    open_[geo.padding.slices(geo.entrance)] = False
+    ring = np.ones(open_.shape, dtype=bool)
+    ring[geo.padding.slices(geo.outer)] = False
+    reach = _flood(open_, geo.padding.slices(geo.interior), ring) & ring
+    leaks = [_world(geo.padding, at) for at in np.argwhere(reach)[:LEAKS_REPORTED]]
+
+    shell = region.sub(geo.outer).passable()
+    surface, opening = np.zeros(shell.shape, dtype=bool), np.zeros(shell.shape, dtype=bool)
+    for axis in range(3):
+        surface[tuple(0 if a == axis else slice(None) for a in range(3))] = True
+        surface[tuple(-1 if a == axis else slice(None) for a in range(3))] = True
+    opening[geo.outer.slices(geo.entrance)] = True
+    entrance_ok = bool(shell[opening].all())
+    left, components, undeclared = surface & shell, 0, []
+    while left.any():
+        part = _flood(left, tuple(np.argwhere(left)[0]), np.zeros(left.shape, dtype=bool))
+        left, components = left & ~part, components + 1
+        if (part & ~opening).any():
+            undeclared.extend(_world(geo.outer, at) for at in np.argwhere(part))
+
+    inner = region.sub(geo.interior).blocks
+    names = [format_name(*parse_name(name)) for name in region.palette]
+    ys = np.arange(geo.interior.min[1], geo.interior.max[1] + 1)
+    bands = [((ys >= l.y_from) & (ys <= l.y_to), l.ores, f"@{l.y_from}..{l.y_to}") for l in spec.ore_layers]
+    bands.append((~np.logical_or.reduce([np.zeros(len(ys), dtype=bool), *(rows for rows, _, _ in bands)]), spec.ores, ""))
+    deviations: dict[str, float] = {}
+    for rows, ores, suffix in bands:
+        observed, total = _fractions(inner[rows], names), sum(ores.values())
+        for name in (observed.keys() | ores.keys()) if observed else ():
+            deviations[name + suffix] = abs(observed.get(name, 0.0) - ores.get(name, 0.0) / total)
+
+    _, zs, xs = region.bounds.slices(geo.interior)
+    missing = region.classes()[spec.floor_y - 1 - region.bounds.min[1], zs, xs] != BlockClass.SOLID
+    gaps = [_world(geo.interior, (-1, iz, ix)) for iz, ix in np.argwhere(missing)[:LEAKS_REPORTED]]
+    failing = [
+        text for text, bad in (
+            (f"{int(reach.sum())} leaks", leaks), ("entrance not open", not entrance_ok),
+            (f"{len(undeclared)} undeclared opening cells", undeclared),
+            ("composition off", any(d > tolerance for d in deviations.values())),
+            (f"{int(missing.sum())} floor cells missing", gaps),
+        ) if bad
+    ]
+    data = {"undeclared": undeclared[:LEAKS_REPORTED], "floor_missing": int(missing.sum())}
+    return MineResult(
+        not failing, "; ".join(failing) or "mine valid", leaks + data["undeclared"] + gaps, data,
+        leaks=leaks, entrances_found=components, composition=_fractions(inner, names), deviations=deviations,
+    )
 
 
 def region_inside(inner: Bounds, outer: Bounds) -> Check:
