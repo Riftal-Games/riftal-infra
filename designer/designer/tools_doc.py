@@ -21,27 +21,27 @@ from designer import config, mcp_server
 
 TOOLS_MD = config.PROJECT_ROOT / "TOOLS.md"
 RETURNS_TAG = "RETURNS:"
-DEFAULT_RETURNS = "see the ok envelope"
 HEADER = (
     "# Designer MCP tools\n\n"
-    "Rendered by `python -m designer.tools_doc` from the tools `designer.mcp_server` registers; write in the docstrings.\n"
+    "Rendered by `python -m designer.tools_doc`; edit the docstrings in designer/designer/mcp_server.py, not this file.\n"
     "Every tool answers `{\"ok\": true, ...}` with the keys on its `Returns` line, or `{\"ok\": false, \"error\": ..., \"code\": ...}`.\n"
 )
 
 
-def split_description(doc: str) -> tuple[str, str]:
-    """The description without its ``RETURNS:`` trailer, and the trailer's text or the default."""
+def split_description(doc: str, name: str) -> tuple[str, str]:
+    """The description without its ``RETURNS:`` trailer, and the trailer's text; a tool without one is an error."""
     lines = inspect.cleandoc(doc).splitlines()
     trailers = [line[len(RETURNS_TAG):].strip() for line in lines if line.startswith(RETURNS_TAG)]
-    body = "\n".join(line for line in lines if not line.startswith(RETURNS_TAG)).strip()
-    return body, trailers[-1] if trailers else DEFAULT_RETURNS
+    if not trailers:
+        raise ValueError(f"tool {name!r} has no {RETURNS_TAG} trailer in its docstring")
+    return "\n".join(line for line in lines if not line.startswith(RETURNS_TAG)).strip(), trailers[-1]
 
 
 def render_tools_md(mcp: FastMCP) -> str:
     """The whole document, LF only, one section per tool in name order."""
     sections = []
     for tool in sorted(anyio.run(mcp.list_tools), key=lambda t: t.name):
-        description, returns = split_description(tool.description or "")
+        description, returns = split_description(tool.description or "", tool.name)
         schema = json.dumps(tool.inputSchema, sort_keys=True)
         sections.append(f"## {tool.name}\n\n{description}\n\n```json\n{schema}\n```\nReturns: {returns}\n")
     return "\n".join([HEADER, *sections])

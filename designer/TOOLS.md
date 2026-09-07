@@ -1,6 +1,6 @@
 # Designer MCP tools
 
-Rendered by `python -m designer.tools_doc` from the tools `designer.mcp_server` registers; write in the docstrings.
+Rendered by `python -m designer.tools_doc`; edit the docstrings in designer/designer/mcp_server.py, not this file.
 Every tool answers `{"ok": true, ...}` with the keys on its `Returns` line, or `{"ok": false, "error": ..., "code": ...}`.
 
 ## define_location
@@ -46,7 +46,7 @@ Entries of ``world_index.json``: ``kind`` is worlds, locations or regions; ``tag
 ```json
 {"properties": {"kind": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "Kind"}, "tag": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "Tag"}}, "title": "index_listArguments", "type": "object"}
 ```
-Returns: default_world, then a list per kind asked for: worlds, locations, regions.
+Returns: default_world, then a list per kind asked for: worlds, locations, regions; a tag drops worlds.
 
 ## index_remove
 
@@ -109,7 +109,7 @@ Write a PNG under ``reports/`` and return its path with a summary; ``kind`` is `
 ```json
 {"properties": {"at": {"title": "At", "type": "string"}, "kind": {"default": "topdown", "title": "Kind", "type": "string"}, "size": {"default": 64, "title": "Size", "type": "integer"}, "world": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "World"}}, "required": ["at"], "title": "renderArguments", "type": "object"}
 ```
-Returns: see the ok envelope
+Returns: path, summary.
 
 ## replace
 
@@ -136,7 +136,7 @@ Whether the bridge answers, its round trip, ``server_info``, the designer flag a
 ```json
 {"properties": {}, "title": "server_statusArguments", "type": "object"}
 ```
-Returns: connected, rtt_ms, server_info, designer, worlds; or connected false with error.
+Returns: connected, rtt_ms, server_info, designer, worlds; or connected false, designer false and error.
 
 ## set_blocks
 

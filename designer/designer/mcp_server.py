@@ -129,7 +129,7 @@ def _save(entry: Location | NamedRegion | None = None) -> dict[str, Any]:
 async def server_status() -> dict[str, Any]:
     """Whether the bridge answers, its round trip, ``server_info``, the designer flag and the worlds on disk.
 
-    RETURNS: connected, rtt_ms, server_info, designer, worlds; or connected false with error.
+    RETURNS: connected, rtt_ms, server_info, designer, worlds; or connected false, designer false and error.
     """
     return await _run(_status)
 
@@ -137,7 +137,7 @@ async def server_status() -> dict[str, Any]:
 async def index_list(kind: str | None = None, tag: str | None = None) -> dict[str, Any]:
     """Entries of ``world_index.json``: ``kind`` is worlds, locations or regions; ``tag`` filters locations and regions.
 
-    RETURNS: default_world, then a list per kind asked for: worlds, locations, regions.
+    RETURNS: default_world, then a list per kind asked for: worlds, locations, regions; a tag drops worlds.
     """
     if kind is not None and kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
@@ -170,7 +170,10 @@ async def heightmap_ascii(at: str, size: int = 64, world: str | None = None) -> 
 
 @tool
 async def render(at: str, kind: str = "topdown", size: int = 64, world: str | None = None) -> dict[str, Any]:
-    """Write a PNG under ``reports/`` and return its path with a summary; ``kind`` is ``topdown``."""
+    """Write a PNG under ``reports/`` and return its path with a summary; ``kind`` is ``topdown``.
+
+    RETURNS: path, summary.
+    """
     if kind != "topdown":
         raise ValueError(f"unknown render kind {kind!r}; only topdown exists")
     hm, markers = await _run(_area, at, size, world)
