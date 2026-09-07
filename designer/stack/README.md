@@ -2,8 +2,8 @@
 
 One core container, no proxy, no database. `compose.yaml` is the definition;
 the commands below are its standard docker form, followed by the `wslc` form
-that was actually run on Nasir's machine. All paths assume this directory as
-the working directory and `pmmp-core` as a sibling of `riftal-infra`.
+for local use. All paths assume this directory as the working directory and
+`pmmp-core` as a sibling of `riftal-infra`.
 
 The world lives on the named volume `designer-world`. Containers are
 disposable, that volume is not. Never `down -v`, never `volume remove` it.
@@ -50,6 +50,14 @@ docker run --rm \
     --make src,plugin.yml,resources --relative /src --out /out/DesignBridge.phar
 ```
 
+`compose.yaml` mounts the DesignBridge source by default, so to run from
+`DesignBridge.phar` instead, point `DESIGNBRIDGE_SRC` at an empty directory:
+
+```sh
+mkdir -p empty
+DESIGNBRIDGE_SRC=./empty docker compose up -d
+```
+
 ## Start
 
 ```sh
@@ -57,10 +65,10 @@ docker compose up -d
 docker compose logs -f designer
 ```
 
-Ready is the line `Done (0.9s)! For help, type "help" or "?"`. DevTools is
-loaded when `[DevTools] Registered folder plugin loader` and `Enabling DevTools`
-appear before it. Any `[CRITICAL]` or exception in the log is a failed boot
-even though the container is still running.
+Ready is the line starting `Done (`; the timing in the parentheses varies per
+boot. DevTools is loaded when `[DevTools] Registered folder plugin loader` and
+`Enabling DevTools` appear before it. Any `[CRITICAL]` or exception in the log
+is a failed boot even though the container is still running.
 
 `start.sh` prints a `WARNING` that files under `/plugins` are not owned by
 `pocketmine` when `plugins/` is a bind mount from Windows. The phar still loads;
@@ -107,10 +115,17 @@ hand. Nothing in `compose.yaml` depends on this; production runs standard
 docker. Run from Git Bash with `MSYS_NO_PATHCONV=1` so the `C:/...:/...` mount
 arguments survive.
 
+The translation omits the DesignBridge source mount. `riftal-game/designbridge`
+does not exist yet, and `wslc run` creates a missing bind source, so the flag
+would leave a stray empty directory inside the `riftal-game` checkout and mount
+nothing. Add `-v "$GAME/designbridge:/plugins/DesignBridge:ro"` once the plugin
+exists, and drop it again whenever `DesignBridge.phar` is in `plugins/`.
+
 ```sh
 export MSYS_NO_PATHCONV=1
 STACK=C:/Users/nasir/riftal-games/riftal-infra/designer/stack
 CORE=C:/Users/nasir/riftal-games/pmmp-core
+GAME=C:/Users/nasir/riftal-games/riftal-game
 
 wslc build -f "$CORE/docker/Dockerfile" -t local-pocketmine-mp \
   --build-arg GIT_HASH="$(git -C "$CORE" rev-parse HEAD)" "$CORE"
