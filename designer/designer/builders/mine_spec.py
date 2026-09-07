@@ -77,17 +77,20 @@ class MineSpec:
         missing = [k for k in ("name", "world", "origin", "size", "floor_y", "entrance", "exit_path", "ores") if k not in data]
         if missing:
             raise ValueError(f"mine spec is missing {missing}")
-        if any(len(data[k]) != 3 for k in ("origin", "size")):
-            raise ValueError("origin and size must be three integers")
-        door, path = data["entrance"], data["exit_path"]
-        spec = cls(
-            str(data["name"]), str(data["world"]), tuple(int(v) for v in data["origin"]), tuple(int(v) for v in data["size"]),
-            int(data.get("wall_thickness", 2)), int(data["floor_y"]),
-            Entrance(str(door["side"]), int(door["width"]), int(door["height"]), int(door.get("offset", 0))),
-            ExitPath(int(path["length"]), int(path["width"])), _weights(data["ores"], "ores"),
-            tuple(OreLayer(int(l["y_from"]), int(l["y_to"]), _weights(l["ores"], "ore_layers")) for l in data.get("ore_layers") or ()),
-            str(data.get("fill", "solid")), int(data.get("seed", 0)), int(data.get("lights_every", 4)), int(data.get("reset_percent", 60)),
-        )
+        try:
+            if any(len(data[k]) != 3 for k in ("origin", "size")):
+                raise ValueError("origin and size must be three integers")
+            door, path = data["entrance"], data["exit_path"]
+            spec = cls(
+                str(data["name"]), str(data["world"]), tuple(int(v) for v in data["origin"]), tuple(int(v) for v in data["size"]),
+                int(data.get("wall_thickness", 2)), int(data["floor_y"]),
+                Entrance(str(door["side"]), int(door["width"]), int(door["height"]), int(door.get("offset", 0))),
+                ExitPath(int(path["length"]), int(path["width"])), _weights(data["ores"], "ores"),
+                tuple(OreLayer(int(l["y_from"]), int(l["y_to"]), _weights(l["ores"], "ore_layers")) for l in data.get("ore_layers") or ()),
+                str(data.get("fill", "solid")), int(data.get("seed", 0)), int(data.get("lights_every", 4)), int(data.get("reset_percent", 60)),
+            )
+        except (TypeError, KeyError) as e:
+            raise ValueError(f"mine spec is malformed: {e!r}") from e
         spec.validate()
         return spec
 
@@ -111,6 +114,9 @@ class MineSpec:
         for layer in self.ore_layers:
             if not geo.interior.min[1] <= layer.y_from <= layer.y_to <= geo.interior.max[1]:
                 raise ValueError(f"ore layer {layer.y_from}..{layer.y_to} is outside the interior y {geo.interior.min[1]}..{geo.interior.max[1]}")
+        spans = sorted((layer.y_from, layer.y_to) for layer in self.ore_layers)
+        if any(a[1] >= b[0] for a, b in zip(spans, spans[1:])):
+            raise ValueError(f"ore layers {spans} overlap")
 
     def geometry(self) -> MineGeometry:
         """Bounds of every part. The entrance is centred on the interior, an even width leaning to the upper middle, plus ``offset``."""

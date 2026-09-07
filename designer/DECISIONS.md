@@ -267,13 +267,11 @@ obstruction, liquid and danger included.
 
 ## 2026-09-08 `MineSpec.geometry()` is the one source of a mine's bounds; `mine_valid` floods the interior as open and stops at the padding ring
 
-The builder and the check read the same `MineGeometry`, so a wall the
-builder places one block off is a leak the check names rather than a
-disagreement between two copies of the arithmetic. The flood treats every
-interior cell as passable because a mine ships solid and is hollowed by
-players, so a check on the freshly built box would otherwise fill nothing
-and prove nothing. It reaches the padding ring but never expands from it,
-so `leaks` names the cells beside each hole instead of the whole ring, which
-is what a builder pastes into a teleport. An even entrance width leans to
-the upper middle, the same rule as `Bounds.from_center`, so the platform, the
-opening and `resolve_pos` of the interior all agree on where the centre is.
+The builder and the check read the same `MineGeometry`, so a wall the builder
+places one block off is a named leak, not a disagreement between two copies of
+the arithmetic. The flood starts from every interior cell, treated as passable
+because a mine ships solid and is hollowed by players; a check on the built box
+would otherwise prove nothing. It reaches the padding ring but never passes it,
+so `leaks` names the cells beside each hole, which a builder teleports to, not
+the whole ring. An even entrance width leans to the upper middle, as in
+`Bounds.from_center`, so platform, opening and `resolve_pos` agree on the centre.

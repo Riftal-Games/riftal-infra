@@ -345,8 +345,8 @@ def no_holes(region: Region, floor_y: int, walkway_mask: np.ndarray) -> Check:
     return Check(False, f"{count} holes in the walkway", coords, {"holes": count})
 
 
-def _flood(open_: np.ndarray, seed: tuple[int, int, int], stop: np.ndarray) -> np.ndarray:
-    """Cells six-connected to ``seed`` through ``open_`` by dilation until stable; a ``stop`` cell is reached but never passed."""
+def _flood(open_: np.ndarray, seed: tuple[Any, ...], stop: np.ndarray) -> np.ndarray:
+    """Cells six-connected to the ``seed`` index of ``open_`` by dilation until stable; a ``stop`` cell is reached but never passed."""
     reach = np.zeros(open_.shape, dtype=bool)
     reach[seed] = True
     while True:
@@ -375,16 +375,12 @@ def _fractions(blocks: np.ndarray, names: list[str]) -> dict[str, float]:
 def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> MineResult:
     """The mine in ``region`` is enclosed, opens only where declared, holds the declared ores and stands on a floor.
 
-    Enclosure floods from the interior centre at ``floor_y`` through passable
-    cells and the whole interior, since all of it gets mined, never through
-    the entrance; a padding ring cell it reaches is a leak. Openings are the
-    components of passable cells on the shell's surface, undeclared unless
-    inside the entrance. Composition is each block's share of the interior's
-    non-air cells against the normalised weights, per ore layer where given
-    and ``ores`` elsewhere, a block the spec does not name deviating by its
-    whole share. The floor is solid under every interior column. ``detail``
-    names every failing rule; ``coords`` holds the leaks, the undeclared
-    cells, then the missing floor cells, each capped at ``LEAKS_REPORTED``.
+    Enclosure floods from the whole interior, passable since all of it gets mined, never through the entrance; a
+    padding ring cell it reaches is a leak. The entrance must be passable through the whole wall, and any other
+    passable surface component is undeclared. Composition compares each block's share of the non-air interior to the
+    normalised weights, per ore layer where given and ``ores`` elsewhere; an unnamed block deviates by its whole share
+    and an empty band passes, so does a mined-out mine. The floor is solid under every interior column. ``detail`` names
+    every failing rule; ``coords`` holds leaks, undeclared cells, then missing floor cells, ``LEAKS_REPORTED`` of each.
     """
     geo = spec.geometry()
     if region.world != spec.world:
@@ -396,8 +392,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     open_[geo.padding.slices(geo.entrance)] = False
     ring = np.ones(open_.shape, dtype=bool)
     ring[geo.padding.slices(geo.outer)] = False
-    centre = tuple((a + b + 1) // 2 for a, b in zip(geo.interior.min, geo.interior.max))
-    reach = _flood(open_, geo.padding.local((centre[0], spec.floor_y, centre[2])), ring) & ring
+    reach = _flood(open_, geo.padding.slices(geo.interior), ring) & ring
     leaks = [_world(geo.padding, at) for at in np.argwhere(reach)[:LEAKS_REPORTED]]
 
     shell = region.sub(geo.outer).passable()
@@ -406,7 +401,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
         surface[tuple(0 if a == axis else slice(None) for a in range(3))] = True
         surface[tuple(-1 if a == axis else slice(None) for a in range(3))] = True
     opening[geo.outer.slices(geo.entrance)] = True
-    entrance_ok = bool(shell[surface & opening].all())
+    entrance_ok = bool(shell[opening].all())
     left, components, undeclared = surface & shell, 0, []
     while left.any():
         part = _flood(left, tuple(np.argwhere(left)[0]), np.zeros(left.shape, dtype=bool))
@@ -417,7 +412,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     inner = region.sub(geo.interior).blocks
     names = [format_name(*parse_name(name)) for name in region.palette]
     ys = np.arange(geo.interior.min[1], geo.interior.max[1] + 1)
-    bands = [((ys >= l.y_from) & (ys <= l.y_to), l.ores, f"[{l.y_from}..{l.y_to}]") for l in spec.ore_layers]
+    bands = [((ys >= l.y_from) & (ys <= l.y_to), l.ores, f"@{l.y_from}..{l.y_to}") for l in spec.ore_layers]
     bands.append((~np.logical_or.reduce([np.zeros(len(ys), dtype=bool), *(rows for rows, _, _ in bands)]), spec.ores, ""))
     deviations: dict[str, float] = {}
     for rows, ores, suffix in bands:

@@ -25,7 +25,9 @@ def test_from_dict_rejects_a_spec_that_does_not_fit() -> None:
         ({"size": [4, 10, 20]}, "interior"), ({"entrance": {"side": "up", "width": 3, "height": 3}}, "side"),
         ({"entrance": {"side": "north", "width": 17, "height": 3}}, "fit"), ({"floor_y": 0}, "floor_y"),
         ({"ores": {"stone": -1}}, "positive"), ({"ore_layers": [{"y_from": 0, "y_to": 3, "ores": {"stone": 1}}]}, "outside"),
-        ({"fill": "sparse"}, "fill"), ({"reset_percent": 0}, "reset_percent"),
+        ({"fill": "sparse"}, "fill"), ({"reset_percent": 0}, "reset_percent"), ({"origin": 0}, "malformed"),
+        ({"ore_layers": [{"y_from": 2, "y_to": 4, "ores": {"stone": 1}}, {"y_from": 4, "y_to": 5, "ores": {"stone": 1}}]}, "overlap"),
+        ({"ore_layers": [{"y_from": 2, "y_to": 2}]}, "malformed"), ({"entrance": {"width": 3, "height": 3}}, "malformed"),
     )
     for change, match in broken:
         with pytest.raises(ValueError, match=match):
@@ -67,7 +69,7 @@ def test_wrong_weights_fail_with_per_block_deviations(box_mine_region: Fixture) 
     assert mine_valid(region, spec, tolerance=0.2).ok
     layered = MineSpec.from_dict({**MINE_SPEC, "ore_layers": [{"y_from": 2, "y_to": 2, "ores": {"gravel": 1}}]})
     found = mine_valid(region, layered)
-    assert found.ok and found.deviations["minecraft:gravel[2..2]"] == 0.0 and "minecraft:gravel" not in found.deviations
+    assert found.ok and found.deviations["minecraft:gravel@2..2"] == 0.0 and "minecraft:gravel" not in found.deviations
     assert found.composition["minecraft:gravel"] == pytest.approx(1 / 6)
 
 
@@ -80,6 +82,11 @@ def test_an_undeclared_opening_is_detected(box_mine_region: Fixture) -> None:
     region.fill(Bounds((9, 2, 0), (11, 4, 1)), "minecraft:stone")
     found = mine_valid(region, spec)
     assert found.detail == "entrance not open; 1 undeclared opening cells" and found.entrances_found == 1
+
+
+def test_a_mine_sealed_behind_its_doorway_is_not_open(box_mine_region: Fixture) -> None:
+    box_mine_region[0].fill(Bounds((9, 2, 1), (11, 4, 1)), "minecraft:stone")
+    assert mine_valid(*box_mine_region).detail == "entrance not open"
 
 
 def test_a_missing_floor_block_is_reported(box_mine_region: Fixture) -> None:
