@@ -37,3 +37,11 @@ def ramp_region() -> Region:
     for x in range(30):
         region.fill(Bounds((x, 0, 0), (x, x // 3 if x < 24 else 9, 9)), "minecraft:stone")
     return region
+
+
+@pytest.fixture
+def ramp_with_ceiling(ramp_region: Region) -> Region:
+    """The ramp with a solid layer over two blocks of air above its rising floor, so no step up has head room."""
+    for x in range(24):
+        ramp_region.fill(Bounds((x, x // 3 + 3, 0), (x, x // 3 + 3, 9)), "minecraft:stone")
+    return ramp_region

@@ -56,24 +56,24 @@ def _passable(classes: np.ndarray) -> np.ndarray:
     return (classes == BlockClass.AIR) | (classes == BlockClass.PASSABLE)
 
 
-def stand_mask(region: Region, *, max_drop: int = 1) -> np.ndarray:
+def stand_mask(region: Region) -> np.ndarray:
     """Bool ``[y][z][x]``: a player can stand with feet in the cell.
 
     Solid floor below, the cell and the one above passable. The top and bottom
     layers are never standable because their floor or head cell is outside the
-    region. Cached on the region under ``max_drop`` until its blocks change;
-    a view computes fresh because its parent's edits do not reach its cache.
+    region. The mask is independent of any drop limit, so one array is cached
+    on the region until its blocks change; a view computes fresh because its
+    parent's edits do not reach its cache.
     """
-    cached = None if region._parent is not None else region._stand.get(max_drop)
-    if cached is not None:
-        return cached
+    if region._parent is None and region._stand is not None:
+        return region._stand
     classes = region.classes()
     passable = _passable(classes)
     mask = np.zeros(classes.shape, dtype=bool)
     if classes.shape[0] >= 3:
         mask[1:-1] = (classes[:-2] == BlockClass.SOLID) & passable[1:-1] & passable[2:]
     if region._parent is None:
-        region._stand[max_drop] = mask
+        region._stand = mask
     return mask
 
 
@@ -109,7 +109,7 @@ def path_exists(
     ``STEP_UP`` per block climbed and ``DROP`` per block fallen, and the
     heuristic charges the same per-block rates so it never overestimates.
     """
-    mask = stand_mask(region, max_drop=max_drop)
+    mask = stand_mask(region)
     start = _snap(mask, region.bounds, a, snap_radius)
     if start is None:
         return PathResult(False, "start not standable", [tuple(int(v) for v in a)])
@@ -171,12 +171,14 @@ def path_exists(
             steps = [(y, base + 1.0)]
             if y + 2 < ny and passable[(y + 2) * plane + z * nx + x]:
                 steps.append((y + 1, base + 1.0 + STEP_UP))
-            for d in range(1, max_drop + 1):
-                if y - d < 1 or not passable[(y - d + 1) * plane + col]:
-                    break
-                steps.append((y - d, base + 1.0 + DROP * d))
-                if stand[(y - d) * plane + col]:
-                    break
+            # The head enters the neighbour column before the feet leave the ledge.
+            if passable[(y + 1) * plane + col]:
+                for d in range(1, max_drop + 1):
+                    if y - d < 1 or not passable[(y - d + 1) * plane + col]:
+                        break
+                    steps.append((y - d, base + 1.0 + DROP * d))
+                    if stand[(y - d) * plane + col]:
+                        break
             for y2, cost in steps:
                 nb = y2 * plane + col
                 if stand[nb] and not closed[nb] and cost < g[nb]:

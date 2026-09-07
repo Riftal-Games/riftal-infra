@@ -1,5 +1,3 @@
-import time
-
 import numpy as np
 import pytest
 
@@ -26,17 +24,14 @@ def test_stand_mask_shape_edges_and_cache(flat_plane_with_hole: Region) -> None:
     assert not stand_mask(flat_plane_with_hole)[4, 3, 3]
 
 
-def test_path_across_plane_is_near_manhattan_and_fast(flat_plane_with_hole: Region) -> None:
-    started = time.perf_counter()
+def test_path_across_plane_is_near_manhattan_and_bounded(flat_plane_with_hole: Region) -> None:
     found = path_exists(flat_plane_with_hole, A, B)
-    elapsed = time.perf_counter() - started
     assert found.ok and found.detail == "path found"
     assert found.path[0] == A and found.path[-1] == B and _adjacent(found.path)
     assert 35 <= found.length <= 35 + 4
     assert found.length == len(found.path) - 1
-    assert 0 < found.explored < 40 * 40
+    assert 0 < found.explored <= 4 * 40, found.explored
     assert all(p[1] == 4 for p in found.path)
-    assert elapsed < 1.0, elapsed
 
 
 def test_widened_hole_gives_no_path_with_hints(flat_plane_with_hole: Region) -> None:
@@ -102,3 +97,29 @@ def test_endpoints_snap_to_the_nearest_standable_cell(flat_plane_with_hole: Regi
     found = path_exists(flat_plane_with_hole, (2, 6, 20), (37, 3, 20))
     assert found.ok and found.path[0] == A and found.path[-1] == B
     assert found.data["start"] == A and found.data["goal"] == B
+
+
+def test_step_up_needs_head_room_over_the_jump(ramp_with_ceiling: Region) -> None:
+    found = path_exists(ramp_with_ceiling, (1, 1, 5), (22, 8, 5))
+    assert not found.ok and found.detail == "no path"
+    assert all(x <= 2 and y == 1 for x, y, _ in found.coords)
+
+
+def test_drop_needs_head_room_at_take_off() -> None:
+    # A lintel over the lower cell: walking off the ledge puts the head into
+    # it, and the jump back up has nowhere for the head, so both ways are shut.
+    region = Region.empty("lintel", Bounds((0, 0, 0), (2, 5, 0)))
+    for pos in ((0, 0, 0), (0, 1, 0), (1, 0, 0), (2, 0, 0), (1, 3, 0)):
+        region.set(*pos, "minecraft:stone")
+    assert path_exists(region, (0, 2, 0), (1, 1, 0)).detail == "no path"
+    assert path_exists(region, (1, 1, 0), (0, 2, 0)).detail == "no path"
+
+
+def test_water_floor_is_not_standable(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(5, 3, 5, "minecraft:water")
+    assert not stand_mask(flat_plane_with_hole)[4, 5, 5]
+
+
+def test_lava_at_the_feet_is_not_standable(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(6, 4, 6, "minecraft:lava")
+    assert not stand_mask(flat_plane_with_hole)[4, 6, 6]
