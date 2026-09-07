@@ -238,7 +238,7 @@ class Region:
         self._invalidate()
 
     def classes(self) -> np.ndarray:
-        """``BlockClass`` per block as uint8, cached until the next ``set``."""
+        """``BlockClass`` per block as uint8, cached until the next ``set``, ``fill``, ``replace`` or ``index_of``."""
         if self._parent is not None:
             return self._parent.classes()[self._parent.bounds.slices(self.bounds)]
         if self._classes is None:

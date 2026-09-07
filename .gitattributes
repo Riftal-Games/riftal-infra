@@ -2,3 +2,5 @@
 # containers. A CRLF shebang makes the interpreter unfindable.
 *.sh text eol=lf
 *.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf

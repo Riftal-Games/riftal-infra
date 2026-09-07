@@ -15,6 +15,7 @@ from designer.region import MAX_EDGE, Bounds, Region
 
 # The bridge's ``max_set_blocks``; a bigger batch is refused before it is sent.
 MAX_SET_BLOCKS = 65536
+DEFAULT_BATCH = 4096
 COALESCE_RUN = 8
 
 
@@ -117,7 +118,7 @@ def _op_from_json(data: dict[str, Any]) -> Op:
     if kind == "fill":
         return Fill(Bounds.from_json(data["bounds"]), data["block"])
     if kind == "replace":
-        return Replace(Bounds.from_json(data["bounds"]), tuple(data["from"]), data["to"])
+        return Replace(Bounds.from_json(data["bounds"]), data["from"], data["to"])
     if kind == "text":
         return Text(*data["pos"], data["text"], data.get("id"))
     raise ValueError(f"unknown op {kind!r}")
@@ -195,7 +196,7 @@ class EditList:
     def from_json(cls, data: dict[str, Any]) -> EditList:
         return cls(data["world"], [_op_from_json(op) for op in data["ops"]], dict(data.get("extras") or {}))
 
-    def requests(self, batch: int = 4096) -> list[tuple[str, dict[str, Any], int]]:
+    def requests(self, batch: int = DEFAULT_BATCH) -> list[tuple[str, dict[str, Any], int]]:
         """What ``apply`` sends, in order, as ``(op, args, blocks)``.
 
         ``SetBlock``s pack into ``set_blocks`` of at most ``batch``; a ``Fill``
@@ -219,7 +220,7 @@ class EditList:
         return out
 
     def apply(
-        self, bridge: Bridge, *, dry_run: bool = False, batch: int = 4096,
+        self, bridge: Bridge, *, dry_run: bool = False, batch: int = DEFAULT_BATCH,
         on_progress: Callable[[int, int], None] | None = None,
         before: Callable[[str, Bounds], Any] | None = None,
     ) -> ApplyResult:
