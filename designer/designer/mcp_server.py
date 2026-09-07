@@ -127,12 +127,18 @@ def _save(entry: Location | NamedRegion | None = None) -> dict[str, Any]:
 
 @tool
 async def server_status() -> dict[str, Any]:
-    """Whether the bridge answers, its round trip, ``server_info``, the designer flag and the worlds on disk."""
+    """Whether the bridge answers, its round trip, ``server_info``, the designer flag and the worlds on disk.
+
+    RETURNS: connected, rtt_ms, server_info, designer, worlds; or connected false, designer false and error.
+    """
     return await _run(_status)
 
 @tool
 async def index_list(kind: str | None = None, tag: str | None = None) -> dict[str, Any]:
-    """Entries of ``world_index.json``: ``kind`` is worlds, locations or regions; ``tag`` filters locations and regions."""
+    """Entries of ``world_index.json``: ``kind`` is worlds, locations or regions; ``tag`` filters locations and regions.
+
+    RETURNS: default_world, then a list per kind asked for: worlds, locations, regions; a tag drops worlds.
+    """
     if kind is not None and kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
     if kind == "worlds" and tag is not None:
@@ -146,19 +152,28 @@ async def index_list(kind: str | None = None, tag: str | None = None) -> dict[st
 
 @tool
 async def index_resolve(name: str) -> dict[str, Any]:
-    """The location or region called ``name`` and the position it stands for; a region resolves to its centre."""
+    """The location or region called ``name`` and the position it stands for; a region resolves to its centre.
+
+    RETURNS: kind, entry, pos.
+    """
     entry = index().resolve(name)
     return {"kind": type(entry).__name__.lower().removeprefix("named"), "entry": entry.to_json(), "pos": list(index().resolve_pos(name))}
 
 @tool
 async def heightmap_ascii(at: str, size: int = 64, world: str | None = None) -> dict[str, Any]:
-    """An ASCII heightmap of a ``size`` square (at most 256) around ``at``: a name, ``x,z`` or ``x,y,z``."""
+    """An ASCII heightmap of a ``size`` square (at most 256) around ``at``: a name, ``x,z`` or ``x,y,z``.
+
+    RETURNS: text, summary.
+    """
     hm, markers = await _run(_area, at, size, world)
     return {"text": ascii_heightmap(hm, markers), "summary": _summary(hm)}
 
 @tool
 async def render(at: str, kind: str = "topdown", size: int = 64, world: str | None = None) -> dict[str, Any]:
-    """Write a PNG under ``reports/`` and return its path with a summary; ``kind`` is ``topdown``."""
+    """Write a PNG under ``reports/`` and return its path with a summary; ``kind`` is ``topdown``.
+
+    RETURNS: path, summary.
+    """
     if kind != "topdown":
         raise ValueError(f"unknown render kind {kind!r}; only topdown exists")
     hm, markers = await _run(_area, at, size, world)
@@ -167,14 +182,20 @@ async def render(at: str, kind: str = "topdown", size: int = 64, world: str | No
 
 @tool
 async def inspect(at: str, radius: int = 3, world: str | None = None) -> dict[str, Any]:
-    """Block counts and one ASCII slice per y around ``at``, ``radius`` at most 8; glyphs ``. # ~ , !`` by class."""
+    """Block counts and one ASCII slice per y around ``at``, ``radius`` at most 8; glyphs ``. # ~ , !`` by class.
+
+    RETURNS: world, center, bounds, counts, slices as [{y, rows}] from the lowest y up.
+    """
     return await _run(_inspect, at, radius, world)
 
 @tool
 async def define_region(
     name: str, min: list[int], max: list[int], world: str, tags: list[str] | None = None, meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Add a named region to the index and save it; the name must be new and match ``[a-z0-9_]+``."""
+    """Add a named region to the index and save it; the name must be new and match ``[a-z0-9_]+``.
+
+    RETURNS: entry, the region as saved.
+    """
     entry = index().add_region(NamedRegion(name, world, tuple(min), tuple(max), list(tags or []), dict(meta or {})))
     return await _run(_save, entry)
 
@@ -182,24 +203,36 @@ async def define_region(
 async def define_location(
     name: str, pos: list[int], world: str, yaw: float = 0, pitch: float = 0, tags: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Add a named location to the index and save it; ``pos`` is the feet block."""
+    """Add a named location to the index and save it; ``pos`` is the feet block.
+
+    RETURNS: entry, the location as saved.
+    """
     entry = index().add_location(Location(name, world, tuple(pos), yaw, pitch, list(tags or [])))
     return await _run(_save, entry)
 
 @tool
 async def index_remove(name: str) -> dict[str, Any]:
-    """Remove a location or region from the index and save it."""
+    """Remove a location or region from the index and save it.
+
+    RETURNS: entry, the one removed.
+    """
     return await _run(_save, index().remove(name))
 
 @tool
 async def list_entities(world: str) -> dict[str, Any]:
-    """Entities in ``world`` as the bridge reports them, players excluded."""
+    """Entities in ``world`` as the bridge reports them, players excluded.
+
+    RETURNS: world, count, entities.
+    """
     entities = await _run(bridge().call, "list_entities", world=world)
     return {"world": world, "count": len(entities), "entities": entities}
 
 @tool
 async def tail_log(lines: int = 50) -> dict[str, Any]:
-    """The last ``lines`` (at most 200) of the server log, colour codes stripped."""
+    """The last ``lines`` (at most 200) of the server log, colour codes stripped.
+
+    RETURNS: lines, as the bridge answers.
+    """
     return await _run(bridge().call, "tail_log", n=max(1, min(int(lines), MAX_LOG_LINES)))
 
 def _read_only() -> dict[str, Any] | None:
@@ -278,7 +311,10 @@ def _entry_id(path: Path) -> int | None:
 
 @mutating
 def fill(target: str | dict[str, Any], block: str, world: str | None = None, dry_run: bool = False, ctx: Context | None = None) -> dict[str, Any]:
-    """Fill ``target``, a region name or ``{"min", "max"}``, with ``block``; snapshots first and answers with the undo id."""
+    """Fill ``target``, a region name or ``{"min", "max"}``, with ``block``; snapshots first and answers with the undo id.
+
+    RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
+    """
     world, bounds = _target(target, world)
     return _apply(EditList(world, [Fill(bounds, block)]), "fill", dry_run, ctx)
 
@@ -286,13 +322,19 @@ def fill(target: str | dict[str, Any], block: str, world: str | None = None, dry
 def replace(
     target: str | dict[str, Any], from_block: str | list[str], to_block: str, world: str | None = None, dry_run: bool = False, ctx: Context | None = None,
 ) -> dict[str, Any]:
-    """Turn every ``from_block`` inside ``target`` into ``to_block``; snapshots first and answers with the undo id."""
+    """Turn every ``from_block`` inside ``target`` into ``to_block``; snapshots first and answers with the undo id.
+
+    RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
+    """
     world, bounds = _target(target, world)
     return _apply(EditList(world, [Replace(bounds, from_block, to_block)]), "replace", dry_run, ctx)
 
 @mutating
 def set_blocks(blocks: list[list[Any]], world: str | None = None, dry_run: bool = False, ctx: Context | None = None) -> dict[str, Any]:
-    """Set up to 4096 ``[x, y, z, block]`` entries; runs of eight or more along x go as fills. Snapshots the bounding box first."""
+    """Set up to 4096 ``[x, y, z, block]`` entries; runs of eight or more along x go as fills. Snapshots the bounding box first.
+
+    RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
+    """
     if not 1 <= len(blocks) <= MAX_BLOCKS_PER_CALL:
         raise ValueError(f"set_blocks takes 1 to {MAX_BLOCKS_PER_CALL} entries per call, got {len(blocks)}")
     edits = EditList(world or index().default_world, [SetBlock(*entry) for entry in blocks]).coalesce()
@@ -300,14 +342,20 @@ def set_blocks(blocks: list[list[Any]], world: str | None = None, dry_run: bool 
 
 @mutating
 def snapshot(target: str | dict[str, Any], label: str, world: str | None = None) -> dict[str, Any]:
-    """Save ``target`` to disk as ``label`` without an undo entry; ``restore`` takes the path back."""
+    """Save ``target`` to disk as ``label`` without an undo entry; ``restore`` takes the path back.
+
+    RETURNS: world, bounds, label, timestamp, path.
+    """
     world, bounds = _target(target, world)
     snap = snapshots.take(bridge(), world, bounds, label)
     return {"world": snap.world, "bounds": snap.bounds.to_json(), "label": snap.label, "timestamp": snap.timestamp, "path": str(snap.path)}
 
 @mutating
 def restore(snapshot: str | int, dry_run: bool = False) -> dict[str, Any]:
-    """Put a snapshot back by path or undo id, sending only the cells that differ; what it overwrites is pushed as a ``restore`` entry."""
+    """Put a snapshot back by path or undo id, sending only the cells that differ; what it overwrites is pushed as a ``restore`` entry.
+
+    RETURNS: world, bounds, restored, dry_run, blocks, snapshot, undo_id, jobs.
+    """
     snap = snapshots.load(_snapshot_path(snapshot))
     result = snapshots.restore(bridge(), snap, dry_run=dry_run)
     out: dict[str, Any] = {
@@ -320,7 +368,10 @@ def restore(snapshot: str | int, dry_run: bool = False) -> dict[str, Any]:
 
 @mutating
 def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
-    """Reverse the ``n`` newest edits not yet undone, from any session; each pushes an ``undo`` entry that plain ``undo`` skips."""
+    """Reverse the ``n`` newest edits not yet undone, from any session; each pushes an ``undo`` entry that plain ``undo`` skips.
+
+    RETURNS: dry_run, count, undone, blocks, snapshot, undo_id, jobs.
+    """
     stack = UndoStack(session=SESSION)
     done_before = {e["id"] for e in stack.entries() if e["restored"]}
     results = stack.undo(bridge(), max(1, int(n)), dry_run=dry_run)
@@ -337,7 +388,10 @@ def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
 
 @tool
 async def list_snapshots(world: str | None = None, limit: int = 20) -> dict[str, Any]:
-    """Snapshot files on disk, newest first, with the undo id of any that the manifest knows."""
+    """Snapshot files on disk, newest first, with the undo id of any that the manifest knows.
+
+    RETURNS: snapshots as [{path, world, timestamp, label, bytes, undo_id}].
+    """
     if (refused := _read_only()) is not None:
         return refused
     if world is not None and not snapshots.LABEL_RE.fullmatch(world):
@@ -351,7 +405,10 @@ async def list_snapshots(world: str | None = None, limit: int = 20) -> dict[str,
 
 @tool
 async def list_undo(limit: int = 20) -> dict[str, Any]:
-    """Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored."""
+    """Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored.
+
+    RETURNS: manifest, total, entries.
+    """
     if (refused := _read_only()) is not None:
         return refused
     entries = UndoStack().entries()

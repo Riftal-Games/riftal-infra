@@ -199,3 +199,8 @@ still answers with the entry that covers what landed. An undo id spares the
 caller a path it would otherwise copy out of `list_undo`. The session label
 is the start time because the MCP server lives exactly one Claude Code
 session, so the label groups the entries that session made.
+
+## 2026-09-08 Every MCP tool docstring ends in a `RETURNS:` trailer, a missing one is an error, and `TOOLS.md` is rendered from the registered tools with `--check` run in CI
+
+One description of the return shape, in the code beside the return it names.
+A hand-kept copy drifts unseen, and a default for a missing trailer is that copy in disguise.
