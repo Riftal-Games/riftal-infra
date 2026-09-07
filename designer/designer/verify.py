@@ -25,6 +25,12 @@ MARGIN_Y = 8
 STEP_UP = 0.5
 DROP = 0.25
 
+# Blocks below the feet within which a warp must find solid ground.
+LANDING = 3
+
+# A cell and its eight neighbours, as ``(dz, dx)``.
+RING = [(dz, dx) for dz in (-1, 0, 1) for dx in (-1, 0, 1)]
+
 Pos = tuple[int, int, int]
 
 
@@ -52,29 +58,9 @@ class TravelResult(Check):
     path: list[Pos] = field(default_factory=list)
 
 
-def _passable(classes: np.ndarray) -> np.ndarray:
-    return (classes == BlockClass.AIR) | (classes == BlockClass.PASSABLE)
-
-
 def stand_mask(region: Region) -> np.ndarray:
-    """Bool ``[y][z][x]``: a player can stand with feet in the cell.
-
-    Solid floor below, the cell and the one above passable. The top and bottom
-    layers are never standable because their floor or head cell is outside the
-    region. The mask is independent of any drop limit, so one array is cached
-    on the region until its blocks change; a view computes fresh because its
-    parent's edits do not reach its cache.
-    """
-    if region._parent is None and region._stand is not None:
-        return region._stand
-    classes = region.classes()
-    passable = _passable(classes)
-    mask = np.zeros(classes.shape, dtype=bool)
-    if classes.shape[0] >= 3:
-        mask[1:-1] = (classes[:-2] == BlockClass.SOLID) & passable[1:-1] & passable[2:]
-    if region._parent is None:
-        region._stand = mask
-    return mask
+    """Bool ``[y][z][x]``: a player can stand with feet in the cell. See ``Region.stand_mask``."""
+    return region.stand_mask()
 
 
 def _snap(mask: np.ndarray, bounds: Bounds, pos: Sequence[int], radius: int) -> tuple[int, int, int] | None:
@@ -128,7 +114,7 @@ def path_exists(
     ny, nz, nx = box.shape
     plane = nz * nx
     stand = mask[at].ravel().tolist()
-    passable = _passable(region.classes()[at]).ravel().tolist()
+    passable = region.passable()[at].ravel().tolist()
     g = np.full(ny * plane, np.inf, dtype=np.float32)
     closed = np.zeros(ny * plane, dtype=bool)
     parent = np.full(ny * plane, -1, dtype=np.int32)
@@ -208,3 +194,82 @@ def travel_time(
         True, f"{found.length:.2f} blocks in {seconds:.2f} s", [], found.data,
         seconds=seconds, blocks=found.length, path=found.path,
     )
+
+
+def _solid_within(classes: np.ndarray, iy: int, iz: int, ix: int, n: int) -> bool:
+    """A solid block among the ``n`` cells from ``(iy, iz, ix)`` downward; cells below the region count as not solid."""
+    if iy < 0:
+        return False
+    return bool((classes[max(iy - n + 1, 0):iy + 1, iz, ix] == BlockClass.SOLID).any())
+
+
+def entity_clear(region: Region, pos: Sequence[int]) -> Check:
+    """A 1x2 hitbox with its feet at ``pos`` is free and whatever it rests on is walkable.
+
+    Feet and head must be passable. The support is the first block below the
+    feet that is neither air nor passable, and it must be solid, because a
+    player over liquid sinks and over danger burns. A column with no support
+    inside the region obstructs nothing here; ``warp_safe`` is the check that
+    demands a landing. ``coords`` names the offending cells.
+    """
+    iy, iz, ix = region.bounds.local(pos)
+    x, y, z = (int(v) for v in pos)
+    classes, passable = region.classes(), region.passable()
+    blocked = [(x, y + d, z) for d in (0, 1) if iy + d < classes.shape[0] and not passable[iy + d, iz, ix]]
+    if blocked:
+        return Check(False, "hitbox blocked", blocked)
+    support = np.flatnonzero(~passable[:iy, iz, ix])
+    if len(support):
+        top = int(support[-1])
+        kind = BlockClass(int(classes[top, iz, ix]))
+        if kind != BlockClass.SOLID:
+            return Check(False, f"floor is {kind.name.lower()}", [(x, y - (iy - top), z)])
+    return Check(True, "clear")
+
+
+def warp_safe(region: Region, pos: Sequence[int]) -> Check:
+    """``entity_clear`` at ``pos``, plus a landing a warp can drop a player onto.
+
+    In order: the hitbox check; a solid block within ``LANDING`` blocks below
+    the feet, so a warp over a hole or a void column is refused; no liquid or
+    danger in the 3x3 at feet or head level, because the first step off the
+    warp goes in any direction; and no cell in the 3x3 at floor level that is
+    a hole deeper than ``LANDING``, so that step cannot be a fall either.
+    ``detail`` names the first rule that fails and ``coords`` the cells that
+    break it. Cells outside the region are unknown: they never offend, and
+    they never count as solid.
+    """
+    clear = entity_clear(region, pos)
+    if not clear.ok:
+        return clear
+    iy, iz, ix = region.bounds.local(pos)
+    x, y, z = (int(v) for v in pos)
+    classes = region.classes()
+    ny, nz, nx = classes.shape
+    if not _solid_within(classes, iy - 1, iz, ix, LANDING):
+        return Check(False, f"no solid within {LANDING} below", [(x, y - 1, z)])
+    around = [(dz, dx) for dz, dx in RING if 0 <= iz + dz < nz and 0 <= ix + dx < nx]
+    hazards = [
+        (x + dx, y + dy, z + dz)
+        for dy in (0, 1) if iy + dy < ny
+        for dz, dx in around
+        if classes[iy + dy, iz + dz, ix + dx] in (BlockClass.LIQUID, BlockClass.DANGER)
+    ]
+    if hazards:
+        return Check(False, "liquid or danger beside the hitbox", hazards)
+    holes = [
+        (x + dx, y - 1, z + dz)
+        for dz, dx in around
+        if (dz, dx) != (0, 0) and not _solid_within(classes, iy - 1, iz + dz, ix + dx, LANDING + 1)
+    ]
+    if holes:
+        return Check(False, f"hole deeper than {LANDING} in the floor ring", holes)
+    return Check(True, "warp safe")
+
+
+def region_inside(inner: Bounds, outer: Bounds) -> Check:
+    """``inner`` lies entirely within ``outer``; ``coords`` holds each corner of ``inner`` that does not."""
+    outside = [tuple(int(v) for v in corner) for corner in (inner.min, inner.max) if not outer.contains(corner)]
+    if outside:
+        return Check(False, f"corner {outside[0]} is outside {outer.min}..{outer.max}", outside)
+    return Check(True, "inside")

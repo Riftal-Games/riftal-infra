@@ -24,6 +24,13 @@ def test_stand_mask_shape_edges_and_cache(flat_plane_with_hole: Region) -> None:
     assert not stand_mask(flat_plane_with_hole)[4, 3, 3]
 
 
+def test_stand_mask_on_a_view_recomputes_after_a_parent_edit(flat_plane_with_hole: Region) -> None:
+    view = flat_plane_with_hole.sub(Bounds((0, 0, 0), (9, 7, 9)))
+    assert stand_mask(view).shape == (8, 10, 10) and stand_mask(view)[4, 3, 3]
+    flat_plane_with_hole.set(3, 3, 3, AIR)
+    assert not stand_mask(view)[4, 3, 3]
+
+
 def test_path_across_plane_is_near_manhattan_and_bounded(flat_plane_with_hole: Region) -> None:
     found = path_exists(flat_plane_with_hole, A, B)
     assert found.ok and found.detail == "path found"
@@ -67,7 +74,7 @@ def test_ramp_step_up_climbs(ramp_region: Region) -> None:
 def test_cliff_blocks_unless_dropping_down_it(ramp_region: Region) -> None:
     up = path_exists(ramp_region, (1, 1, 5), (26, 10, 5))
     assert not up.ok and up.detail == "no path"
-    assert all(x <= 23 for x, _, _ in up.coords)
+    assert up.coords and all(x <= 23 for x, _, _ in up.coords)
     down = path_exists(ramp_region, (26, 10, 5), (22, 8, 5))
     assert not down.ok and down.detail == "no path"
     down = path_exists(ramp_region, (26, 10, 5), (22, 8, 5), max_drop=2)
@@ -102,7 +109,7 @@ def test_endpoints_snap_to_the_nearest_standable_cell(flat_plane_with_hole: Regi
 def test_step_up_needs_head_room_over_the_jump(ramp_with_ceiling: Region) -> None:
     found = path_exists(ramp_with_ceiling, (1, 1, 5), (22, 8, 5))
     assert not found.ok and found.detail == "no path"
-    assert all(x <= 2 and y == 1 for x, y, _ in found.coords)
+    assert found.coords and all(x <= 2 and y == 1 for x, y, _ in found.coords)
 
 
 def test_drop_needs_head_room_at_take_off() -> None:
