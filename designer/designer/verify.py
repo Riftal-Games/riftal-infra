@@ -277,7 +277,10 @@ def light_ok(light: LightRegion, min_level: int, *, mask: np.ndarray | None = No
     """Every checked cell has ``kind`` light of at least ``min_level``.
 
     ``mask`` is bool ``[y][z][x]`` naming the cells to check, every cell when
-    ``None``; pass a region's ``passable()`` to skip the inside of walls.
+    ``None``; pass a region's ``passable()`` to skip the inside of walls. The
+    mask must come from a region fetched over the same bounds as the light,
+    since only its shape is checked and a same-shaped mask from other bounds
+    would silently check the wrong cells.
     ``kind`` is ``block``, ``sky`` or ``max`` of the two. ``data`` carries the
     count ``below`` and its ``fraction`` of the checked cells; ``coords`` the
     ``LIGHT_WORST`` darkest cells, lowest level first.
@@ -304,12 +307,11 @@ def no_holes(region: Region, floor_y: int, walkway_mask: np.ndarray) -> Check:
     """Every walkway cell has a floor under ``floor_y`` and room to walk at it.
 
     ``walkway_mask`` is bool ``[z][x]`` over the region's footprint. A hole is a
-    walkway cell whose block at ``floor_y - 1`` is air or passable, or whose
-    block at ``floor_y`` is not passable, so a missing floor block and a wall
-    across the walkway both count. A hole is an absence: liquid and danger at
-    floor level are floor here, and ``warp_safe`` is the check that names them.
-    ``coords`` holds up to ``HOLES_REPORTED`` offending cells, the floor cell
-    for a gap and the walkway cell for an obstruction; ``data`` the total.
+    walkway cell whose block at ``floor_y - 1`` is not solid, or whose block at
+    ``floor_y`` is not passable, so a missing floor block, a lava or water
+    floor, a wall across the walkway and a puddle in it all count. ``coords``
+    holds up to ``HOLES_REPORTED`` offending cells, the floor cell for a gap
+    and the walkway cell for an obstruction; ``data`` the total.
     """
     y0, y1 = region.bounds.min[1], region.bounds.max[1]
     if not y0 < floor_y <= y1:
@@ -318,9 +320,8 @@ def no_holes(region: Region, floor_y: int, walkway_mask: np.ndarray) -> Check:
     if walkway.shape != region.bounds.shape[1:]:
         raise ValueError(f"walkway mask shape {walkway.shape} does not match footprint {region.bounds.shape[1:]}")
     iy = floor_y - y0
-    passable = region.passable()
-    gap = walkway & passable[iy - 1]
-    blocked = walkway & ~passable[iy]
+    gap = walkway & (region.classes()[iy - 1] != BlockClass.SOLID)
+    blocked = walkway & ~region.passable()[iy]
     holes = gap | blocked
     count = int(holes.sum())
     if not count:

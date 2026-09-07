@@ -31,6 +31,10 @@ def test_decode_light_splits_the_packed_palette() -> None:
         decode_light({**payload, "palette": [256, 0, 0]})
     with pytest.raises(ValueError, match="expected 'other'"):
         decode_light(payload, "other")
+    unnamed = {k: v for k, v in payload.items() if k != "world"}
+    assert decode_light(unnamed, WORLD).world == WORLD
+    with pytest.raises(ValueError, match="names no world"):
+        decode_light(unnamed)
 
 
 def test_fetch_light_tiles_and_merges_the_stale_list(fake: FakeBridge, bridge: Bridge) -> None:
@@ -88,6 +92,7 @@ def test_light_ok_mask_restricts_the_check() -> None:
 
 def test_no_holes_finds_the_hole_and_nothing_else(flat_plane_with_hole: Region) -> None:
     walkway = np.ones((40, 40), dtype=bool)
+    walkway[:3, :3] = False
     found = no_holes(flat_plane_with_hole, 4, walkway)
     assert not found.ok and found.detail == "4 holes in the walkway" and found.data == {"holes": 4}
     assert found.coords == [(19, 3, 19), (20, 3, 19), (19, 3, 20), (20, 3, 20)]
@@ -107,10 +112,22 @@ def test_no_holes_finds_the_hole_and_nothing_else(flat_plane_with_hole: Region) 
         no_holes(flat_plane_with_hole, 4, walkway[0])
 
 
-def test_a_walkway_over_the_lava_corner_is_not_a_hole(flat_plane_with_hole: Region) -> None:
+def test_a_walkway_over_the_lava_corner_is_a_hole(flat_plane_with_hole: Region) -> None:
     walkway = np.zeros((40, 40), dtype=bool)
     walkway[:3, :3] = True
     found = no_holes(flat_plane_with_hole, 4, walkway)
-    assert found.ok and found.detail == "no holes" and found.data == {"holes": 0}
+    assert not found.ok and found.detail == "9 holes in the walkway" and found.data == {"holes": 9}
+    assert found.coords == [(x, 3, z) for z in range(3) for x in range(3)]
     flat_plane_with_hole.set(1, 3, 1, "minecraft:water")
-    assert no_holes(flat_plane_with_hole, 4, walkway).ok
+    assert no_holes(flat_plane_with_hole, 4, walkway).data == {"holes": 9}
+    flat_plane_with_hole.set(1, 3, 1, "minecraft:stone")
+    assert no_holes(flat_plane_with_hole, 4, walkway).data == {"holes": 8}
+
+
+def test_liquid_and_danger_at_walkway_level_are_obstructions(flat_plane_with_hole: Region) -> None:
+    walkway = np.zeros((40, 40), dtype=bool)
+    walkway[10, 10:12] = True
+    flat_plane_with_hole.set(10, 4, 10, "minecraft:water")
+    flat_plane_with_hole.set(11, 4, 10, "minecraft:lava")
+    found = no_holes(flat_plane_with_hole, 4, walkway)
+    assert not found.ok and found.coords == [(10, 4, 10), (11, 4, 10)] and found.data == {"holes": 2}

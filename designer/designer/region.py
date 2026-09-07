@@ -382,11 +382,14 @@ def fetch_region(bridge: Bridge, world: str, bounds: Bounds, *, max_edge: int = 
 def decode_light(payload: dict[str, Any], world: str | None = None) -> LightRegion:
     """Decode a ``get_light`` payload, whose palette packs ``sky << 4 | block`` per entry.
 
-    ``world`` is checked against the payload's own when both are given.
+    ``world`` is checked against the payload's own when both are given, and at
+    least one of the two must name it.
     """
     claimed = payload.get("world")
     if world is not None and claimed is not None and claimed != world:
         raise ValueError(f"payload is from world {claimed!r}, expected {world!r}")
+    if claimed is None and world is None:
+        raise ValueError("payload names no world and none was given")
     indices, palette = expand_runs(payload)
     packed = np.asarray(palette, dtype=np.int64)
     if packed.size and (packed.min() < 0 or packed.max() > 0xFF):
@@ -394,7 +397,7 @@ def decode_light(payload: dict[str, Any], world: str | None = None) -> LightRegi
     levels = packed[indices].astype(np.uint8)
     stale = [(int(c["cx"]), int(c["cz"])) for c in payload.get("chunks", ()) if c.get("light") == "stale"]
     bounds = Bounds(tuple(payload["min"]), tuple(payload["max"]))
-    return LightRegion(str(claimed if claimed is not None else world or ""), bounds, levels & 0xF, levels >> 4, stale)
+    return LightRegion(str(claimed if claimed is not None else world), bounds, levels & 0xF, levels >> 4, stale)
 
 
 def fetch_light(bridge: Bridge, world: str, bounds: Bounds, *, max_edge: int = MAX_EDGE) -> LightRegion:

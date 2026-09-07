@@ -247,7 +247,7 @@ fails toward caution on the landing and stays silent on what it cannot see.
 outer one, because a corner is a coordinate a builder can paste into a
 teleport, where "not inside" is not.
 
-## 2026-09-08 `LightRegion` splits the packed palette into two uint8 arrays; `light_ok` checks every cell unless masked and names the darkest twenty; `no_holes` calls liquid and danger a floor
+## 2026-09-08 `LightRegion` splits the packed palette into two uint8 arrays; `light_ok` checks every cell unless masked and names the darkest twenty; `no_holes` accepts only a solid floor
 
 The wire packs `sky << 4 | block` into one integer palette entry so a light
 payload rides the same run expansion as a region, and `decode_light` splits it
@@ -258,7 +258,9 @@ light region carries no block classes, so `light_ok` has no way to tell air
 from stone and checks every cell by default; a caller with a region passes
 its `passable()` as the mask. The worst cells are sorted by level and then
 by position so two runs over the same map name the same cells in the same
-order. `no_holes` treats liquid and danger at floor level as floor because a
-hole is an absence of block, and lava under a walkway is a hazard that
-`warp_safe` names; counting it twice under two names would hide which rule a
-fix needs to satisfy.
+order. `no_holes` accepts only a solid block as floor, so lava or water under
+a walkway is a hole like a missing block is: walkable floor in this codebase
+means `SOLID`, which is what `stand_mask` requires, and `warp_safe` is a point
+check within a block of a warp, so nothing else scans a whole walkway for a
+lava tile. At walkway level anything a player cannot pass through is an
+obstruction, liquid and danger included.
