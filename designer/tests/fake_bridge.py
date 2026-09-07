@@ -14,12 +14,16 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from itertools import product
 from typing import Any
 
 import numpy as np
 
-from designer.blocks import encode_rle
+from designer.blocks import encode_rle, format_name, parse_name
+from designer.edits import MAX_SET_BLOCKS
 from designer.region import MAX_EDGE, Bounds, Bounds2D
+
+ALLOWED_BLOCKS = frozenset({"minecraft:air", "minecraft:stone", "minecraft:grass_block", "minecraft:dirt", "minecraft:oak_planks", "minecraft:glass"})
 
 
 class FakeOpError(Exception):
@@ -32,6 +36,7 @@ class FakeWorld:
     """Flat terrain: stone below ``SURFACE``, grass on it, air above and outside ``extent`` or y 0..127.
 
     Air is last in the palette on purpose, so the toolkit's remap to index 0 is exercised.
+    Writes land in ``edits`` on top of the terrain; the heightmap ignores them.
     """
 
     PALETTE = ["minecraft:stone", "minecraft:grass_block", "minecraft:air"]
@@ -39,10 +44,20 @@ class FakeWorld:
 
     def __init__(self, extent: tuple[tuple[int, int], tuple[int, int]] = ((0, 0), (255, 255))) -> None:
         self.extent = Bounds2D(*extent)
+        self.palette = list(self.PALETTE)
+        self.edits: dict[tuple[int, int, int], int] = {}
 
     def _inside(self, x: np.ndarray, z: np.ndarray) -> np.ndarray:
         (x0, z0), (x1, z1) = self.extent.min, self.extent.max
         return (x >= x0) & (x <= x1) & (z >= z0) & (z <= z1)
+
+    def index_of(self, name: str, where: str = "block") -> int:
+        name = format_name(*parse_name(name))
+        if name not in ALLOWED_BLOCKS:
+            raise FakeOpError("BLOCK_INVALID", f"{where}: unknown block {name!r}")
+        if name not in self.palette:
+            self.palette.append(name)
+        return self.palette.index(name)
 
     def blocks(self, bounds: Bounds) -> np.ndarray:
         """Palette indices ``[y][z][x]`` inside ``bounds``."""
@@ -50,7 +65,11 @@ class FakeWorld:
         y, z, x = ys[:, None, None], zs[None, :, None], xs[None, None, :]
         column = np.where(y < self.SURFACE, 0, np.where(y == self.SURFACE, 1, 2))
         inside = self._inside(x, z) & (y >= 0) & (y < self.HEIGHT)
-        return np.where(inside, column, 2).astype(np.int16)
+        out = np.where(inside, column, 2).astype(np.int16)
+        for pos, index in self.edits.items():
+            if bounds.contains(pos):
+                out[bounds.local(pos)] = index
+        return out
 
     def heightmap(self, bounds: Bounds2D) -> tuple[np.ndarray, np.ndarray]:
         xs, zs = (np.arange(lo, hi + 1) for lo, hi in zip(bounds.min, bounds.max))
@@ -70,6 +89,7 @@ class FakeBridge:
         self.fail_next_job: str | None = None
         self.omit_top = False
         self.worlds: dict[str, FakeWorld] = {"design": FakeWorld()}
+        self.texts: dict[str, dict[str, Any]] = {}
         self.requests: list[dict[str, Any]] = []
         self.jobs: dict[str, dict[str, Any]] = {}
         self.cancelled: list[str] = []
@@ -101,7 +121,7 @@ class FakeBridge:
             self._loop.close()
 
     async def _serve(self) -> None:
-        self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+        self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0, limit=64 << 20)
         self.port = self._server.sockets[0].getsockname()[1]
         self._ready.set()
         await self._server.serve_forever()
@@ -175,7 +195,7 @@ class FakeBridge:
             state = "queued" if job["polls"] == 0 else "running"
         else:
             state = "failed" if job["error"] else "done"
-        done = min(job["polls"], job["steps"]) * job["total"] // max(job["steps"], 1)
+        done = job["total"] if settled else job["polls"] * job["total"] // max(job["steps"], 1)
         status = {"job": job_id, "op": job["op"], "state": state, "progress": {"done": done, "total": job["total"]}, "elapsed_ms": 0}
         if state == "done":
             status["result"] = job["result"]
@@ -224,14 +244,48 @@ class FakeBridge:
 
     def op_get_region(self, args: dict[str, Any]) -> dict[str, Any]:
         world, box = self._world(args["world"]), self._bounds(args, Bounds)
-        payload = encode_rle(world.blocks(box), FakeWorld.PALETTE, origin=box.min)
+        payload = encode_rle(world.blocks(box), world.palette, origin=box.min)
         payload["world"] = args["world"]
         return self._job("get_region", payload)
 
     def op_get_heightmap(self, args: dict[str, Any]) -> dict[str, Any]:
         world, box = self._world(args["world"]), self._bounds(args, Bounds2D)
         heights, top = world.heightmap(box)
-        result = {**box.to_json(), "heights": heights.ravel().tolist(), "palette": FakeWorld.PALETTE}
+        result = {**box.to_json(), "heights": heights.ravel().tolist(), "palette": world.palette}
         if not self.omit_top:
             result["top"] = top.ravel().tolist()
         return self._job("get_heightmap", result)
+
+    def op_set_blocks(self, args: dict[str, Any]) -> dict[str, Any]:
+        world, blocks = self._world(args["world"]), args["blocks"]
+        if len(blocks) > MAX_SET_BLOCKS:
+            raise FakeOpError("TOO_MANY_BLOCKS", f"{len(blocks)} blocks over {MAX_SET_BLOCKS}")
+        indices = [world.index_of(entry[3], f"blocks[{i}]") for i, entry in enumerate(blocks)]
+        for (x, y, z, _), index in zip(blocks, indices):
+            world.edits[(x, y, z)] = index
+        return self._job("set_blocks", {"blocks": len(blocks)}, total=len(blocks))
+
+    def op_fill(self, args: dict[str, Any]) -> dict[str, Any]:
+        world, box = self._world(args["world"]), self._bounds(args, Bounds)
+        index = world.index_of(args["block"])
+        for pos in product(*(range(lo, hi + 1) for lo, hi in zip(box.min, box.max))):
+            world.edits[pos] = index
+        return self._job("fill", {"blocks": box.volume}, total=box.volume)
+
+    def op_replace(self, args: dict[str, Any]) -> dict[str, Any]:
+        world, box = self._world(args["world"]), self._bounds(args, Bounds)
+        names = [args["from"]] if isinstance(args["from"], str) else list(args["from"])
+        sources, target = [world.index_of(name) for name in names], world.index_of(args["to"])
+        for iy, iz, ix in zip(*np.nonzero(np.isin(world.blocks(box), sources))):
+            world.edits[(box.min[0] + int(ix), box.min[1] + int(iy), box.min[2] + int(iz))] = target
+        return self._job("replace", {"blocks": box.volume}, total=box.volume)
+
+    def op_set_text(self, args: dict[str, Any]) -> dict[str, Any]:
+        text_id = args.get("id") or f"t{len(self.texts) + 1}"
+        self.texts[text_id] = {"world": args["world"], "pos": list(args["pos"]), "text": args["text"]}
+        return {"id": text_id}
+
+    def op_remove_text(self, args: dict[str, Any]) -> dict[str, Any]:
+        if self.texts.pop(args["id"], None) is None:
+            raise FakeOpError("ENTITY_NOT_FOUND", f"no text {args['id']!r}")
+        return {}
