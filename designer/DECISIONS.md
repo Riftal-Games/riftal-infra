@@ -246,3 +246,19 @@ fails toward caution on the landing and stays silent on what it cannot see.
 `region_inside` reports each corner of the inner box that lies outside the
 outer one, because a corner is a coordinate a builder can paste into a
 teleport, where "not inside" is not.
+
+## 2026-09-08 `LightRegion` splits the packed palette into two uint8 arrays; `light_ok` checks every cell unless masked and names the darkest twenty; `no_holes` calls liquid and danger a floor
+
+The wire packs `sky << 4 | block` into one integer palette entry so a light
+payload rides the same run expansion as a region, and `decode_light` splits it
+once on arrival because every check reads one kind of light at a time.
+`merge` unions the stale chunk lists into a sorted set, since a chunk on a
+tile edge is reported by both tiles and a builder wants to know it once. A
+light region carries no block classes, so `light_ok` has no way to tell air
+from stone and checks every cell by default; a caller with a region passes
+its `passable()` as the mask. The worst cells are sorted by level and then
+by position so two runs over the same map name the same cells in the same
+order. `no_holes` treats liquid and danger at floor level as floor because a
+hole is an absence of block, and lava under a walkway is a hazard that
+`warp_safe` names; counting it twice under two names would hide which rule a
+fix needs to satisfy.

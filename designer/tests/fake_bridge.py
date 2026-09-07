@@ -6,7 +6,7 @@ knob applies to the next request only and resets itself; ``omit_top`` stands.
 Jobs: ``queue_next`` is how many ``get_job`` polls the next job needs before it
 settles, ``fail_next_job`` is the error text it settles with, ``slow_op`` takes
 ``steps`` and ``total`` and reports progress. Every ``cancel_job`` seen is kept
-in ``cancelled``.
+in ``cancelled``. ``stale_chunks`` names the chunks ``get_light`` reports stale.
 """
 
 from __future__ import annotations
@@ -71,6 +71,13 @@ class FakeWorld:
                 out[bounds.local(pos)] = index
         return out
 
+    def light(self, bounds: Bounds) -> np.ndarray:
+        """Packed ``sky << 4 | block``: full sky above the surface, one level less per block under it, no block light."""
+        xs, ys, zs = (np.arange(lo, hi + 1) for lo, hi in zip(bounds.min, bounds.max))
+        y, z, x = ys[:, None, None], zs[None, :, None], xs[None, None, :]
+        depth = np.where(self._inside(x, z), np.maximum(self.SURFACE + 1 - y, 0), 0)
+        return np.broadcast_to(np.clip(15 - depth, 0, 15) << 4, bounds.shape).astype(np.uint8)
+
     def heightmap(self, bounds: Bounds2D) -> tuple[np.ndarray, np.ndarray]:
         (x0, z0), (x1, z1) = bounds.min, bounds.max
         blocks = self.blocks(Bounds((x0, 0, z0), (x1, self.HEIGHT - 1, z1)))
@@ -91,6 +98,7 @@ class FakeBridge:
         self.queue_next = 0
         self.fail_next_job: str | None = None
         self.omit_top = False
+        self.stale_chunks: list[tuple[int, int]] = []
         self.worlds: dict[str, FakeWorld] = {"design": FakeWorld()}
         self.texts: dict[str, dict[str, Any]] = {}
         self.requests: list[dict[str, Any]] = []
@@ -258,6 +266,18 @@ class FakeBridge:
         if not self.omit_top:
             result["top"] = top.ravel().tolist()
         return self._job("get_heightmap", result)
+
+    def op_get_light(self, args: dict[str, Any]) -> dict[str, Any]:
+        world, box = self._world(args["world"]), self._bounds(args, Bounds)
+        palette, indices = np.unique(world.light(box), return_inverse=True)
+        payload = encode_rle(indices.reshape(box.shape).astype(np.int16), palette.tolist(), origin=box.min)
+        payload["world"] = args["world"]
+        payload["chunks"] = [
+            {"cx": cx, "cz": cz, "light": "stale" if (cx, cz) in self.stale_chunks else "fresh"}
+            for cx in range(box.min[0] >> 4, (box.max[0] >> 4) + 1)
+            for cz in range(box.min[2] >> 4, (box.max[2] >> 4) + 1)
+        ]
+        return self._job("get_light", payload)
 
     def op_set_blocks(self, args: dict[str, Any]) -> dict[str, Any]:
         world, blocks = self._world(args["world"]), args["blocks"]

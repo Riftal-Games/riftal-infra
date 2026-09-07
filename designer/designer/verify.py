@@ -1,4 +1,4 @@
-"""Standing, pathing and travel time over a ``Region``. Pure numpy, no server."""
+"""Standing, pathing, travel time, light and floor checks over a ``Region``. Pure numpy, no server."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 
 from designer.blocks import BlockClass
-from designer.region import Bounds, Region
+from designer.region import Bounds, LightRegion, Region
 
 # Bedrock player speeds on level ground, blocks per second.
 WALK_SPEED = 4.317
@@ -30,6 +30,13 @@ LANDING = 3
 
 # A cell and its eight neighbours, as ``(dz, dx)``.
 RING = [(dz, dx) for dz in (-1, 0, 1) for dx in (-1, 0, 1)]
+
+# How many offending cells a whole-region check names: enough to see the
+# shape of the problem, few enough to read.
+LIGHT_WORST = 20
+HOLES_REPORTED = 50
+
+LIGHT_KINDS = ("block", "sky", "max")
 
 Pos = tuple[int, int, int]
 
@@ -78,7 +85,7 @@ def _snap(mask: np.ndarray, bounds: Bounds, pos: Sequence[int], radius: int) -> 
 
 
 def _world(box: Bounds, local: Sequence[int]) -> Pos:
-    iy, iz, ix = local
+    iy, iz, ix = (int(v) for v in local)
     return ix + box.min[0], iy + box.min[1], iz + box.min[2]
 
 
@@ -264,6 +271,65 @@ def warp_safe(region: Region, pos: Sequence[int]) -> Check:
     if holes:
         return Check(False, f"hole deeper than {LANDING} in the floor ring", holes)
     return Check(True, "warp safe")
+
+
+def light_ok(light: LightRegion, min_level: int, *, mask: np.ndarray | None = None, kind: str = "block") -> Check:
+    """Every checked cell has ``kind`` light of at least ``min_level``.
+
+    ``mask`` is bool ``[y][z][x]`` naming the cells to check, every cell when
+    ``None``; pass a region's ``passable()`` to skip the inside of walls.
+    ``kind`` is ``block``, ``sky`` or ``max`` of the two. ``data`` carries the
+    count ``below`` and its ``fraction`` of the checked cells; ``coords`` the
+    ``LIGHT_WORST`` darkest cells, lowest level first.
+    """
+    if kind not in LIGHT_KINDS:
+        raise ValueError(f"kind must be one of {LIGHT_KINDS}, got {kind!r}")
+    if not 0 <= min_level <= 15:
+        raise ValueError(f"min_level must be 0..15, got {min_level}")
+    levels = {"block": light.block, "sky": light.sky, "max": np.maximum(light.block, light.sky)}[kind]
+    checked = np.ones(levels.shape, dtype=bool) if mask is None else np.asarray(mask, dtype=bool)
+    if checked.shape != levels.shape:
+        raise ValueError(f"mask shape {checked.shape} does not match light shape {levels.shape}")
+    dark = checked & (levels < min_level)
+    below, total = int(dark.sum()), int(checked.sum())
+    data = {"below": below, "fraction": below / total if total else 0.0}
+    if not below:
+        return Check(True, f"{kind} light at least {min_level}", [], data)
+    hits = np.argwhere(dark)
+    order = np.lexsort((hits[:, 2], hits[:, 1], hits[:, 0], levels[dark]))[:LIGHT_WORST]
+    return Check(False, f"{below} of {total} cells below {kind} light {min_level}", [_world(light.bounds, hits[i]) for i in order], data)
+
+
+def no_holes(region: Region, floor_y: int, walkway_mask: np.ndarray) -> Check:
+    """Every walkway cell has a floor under ``floor_y`` and room to walk at it.
+
+    ``walkway_mask`` is bool ``[z][x]`` over the region's footprint. A hole is a
+    walkway cell whose block at ``floor_y - 1`` is air or passable, or whose
+    block at ``floor_y`` is not passable, so a missing floor block and a wall
+    across the walkway both count. A hole is an absence: liquid and danger at
+    floor level are floor here, and ``warp_safe`` is the check that names them.
+    ``coords`` holds up to ``HOLES_REPORTED`` offending cells, the floor cell
+    for a gap and the walkway cell for an obstruction; ``data`` the total.
+    """
+    y0, y1 = region.bounds.min[1], region.bounds.max[1]
+    if not y0 < floor_y <= y1:
+        raise ValueError(f"floor_y {floor_y} needs both {floor_y - 1} and {floor_y} inside y {y0}..{y1}")
+    walkway = np.asarray(walkway_mask, dtype=bool)
+    if walkway.shape != region.bounds.shape[1:]:
+        raise ValueError(f"walkway mask shape {walkway.shape} does not match footprint {region.bounds.shape[1:]}")
+    iy = floor_y - y0
+    passable = region.passable()
+    gap = walkway & passable[iy - 1]
+    blocked = walkway & ~passable[iy]
+    holes = gap | blocked
+    count = int(holes.sum())
+    if not count:
+        return Check(True, "no holes", [], {"holes": 0})
+    coords = [
+        _world(region.bounds, (iy - 1 if gap[iz, ix] else iy, iz, ix))
+        for iz, ix in np.argwhere(holes)[:HOLES_REPORTED]
+    ]
+    return Check(False, f"{count} holes in the walkway", coords, {"holes": count})
 
 
 def region_inside(inner: Bounds, outer: Bounds) -> Check:
