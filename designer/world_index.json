@@ -1,0 +1,81 @@
+{
+  "default_world": "design",
+  "locations": [
+    {
+      "name": "spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        64,
+        0
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "design",
+      "yaw": 0
+    }
+  ],
+  "regions": [],
+  "updated": "2026-09-07T00:00:00+00:00",
+  "version": 1,
+  "worlds": [
+    {
+      "generator": "normal",
+      "name": "contested",
+      "role": "contested",
+      "seed": 20260907
+    },
+    {
+      "generator": "normal",
+      "name": "design",
+      "role": "design",
+      "seed": 20260907
+    },
+    {
+      "generator": "normal",
+      "name": "farm",
+      "role": "farm",
+      "seed": 20260907
+    },
+    {
+      "generator": "normal",
+      "name": "lumber",
+      "role": "lumber",
+      "seed": 20260907
+    },
+    {
+      "generator": "normal",
+      "name": "mine_a",
+      "rank": "A",
+      "role": "ore_mine",
+      "seed": 20260907
+    },
+    {
+      "generator": "normal",
+      "name": "mine_b",
+      "rank": "B",
+      "role": "ore_mine",
+      "seed": 20260907
+    },
+    {
+      "generator": "normal",
+      "name": "mine_c",
+      "rank": "C",
+      "role": "ore_mine",
+      "seed": 20260907
+    },
+    {
+      "generator": "normal",
+      "name": "plots",
+      "role": "plots",
+      "seed": 20260907
+    },
+    {
+      "generator": "normal",
+      "name": "quarry",
+      "role": "quarry",
+      "seed": 20260907
+    }
+  ]
+}
