@@ -40,12 +40,22 @@ def test_support_is_the_first_block_under_a_carpet(flat_plane_with_hole: Region)
 
 
 def test_fails_next_to_the_lava_corner(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.fill(Bounds((0, 3, 0), (2, 3, 2)), "minecraft:stone")
     flat_plane_with_hole.fill(Bounds((0, 4, 0), (2, 4, 2)), "minecraft:lava")
     assert entity_clear(flat_plane_with_hole, (3, 4, 3)).ok
     found = warp_safe(flat_plane_with_hole, (3, 4, 3))
     assert not found.ok and found.detail == "liquid or danger beside the hitbox"
     assert found.coords == [(2, 4, 2)]
     assert warp_safe(flat_plane_with_hole, (4, 4, 4)).ok
+
+
+def test_floor_level_lava_in_the_ring_is_a_hazard_not_a_hole(flat_plane_with_hole: Region) -> None:
+    assert entity_clear(flat_plane_with_hole, (3, 4, 3)).ok
+    found = warp_safe(flat_plane_with_hole, (3, 4, 3))
+    assert not found.ok and found.detail == "liquid or danger beside the hitbox"
+    assert found.coords == [(2, 3, 2)]
+    flat_plane_with_hole.fill(Bounds((0, 2, 0), (2, 2, 2)), "minecraft:stone")
+    assert warp_safe(flat_plane_with_hole, (3, 4, 3)) == found
 
 
 def test_hazard_at_head_level_trips_the_same_rule(flat_plane_with_hole: Region) -> None:
@@ -71,6 +81,7 @@ def test_fails_over_a_void_column() -> None:
     assert entity_clear(void, (2, 40, 2)).ok
     found = warp_safe(void, (2, 40, 2))
     assert not found.ok and found.detail == f"no solid within {LANDING} below" and found.coords == [(2, 39, 2)]
+    assert warp_safe(void, (2, 0, 2)).coords == [(2, -1, 2)]
 
 
 def test_hole_in_the_floor_ring(flat_plane_with_hole: Region) -> None:

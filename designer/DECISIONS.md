@@ -231,11 +231,16 @@ would hold the player, and fails only when that block is liquid or danger,
 because a hitbox over a drop is free and a hitbox over lava is a death. A
 column with no support is not an obstruction, so it passes, and `warp_safe`
 is the check that refuses it: a warp puts a player at the position with no
-control over the fall, so there must be solid ground within three blocks,
-the fall Bedrock takes without damage. The floor ring may be one deeper,
-since a player who steps off the warp onto a hole is choosing to, and the
-rules run hitbox, landing, hazards, ring so that `detail` always names the
-first thing a builder must fix. Cells outside the region are unknown, so
+control over the fall, so there must be solid ground within three blocks of
+the feet, which is at most a two-block fall. The floor ring may be one
+deeper, solid within four, which is the three-block fall Bedrock takes
+without damage, since a player who steps off the warp onto a hole is
+choosing to. The hazard scan covers the floor plane of the ring as well as
+feet and head, because a first step onto a lava floor is the same death as
+a step into a lava wall, and it runs before the ring rule so lava at floor
+level is named as lava whether air or stone lies under it. The rules run
+hitbox, landing, hazards, ring so that `detail` always names the first
+thing a builder must fix. Cells outside the region are unknown, so
 they never offend and never count as solid: a check at the edge of a fetch
 fails toward caution on the landing and stays silent on what it cannot see.
 `region_inside` reports each corner of the inner box that lies outside the

@@ -198,8 +198,6 @@ def travel_time(
 
 def _solid_within(classes: np.ndarray, iy: int, iz: int, ix: int, n: int) -> bool:
     """A solid block among the ``n`` cells from ``(iy, iz, ix)`` downward; cells below the region count as not solid."""
-    if iy < 0:
-        return False
     return bool((classes[max(iy - n + 1, 0):iy + 1, iz, ix] == BlockClass.SOLID).any())
 
 
@@ -232,9 +230,10 @@ def warp_safe(region: Region, pos: Sequence[int]) -> Check:
 
     In order: the hitbox check; a solid block within ``LANDING`` blocks below
     the feet, so a warp over a hole or a void column is refused; no liquid or
-    danger in the 3x3 at feet or head level, because the first step off the
-    warp goes in any direction; and no cell in the 3x3 at floor level that is
-    a hole deeper than ``LANDING``, so that step cannot be a fall either.
+    danger in the 3x3 at floor, feet or head level, because the first step off
+    the warp goes in any direction and a lava floor is the same death as a
+    lava wall; and no cell in the 3x3 at floor level that is a hole deeper
+    than ``LANDING``, so that step cannot be a fall either.
     ``detail`` names the first rule that fails and ``coords`` the cells that
     break it. Cells outside the region are unknown: they never offend, and
     they never count as solid.
@@ -251,7 +250,7 @@ def warp_safe(region: Region, pos: Sequence[int]) -> Check:
     around = [(dz, dx) for dz, dx in RING if 0 <= iz + dz < nz and 0 <= ix + dx < nx]
     hazards = [
         (x + dx, y + dy, z + dz)
-        for dy in (0, 1) if iy + dy < ny
+        for dy in (-1, 0, 1) if 0 <= iy + dy < ny
         for dz, dx in around
         if classes[iy + dy, iz + dz, ix + dx] in (BlockClass.LIQUID, BlockClass.DANGER)
     ]
