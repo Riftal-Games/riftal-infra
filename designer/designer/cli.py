@@ -12,7 +12,7 @@ from designer.config import ConfigError, load_settings
 from designer.palettes import load_palettes
 from designer.region import Bounds2D, Heightmap, fetch_heightmap
 from designer.render import Marker, ascii_heightmap, markers_from_index, summary, topdown_png
-from designer.world_index import WorldIndex
+from designer.world_index import WorldIndex, resolve_at
 
 
 def _add_area(parser: argparse.ArgumentParser) -> None:
@@ -50,25 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_at(index: WorldIndex, ref: str, world: str | None) -> tuple[str, tuple[int, int]]:
-    entry = None
-    if "," not in ref:
-        try:
-            entry = index.resolve(ref)
-        except KeyError:
-            fallback = index.locations_tagged(ref) if ref == "spawn" else []
-            tagged = [l for l in fallback if l.world == (world or index.default_world)]
-            if not tagged:
-                raise
-            entry = tagged[0]
-    x, _, z = index.resolve_pos(ref if entry is None else entry.name)
-    return world or (index.default_world if entry is None else entry.world), (x, z)
-
-
 def _fetch(bridge: Bridge, options: argparse.Namespace) -> tuple[Heightmap, list[Marker]]:
     index = WorldIndex.load()
-    world, center = _resolve_at(index, options.at, options.world)
-    bounds = Bounds2D.from_center(center, (options.size, options.size))
+    world, (x, _, z) = resolve_at(index, options.at, options.world)
+    bounds = Bounds2D.from_center((x, z), (options.size, options.size))
     return fetch_heightmap(bridge, world, bounds, need_top=True), markers_from_index(index, world, bounds)
 
 

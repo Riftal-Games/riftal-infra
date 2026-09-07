@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import functools
 import logging
-import sys
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -21,11 +21,10 @@ from mcp.server.fastmcp import FastMCP
 
 from designer import config
 from designer.bridge import Bridge, BridgeError
-from designer.cli import _resolve_at
 from designer.palettes import load_palettes
 from designer.region import Bounds, Bounds2D, Heightmap, fetch_heightmap, fetch_region
 from designer.render import Marker, ascii_heightmap, markers_from_index, summary, topdown_png
-from designer.world_index import Location, NamedRegion, WorldIndex
+from designer.world_index import KINDS, Location, NamedRegion, WorldIndex, resolve_at
 
 MAX_AREA, MAX_RADIUS, MAX_LOG_LINES = 256, 8, 200
 # One glyph per ``BlockClass`` value: air, solid, liquid, passable, danger.
@@ -36,28 +35,32 @@ mcp = FastMCP("riftal-designer")
 log = logging.getLogger("designer.mcp")
 _bridge: Bridge | None = None
 _index: WorldIndex | None = None
+_lock = threading.Lock()
 
 
 def bridge() -> Bridge:
     global _bridge
-    if _bridge is None:
-        settings = config.load_settings()
-        _bridge = Bridge(settings.host, settings.port, settings.token)
-    return _bridge
+    with _lock:
+        if _bridge is None:
+            settings = config.load_settings()
+            _bridge = Bridge(settings.host, settings.port, settings.token)
+        return _bridge
 
 
 def index() -> WorldIndex:
     global _index
-    if _index is None:
-        _index = WorldIndex.load()
-    return _index
+    with _lock:
+        if _index is None:
+            _index = WorldIndex.load()
+        return _index
 
 
 def reset() -> None:
     global _bridge, _index
-    if _bridge is not None:
-        _bridge.close()
-    _bridge = _index = None
+    with _lock:
+        if _bridge is not None:
+            _bridge.close()
+        _bridge = _index = None
 
 
 async def _run(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -89,8 +92,8 @@ def tool(fn: Callable[..., Any]) -> Callable[..., Any]:
 
 def _area(at: str, size: int, world: str | None) -> tuple[Heightmap, list[Marker]]:
     size = min(int(size), MAX_AREA)
-    world, center = _resolve_at(index(), at, world)
-    bounds = Bounds2D.from_center(center, (size, size))
+    world, (x, _, z) = resolve_at(index(), at, world)
+    bounds = Bounds2D.from_center((x, z), (size, size))
     return fetch_heightmap(bridge(), world, bounds, need_top=True), markers_from_index(index(), world, bounds)
 
 
@@ -110,8 +113,7 @@ def _status() -> dict[str, Any]:
 
 def _inspect(at: str, radius: int, world: str | None) -> dict[str, Any]:
     radius = max(0, min(int(radius), MAX_RADIUS))
-    world, (x, z) = _resolve_at(index(), at, world)
-    y = index().resolve_pos(at)[1]
+    world, (x, y, z) = resolve_at(index(), at, world)
     if y is None:
         y = fetch_heightmap(bridge(), world, Bounds2D((x, z), (x, z))).height(x, z)
         if y < 0:
@@ -136,8 +138,10 @@ async def server_status() -> dict[str, Any]:
 @tool
 async def index_list(kind: str | None = None, tag: str | None = None) -> dict[str, Any]:
     """Entries of ``world_index.json``: ``kind`` is worlds, locations or regions; ``tag`` filters locations and regions."""
+    if kind is not None and kind not in KINDS:
+        raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
     idx = index()
-    kinds = ("worlds", "locations", "regions") if kind is None else (kind,)
+    kinds = KINDS if kind is None else (kind,)
     out = {k: [e.to_json() for e in getattr(idx, k)] for k in kinds}
     if tag is not None:
         out = {k: [e for e in v if tag in e.get("tags", ())] for k, v in out.items() if k != "worlds"}
@@ -212,7 +216,6 @@ async def tail_log(lines: int = 50) -> dict[str, Any]:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     try:
         refused = _ensure_designer()
     except Exception as exc:

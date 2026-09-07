@@ -5,6 +5,7 @@ import anyio
 import pytest
 
 from designer import mcp_server
+from designer.blocks import BlockClass
 from designer.world_index import Location, WorldEntry, WorldIndex
 from tests.fake_bridge import FakeBridge
 
@@ -81,6 +82,15 @@ def test_inspect_caps_the_radius_and_slices_by_class(server: FakeBridge) -> None
     assert call("inspect", at="300,300", radius=1)["ok"] is False
 
 
+def test_inspect_resolves_a_spawn_that_is_only_a_tag(server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    index = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
+    index.add_location(Location("design_spawn", "design", (8, 64, 8), tags=["spawn"]))
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index.save(tmp_path / "tagged.json"))
+    mcp_server.reset()
+    result = call("inspect", at="spawn", radius=1)
+    assert result["ok"] is True and result["center"] == [8, 64, 8]
+
+
 def test_define_region_round_trips_through_the_index_file(server: FakeBridge, tmp_path: Path) -> None:
     defined = call("define_region", name="pit", min=[8, 60, 8], max=[-8, 70, -8], world="design", tags=["mine"], meta={"rank": "A"})
     assert defined["ok"] and defined["entry"]["min"] == [-8, 60, -8] and defined["entry"]["max"] == [8, 70, 8]
@@ -107,6 +117,7 @@ def test_unknown_name_is_an_error_dict_and_never_raises(server: FakeBridge) -> N
     result = call("index_resolve", name="spwan")
     assert result == {"ok": False, "error": "no such name 'spwan', did you mean 'spawn'?", "code": None}
     assert call("index_remove", name="ghost")["ok"] is False
+    assert call("index_list", kind="save") == {"ok": False, "error": "kind must be one of worlds, locations, regions, not 'save'", "code": None}
     failed = call("list_entities", world="mars")
     assert failed["ok"] is False and failed["code"] == "WORLD_NOT_FOUND"
 
@@ -117,6 +128,11 @@ def test_list_entities_and_tail_log_cap(server: FakeBridge) -> None:
     assert len(call("tail_log")["lines"]) == 50
     assert len(call("tail_log", lines=5000)["lines"]) == 200
     assert server.requests[-1]["args"] == {"n": 200}
+
+
+@pytest.mark.parametrize("cls, glyph", [(BlockClass.AIR, "."), (BlockClass.SOLID, "#"), (BlockClass.LIQUID, "~"), (BlockClass.PASSABLE, ","), (BlockClass.DANGER, "!")])
+def test_class_glyphs_are_pinned_to_the_enum(cls: BlockClass, glyph: str) -> None:
+    assert mcp_server.CLASS_GLYPHS[cls] == glyph
 
 
 def test_every_tool_is_registered() -> None:
