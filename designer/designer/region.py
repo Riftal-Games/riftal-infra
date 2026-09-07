@@ -1,4 +1,4 @@
-"""Inclusive block bounds, tiling, and the in-memory region model."""
+"""Inclusive block bounds, tiling, the in-memory region model, and the fetch helpers."""
 
 from __future__ import annotations
 
@@ -10,10 +10,14 @@ from typing import Any, ClassVar, Self
 
 import numpy as np
 
-from designer.blocks import AIR, class_lut, decode_rle, encode_rle
+from designer.blocks import AIR, BlockClass, base_name, class_lut, decode_rle, encode_rle
+from designer.bridge import Bridge, BridgeOpError
 
 # The bridge's ``max_region_edge``; any request with a longer edge is refused.
 MAX_EDGE = 128
+
+# Blocks a ground heightmap looks through, so a tree is not a surface.
+CANOPY_SUFFIXES = ("_leaves", "_log", "_wood")
 
 
 def _spans(lo: int, hi: int, max_edge: int) -> list[tuple[int, int]]:
@@ -91,6 +95,13 @@ class _Box:
         spans = [_spans(lo, hi, max_edge) for lo, hi in zip(self.min, self.max)]
         return [type(self)(tuple(s[0] for s in cell), tuple(s[1] for s in cell)) for cell in product(*spans)]
 
+    def slices(self, inner: Self) -> tuple[slice, ...]:
+        """Array slices of ``inner``, which must lie entirely within this box."""
+        if self.intersect(inner) != inner:
+            raise ValueError(f"{inner.min}..{inner.max} is not inside {self.min}..{self.max}")
+        lo, hi = self.local(inner.min), self.local(inner.max)
+        return tuple(slice(a, b + 1) for a, b in zip(lo, hi))
+
 
 class Bounds(_Box):
     """Inclusive ``(x, y, z)`` bounds. Array indexing goes through ``local`` and ``slices``."""
@@ -110,18 +121,24 @@ class Bounds(_Box):
         x, y, z = (p - lo for p, lo in zip(pos, self.min))
         return y, z, x
 
-    def slices(self, inner: Bounds) -> tuple[slice, slice, slice]:
-        """Array slices of ``inner``, which must lie entirely within this box."""
-        if self.intersect(inner) != inner:
-            raise ValueError(f"{inner.min}..{inner.max} is not inside {self.min}..{self.max}")
-        lo, hi = self.local(inner.min), self.local(inner.max)
-        return tuple(slice(a, b + 1) for a, b in zip(lo, hi))
-
 
 class Bounds2D(_Box):
     """Inclusive ``(x, z)`` bounds for heightmaps and top-down renders."""
 
     AXES = "xz"
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """Array shape ``(nz, nx)`` matching ``heights[z][x]``."""
+        sx, sz = self.size
+        return sz, sx
+
+    def local(self, pos: Sequence[int]) -> tuple[int, int]:
+        """Array index ``(iz, ix)`` of the column at ``pos``."""
+        if not self.contains(pos):
+            raise ValueError(f"{tuple(pos)!r} is outside {self.min}..{self.max}")
+        x, z = (p - lo for p, lo in zip(pos, self.min))
+        return z, x
 
 
 @dataclass(eq=False)
@@ -138,6 +155,8 @@ class Region:
     def __post_init__(self) -> None:
         if self.blocks.shape != self.bounds.shape:
             raise ValueError(f"blocks shape {self.blocks.shape} does not match bounds shape {self.bounds.shape}")
+        if self.blocks.dtype != np.int16:
+            raise ValueError(f"blocks must be int16, got {self.blocks.dtype}")
         if not self.palette or self.palette[0] != AIR:
             raise ValueError(f"palette must start with {AIR!r}, got {self.palette[:1]!r}")
 
@@ -148,12 +167,16 @@ class Region:
 
     @classmethod
     def from_rle(cls, world: str, payload: dict[str, Any]) -> Region:
+        """Decode a region payload; a payload naming a different ``world`` is refused."""
+        claimed = payload.get("world")
+        if claimed is not None and claimed != world:
+            raise ValueError(f"payload is from world {claimed!r}, expected {world!r}")
         blocks, palette = decode_rle(payload)
         return cls(world, Bounds(tuple(payload["min"]), tuple(payload["max"])), blocks, palette)
 
     @classmethod
     def merge(cls, tiles: Iterable[Region]) -> Region:
-        """One region over the union of the tiles. Where tiles overlap, the later one wins."""
+        """One region over the union of the tiles: later tiles win overlaps, uncovered blocks are air."""
         tiles = list(tiles)
         if not tiles:
             raise ValueError("merge needs at least one tile")
@@ -214,3 +237,112 @@ class Region:
         """Blocks per palette name, omitting names that do not occur."""
         totals = np.bincount(self.blocks.ravel(), minlength=len(self.palette))
         return {name: int(n) for name, n in zip(self.palette, totals) if n}
+
+
+@dataclass(eq=False)
+class Heightmap:
+    """Highest block per column as ``heights[z][x]``, ``-1`` for an empty column.
+
+    ``top`` is that block's palette index, air for an empty column, or ``None``
+    when the source did not report it.
+    """
+
+    world: str
+    bounds: Bounds2D
+    heights: np.ndarray
+    top: np.ndarray | None = None
+    palette: list[str] = field(default_factory=lambda: [AIR])
+
+    def __post_init__(self) -> None:
+        for name, array in (("heights", self.heights), ("top", self.top)):
+            if array is not None and (array.shape != self.bounds.shape or array.dtype != np.int16):
+                raise ValueError(f"{name} must be int16 of shape {self.bounds.shape}, got {array.dtype} {array.shape}")
+
+    @classmethod
+    def merge(cls, tiles: Iterable[Heightmap]) -> Heightmap:
+        """One heightmap over the union of the tiles: later tiles win overlaps, uncovered columns are empty.
+
+        ``top`` is kept only when every tile carries one.
+        """
+        tiles = list(tiles)
+        if not tiles:
+            raise ValueError("merge needs at least one tile")
+        if len({t.world for t in tiles}) != 1:
+            raise ValueError(f"tiles span several worlds: {sorted({t.world for t in tiles})}")
+        bounds = reduce(Bounds2D.union, (t.bounds for t in tiles))
+        with_top = all(t.top is not None for t in tiles)
+        out = cls(tiles[0].world, bounds, np.full(bounds.shape, -1, dtype=np.int16), np.zeros(bounds.shape, dtype=np.int16) if with_top else None)
+        index: dict[str, int] = {AIR: 0}
+        for tile in tiles:
+            at = bounds.slices(tile.bounds)
+            out.heights[at] = tile.heights
+            if with_top:
+                lut = np.array([index.setdefault(name, len(index)) for name in tile.palette], dtype=np.int16)
+                out.top[at] = lut[tile.top]
+        out.palette[:] = index
+        return out
+
+    def height(self, x: int, z: int) -> int:
+        return int(self.heights[self.bounds.local((x, z))])
+
+    def top_name(self, x: int, z: int) -> str:
+        if self.top is None:
+            raise ValueError("heightmap carries no top blocks; fetch it with need_top=True")
+        return self.palette[int(self.top[self.bounds.local((x, z))])]
+
+
+def _job_result(bridge: Bridge, op: str, **args: Any) -> Any:
+    """Result of a job that finished inline; riftal-infra#56 replaces this with ``get_job`` polling."""
+    status = bridge.call(op, **args)
+    if status.get("state") != "done":
+        raise BridgeOpError("JOB_PENDING", op, args, f"job {status.get('job')!r} is {status.get('state')!r}, not done")
+    return status["result"]
+
+
+def fetch_region(bridge: Bridge, world: str, bounds: Bounds, *, max_edge: int = MAX_EDGE) -> Region:
+    """The blocks inside ``bounds``, one ``get_region`` job per tile of ``max_edge``."""
+    return Region.merge(
+        Region.from_rle(world, _job_result(bridge, "get_region", world=world, bounds=t.to_json())) for t in bounds.tiles(max_edge)
+    )
+
+
+def fetch_heightmap(bridge: Bridge, world: str, bounds: Bounds2D, *, need_top: bool = False) -> Heightmap:
+    """Highest block per column inside ``bounds``, one ``get_heightmap`` job per tile.
+
+    ``need_top`` guarantees the top blocks: when the server reports none, the
+    tile's observed height range is fetched as a region and the tops derived.
+    """
+    tiles = []
+    for tile in bounds.tiles():
+        result = _job_result(bridge, "get_heightmap", world=world, bounds=tile.to_json())
+        heights = np.asarray(result["heights"], dtype=np.int16).reshape(tile.shape)
+        top, palette = None, [AIR]
+        if result.get("top") is not None:
+            top, palette = np.asarray(result["top"], dtype=np.int16).reshape(tile.shape), list(result["palette"])
+            if AIR not in palette:
+                palette.append(AIR)
+            top[heights < 0] = palette.index(AIR)
+        elif need_top:
+            top = np.zeros(tile.shape, dtype=np.int16)
+            if (heights >= 0).any():
+                lo, hi = int(heights[heights >= 0].min()), int(heights.max())
+                box = Bounds((tile.min[0], lo, tile.min[1]), (tile.max[0], hi, tile.max[1]))
+                derived = heightmap_from_region(fetch_region(bridge, world, box))
+                top, palette = derived.top, derived.palette
+        tiles.append(Heightmap(world, tile, heights, top, palette))
+    return Heightmap.merge(tiles)
+
+
+def heightmap_from_region(region: Region, *, ground: bool = False) -> Heightmap:
+    """Highest non-air block per column; ``ground`` also looks through passable blocks and trees."""
+    skip = region.classes() == BlockClass.AIR
+    if ground:
+        canopy = np.array([base_name(name).endswith(CANOPY_SUFFIXES) for name in region.palette])
+        skip |= (region.classes() == BlockClass.PASSABLE) | canopy[region.blocks]
+    surface = ~skip
+    iy = surface.shape[0] - 1 - surface[::-1].argmax(axis=0)
+    found = surface.any(axis=0)
+    heights = np.where(found, iy + region.bounds.min[1], -1).astype(np.int16)
+    top = np.where(found, np.take_along_axis(region.blocks, iy[None], axis=0)[0], 0).astype(np.int16)
+    (x0, _, z0), (x1, _, z1) = region.bounds.min, region.bounds.max
+    return Heightmap(region.world, Bounds2D((x0, z0), (x1, z1)), heights, top, list(region.palette))
