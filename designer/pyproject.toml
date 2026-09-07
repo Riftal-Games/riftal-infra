@@ -1,0 +1,30 @@
+[project]
+name = "designer"
+version = "0.1.0"
+description = "RiftalGames map design toolkit: wraps the DesignBridge plugin with a semantic map, rendering, snapshots, verification and builders."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy>=2.0,<3",
+  "pillow>=10,<12",
+  "pyyaml>=6,<7",
+  "mcp>=1.10,<2",
+]
+
+[project.scripts]
+designer = "designer.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8,<9",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
+
+# Flat layout: the package is designer/designer/, not designer/src/designer/.
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
