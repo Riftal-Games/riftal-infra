@@ -172,4 +172,4 @@ Reverse the ``n`` newest edits not yet undone, from any session; each pushes an 
 ```json
 {"properties": {"dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "n": {"default": 1, "title": "N", "type": "integer"}}, "title": "undoArguments", "type": "object"}
 ```
-Returns: dry_run, count, undone, blocks, snapshot, undo_id.
+Returns: dry_run, count, undone, blocks, snapshot, undo_id, jobs.
