@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import reduce
 from itertools import groupby
 from typing import Any
 
-import numpy as np
-
+from designer.blocks import format_name, parse_name
 from designer.bridge import Bridge, BridgeError
-from designer.region import Bounds, Region
+from designer.region import MAX_EDGE, Bounds, Region
 
 # The bridge's ``max_set_blocks``; a bigger batch is refused before it is sent.
 MAX_SET_BLOCKS = 65536
 COALESCE_RUN = 8
+
+
+def _canonical(name: str) -> str:
+    """The spelling the bridge stores, so two names for one block compare equal here too."""
+    return format_name(*parse_name(name))
 
 
 @dataclass(frozen=True)
@@ -34,6 +39,10 @@ class SetBlock(_At):
     block: str
     blocks = 1
 
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        object.__setattr__(self, "block", _canonical(self.block))
+
     @property
     def bounds(self) -> Bounds:
         return Bounds((self.x, self.y, self.z), (self.x, self.y, self.z))
@@ -50,12 +59,15 @@ class Fill:
     bounds: Bounds
     block: str
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "block", _canonical(self.block))
+
     @property
     def blocks(self) -> int:
         return self.bounds.volume
 
     def paint(self, region: Region) -> None:
-        region.sub(self.bounds).blocks[...] = region.index_of(self.block)
+        region.fill(self.bounds, self.block)
 
     def to_json(self) -> dict[str, Any]:
         return {"op": "fill", "bounds": self.bounds.to_json(), "block": self.block}
@@ -69,15 +81,15 @@ class Replace:
 
     def __post_init__(self) -> None:
         names = (self.from_block,) if isinstance(self.from_block, str) else tuple(self.from_block)
-        object.__setattr__(self, "from_block", names)
+        object.__setattr__(self, "from_block", tuple(_canonical(name) for name in names))
+        object.__setattr__(self, "to_block", _canonical(self.to_block))
 
     @property
     def blocks(self) -> int:
         return self.bounds.volume
 
     def paint(self, region: Region) -> None:
-        view, sources = region.sub(self.bounds), [i for i, name in enumerate(region.palette) if name in self.from_block]
-        view.blocks[np.isin(view.blocks, sources)] = region.index_of(self.to_block)
+        region.replace(self.bounds, self.from_block, self.to_block)
 
     def to_json(self) -> dict[str, Any]:
         return {"op": "replace", "bounds": self.bounds.to_json(), "from": list(self.from_block), "to": self.to_block}
@@ -117,6 +129,13 @@ def _run_key(item: tuple[int, Op]) -> Any:
     return (op.y, op.z, op.block, op.x - i) if isinstance(op, SetBlock) else i
 
 
+def _tiled(op: Op) -> list[Op]:
+    """A ``Fill`` or ``Replace`` as one op per ``MAX_EDGE`` tile of its bounds; any other op as is."""
+    if isinstance(op, (Fill, Replace)):
+        return [dataclasses.replace(op, bounds=tile) for tile in op.bounds.tiles(MAX_EDGE)]
+    return [op]
+
+
 @dataclass
 class ApplyResult:
     ok: bool
@@ -132,6 +151,7 @@ class EditList:
     ops: list[Op] = field(default_factory=list)
     extras: dict[str, Any] = field(default_factory=dict)
 
+    @property
     def bounds(self) -> Bounds | None:
         """Union of every block op's bounds; ``None`` when no op touches a block."""
         boxes = [op.bounds for op in self.ops if op.bounds is not None]
@@ -152,9 +172,9 @@ class EditList:
         return EditList(self.world, out, dict(self.extras))
 
     def to_region(self, base: Region | None = None) -> Region:
-        """The ops painted in order onto a copy of ``base``, or onto air over ``bounds()``."""
+        """The ops painted in order onto a copy of ``base``, or onto air over ``bounds``."""
         if base is None:
-            box = self.bounds()
+            box = self.bounds
             if box is None:
                 raise ValueError("an edit list with no block ops has no bounds; pass a base region")
             region = Region.empty(self.world, box)
@@ -176,7 +196,11 @@ class EditList:
         return cls(data["world"], [_op_from_json(op) for op in data["ops"]], dict(data.get("extras") or {}))
 
     def requests(self, batch: int = 4096) -> list[tuple[str, dict[str, Any], int]]:
-        """What ``apply`` sends, in order, as ``(op, args, blocks)``: ``SetBlock``s packed into ``set_blocks`` of at most ``batch``, every other op one request."""
+        """What ``apply`` sends, in order, as ``(op, args, blocks)``.
+
+        ``SetBlock``s pack into ``set_blocks`` of at most ``batch``; a ``Fill``
+        or ``Replace`` is one request per ``MAX_EDGE`` tile; a ``Text`` is one.
+        """
         if not 1 <= batch <= MAX_SET_BLOCKS:
             raise ValueError(f"batch must be between 1 and {MAX_SET_BLOCKS}, got {batch}")
         out: list[tuple[str, dict[str, Any], int]] = []
@@ -187,11 +211,11 @@ class EditList:
             if pending and (len(pending) == batch or not isinstance(op, SetBlock)):
                 out.append(("set_blocks", {"world": self.world, "blocks": pending}, len(pending)))
                 pending = []
-            if op is not None and not isinstance(op, SetBlock):
+            for piece in [] if op is None or isinstance(op, SetBlock) else _tiled(op):
                 # The JSON form of a fill, replace or text op is its wire args, minus an unset text id.
-                args = {"world": self.world, **op.to_json()}
+                args = {"world": self.world, **piece.to_json()}
                 kind = args.pop("op")
-                out.append(("set_text" if kind == "text" else kind, {k: v for k, v in args.items() if v is not None}, op.blocks))
+                out.append(("set_text" if kind == "text" else kind, {k: v for k, v in args.items() if v is not None}, piece.blocks))
         return out
 
     def apply(
@@ -203,7 +227,7 @@ class EditList:
         requests, result = self.requests(batch), ApplyResult(True)
         if dry_run:
             return result
-        if before is not None and (box := self.bounds()) is not None:
+        if before is not None and (box := self.bounds) is not None:
             result.before_result = before(self.world, box)
         total = self.count_blocks()
         for op, args, blocks in requests:
