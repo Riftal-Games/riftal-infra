@@ -264,3 +264,16 @@ means `SOLID`, which is what `stand_mask` requires, and `warp_safe` is a point
 check within a block of a warp, so nothing else scans a whole walkway for a
 lava tile. At walkway level anything a player cannot pass through is an
 obstruction, liquid and danger included.
+
+## 2026-09-08 `MineSpec.geometry()` is the one source of a mine's bounds; `mine_valid` floods the interior as open and stops at the padding ring
+
+The builder and the check read the same `MineGeometry`, so a wall the
+builder places one block off is a leak the check names rather than a
+disagreement between two copies of the arithmetic. The flood treats every
+interior cell as passable because a mine ships solid and is hollowed by
+players, so a check on the freshly built box would otherwise fill nothing
+and prove nothing. It reaches the padding ring but never expands from it,
+so `leaks` names the cells beside each hole instead of the whole ring, which
+is what a builder pastes into a teleport. An even entrance width leans to
+the upper middle, the same rule as `Bounds.from_center`, so the platform, the
+opening and `resolve_pos` of the interior all agree on where the centre is.
