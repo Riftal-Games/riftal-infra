@@ -31,6 +31,8 @@ def _pos(value: Sequence[int]) -> Pos:
 
 @dataclass
 class Location:
+    """A named point. ``pos`` is the feet block in integer block coordinates; ``yaw`` and ``pitch`` are degrees."""
+
     name: str
     world: str
     pos: Pos
@@ -115,7 +117,25 @@ class WorldIndex:
         if data.get("version") != VERSION:
             raise ValueError(f"{path} is version {data.get('version')!r}; this toolkit reads version {VERSION}")
         lists = {kind: [t.from_json(e) for e in data.get(kind, [])] for kind, t in zip(KINDS, (WorldEntry, Location, NamedRegion))}
-        return cls(VERSION, data.get("updated", ""), data["default_world"], **lists)
+        index = cls(VERSION, data.get("updated", ""), data.get("default_world", ""), **lists)
+        index.validate()
+        return index
+
+    def validate(self) -> None:
+        """Raise ``ValueError`` naming the first entry that breaks an invariant ``add_*`` keeps."""
+        worlds = {w.name for w in self.worlds}
+        if self.default_world not in worlds:
+            raise ValueError(f"default_world {self.default_world!r} is not a listed world")
+        seen: dict[str, str] = {}
+        for entry in (*self.locations, *self.regions):
+            what = f"{type(entry).__name__} {entry.name!r}"
+            if not NAME_RE.fullmatch(entry.name):
+                raise ValueError(f"{what} must match {NAME_RE.pattern}")
+            if entry.world not in worlds:
+                raise ValueError(f"{what} is in unlisted world {entry.world!r}")
+            if entry.name in seen:
+                raise ValueError(f"{what} duplicates {seen[entry.name]}")
+            seen[entry.name] = what
 
     def to_json(self) -> dict[str, Any]:
         lists = {kind: [e.to_json() for e in sorted(getattr(self, kind), key=lambda e: e.name)] for kind in KINDS}
@@ -144,12 +164,15 @@ class WorldIndex:
         return named[name]
 
     def resolve_pos(self, ref: str | Sequence[int]) -> tuple[int, int | None, int]:
-        """``(x, y, z)`` of a location, a region's min corner, an ``x,y,z`` string or a 3-list; ``x,z`` gives ``y=None``."""
+        """``(x, y, z)`` of a location, a region's centre block, an ``x,y,z`` string or a 3-list; ``x,z`` gives ``y=None``.
+
+        The centre of an even-sized region is the upper of its two middle blocks, so ``Bounds.from_center`` gives the region back.
+        """
         if not isinstance(ref, str):
             return _pos(ref)
         if "," not in ref:
             entry = self.resolve(ref)
-            return entry.pos if isinstance(entry, Location) else entry.min
+            return entry.pos if isinstance(entry, Location) else _pos([lo + (hi - lo + 1) // 2 for lo, hi in zip(entry.min, entry.max)])
         parts = [int(p) for p in ref.split(",")]
         return (parts[0], None, parts[1]) if len(parts) == 2 else _pos(parts)
 

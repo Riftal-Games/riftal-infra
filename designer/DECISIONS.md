@@ -68,3 +68,15 @@ from the volume. Reports are per-run output.
 Stdio needs no port and no authentication of its own, so there is nothing to
 expose. The token lives in the untracked `.env`, which is what lets `.mcp.json`
 be committed in `riftal-pm`.
+
+## 2026-09-07 `world_index.json` is validated on load; worlds are hand-edited in first; a region resolves to its centre; save is sorted
+
+Worlds have no add API. They are written into the file by hand and must exist
+before any location or region in them, since an entry in an unlisted world can
+be neither fetched nor teleported to. Names match `^[a-z0-9_]+$` and are unique
+across locations and regions, and `load` checks all of it because the file is
+hand-edited and a hand edit is exactly what the `add_*` checks never see.
+`resolve_pos` of a region is its centre block, the upper-middle on an even size
+so `Bounds.from_center` round-trips, because `--at <region>` wants the middle
+and the min corner may be inside solid ground. `save` sorts keys and lists by
+name so a diff is one line per real change.

@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -49,8 +50,9 @@ def test_save_is_byte_stable_and_name_ordered(index: WorldIndex, tmp_path: Path)
 def test_resolve_pos_accepts_every_form(index: WorldIndex) -> None:
     index.add_region(NamedRegion("yard", "design", (9, 70, 9), (-4, 60, -4)))
     assert index.resolve_pos("spawn") == (0, 64, 0)
-    assert index.resolve_pos("yard") == (-4, 60, -4)
+    assert index.resolve_pos("yard") == (3, 65, 3)
     assert index.resolve("yard").bounds == Bounds((-4, 60, -4), (9, 70, 9))
+    assert Bounds.from_center(index.resolve_pos("yard"), index.resolve("yard").bounds.size) == index.resolve("yard").bounds
     assert index.resolve_pos("1,2,3") == (1, 2, 3)
     assert index.resolve_pos("-7, 12") == (-7, None, 12)
     assert index.resolve_pos([4, 5, 6]) == (4, 5, 6)
@@ -84,6 +86,19 @@ def test_names_are_unique_across_kinds(index: WorldIndex) -> None:
     assert index.remove("gate").name == "gate" and index.names() == {"spawn": index.locations[0]}
     with pytest.raises(KeyError):
         index.remove("gate")
+
+
+def test_load_enforces_the_add_invariants(index: WorldIndex, tmp_path: Path) -> None:
+    gate = Location("gate", "design", (1, 2, 3)).to_json()
+    for changes, message in (
+        ({"regions": [NamedRegion("spawn", "design", (0, 0, 0), (1, 1, 1)).to_json()]}, "NamedRegion 'spawn' duplicates Location 'spawn'"),
+        ({"locations": [{**gate, "name": "Gate"}]}, "Location 'Gate' must match"),
+        ({"locations": [{**gate, "world": "desgin"}]}, "Location 'gate' is in unlisted world 'desgin'"),
+        ({"default_world": "hub"}, "default_world 'hub' is not a listed world"),
+    ):
+        (tmp_path / "bad.json").write_text(json.dumps({**index.to_json(), **changes}), encoding="utf-8")
+        with pytest.raises(ValueError, match=message):
+            WorldIndex.load(tmp_path / "bad.json")
 
 
 def test_tag_queries(index: WorldIndex) -> None:
