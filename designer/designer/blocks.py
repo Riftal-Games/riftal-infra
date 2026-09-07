@@ -1,8 +1,4 @@
-"""Block names, block classes and the region run-length encoding.
-
-Classes are looked up on the base name only, so a state never changes what a
-verification check sees.
-"""
+"""Block names, block classes and the region run-length encoding."""
 
 from __future__ import annotations
 
@@ -15,10 +11,9 @@ import numpy as np
 AIR = "minecraft:air"
 NAMESPACE = "minecraft:"
 
-# Wire order of a region's runs, outermost axis first: x varies fastest.
+# Wire order of a region's runs and axis order of every decoded array,
+# outermost first: ``blocks[y][z][x]``, x varies fastest.
 RLE_ORDER = ("y", "z", "x")
-
-# Axis order of every decoded array, ``blocks[y][z][x]``.
 ARRAY_AXES = ("y", "z", "x")
 
 
@@ -61,11 +56,7 @@ def format_name(base: str, states: Mapping[str, Any] | None = None) -> str:
         base = NAMESPACE + base
     if not states:
         return base
-    parts = []
-    for key in sorted(states):
-        value = states[key]
-        text = str(value).lower() if isinstance(value, bool) else str(value)
-        parts.append(f"{key}={text}")
+    parts = (f"{k}={str(v).lower() if isinstance(v, bool) else str(v)}" for k, v in sorted(states.items()))
     return f"{base}[{','.join(parts)}]"
 
 
@@ -76,34 +67,26 @@ def base_name(name: str) -> str:
 
 RULE_KINDS = ("exact", "prefix", "suffix", "contains")
 
-# First match wins, matched on the base name. Order is load-bearing because
-# ``register_rule(front=True)`` inserts at index 0 to beat every seeded rule.
+# First match wins, on the base name only so a state never changes what a
+# verification check sees. ``register_rule(front=True)`` inserts at index 0
+# to beat every seeded rule.
 CLASS_RULES: list[tuple[str, str, BlockClass]] = [
     *(("exact", n, BlockClass.AIR) for n in ("air", "cave_air", "void_air")),
     *(("exact", n, BlockClass.LIQUID) for n in ("water", "flowing_water", "bubble_column")),
-    *(
-        ("exact", n, BlockClass.DANGER)
-        for n in (
-            "lava", "flowing_lava", "fire", "soul_fire", "magma", "cactus",
-            "sweet_berry_bush", "powder_snow", "campfire", "soul_campfire")
-    ),
-    *(
-        ("exact", n, BlockClass.PASSABLE)
-        for n in (
-            "lever", "ladder", "vine", "fern", "large_fern", "dead_bush", "snow_layer",
-            "flower_pot", "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
-            "sugar_cane", "reeds", "bamboo_sapling", "hanging_roots", "dandelion", "poppy", "blue_orchid",
-            "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley",
-            "wither_rose", "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",
-            "double_plant", "red_flower", "yellow_flower")
-    ),
+    *(("exact", n, BlockClass.DANGER) for n in (
+        "lava", "flowing_lava", "fire", "soul_fire", "magma", "cactus",
+        "sweet_berry_bush", "powder_snow", "campfire", "soul_campfire")),
+    *(("exact", n, BlockClass.PASSABLE) for n in (
+        "lever", "ladder", "vine", "fern", "large_fern", "dead_bush", "snow_layer",
+        "flower_pot", "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
+        "sugar_cane", "reeds", "bamboo_sapling", "hanging_roots", "dandelion", "poppy", "blue_orchid",
+        "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley",
+        "wither_rose", "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",
+        "double_plant", "red_flower", "yellow_flower")),
     ("prefix", "tripwire", BlockClass.PASSABLE),
-    *(
-        ("suffix", s, BlockClass.PASSABLE)
-        for s in (
-            "sign", "button", "pressure_plate", "rail", "carpet", "sapling", "flower",
-            "tulip", "banner", "fungus", "_vines", "_grass")
-    ),
+    *(("suffix", s, BlockClass.PASSABLE) for s in (
+        "sign", "button", "pressure_plate", "rail", "carpet", "sapling", "flower",
+        "tulip", "banner", "fungus", "_vines", "_grass")),
     ("contains", "torch", BlockClass.PASSABLE),
 ]
 
