@@ -169,3 +169,33 @@ and the current model runs one. `prune` keeps 14 days because a design
 session's edits are reviewed within the week they land and a fortnight
 covers a missed one, while snapshots of 128^3 tiles are large enough that an
 unbounded default would fill the disk before anyone chose to.
+
+## 2026-09-08 The MCP server caps `MAX_AREA` 256, `MAX_RADIUS` 8, `MAX_LOG_LINES` 200; the bridge and the index are created on first use under one lock; every tool answers an `ok` envelope and never raises
+
+The caps bound what one tool call can put into a model's context. A 256
+square is four 128 tiles of heightmap and the largest ASCII map that is still
+legible when pasted; radius 8 is a 17^3 inspect, which is 17 slices of 17
+rows, about what a reader can hold while comparing layers; 200 log lines is a
+boot's worth of output, and anything longer is a file to open, not an answer
+to read. The bridge and the index are built lazily so the server starts with
+the design instance down and `server_status` can report that rather than the
+process dying before the first call, and one lock covers both so two tools
+racing at first use share one connection instead of opening two. Every tool
+answers `{"ok": True, ...}` or `{"ok": False, "error", "code"}` because an
+exception out of a tool reaches the client as a transport error with the
+detail lost, and the `code` is what lets the caller tell `not_designer` from
+a bad block name without parsing prose.
+
+## 2026-09-08 `DESIGNER_READ_ONLY` is checked before the bridge; `set_blocks` takes 4096 entries per call; the snapshot and its undo entry are written inside `before`; `restore` takes a path or an undo id; the session label is the server's start time
+
+The read-only switch is the one check that must hold with the bridge down, so
+it answers first and costs no request; it covers the two lists as well
+because a read-only session has no use for what feeds `restore` and `undo`.
+4096 is `DEFAULT_BATCH`, so one call is one request and its progress is one
+job's progress, and a bigger edit is a fill or a builder. The snapshot is
+taken and pushed inside `apply`'s `before` hook so the manifest names the
+entry before the first block is sent, and a run that stops at a `BridgeError`
+still answers with the entry that covers what landed. An undo id spares the
+caller a path it would otherwise copy out of `list_undo`. The session label
+is the start time because the MCP server lives exactly one Claude Code
+session, so the label groups the entries that session made.

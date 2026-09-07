@@ -195,7 +195,9 @@ def resolve_at(index: WorldIndex, ref: str, world: str | None = None) -> tuple[s
     try:
         entry = index.resolve(ref)
     except KeyError:
-        tagged = [l for l in index.locations_tagged(ref) if ref == "spawn" and l.world == (world or index.default_world)]
+        if ref != "spawn":
+            raise
+        tagged = [l for l in index.locations_tagged("spawn") if l.world == (world or index.default_world)]
         if not tagged:
             raise
         entry = tagged[0]
