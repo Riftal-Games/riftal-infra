@@ -2,6 +2,11 @@
 
 Speaks the wire contract on a loopback port from a daemon thread. Each fault
 knob applies to the next request only and resets itself; ``omit_top`` stands.
+
+Jobs: ``queue_next`` is how many ``get_job`` polls the next job needs before it
+settles, ``fail_next_job`` is the error text it settles with, ``slow_op`` takes
+``steps`` and ``total`` and reports progress. Every ``cancel_job`` seen is kept
+in ``cancelled``.
 """
 
 from __future__ import annotations
@@ -60,10 +65,14 @@ class FakeBridge:
         self.drop_next_response = False
         self.delay_next = 0.0
         self.wrong_id_next = False
-        self.queue_next = False
+        self.pad_next = 0
+        self.queue_next = 0
+        self.fail_next_job: str | None = None
         self.omit_top = False
         self.worlds: dict[str, FakeWorld] = {"design": FakeWorld()}
         self.requests: list[dict[str, Any]] = []
+        self.jobs: dict[str, dict[str, Any]] = {}
+        self.cancelled: list[str] = []
         self.port = 0
         self._loop = asyncio.new_event_loop()
         self._ready = threading.Event()
@@ -114,7 +123,10 @@ class FakeBridge:
                     break
                 if self.wrong_id_next:
                     self.wrong_id_next, request_id = False, -1
-                await self._reply(writer, {"id": request_id, **self._dispatch(request)})
+                response = {"id": request_id, **self._dispatch(request)}
+                if self.pad_next:
+                    self.pad_next, response["pad"] = 0, "x" * self.pad_next
+                await self._reply(writer, response)
         finally:
             writer.close()
 
@@ -142,12 +154,50 @@ class FakeBridge:
             raise FakeOpError("BOUNDS_TOO_LARGE", f"edge {max(box.size)} over {MAX_EDGE}")
         return box
 
-    def _job(self, op: str, result: dict[str, Any]) -> dict[str, Any]:
-        status = {"job": f"j{len(self.requests)}", "op": op, "state": "done", "result": result, "elapsed_ms": 0}
-        if self.queue_next:
-            self.queue_next = False
-            status.update(state="queued", result=None)
+    def _job(self, op: str, result: dict[str, Any], steps: int = 0, total: int | None = None) -> dict[str, Any]:
+        steps, self.queue_next = max(steps, self.queue_next), 0
+        error, self.fail_next_job = self.fail_next_job, None
+        job_id = f"j{len(self.requests)}"
+        self.jobs[job_id] = {
+            "job": job_id, "op": op, "result": result, "error": error, "steps": steps, "polls": 0,
+            "total": steps if total is None else total, "cancelled": False,
+        }
+        return self._status(job_id)
+
+    def _status(self, job_id: str) -> dict[str, Any]:
+        job = self.jobs.get(job_id)
+        if job is None:
+            raise FakeOpError("JOB_NOT_FOUND", f"no job {job_id!r}")
+        settled = job["polls"] >= job["steps"]
+        if job["cancelled"]:
+            state = "cancelled"
+        elif not settled:
+            state = "queued" if job["polls"] == 0 else "running"
+        else:
+            state = "failed" if job["error"] else "done"
+        done = min(job["polls"], job["steps"]) * job["total"] // max(job["steps"], 1)
+        status = {"job": job_id, "op": job["op"], "state": state, "progress": {"done": done, "total": job["total"]}, "elapsed_ms": 0}
+        if state == "done":
+            status["result"] = job["result"]
+        if state == "failed":
+            status["error"] = job["error"]
         return status
+
+    def op_get_job(self, args: dict[str, Any]) -> dict[str, Any]:
+        job = self.jobs.get(args["job"])
+        if job is not None and not job["cancelled"]:
+            job["polls"] += 1
+        return self._status(args["job"])
+
+    def op_cancel_job(self, args: dict[str, Any]) -> dict[str, Any]:
+        self.cancelled.append(args["job"])
+        status = self._status(args["job"])
+        if status["state"] not in ("done", "failed"):
+            self.jobs[args["job"]]["cancelled"] = True
+        return self._status(args["job"])
+
+    def op_slow_op(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._job("slow_op", {"echo": args.get("echo")}, steps=int(args.get("steps", 3)), total=args.get("total"))
 
     def op_ping(self, args: dict[str, Any]) -> dict[str, Any]:
         return {"pong": True, "tick": len(self.requests)}

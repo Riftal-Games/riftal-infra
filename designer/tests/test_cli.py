@@ -24,6 +24,7 @@ def test_ping_and_info_use_the_configured_bridge(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_HOST", "127.0.0.1")
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
 
     assert main(["ping"]) == 0
