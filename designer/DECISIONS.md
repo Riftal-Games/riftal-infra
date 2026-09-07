@@ -80,3 +80,13 @@ hand-edited and a hand edit is exactly what the `add_*` checks never see.
 so `Bounds.from_center` round-trips, because `--at <region>` wants the middle
 and the min corner may be inside solid ground. `save` sorts keys and lists by
 name so a diff is one line per real change.
+
+## 2026-09-07 The ASCII map ticks on absolute multiples of 16; a downsampled cell is the block mean; `flat` is the share at the modal height
+
+Ticks on chunk edges line up with what a player sees at a chunk border, which
+a tick counted from the map's corner does not. A cell wider than a block is
+the mean of its non-empty columns, and it is water when at least half of them
+are, so a pond survives downsampling and a single wet column does not flood a
+cell. `summary` calls a column flat when it sits at the most common height,
+which is the number a builder wants: how much of the area is already the
+platform it will stand on.
