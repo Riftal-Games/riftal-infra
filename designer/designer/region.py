@@ -247,6 +247,31 @@ class Region:
             self._classes = class_lut(self.palette)[self.blocks]
         return self._classes
 
+    def passable(self) -> np.ndarray:
+        """Bool per block: air, or a block a player walks through."""
+        classes = self.classes()
+        return (classes == BlockClass.AIR) | (classes == BlockClass.PASSABLE)
+
+    def stand_mask(self) -> np.ndarray:
+        """Bool ``[y][z][x]``: a player can stand with feet in the cell.
+
+        Solid floor below, the cell and the one above passable. The top and
+        bottom layers are never standable because their floor or head cell is
+        outside the region. The mask depends on nothing but the blocks, so the
+        root region caches it beside ``classes`` and ``_invalidate`` clears
+        both; a view computes fresh every call because an edit made through
+        its parent never reaches the view's cache.
+        """
+        if self._parent is None and self._stand is not None:
+            return self._stand
+        classes, passable = self.classes(), self.passable()
+        mask = np.zeros(classes.shape, dtype=bool)
+        if classes.shape[0] >= 3:
+            mask[1:-1] = (classes[:-2] == BlockClass.SOLID) & passable[1:-1] & passable[2:]
+        if self._parent is None:
+            self._stand = mask
+        return mask
+
     def counts(self) -> dict[str, int]:
         """Blocks per palette name, omitting names that do not occur."""
         totals = np.bincount(self.blocks.ravel(), minlength=len(self.palette))

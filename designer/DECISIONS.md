@@ -211,13 +211,38 @@ A drop costs 0.25 a block and a climb 0.5, so a heuristic that charged 0.5
 for every block of height would overestimate a descent and A* could return a
 dearer path than exists; the heuristic charges 0.5 when the goal is above and
 0.25 when it is below, which is exactly what the cheapest move sequence pays.
-`stand_mask` does not depend on the drop limit, so one array is cached on the
-region and `_invalidate` clears it with the classes, but a `sub` view computes
-fresh every call: an edit through the parent never reaches the view's cache,
-and a stale mask is a path through a block placed a moment ago. A drop reads
+`stand_mask` does not depend on the drop limit, so `Region.stand_mask` caches
+one array on the root region and `_invalidate` clears it with the classes,
+but a `sub` view computes fresh every call: an edit through the parent never
+reaches the view's cache, and a stale mask is a path through a block placed a
+moment ago. The cache lives in `Region` so its contract is read in one file
+beside the classes cache it mirrors. A drop reads
 the head cell of the neighbour column before the feet leave the ledge, the
 same cell a step up the other way reads, so the graph is symmetric on the
 same geometry. The default corridor grows the endpoints' box by `margin` in x
 and z but only 8 in y, since two points a check names together rarely sit
 more than a few storeys apart and every extra layer is another full plane of
 nodes.
+
+## 2026-09-08 `entity_clear` judges the support a player would rest on and passes over a void; `warp_safe` demands solid within `LANDING` 3 below and no ring hole deeper than that; `region_inside` names the corner
+
+`entity_clear` looks past air and passable blocks to the first block that
+would hold the player, and fails only when that block is liquid or danger,
+because a hitbox over a drop is free and a hitbox over lava is a death. A
+column with no support is not an obstruction, so it passes, and `warp_safe`
+is the check that refuses it: a warp puts a player at the position with no
+control over the fall, so there must be solid ground within three blocks of
+the feet, which is at most a two-block fall. The floor ring may be one
+deeper, solid within four, which is the three-block fall Bedrock takes
+without damage, since a player who steps off the warp onto a hole is
+choosing to. The hazard scan covers the floor plane of the ring as well as
+feet and head, because a first step onto a lava floor is the same death as
+a step into a lava wall, and it runs before the ring rule so lava at floor
+level is named as lava whether air or stone lies under it. The rules run
+hitbox, landing, hazards, ring so that `detail` always names the first
+thing a builder must fix. Cells outside the region are unknown, so
+they never offend and never count as solid: a check at the edge of a fetch
+fails toward caution on the landing and stays silent on what it cannot see.
+`region_inside` reports each corner of the inner box that lies outside the
+outer one, because a corner is a coordinate a builder can paste into a
+teleport, where "not inside" is not.
