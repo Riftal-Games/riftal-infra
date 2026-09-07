@@ -2,8 +2,10 @@ import json
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from designer.cli import main
+from designer.render import LEGEND_LINE
 from designer.world_index import Location, WorldEntry, WorldIndex
 from tests.fake_bridge import FakeBridge
 
@@ -63,3 +65,16 @@ def test_heightmap_spawn_falls_back_to_the_tag_and_bad_refs_exit_one(
     assert capsys.readouterr().err == "designer: no such name 'nowhere'\n"
     assert main(["heightmap", "--at", "spawn", "--size", "8", "--world", "lost"]) == 1
     assert capsys.readouterr().err.startswith("designer: no such name 'spawn'")
+
+
+def test_render_topdown_writes_the_png_and_prints_its_path_and_summary(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    out = tmp_path / "spawn.png"
+
+    assert main(["render", "topdown", "--at", "spawn", "--size", "32", "--scale", "2", "--out", str(out)]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == str(out) and Image.open(out).size == (64, 64 + LEGEND_LINE)
+    assert lines[1] == "size=32x32 columns=256 min=63 max=63 mean=63.0 water=0.0 flat=1.0"

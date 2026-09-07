@@ -1,17 +1,20 @@
-"""Text rendering of a heightmap, plus the marker and report-path helpers every render shares."""
+"""Text and PNG rendering of a heightmap, plus the marker and report-path helpers every render shares."""
 
 from __future__ import annotations
 
+import colorsys
 import math
-from collections.abc import Iterable
+import zlib
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
-from designer.blocks import BlockClass, class_lut
+from designer.blocks import AIR, NAMESPACE, BlockClass, base_name, class_lut
 from designer.config import REPORTS_DIR
 from designer.region import Bounds2D, Heightmap
 from designer.world_index import WorldIndex
@@ -21,6 +24,13 @@ RAMP = ".,:-=+*#%@"
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 # Chunk edges, so a tick on the map is a boundary a player can also see.
 TICK = 16
+# The bridge's largest region edge, so a heavy gridline is also a tile edge.
+HEAVY = 128
+# Pixel rows per legend line; the default font is 11 px tall.
+LEGEND_LINE = 12
+GRID_COLOR, TEXT_COLOR = (200, 200, 200), (255, 255, 255)
+MARKER_FILL = {"location": (255, 40, 40), "corner": (255, 220, 0)}
+WATER_TINT = np.array([40, 90, 220], dtype=float)
 
 
 @dataclass(frozen=True)
@@ -50,7 +60,6 @@ def markers_from_index(index: WorldIndex, world: str, bounds: Bounds2D) -> list[
 def report_path(kind: str, world: str, bounds: Bounds2D, ext: str, ts: datetime | None = None) -> Path:
     ts = datetime.now() if ts is None else ts
     sx, sz = bounds.size
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     return REPORTS_DIR / f"{kind}-{world}-{bounds.min[0]}_{bounds.min[1]}-{sx}x{sz}-{ts:%Y%m%d-%H%M%S}.{ext}"
 
 
@@ -84,8 +93,8 @@ def _pool(values: np.ndarray, valid: np.ndarray, step: int) -> tuple[np.ndarray,
     return np.divide(total, count, out=np.zeros_like(total), where=count > 0), count > 0
 
 
-def _ticks(lo: int, hi: int, step: int) -> dict[int, str]:
-    return {(v - lo) // step: str(v) for v in range(-(-lo // TICK) * TICK, hi + 1, TICK)}
+def _ticks(lo: int, hi: int, step: int, every: int = TICK) -> dict[int, str]:
+    return {(v - lo) // step: str(v) for v in range(-(-lo // every) * every, hi + 1, every)}
 
 
 def ascii_heightmap(
@@ -138,3 +147,76 @@ def ascii_heightmap(
             lines.append(f"+ {name} ({min(xs)},{min(zs)})..({max(xs)},{max(zs)})")
         lines.append(f"ramp {RAMP[0]} y<{lo + band} to {RAMP[-1]} y>={lo + (len(RAMP) - 1) * band}, ~ liquid, space empty")
     return "\n".join(lines)
+
+
+def fallback_color(base: str) -> tuple[int, int, int]:
+    """A stable colour for a block with no entry in ``colors``: the hue is a crc32 of its base name."""
+    hue = (zlib.crc32(base.encode()) & 0xFFFF) / 0x10000
+    return tuple(int(c * 255) for c in colorsys.hsv_to_rgb(hue, 0.55, 0.85))
+
+
+def _palette_colors(palette: list[str], colors: Mapping[str, Any]) -> tuple[np.ndarray, dict[str, tuple[int, int, int]]]:
+    """RGB per palette index, and each base name that fell back to a hashed colour."""
+    lut, hashed = np.zeros((len(palette), 3)), {}
+    for i, name in enumerate(palette):
+        base = base_name(name)
+        if NAMESPACE + base in colors:
+            lut[i] = colors[NAMESPACE + base]
+        else:
+            hashed[base] = lut[i] = fallback_color(base)
+    return lut, hashed
+
+
+def topdown_png(
+    hm: Heightmap, colors: Mapping[str, Any], markers: Iterable[Marker] = (), *,
+    scale: int = 4, grid: int = 16, out: Path | str | None = None,
+) -> Path:
+    """Write a top-down PNG, one ``scale`` pixel square per column, and return its path."""
+    if scale < 1 or grid < 1:
+        raise ValueError(f"scale and grid must be at least 1, got {scale} and {grid}")
+    (xmin, zmin), (xmax, zmax) = hm.bounds.min, hm.bounds.max
+    nz, nx = hm.heights.shape
+    valid = hm.heights >= 0
+    top, palette = (hm.top, hm.palette) if hm.top is not None else (np.where(valid, 1, 0), [AIR, "unknown"])
+    lut, hashed = _palette_colors(palette, colors)
+    stats = summary(hm)
+    lo, hi = (0, 0) if stats["min"] is None else (stats["min"], stats["max"])
+    heights = np.where(valid, hm.heights, lo).astype(float)
+    # Lit from the west: a slope rising eastward faces the light and brightens.
+    slope = np.gradient(heights, axis=1) if nx > 1 else np.zeros_like(heights)
+    shade = (0.55 + 0.45 * (heights - lo) / max(hi - lo, 1)) * np.clip(1 + 0.12 * slope, 0.7, 1.3)
+    rgb = lut[top] * shade[..., None]
+    liquid = _liquid(hm)
+    rgb[liquid] = rgb[liquid] * 0.5 + WATER_TINT * 0.5
+    rgb[~valid] = 0
+    img = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8)).resize((nx * scale, nz * scale), Image.Resampling.NEAREST)
+
+    y_range = "empty" if stats["min"] is None else f"{lo}..{hi}"
+    legend = [(None, f"world={hm.world} x={xmin}..{xmax} z={zmin}..{zmax} y={y_range} scale={scale}")]
+    legend += sorted(((swatch, base) for base, swatch in hashed.items()), key=lambda e: e[1])
+    canvas = Image.new("RGB", (img.width, img.height + LEGEND_LINE * len(legend)), (20, 20, 20))
+    canvas.paste(img, (0, 0))
+    draw, font = ImageDraw.Draw(canvas), ImageFont.load_default()
+    for ix, label in _ticks(xmin, xmax, 1, grid).items():
+        draw.line([(ix * scale, 0), (ix * scale, img.height - 1)], fill=GRID_COLOR, width=2 if (xmin + ix) % HEAVY == 0 else 1)
+        draw.text((ix * scale + 2, 0), label, fill=TEXT_COLOR, font=font)
+    for iz, label in _ticks(zmin, zmax, 1, grid).items():
+        draw.line([(0, iz * scale), (img.width - 1, iz * scale)], fill=GRID_COLOR, width=2 if (zmin + iz) % HEAVY == 0 else 1)
+        draw.text((1, iz * scale + 1), label, fill=TEXT_COLOR, font=font)
+    radius = max(3, scale)
+    for m in markers:
+        if hm.bounds.contains((m.x, m.z)):
+            px, pz = (m.x - xmin) * scale + scale // 2, (m.z - zmin) * scale + scale // 2
+            fill = MARKER_FILL.get(m.kind, MARKER_FILL["location"])
+            draw.ellipse([px - radius, pz - radius, px + radius, pz + radius], fill=fill, outline=(0, 0, 0))
+            draw.text((px + radius + 2, pz - 5), m.label, fill=TEXT_COLOR, font=font)
+    for i, (swatch, text) in enumerate(legend):
+        y = img.height + i * LEGEND_LINE
+        if swatch is not None:
+            draw.rectangle([2, y + 1, LEGEND_LINE - 2, y + LEGEND_LINE - 2], fill=swatch)
+        draw.text((2 if swatch is None else LEGEND_LINE + 2, y), text, fill=TEXT_COLOR, font=font)
+
+    path = report_path("topdown", hm.world, hm.bounds, "png") if out is None else Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+    return path
