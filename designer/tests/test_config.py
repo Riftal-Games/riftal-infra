@@ -66,3 +66,12 @@ def test_host_and_port_default(tmp_path: Path) -> None:
 
     assert settings.host == DEFAULT_HOST
     assert settings.port == DEFAULT_PORT
+
+
+def test_token_is_absent_from_repr_and_str(tmp_path: Path) -> None:
+    token = "hunter2-do-not-print"
+    settings = load_settings(env={"DESIGNER_TOKEN": token}, env_file=tmp_path / ".env")
+
+    assert token not in repr(settings)
+    assert token not in str(settings)
+    assert settings.token == token

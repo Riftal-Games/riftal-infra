@@ -2,13 +2,17 @@
 
 Each value is read from the process environment first and from ``.env`` in the
 project root second. ``.env`` is untracked; ``.env.example`` documents its keys.
+
+``DESIGNER_ROOT`` is the one exception: it is read from the process environment
+only, because it locates the project root and therefore ``.env`` itself. It
+defaults to the directory containing this package.
 """
 
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parent
@@ -27,7 +31,7 @@ class ConfigError(Exception):
 
 @dataclass(frozen=True)
 class Settings:
-    token: str
+    token: str = field(repr=False)
     host: str
     port: int
 

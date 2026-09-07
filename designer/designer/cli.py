@@ -1,4 +1,4 @@
-"""Command-line entry point. Only ``--version`` exists yet."""
+"""Command-line entry point for the ``designer`` console script."""
 
 from __future__ import annotations
 
