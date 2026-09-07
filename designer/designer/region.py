@@ -151,6 +151,7 @@ class Region:
     palette: list[str]
     _parent: Region | None = field(default=None, repr=False)
     _classes: np.ndarray | None = field(default=None, init=False, repr=False)
+    _stand: dict[int, np.ndarray] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.blocks.shape != self.bounds.shape:
@@ -199,6 +200,7 @@ class Region:
         region: Region | None = self
         while region is not None:
             region._classes = None
+            region._stand.clear()
             region = region._parent
 
     def index_of(self, name: str, add: bool = True) -> int:

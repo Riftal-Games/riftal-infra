@@ -204,3 +204,17 @@ session, so the label groups the entries that session made.
 
 One description of the return shape, in the code beside the return it names.
 A hand-kept copy drifts unseen, and a default for a missing trailer is that copy in disguise.
+
+## 2026-09-08 `path_exists` charges the heuristic at the move rates; a view never caches its stand mask; the default corridor grows 8 in y
+
+A drop costs 0.25 a block and a climb 0.5, so a heuristic that charged 0.5
+for every block of height would overestimate a descent and A* could return a
+dearer path than exists; the heuristic charges 0.5 when the goal is above and
+0.25 when it is below, which is exactly what the cheapest move sequence pays.
+`stand_mask` is cached on the region under its `max_drop`, and `_invalidate`
+clears it with the classes, but a `sub` view computes fresh every call: an
+edit through the parent never reaches the view's cache, and a stale mask is
+a path through a block placed a moment ago. The default corridor grows the
+endpoints' box by `margin` in x and z but only 8 in y, since two points a
+check names together rarely sit more than a few storeys apart and every
+extra layer is another full plane of nodes.
