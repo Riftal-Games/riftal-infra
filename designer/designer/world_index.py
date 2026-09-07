@@ -189,7 +189,7 @@ class WorldIndex:
         return entry
 
 def resolve_at(index: WorldIndex, ref: str, world: str | None = None) -> tuple[str, tuple[int, int | None, int]]:
-    """``ref`` is a name, ``x,z`` or ``x,y,z``. A bare ``spawn`` that names nothing means the location tagged ``spawn`` in ``world``."""
+    """A name, ``x,z`` or ``x,y,z``; a bare ``spawn`` that names nothing means the location tagged ``spawn``."""
     if "," in ref:
         return world or index.default_world, index.resolve_pos(ref)
     try:
