@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -159,10 +160,18 @@ def _pristine(fake: FakeBridge) -> bool:
     return bool(np.array_equal(fake.worlds["design"].blocks(PAD), FakeWorld().blocks(PAD)))
 
 
-def test_fill_is_refused_when_the_bridge_is_not_a_designer(server: FakeBridge) -> None:
+@pytest.mark.parametrize("name", ["fill", "replace", "set_blocks", "snapshot", "restore", "undo"])
+def test_every_mutating_tool_is_refused_when_the_bridge_is_not_a_designer(server: FakeBridge, name: str) -> None:
     server.designer = False
-    assert call("fill", **MUTATING["fill"]) == {"ok": False, "error": mcp_server.NOT_DESIGNER, "code": "not_designer"}
-    assert _writes(server) == [] and _pristine(server) and call("list_undo")["entries"] == []
+    assert call(name, **MUTATING[name]) == {"ok": False, "error": mcp_server.NOT_DESIGNER, "code": "not_designer"}
+    assert {r["op"] for r in server.requests} <= {"server_info"} and _pristine(server) and call("list_undo")["entries"] == []
+
+
+def test_fill_that_fails_mid_send_still_answers_with_its_undo_entry(server: FakeBridge) -> None:
+    result = call("fill", target="pad", block="bogus")
+    assert result["ok"] is False and result["code"] == "BLOCK_INVALID" and result["undo_id"] == 1 and result["jobs"] == []
+    assert Path(result["snapshot"]).is_file() and _writes(server) == ["fill"] and _pristine(server)
+    assert [(e["id"], e["op"], e["path"]) for e in call("list_undo")["entries"]] == [(1, "fill", result["snapshot"])]
 
 
 def test_read_only_switch_refuses_every_mutating_tool_before_the_bridge(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -203,6 +212,7 @@ def test_undo_restores_the_fake(server: FakeBridge) -> None:
     assert dry["ok"] and (dry["count"], dry["undone"], dry["blocks"], dry["undo_id"]) == (1, [], 0, None) and not _pristine(server)
     result = call("undo")
     assert result["ok"] and (result["count"], result["undone"], result["blocks"], result["undo_id"]) == (1, [1], 192, 2)
+    assert dry["jobs"] == [] and len(result["jobs"]) == len(_writes(server)) - 1
     assert Path(result["snapshot"]).is_file() and _pristine(server)
     assert [(e["id"], e["op"], e["restored"]) for e in call("list_undo")["entries"]] == [(2, "undo", False), (1, "fill", True)]
     assert call("undo")["count"] == 0 and _pristine(server)
@@ -218,6 +228,19 @@ def test_restore_by_manifest_id_and_by_path(server: FakeBridge) -> None:
     assert again["ok"] and (again["blocks"], again["snapshot"], again["undo_id"]) == (0, None, None)
     assert call("restore", snapshot="99")["ok"] is False and call("restore", snapshot="nope.npz")["ok"] is False
     assert [(e["id"], e["op"]) for e in call("list_undo")["entries"]] == [(2, "restore"), (1, "fill")]
+
+
+def test_restore_refuses_a_path_outside_the_snapshots_dir(server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    taken = call("snapshot", **MUTATING["snapshot"])
+    outside = Path(shutil.copy(taken["path"], tmp_path / "outside.npz"))
+    monkeypatch.chdir(tmp_path / "snapshots")
+    for ref in (str(outside), "../outside.npz"):
+        refused = call("restore", snapshot=ref)
+        assert refused["ok"] is False and "outside the snapshots directory" in refused["error"], ref
+    assert _writes(server) == [] and call("restore", snapshot=taken["path"])["ok"] is True
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 1 and call("restore", snapshot=1)["ok"] is True and _pristine(server)
+    bad = call("list_snapshots", world="../..")
+    assert bad["ok"] is False and "world must match" in bad["error"]
 
 
 def test_set_blocks_over_the_cap_is_refused_and_a_run_becomes_a_fill(server: FakeBridge) -> None:

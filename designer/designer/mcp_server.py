@@ -260,12 +260,17 @@ def _apply(edits: EditList, op: str, dry_run: bool, ctx: Context | None) -> dict
     return _finish(out, result)
 
 def _snapshot_path(ref: str | int) -> Path:
+    """A manifest id, or a path that must resolve under ``SNAPSHOTS_DIR``; a relative path is rooted there, not at the cwd."""
     if isinstance(ref, int) or ref.isdigit():
         for entry in UndoStack().entries():
             if entry["id"] == int(ref):
                 return Path(entry["path"])
         raise KeyError(f"no undo entry with id {ref}")
-    return Path(ref)
+    root = config.SNAPSHOTS_DIR.resolve()
+    path = (root / ref).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"{ref!r} resolves outside the snapshots directory {root}")
+    return path
 
 def _entry_id(path: Path) -> int | None:
     ids = [e["id"] for e in UndoStack().entries() if e["path"] == str(path)]
@@ -320,18 +325,23 @@ def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
     done_before = {e["id"] for e in stack.entries() if e["restored"]}
     results = stack.undo(bridge(), max(1, int(n)), dry_run=dry_run)
     undone = [e["id"] for e in stack.entries() if e["restored"] and e["id"] not in done_before]
-    out: dict[str, Any] = {"dry_run": dry_run, "count": len(results), "undone": sorted(undone, reverse=True), "blocks": sum(r.blocks for r in results), "snapshot": None, "undo_id": None}
+    out: dict[str, Any] = {
+        "dry_run": dry_run, "count": len(results), "undone": sorted(undone, reverse=True), "blocks": sum(r.blocks for r in results),
+        "snapshot": None, "undo_id": None, "jobs": [job for r in results for job in r.jobs],
+    }
     last = results[-1].before_result if results else None
     if last is not None:
         out["snapshot"], out["undo_id"] = str(last.path), _entry_id(last.path)
     failed = [r for r in results if not r.ok]
-    return _finish(out, failed[0]) if failed else out
+    return {**out, **_error(failed[0].errors[0])} if failed else out
 
 @tool
 async def list_snapshots(world: str | None = None, limit: int = 20) -> dict[str, Any]:
     """Snapshot files on disk, newest first, with the undo id of any that the manifest knows."""
     if (refused := _read_only()) is not None:
         return refused
+    if world is not None and not snapshots.LABEL_RE.fullmatch(world):
+        raise ValueError(f"world must match {snapshots.LABEL_RE.pattern!r}, got {world!r}")
     ids = {e["path"]: e["id"] for e in UndoStack().entries()}
     files = sorted(config.SNAPSHOTS_DIR.glob(f"{world or '*'}/*.npz"), key=lambda p: p.name, reverse=True)[: max(1, int(limit))]
     return {"snapshots": [
