@@ -1,15 +1,23 @@
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
+import pytest
+from PIL import Image
 
 from designer.blocks import AIR
 from designer.config import REPORTS_DIR
+from designer.palettes import ROLES, load_palettes
 from designer.region import Bounds2D, Heightmap
-from designer.render import RAMP, Marker, ascii_heightmap, markers_from_index, report_path, summary
+from designer.render import (
+    LEGEND_LINE, MARKER_FILL, RAMP, Marker, ascii_heightmap, fallback_color, markers_from_index, report_path, summary,
+    topdown_png,
+)
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
 WORLD = "design"
 STONE, WATER = "minecraft:stone", "minecraft:water"
+COLORS = load_palettes()["colors"]
 
 
 def _heightmap(bounds: Bounds2D, heights: np.ndarray, top: np.ndarray | None = None) -> Heightmap:
@@ -86,5 +94,44 @@ def test_markers_from_index_and_report_path() -> None:
     markers = markers_from_index(index, WORLD, Bounds2D((-8, -8), (7, 7)))
     assert markers == [Marker("spawn", 0, 0, 64), Marker("yard", -4, -4, 60, "corner")]
     path = report_path("heightmap", WORLD, Bounds2D((-8, -8), (7, 7)), "txt", datetime(2026, 9, 7, 13, 5, 9))
-    assert path == REPORTS_DIR / "heightmap-design--8_-8-16x16-20260907-130509.txt" and REPORTS_DIR.is_dir()
+    assert path == REPORTS_DIR / "heightmap-design--8_-8-16x16-20260907-130509.txt"
     assert len(RAMP) == 10
+
+
+def _pixels(path: Path) -> np.ndarray:
+    return np.asarray(Image.open(path))
+
+
+def test_topdown_png_size_water_tint_height_shading_and_empty_columns(tmp_path: Path) -> None:
+    heights = np.array([[64, 64, 70, -1], [64, 64, 64, 64]])
+    top = np.array([[1, 2, 1, 0], [1, 1, 1, 1]])
+    path = topdown_png(_heightmap(Bounds2D((1, 1), (4, 2)), heights, top), COLORS, out=tmp_path / "t.png")
+    img = _pixels(path)
+    assert path.is_file() and Image.open(path).size == (4 * 4, 2 * 4 + LEGEND_LINE)
+    stone, water, high, empty = (img[2, ix * 4 + 2].astype(int) for ix in range(4))
+    assert water[2] > water[0] and water[2] > stone[2]
+    assert high.sum() > stone.sum() and stone[0] == stone[1] == stone[2] > 0
+    assert not empty.any()
+
+
+def test_unknown_block_gets_a_stable_hashed_colour_and_a_legend_row(tmp_path: Path) -> None:
+    hm = Heightmap(WORLD, Bounds2D((1, 1), (4, 1)), np.full((1, 4), 64, np.int16), np.ones((1, 4), np.int16), [AIR, "mystery[a=b]"])
+    first, second = (topdown_png(hm, COLORS, out=tmp_path / name) for name in ("a.png", "b.png"))
+    assert Image.open(first).size == (16, 4 + 2 * LEGEND_LINE) and np.array_equal(_pixels(first), _pixels(second))
+    assert fallback_color("mystery") == (216, 97, 207)
+    assert tuple(_pixels(first)[2, 2]) == tuple(int(c * 0.55) for c in fallback_color("mystery"))
+    assert tuple(_pixels(first)[4 + LEGEND_LINE + 5, 5]) == fallback_color("mystery")
+
+
+def test_topdown_marker_pixel_and_default_report_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+    hm = _heightmap(Bounds2D((1, 1), (8, 8)), np.full((8, 8), 64))
+    path = topdown_png(hm, COLORS, [Marker("home", 3, 5, 64), Marker("far", 40, 40, 1)])
+    assert path.parent == tmp_path / "reports" and path.name.startswith("topdown-design-1_1-8x8-") and path.suffix == ".png"
+    assert tuple(_pixels(path)[(5 - 1) * 4 + 2, (3 - 1) * 4 + 2]) == MARKER_FILL["location"]
+
+
+def test_palettes_file_binds_every_role_and_is_cached() -> None:
+    data = load_palettes()
+    assert data is load_palettes() and len(ROLES) == 14 and set(data["palettes"]["mine_stone"]) == set(ROLES)
+    assert COLORS["minecraft:water"] == [63, 118, 228] and all(len(rgb) == 3 for rgb in COLORS.values())
