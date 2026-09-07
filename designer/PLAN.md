@@ -1,6 +1,6 @@
 # Designer toolkit: plan
 
-The contract is `docs/specs/001-designer-toolchain.md` in the `riftal-pm` workspace root. This file is the working plan for the Python side and the stack, and the status table below is updated as issues close. Read `DECISIONS.md` before touching the code.
+The contract is `docs/specs/001-designer-toolchain.md` in the `riftal-pm` workspace root. This file is the working plan for the Python side and the stack, and the status table below is updated as issues close. Read `DECISIONS.md`, created by #31, before touching the code.
 
 ## What this is
 
@@ -53,7 +53,7 @@ Names `^[a-z0-9_]+$`, unique across locations and regions. Worlds: `mine_a`, `mi
 
 ## Checks
 
-`checks.yaml` binds `path_exists`, `travel_time`, `warp_safe`, `entity_clear`, `region_inside`, `light_ok`, `no_holes` and `mine_valid` to names. Standing assertion for every mine: exit to sell marker under 10 seconds on foot.
+`checks.yaml` binds `path_exists`, `travel_time`, `warp_safe`, `entity_clear`, `region_inside`, `light_ok`, `no_holes` and `mine_valid` to names. Two standing assertions for every mine, both from the spec's Phase 3 acceptance: `path_exists` from `<name>_spawn` to `<name>_exit` under 10 seconds on foot, and from `<name>_exit` to `sell_npc_<suffix>` under 10 seconds on foot. The second is the brief's map principle that the walk from mine exit to sell point stays short.
 
 ## Map principles
 
