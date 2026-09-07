@@ -104,14 +104,19 @@ def _pixels(path: Path) -> np.ndarray:
 
 def test_topdown_png_size_water_tint_height_shading_and_empty_columns(tmp_path: Path) -> None:
     heights = np.array([[64, 64, 70, -1], [64, 64, 64, 64]])
-    top = np.array([[1, 2, 1, 0], [1, 1, 1, 1]])
+    top = np.array([[1, 1, 1, 0], [1, 2, 1, 1]])
     path = topdown_png(_heightmap(Bounds2D((1, 1), (4, 2)), heights, top), COLORS, out=tmp_path / "t.png")
     img = _pixels(path)
     assert path.is_file() and Image.open(path).size == (4 * 4, 2 * 4 + LEGEND_LINE)
-    stone, water, high, empty = (img[2, ix * 4 + 2].astype(int) for ix in range(4))
-    assert water[2] > water[0] and water[2] > stone[2]
+    stone, _, high, empty = (img[2, ix * 4 + 2].astype(int) for ix in range(4))
     assert high.sum() > stone.sum() and stone[0] == stone[1] == stone[2] > 0
     assert not empty.any()
+    # The water column sits on the flat row at stone's height, so it carries the same shade factor as
+    # the stone column and that factor can be read back from the stone pixel against its palette colour.
+    water = img[6, 6].astype(int)
+    untinted = np.array(COLORS[WATER]) * (stone[0] / COLORS[STONE][0])
+    assert water[2] > untinted[2] + 30
+    assert water[2] / water.sum() > untinted[2] / untinted.sum() + 0.02
 
 
 def test_unknown_block_gets_a_stable_hashed_colour_and_a_legend_row(tmp_path: Path) -> None:
