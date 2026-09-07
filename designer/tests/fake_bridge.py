@@ -283,6 +283,14 @@ class FakeBridge:
             world.edits[(box.min[0] + int(ix), box.min[1] + int(iy), box.min[2] + int(iz))] = target
         return self._job("replace", {"blocks": box.volume}, total=box.volume)
 
+    def op_list_entities(self, args: dict[str, Any]) -> list[dict[str, Any]]:
+        self._world(args["world"])
+        return [{"id": 7, "type": "text", "save_id": "FloatingText", "pos": [0, 65, 0], "yaw": 0, "pitch": 0, "name_tag": "hi"}]
+
+    def op_tail_log(self, args: dict[str, Any]) -> dict[str, Any]:
+        lines = [f"[Server thread/INFO]: line {i}" for i in range(min(int(args.get("n", 50)), 1000))]
+        return {"lines": lines, "bytes": sum(len(line) + 1 for line in lines)}
+
     def op_set_text(self, args: dict[str, Any]) -> dict[str, Any]:
         text_id = args.get("id") or f"t{len(self.texts) + 1}"
         self.texts[text_id] = {"world": args["world"], "pos": list(args["pos"]), "text": args["text"]}
