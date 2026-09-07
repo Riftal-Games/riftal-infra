@@ -76,9 +76,8 @@ def base_name(name: str) -> str:
 
 RULE_KINDS = ("exact", "prefix", "suffix", "contains")
 
-# First match wins, matched on the base name. Order is load-bearing: the
-# hazards sit above the passable rules so ``soul_campfire`` is never read as a
-# soul torch and ``sweet_berry_bush`` never as a bush.
+# First match wins, matched on the base name. Order is load-bearing because
+# ``register_rule(front=True)`` inserts at index 0 to beat every seeded rule.
 CLASS_RULES: list[tuple[str, str, BlockClass]] = [
     *(("exact", n, BlockClass.AIR) for n in ("air", "cave_air", "void_air")),
     *(("exact", n, BlockClass.LIQUID) for n in ("water", "flowing_water", "bubble_column")),
@@ -93,7 +92,7 @@ CLASS_RULES: list[tuple[str, str, BlockClass]] = [
         for n in (
             "lever", "ladder", "vine", "fern", "large_fern", "dead_bush", "snow_layer",
             "flower_pot", "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
-            "sugar_cane", "reeds", "bamboo_sapling", "dandelion", "poppy", "blue_orchid",
+            "sugar_cane", "reeds", "bamboo_sapling", "hanging_roots", "dandelion", "poppy", "blue_orchid",
             "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley",
             "wither_rose", "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",
             "double_plant", "red_flower", "yellow_flower")
@@ -103,7 +102,7 @@ CLASS_RULES: list[tuple[str, str, BlockClass]] = [
         ("suffix", s, BlockClass.PASSABLE)
         for s in (
             "sign", "button", "pressure_plate", "rail", "carpet", "sapling", "flower",
-            "tulip", "banner", "fungus", "roots", "_vines", "_grass")
+            "tulip", "banner", "fungus", "_vines", "_grass")
     ),
     ("contains", "torch", BlockClass.PASSABLE),
 ]
@@ -170,6 +169,8 @@ def decode_rle(
         raise RLEError(f"runs cover {total} blocks, bounds hold {volume}")
     if len(indices) and (indices.min() < 0 or indices.max() >= len(palette)):
         raise RLEError(f"run index outside palette of {len(palette)}")
+    if len(counts) and counts.min() < 1:
+        raise RLEError(f"run count below 1: {int(counts.min())}")
 
     flat = np.repeat(indices, counts)
     blocks = flat.reshape([size[axis] for axis in order]).transpose(_axes_from(order, ARRAY_AXES))

@@ -27,6 +27,7 @@ def rules():
         ("stone", "minecraft:stone", {}),
         ("oak_log[pillar_axis=y]", "minecraft:oak_log", {"pillar_axis": "y"}),
         ("minecraft:lever[open_bit=true,lever_direction=1]", "minecraft:lever", {"open_bit": "true", "lever_direction": "1"}),
+        ("  stone [ pillar_axis = y , open_bit=true ] ", "minecraft:stone", {"pillar_axis": "y", "open_bit": "true"}),
     ],
 )
 def test_parse_name(name: str, base: str, states: dict[str, str]) -> None:
@@ -76,6 +77,11 @@ def test_base_name_strips_namespace_and_states() -> None:
 )
 def test_classify_defaults(name: str, cls: BlockClass) -> None:
     assert classify(name) is cls
+
+
+def test_only_hanging_roots_are_passable() -> None:
+    assert classify("hanging_roots") is BlockClass.PASSABLE
+    assert classify("minecraft:mangrove_roots") is BlockClass.SOLID
 
 
 def test_register_rule_front_overrides_and_back_only_fills_gaps(rules: list) -> None:
@@ -157,6 +163,13 @@ def test_air_is_remapped_to_index_zero(palette, row, expected_palette, expected_
 def test_volume_mismatch_raises() -> None:
     payload = {"min": [0, 0, 0], "max": [1, 1, 1], "palette": [AIR], "runs": [[0, 7]]}
     with pytest.raises(RLEError, match="runs cover 7 blocks, bounds hold 8"):
+        decode_rle(payload)
+
+
+@pytest.mark.parametrize("runs", [[[0, 9], [0, -1]], [[0, 8], [0, 0]]], ids=["negative", "zero"])
+def test_run_count_below_one_raises(runs: list[list[int]]) -> None:
+    payload = {"min": [0, 0, 0], "max": [1, 1, 1], "palette": [AIR], "runs": runs}
+    with pytest.raises(RLEError, match="run count"):
         decode_rle(payload)
 
 
