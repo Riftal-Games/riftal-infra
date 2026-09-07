@@ -3,6 +3,7 @@
 One request in flight at a time. The token is attached on send and never appears
 in a message, a repr or an exception. Only ``IDEMPOTENT_OPS`` are resent after a
 lost connection; any other op sent but not answered raises ``sent_unconfirmed``.
+``call_job`` submits a job op and polls ``get_job`` until it settles.
 """
 
 from __future__ import annotations
@@ -12,10 +13,17 @@ import json
 import socket
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
-IDEMPOTENT_OPS = frozenset({"ping", "server_info", "list_worlds", "get_job", "cancel_job", "list_entities", "tail_log"})
+IDEMPOTENT_OPS = frozenset({
+    "ping", "server_info", "list_worlds", "get_region", "get_heightmap", "get_light",
+    "get_job", "cancel_job", "list_entities", "tail_log",
+})
 RECONNECT_BACKOFF = (0.25, 0.5, 1.0, 2.0, 4.0)
+SERVER_INFO_TTL = 30.0
+JOB_POLL, JOB_POLL_GROWTH, JOB_POLL_CAP = 0.25, 1.5, 1.0
+JOB_TIMEOUT = 600.0
 
 
 class BridgeError(Exception):
@@ -33,12 +41,32 @@ class BridgeProtocolError(BridgeError):
 
 
 class BridgeOpError(BridgeError):
-    def __init__(self, code: str, op: str, args: dict[str, Any], message: str) -> None:
+    def __init__(self, code: str, op: str, op_args: dict[str, Any], message: str) -> None:
         super().__init__(f"{op} failed with {code}: {message}")
-        self.code, self.op, self.op_args, self.message = code, op, args, message
+        self.code, self.op, self.op_args, self.message = code, op, op_args, message
 
-    # ``Exception.args`` would be the message tuple; a handler wants the op's arguments.
-    args = property(lambda self: self.op_args)
+
+class JobError(BridgeError):
+    def __init__(self, job_id: str, message: str) -> None:
+        super().__init__(f"job {job_id} {message}")
+        self.job = job_id
+
+
+class JobFailed(JobError):
+    def __init__(self, job_id: str, error: str) -> None:
+        super().__init__(job_id, f"failed: {error}")
+        self.error = error
+
+
+class JobCancelled(JobError):
+    def __init__(self, job_id: str) -> None:
+        super().__init__(job_id, "was cancelled")
+
+
+class JobTimeout(JobError):
+    def __init__(self, job_id: str, last_status: dict[str, Any]) -> None:
+        super().__init__(job_id, f"still {last_status.get('state')!r} at the deadline")
+        self.last_status = last_status
 
 
 class Bridge:
@@ -87,12 +115,58 @@ class Bridge:
         return time.perf_counter() - start
 
     def server_info(self, *, refresh: bool = False) -> dict[str, Any]:
-        if refresh or self._info is None or time.monotonic() - self._info[0] > 30.0:
+        if refresh or self._info is None or time.monotonic() - self._info[0] > SERVER_INFO_TTL:
             self._info = (time.monotonic(), self.call("server_info"))
         return self._info[1]
 
     def is_designer(self) -> bool:
         return self.server_info().get("designer") is True
+
+    def call_job(
+        self, op: str, *, poll: float = JOB_POLL, timeout: float = JOB_TIMEOUT,
+        on_progress: Callable[[int, int], None] | None = None, **args: Any,
+    ) -> dict[str, Any]:
+        """Submit a job op and return its final status; a job done in its first tick costs no poll."""
+        return self._settle(self.call(op, **args), poll, timeout, on_progress)
+
+    def wait_job(
+        self, job_id: str, *, poll: float = JOB_POLL, timeout: float = JOB_TIMEOUT,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> dict[str, Any]:
+        """Final status of ``job_id``: ``done`` returns it, ``failed`` and ``cancelled`` raise.
+
+        Past ``timeout`` the job is cancelled on a best-effort basis and ``JobTimeout``
+        carries the last status seen. ``on_progress(done, total)`` fires only when
+        the numbers change.
+        """
+        return self._settle(self.call("get_job", job=job_id), poll, timeout, on_progress)
+
+    def _settle(
+        self, status: dict[str, Any], poll: float, timeout: float, on_progress: Callable[[int, int], None] | None,
+    ) -> dict[str, Any]:
+        job_id, deadline, interval, seen = status["job"], time.monotonic() + timeout, poll, None
+        while True:
+            progress = status.get("progress")
+            if on_progress is not None and progress and (numbers := (progress["done"], progress["total"])) != seen:
+                seen = numbers
+                on_progress(*numbers)
+            state = status.get("state")
+            if state == "done":
+                return status
+            if state == "failed":
+                raise JobFailed(job_id, str(status.get("error", "")))
+            if state == "cancelled":
+                raise JobCancelled(job_id)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                try:
+                    self.call("cancel_job", job=job_id)
+                except BridgeError:
+                    pass
+                raise JobTimeout(job_id, status)
+            time.sleep(min(interval, remaining))
+            interval = min(interval * JOB_POLL_GROWTH, JOB_POLL_CAP)
+            status = self.call("get_job", job=job_id)
 
     def _connect_locked(self) -> None:
         if self._sock is None:
@@ -140,6 +214,9 @@ class Bridge:
             if not chunk:
                 raise ConnectionError("connection closed by server")
             self._buf += chunk
+        if end > self.max_line_bytes:
+            self._drop()
+            raise BridgeProtocolError(f"response exceeds {self.max_line_bytes} bytes")
         line = bytes(self._buf[:end])
         del self._buf[: end + 1]
         return line

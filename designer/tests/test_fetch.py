@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from designer.blocks import AIR
-from designer.bridge import Bridge, BridgeOpError
+from designer.bridge import Bridge, BridgeOpError, JobFailed
 from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region, heightmap_from_region
 from tests.fake_bridge import FakeBridge, FakeWorld
 
@@ -53,16 +53,33 @@ def test_region_fetch_tiles_and_merges_equal_to_a_direct_build(fake: FakeBridge,
     assert region.counts()[GRASS] == 150 * 150
 
 
-def test_fake_refuses_big_bounds_unknown_worlds_and_pending_jobs(fake: FakeBridge, bridge: Bridge) -> None:
+def test_fake_refuses_big_bounds_and_unknown_worlds(fake: FakeBridge, bridge: Bridge) -> None:
     with pytest.raises(BridgeOpError, match="BOUNDS_TOO_LARGE"):
         bridge.call("get_region", world=WORLD, bounds=Bounds((0, 0, 0), (128, 0, 0)).to_json())
     assert fetch_region(bridge, WORLD, Bounds((0, 0, 0), (128, 0, 0)), max_edge=64).bounds.size == (129, 1, 1)
     with pytest.raises(BridgeOpError, match="WORLD_NOT_FOUND"):
         fetch_heightmap(bridge, "nowhere", Bounds2D((0, 0), (0, 0)))
-    fake.queue_next = True
-    with pytest.raises(BridgeOpError, match="JOB_PENDING") as excinfo:
+
+
+def test_queued_region_job_is_polled_to_completion(fake: FakeBridge, bridge: Bridge) -> None:
+    fake.queue_next = 3
+    box = Bounds((0, 60, 0), (3, 65, 3))
+    region = fetch_region(bridge, WORLD, box)
+    assert [r["op"] for r in fake.requests] == ["get_region"] + ["get_job"] * 3
+    assert region.bounds == box and region.counts()[GRASS] == 16
+    fake.queue_next = 2
+    assert fetch_heightmap(bridge, WORLD, Bounds2D((0, 0), (3, 3))).height(1, 1) == 63
+    assert [r["op"] for r in fake.requests[4:]] == ["get_heightmap"] + ["get_job"] * 2
+
+
+def test_failed_fetch_surfaces_the_server_text(fake: FakeBridge, bridge: Bridge) -> None:
+    fake.fail_next_job = "CHUNK_NOT_GENERATED: chunk 0,0 has no terrain"
+    with pytest.raises(JobFailed, match="chunk 0,0 has no terrain"):
         fetch_region(bridge, WORLD, Bounds((0, 0, 0), (0, 0, 0)))
-    assert excinfo.value.op == "get_region"
+    fake.fail_next_job, fake.queue_next = "CHUNK_NOT_GENERATED: chunk 0,0 has no terrain", 2
+    with pytest.raises(JobFailed, match="chunk 0,0 has no terrain"):
+        fetch_heightmap(bridge, WORLD, Bounds2D((0, 0), (0, 0)))
+    assert [r["op"] for r in fake.requests] == ["get_region", "get_heightmap", "get_job", "get_job"]
 
 
 def test_fake_world_ops(bridge: Bridge) -> None:

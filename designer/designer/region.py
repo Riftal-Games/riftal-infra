@@ -11,7 +11,7 @@ from typing import Any, ClassVar, Self
 import numpy as np
 
 from designer.blocks import AIR, BlockClass, base_name, class_lut, decode_rle, encode_rle
-from designer.bridge import Bridge, BridgeOpError
+from designer.bridge import Bridge
 
 # The bridge's ``max_region_edge``; any request with a longer edge is refused.
 MAX_EDGE = 128
@@ -291,18 +291,11 @@ class Heightmap:
         return self.palette[int(self.top[self.bounds.local((x, z))])]
 
 
-def _job_result(bridge: Bridge, op: str, **args: Any) -> Any:
-    """Result of a job that finished inline; riftal-infra#56 replaces this with ``get_job`` polling."""
-    status = bridge.call(op, **args)
-    if status.get("state") != "done":
-        raise BridgeOpError("JOB_PENDING", op, args, f"job {status.get('job')!r} is {status.get('state')!r}, not done")
-    return status["result"]
-
-
 def fetch_region(bridge: Bridge, world: str, bounds: Bounds, *, max_edge: int = MAX_EDGE) -> Region:
     """The blocks inside ``bounds``, one ``get_region`` job per tile of ``max_edge``."""
     return Region.merge(
-        Region.from_rle(world, _job_result(bridge, "get_region", world=world, bounds=t.to_json())) for t in bounds.tiles(max_edge)
+        Region.from_rle(world, bridge.call_job("get_region", world=world, bounds=t.to_json())["result"])
+        for t in bounds.tiles(max_edge)
     )
 
 
@@ -314,7 +307,7 @@ def fetch_heightmap(bridge: Bridge, world: str, bounds: Bounds2D, *, need_top: b
     """
     tiles = []
     for tile in bounds.tiles():
-        result = _job_result(bridge, "get_heightmap", world=world, bounds=tile.to_json())
+        result = bridge.call_job("get_heightmap", world=world, bounds=tile.to_json())["result"]
         heights = np.asarray(result["heights"], dtype=np.int16).reshape(tile.shape)
         top, palette = None, [AIR]
         if result.get("top") is not None:

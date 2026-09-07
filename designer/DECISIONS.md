@@ -81,6 +81,30 @@ so `Bounds.from_center` round-trips, because `--at <region>` wants the middle
 and the min corner may be inside solid ground. `save` sorts keys and lists by
 name so a diff is one line per real change.
 
+## 2026-09-07 Only `IDEMPOTENT_OPS` are resent; every attempt gets a fresh id; a timeout is never retried
+
+Reads are idempotent: `ping`, `server_info`, `list_worlds`, `list_entities`,
+`tail_log`, `get_job`, `cancel_job`, `get_region`, `get_heightmap` and
+`get_light` return the same answer however many times they run, and the region
+reads also take one `max_pending_jobs` slot per attempt, which is why the
+client backs off between reconnects instead of resending at once. Writes are
+not: a `fill` that was sent and never answered may have run, and running it
+twice is a second edit and a second undo entry, so the bridge raises
+`BridgeConnectionError` with `detail="sent_unconfirmed"` and the caller
+decides. Each attempt carries its own request id so a late reply to the first
+send can never be taken as the answer to the second. A response timeout is not
+retried even on an idempotent op: the server is still working on the request,
+so a resend queues the same work behind it and turns one slow read into two.
+
+## 2026-09-07 `call_job` polls `get_job` from 0.25 s growing 1.5x to a 1 s cap; a timeout cancels
+
+A job that finishes in its first tick comes back `done` inline, so no poll is
+spent on it. The interval starts short because most region reads settle in a
+few ticks, and it caps at one second so a `pregen` running for minutes costs
+one request a second rather than a busy loop. On the deadline the job is
+cancelled before `JobTimeout` is raised, because a job the client has given up
+on would otherwise keep its slot and its pinned chunks for the rest of its run.
+
 ## 2026-09-07 The ASCII map ticks on absolute multiples of 16; a downsampled cell is the block mean; `flat` is the share at the modal height
 
 Ticks on chunk edges line up with what a player sees at a chunk border, which
