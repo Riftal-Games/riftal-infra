@@ -42,8 +42,9 @@ class Diff:
 
 def save(region: Region, label: str, *, ts: datetime | None = None) -> Path:
     """Write ``region`` under ``SNAPSHOTS_DIR/<world>/<ts>-<label>.npz``; ``ts`` defaults to now, UTC."""
-    if not LABEL_RE.fullmatch(label):
-        raise ValueError(f"label must match {LABEL_RE.pattern!r}, got {label!r}")
+    for name, value in (("world", region.world), ("label", label)):
+        if not LABEL_RE.fullmatch(value):
+            raise ValueError(f"{name} must match {LABEL_RE.pattern!r}, got {value!r}")
     stamp = (ts or datetime.now(UTC)).strftime(TS_FORMAT)
     meta = {"world": region.world, "timestamp": stamp, "label": label, "toolkit": __version__, "order": "".join(RLE_ORDER)}
     path = config.SNAPSHOTS_DIR / region.world / f"{stamp}-{label}.npz"
@@ -116,7 +117,15 @@ def restore(
 
 
 class UndoStack:
-    """Undo entries in a JSON manifest, rewritten whole on every change so a crash leaves the old file or the new one."""
+    """Undo entries in a JSON manifest, rewritten whole on every change so a crash leaves the old file or the new one.
+
+    ``session`` is a label: it is written on every entry this stack pushes and is what ``entries(session=...)``
+    filters on. ``undo`` ignores it and walks every session's entries newest first, so the edits of a session that
+    crashed are reversed from the next one. Each undo pushes the ``restore`` snapshot it took as an ``op="undo"``
+    entry, which ``undo`` skips unless ``include_undo`` is set, so two undos reverse two edits rather than toggling
+    one, and undoing an undo is asked for by name. Push is read-modify-write with ids from ``max + 1``, so the
+    manifest assumes one writer at a time.
+    """
 
     def __init__(self, manifest: Path | None = None, session: str | None = None) -> None:
         self.manifest = config.SNAPSHOTS_DIR / MANIFEST_NAME if manifest is None else manifest
@@ -131,29 +140,36 @@ class UndoStack:
     def _write(self, entries: list[dict[str, Any]]) -> None:
         self.manifest.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.manifest.with_name(self.manifest.name + ".tmp")
-        tmp.write_text(json.dumps({"version": 1, "entries": entries}, indent=1), encoding="utf-8")
+        tmp.write_text(json.dumps({"version": 1, "entries": entries}, indent=1), encoding="utf-8", newline="\n")
         os.replace(tmp, self.manifest)
 
-    def push(self, snap: Snapshot, op: str) -> int:
-        entries = self.entries()
+    def _append(self, entries: list[dict[str, Any]], snap: Snapshot, op: str) -> int:
         entry_id = max((e["id"] for e in entries), default=0) + 1
         entries.append({
             "id": entry_id, "session": self.session, "op": op, "world": snap.world, "bounds": snap.bounds.to_json(),
             "label": snap.label, "timestamp": snap.timestamp, "path": str(snap.path), "restored": False,
         })
+        return entry_id
+
+    def push(self, snap: Snapshot, op: str) -> int:
+        entries = self.entries()
+        entry_id = self._append(entries, snap, op)
         self._write(entries)
         return entry_id
 
-    def undo(self, bridge: Bridge, n: int = 1, *, dry_run: bool = False) -> list[ApplyResult]:
+    def undo(self, bridge: Bridge, n: int = 1, *, dry_run: bool = False, include_undo: bool = False) -> list[ApplyResult]:
         """Restore the ``n`` newest entries not yet restored, newest first, stopping at the first failure."""
         entries, results = self.entries(), []
-        for entry in [e for e in reversed(entries) if not e["restored"]][:n]:
+        pending = [e for e in reversed(entries) if not e["restored"] and (include_undo or e["op"] != "undo")]
+        for entry in pending[:n]:
             result = restore(bridge, load(Path(entry["path"])), dry_run=dry_run)
             results.append(result)
             if not result.ok:
                 break
             if not dry_run:
                 entry["restored"] = True
+                if result.before_result is not None:
+                    self._append(entries, result.before_result, "undo")
                 self._write(entries)
         return results
 

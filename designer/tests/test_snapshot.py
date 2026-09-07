@@ -40,6 +40,8 @@ def test_take_then_load_round_trips_the_region(fake: FakeBridge, bridge: Bridge,
     assert meta == {"world": WORLD, "timestamp": snap.timestamp, "label": "before_fill", "toolkit": __version__, "order": "yzx"}
     with pytest.raises(ValueError, match="label"):
         save(region, "no spaces")
+    with pytest.raises(ValueError, match="world"):
+        save(Region.empty("no spaces", BOX), "ok")
 
 
 def test_diff_counts_bbox_and_by_type_after_remapping_palettes() -> None:
@@ -84,8 +86,45 @@ def test_undo_manifest_survives_a_new_stack_and_undo_restores_the_fake(fake: Fak
     assert [r.blocks for r in fresh.undo(bridge, dry_run=True)] == [0] and fresh.entries()[0]["restored"] is False
     results = fresh.undo(bridge)
     assert [(r.ok, r.blocks) for r in results] == [(True, 64)] and diff(snap, fetch_region(bridge, WORLD, BOX)).changed == 0
-    assert UndoStack().entries()[0]["restored"] is True and fresh.undo(bridge) == []
+    undone = results[0].before_result
+    assert [(e["id"], e["session"], e["op"], e["restored"], e["path"]) for e in UndoStack().entries()] == [
+        (1, "s1", "fill", True, str(snap.path)), (2, "s2", "undo", False, str(undone.path)),
+    ]
+    assert fresh.undo(bridge) == [] and diff(snap, fetch_region(bridge, WORLD, BOX)).changed == 0
+    assert [(r.ok, r.blocks) for r in fresh.undo(bridge, include_undo=True)] == [(True, 64)]
+    assert diff(undone, fetch_region(bridge, WORLD, undone.bounds)).changed == 0
+    assert [(e["id"], e["op"], e["restored"]) for e in fresh.entries()] == [(1, "fill", True), (2, "undo", True), (3, "undo", False)]
     assert sorted(p.name for p in snapshots_dir.iterdir()) == [WORLD, "undo-manifest.json"]
+
+
+def test_restore_of_an_unchanged_region_sends_nothing_and_only_changed_off_sends_every_cell(fake: FakeBridge, bridge: Bridge) -> None:
+    snap = take(bridge, WORLD, BOX, "pre")
+    fake.requests.clear()
+    result = restore(bridge, snap)
+    assert (result.ok, result.blocks, result.before_result, _writes(fake)) == (True, 0, None, [])
+    fake.requests.clear()
+    result = restore(bridge, snap, only_changed=False)
+    assert (result.ok, result.blocks, result.before_result.bounds) == (True, int(np.prod(BOX.shape)), BOX)
+    assert [r["op"] for r in fake.requests].count("get_region") == 1 and _writes(fake) != []
+    assert diff(snap, fetch_region(bridge, WORLD, BOX)).changed == 0
+
+
+def test_a_failed_manifest_write_leaves_the_previous_manifest_intact(monkeypatch: pytest.MonkeyPatch) -> None:
+    snap = load(save(Region.empty(WORLD, BOX, STONE), "one"))
+    stack = UndoStack()
+    assert stack.push(snap, "fill") == 1
+
+    def truncate_then_fail(self: Path, *args, **kwargs) -> int:
+        with self.open("w"):
+            pass
+        raise OSError("disk full")
+
+    with monkeypatch.context() as m:
+        m.setattr(Path, "write_text", truncate_then_fail)
+        with pytest.raises(OSError, match="disk full"):
+            stack.push(snap, "fill")
+    assert [e["id"] for e in stack.entries()] == [1]
+    assert sorted(p.name for p in stack.manifest.parent.iterdir() if p.is_file()) == ["undo-manifest.json", "undo-manifest.json.tmp"]
 
 
 def test_prune_with_dry_run_deletes_nothing(fake: FakeBridge, bridge: Bridge) -> None:

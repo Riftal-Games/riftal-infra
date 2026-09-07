@@ -1,5 +1,5 @@
-# These scripts are authored on Windows and run on Linux, in CI and in
-# containers. A CRLF shebang makes the interpreter unfindable.
+# Authored on Windows, read on Linux in CI and in containers. A CRLF shebang
+# makes a script's interpreter unfindable; the rest stay LF to be byte-stable.
 *.sh text eol=lf
 *.py text eol=lf
 *.md text eol=lf

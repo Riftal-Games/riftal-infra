@@ -151,3 +151,21 @@ crash mid-write leaves the previous manifest rather than half of a new one.
 `prune` only runs when called and defaults to a dry run, because the undo
 trail is the one thing that makes an agent edit on a hand-built map safe to
 try, and deleting it is a choice someone makes on purpose.
+
+## 2026-09-08 `session` is a label; `undo` is global and newest-first; an undo pushes an `op="undo"` entry that `undo` skips unless asked; the manifest has one writer; `prune` keeps 14 days
+
+`session` is written on every entry a stack pushes and is what
+`entries(session=...)` filters on, nothing more. `undo` ignores it and walks
+every session's entries newest first, because the MCP server restarts with
+each Claude Code session and the edits most in need of reversing are the
+ones a crashed session left behind, which only the next session can reach.
+The `restore` snapshot an undo takes is pushed as an `op="undo"` entry so it
+is listed, walkable and pruned like any other; plain `undo` skips those
+entries, because two undos must reverse two edits rather than toggle the
+newest one back and forth, so undoing an undo is `include_undo=True`, asked
+for by name. Push is read-modify-write with ids from `max + 1`, so the
+manifest assumes one writer at a time; two concurrent sessions would race,
+and the current model runs one. `prune` keeps 14 days because a design
+session's edits are reviewed within the week they land and a fortnight
+covers a missed one, while snapshots of 128^3 tiles are large enough that an
+unbounded default would fill the disk before anyone chose to.
