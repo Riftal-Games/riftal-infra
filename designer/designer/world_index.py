@@ -1,5 +1,3 @@
-"""The map's named things: worlds, locations and regions, kept in ``world_index.json``."""
-
 from __future__ import annotations
 
 import difflib
@@ -18,16 +16,13 @@ VERSION = 1
 NAME_RE = re.compile(r"^[a-z0-9_]+$")
 DEFAULT_PATH = PROJECT_ROOT / "world_index.json"
 KINDS = ("worlds", "locations", "regions")
-
 Pos = tuple[int, int, int]
-
 
 def _pos(value: Sequence[int]) -> Pos:
     if len(value) != 3:
         raise ValueError(f"a position is three integers, got {tuple(value)!r}")
     x, y, z = (int(v) for v in value)
     return x, y, z
-
 
 @dataclass
 class Location:
@@ -49,7 +44,6 @@ class Location:
 
     def to_json(self) -> dict[str, Any]:
         return {"name": self.name, "world": self.world, "pos": list(self.pos), "yaw": self.yaw, "pitch": self.pitch, "tags": list(self.tags)}
-
 
 @dataclass
 class NamedRegion:
@@ -75,11 +69,8 @@ class NamedRegion:
     def to_json(self) -> dict[str, Any]:
         return {"name": self.name, "world": self.world, **self.bounds.to_json(), "tags": list(self.tags), "meta": dict(self.meta)}
 
-
 @dataclass
 class WorldEntry:
-    """A world the map defines. Keys beyond the fixed four, such as ``rank``, live in ``extra``."""
-
     name: str
     generator: str
     seed: int
@@ -94,12 +85,10 @@ class WorldEntry:
     def to_json(self) -> dict[str, Any]:
         return {**self.extra, "name": self.name, "generator": self.generator, "seed": self.seed, "role": self.role}
 
-
 def _missing(kind: str, name: str, known: Sequence[str]) -> KeyError:
     near = difflib.get_close_matches(name, known, n=1)
     hint = f", did you mean {near[0]!r}?" if near else ""
     return KeyError(f"no such {kind} {name!r}{hint}")
-
 
 @dataclass
 class WorldIndex:
@@ -122,7 +111,6 @@ class WorldIndex:
         return index
 
     def validate(self) -> None:
-        """Raise ``ValueError`` naming the first entry that breaks an invariant ``add_*`` keeps."""
         worlds = {w.name for w in self.worlds}
         if self.default_world not in worlds:
             raise ValueError(f"default_world {self.default_world!r} is not a listed world")
@@ -142,7 +130,6 @@ class WorldIndex:
         return {"version": self.version, "updated": self.updated, "default_world": self.default_world, **lists}
 
     def save(self, path: Path | None = None, *, updated: str | None = None) -> Path:
-        """Write the index; ``updated`` defaults to now, and is the only field that changes on a re-save."""
         path = DEFAULT_PATH if path is None else Path(path)
         self.updated = datetime.now(UTC).isoformat(timespec="seconds") if updated is None else updated
         path.write_text(json.dumps(self.to_json(), indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
@@ -164,10 +151,7 @@ class WorldIndex:
         return named[name]
 
     def resolve_pos(self, ref: str | Sequence[int]) -> tuple[int, int | None, int]:
-        """``(x, y, z)`` of a location, a region's centre block, an ``x,y,z`` string or a 3-list; ``x,z`` gives ``y=None``.
-
-        The centre of an even-sized region is the upper of its two middle blocks, so ``Bounds.from_center`` gives the region back.
-        """
+        """An even-sized region centres on the upper of its two middle blocks, so ``Bounds.from_center`` gives it back."""
         if not isinstance(ref, str):
             return _pos(ref)
         if "," not in ref:
