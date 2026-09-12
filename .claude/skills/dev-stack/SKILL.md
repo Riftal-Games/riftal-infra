@@ -17,12 +17,20 @@ Nasir's machine is Windows 11 and the container CLI is `wslc`, at `C:\Program Fi
 ```
 wslc images
 wslc list
-wslc build -t <tag> <dir>
-wslc run -d --name <name> ...
+wslc build -t <tag> -f <dockerfile> --build-arg K=V <dir>
+wslc run -d -i --name <name> --network <net> --network-alias <alias> ...
 wslc logs <name>
 wslc exec <name> <cmd>
+wslc attach <name>
+wslc inspect <name>
+wslc network create <net>
+wslc network remove <net>
 wslc stop <name> && wslc remove <name>
 ```
+
+All of it was exercised on 2026-09-12, WSL 2.9.4.0, by the bring-up below.
+`--network-alias` especially: the decision log's 2026-09-07 entry lists a
+narrower flag set and reads as though it might not exist.
 
 Nothing is installed on the Windows host. No PHP, no composer, no MySQL client, no Docker Desktop. If a step here wants one of those, run it in a container instead. Reaching for a host install is the wrong answer every time.
 
@@ -36,7 +44,6 @@ Tested on 2026-08-23, WSL 2.9.4.0. Do not re-derive these:
 - Bind mounts of Windows repo paths work read and write.
 - UDP publishing works. A full round trip on `19132/udp` from the Windows host into a container and back was confirmed. This was the make-or-break test, since Bedrock is RakNet over UDP.
 - `mysql:8` runs as 8.4.11 and is reachable from Windows on the published port.
-- `wslc build` builds a Dockerfile and the resulting image runs.
 
 ## Reaching the server from a phone or console
 
@@ -48,13 +55,20 @@ like the server is broken.
 the Windows side to `127.0.0.1`, confirmed in `netstat -ano -p UDP`. A probe to
 the machine's own LAN address then comes back with an ICMP port unreachable.
 `-p 0.0.0.0:19132:19132/udp` binds `0.0.0.0:19132` and that probe pongs.
-`INSTANCE_BIND=0.0.0.0` in `images/.env` is the compose form.
+`INSTANCE_BIND=0.0.0.0` in `images/.env` is how both paths are told to do it.
 
 **Two: Windows Firewall has to allow inbound UDP 19132.** With the bind
 correct, a packet from another host on the LAN is still dropped in silence,
 while `ping` to the same address answers with no loss. Silence rather than an
-ICMP unreachable is the firewall signature. One rule, once, in an
-**Administrator** PowerShell:
+ICMP unreachable is the firewall signature.
+
+**This rule is the one step nobody has watched work.** The drop was measured,
+the fix was not: `New-NetFirewallRule` has never been run here, and every probe
+came from a bridged WSL distro rather than a device. It opens an inbound UDP
+port to an offline-mode server, and the first phone to join is the first
+confirmation it was both needed and enough.
+
+One rule, once, in an **Administrator** PowerShell:
 
 ```powershell
 New-NetFirewallRule -DisplayName "Riftal dev Bedrock 19132 UDP" `
@@ -63,16 +77,14 @@ New-NetFirewallRule -DisplayName "Riftal dev Bedrock 19132 UDP" `
 ```
 
 `-Profile Private` on purpose. The LAN adapter is on the Private profile, and a
-rule that also covered Public would follow this machine onto untrusted
-networks. Remove the rule by display name when the LAN publish is not wanted.
+rule covering Public would follow this machine onto untrusted networks.
 
 The address a device connects to is the **Windows** LAN address, `ipconfig` on
 the `vEthernet (VM Lan Switch)` adapter. The WSL VM's own bridged address does
 not serve the published port; probing it gets nothing.
 
-There is no public exposure here and there must not be. The instance runs
-offline mode, so the LAN bind is for devices on this house's network only.
-Never forward this port on the router.
+The instance runs offline mode, so the LAN bind is for devices on this house's
+network only. Never forward this port on the router.
 
 ## Prerequisites, once
 
@@ -92,18 +104,22 @@ then instances. `depends_on` encodes it, gated on MySQL's healthcheck.
 
 **Run these with `wslc`.** There is no `docker` on this machine and there is not
 going to be. `wslc` has no `compose` verb, so the commands below are the hand
-translation of `compose.yaml`, and they are the primary form here. The `docker`
-equivalents are at the end for production and for reading the compose file
-against something.
+translation of `compose.yaml` and are the primary form here; the `docker`
+equivalents are in the last section. Run them from Git Bash with
+`MSYS_NO_PATHCONV=1` so the `C:/...` mount arguments survive. `--network-alias`
+is what makes the database answer to `mysql`, as compose's service name does.
 
-Run from Git Bash with `MSYS_NO_PATHCONV=1` so the `C:/...` mount arguments
-survive. `--network-alias` is what makes the database answer to `mysql`, the
-same name compose gives the service.
+`images/.env` is the single place both paths read `MYSQL_ROOT_PASSWORD` and
+`INSTANCE_BIND` from. `docker compose` reads it on its own; `wslc` has never
+heard of it, so the last line below sources it, and skipping that line starts
+MySQL with an empty password. Re-run the block in every shell that runs a
+command below, and again after editing `.env`.
 
 ```sh
 export MSYS_NO_PATHCONV=1
 INFRA=C:/Users/nasir/riftal-games/riftal-infra
 CORE=C:/Users/nasir/riftal-games/pmmp-core
+set -a; . "$INFRA/images/.env"; set +a
 ```
 
 ### 1. Build the core image
@@ -135,9 +151,12 @@ wslc run -d --name riftal-mysql --network riftal-dev --network-alias mysql \
 wslc logs riftal-mysql
 ```
 
-- [ ] The log reaches `ready for connections` on `port: 3306`. It prints that
-      line twice; the first is the init pass on `port: 0` and is not the one to
-      wait for.
+- [ ] The log reaches a `ready for connections` line saying **`port: 3306`**.
+      Match the port, never an occurrence count: a first boot on an empty volume
+      initialises the datadir behind a temporary server and logs an earlier
+      `port: 0` line, and every boot after that logs only the `port: 3306` one.
+      MySQL logs to stderr, so piping `wslc logs` to `grep` matches nothing and
+      proves nothing.
 
 `wslc run` has no healthcheck flag worth wiring up, so the compose
 `depends_on: service_healthy` gate does not apply here. That log line is the
@@ -146,9 +165,11 @@ that look like schema bugs.
 
 ### 4. Instance
 
-`INSTANCE_BIND` defaults to loopback. Set it to `0.0.0.0` only for the session
-in which a device actually joins, and see the section above for the firewall
-rule that has to accompany it.
+`INSTANCE_BIND` comes from `images/.env` on both paths and falls back to
+`127.0.0.1` when unset. To let a device join, set it to `0.0.0.0` there,
+re-source the block above, then run this; the firewall rule has to be in place
+too. Editing `.env` without re-sourcing leaves the shell on `127.0.0.1`, which
+looks exactly like the bind not working.
 
 ```sh
 wslc run -d -i --name riftal-instance --network riftal-dev \
@@ -193,11 +214,8 @@ wslc logs riftal-instance
       boot to 0 on the replacement, which instead logged `Preparing world
       "mine_a"` off the volume.
 
-**Nothing here has been tested from a physically separate device.** Every probe
-so far, including the firewall one, came from a bridged WSL distro on this same
-machine. It is a genuine second host on the LAN and a real test of the firewall
-path, but it is not a phone. The first join from Nasir's device is the first
-time the rule above is confirmed rather than inferred.
+**Nothing here has been tested from a physically separate device.** A bridged
+WSL distro is a real second host on the LAN but it is not a phone.
 
 ## Two instances
 
@@ -234,11 +252,12 @@ is the console path. `wslc list` hides exited containers, so read `"Status"` and
 - [ ] The shutdown sequence reached the log: `[CONSOLE: Stopping the server]`,
       `Unloading world`, then `Stopping other threads`. Only then is the
       container safe to remove.
-- [ ] **Set `INSTANCE_BIND` back to `127.0.0.1`** if this session set it to
-      `0.0.0.0`, and remove the firewall rule if the LAN publish is not wanted
-      again soon. `CLAUDE.md:62` says close it in the same session, and the
-      whole risk of a LAN-published offline-mode server is that it outlives the
-      reason it was opened.
+- [ ] **Edit `INSTANCE_BIND` back to `127.0.0.1` in `images/.env`** if this
+      session set it to `0.0.0.0`, and drop the firewall rule if the LAN publish
+      is not wanted again soon, elevated:
+      `Remove-NetFirewallRule -DisplayName "Riftal dev Bedrock 19132 UDP"`.
+      `CLAUDE.md:62` says close it in the same session; the risk of a
+      LAN-published offline-mode server is that it outlives its reason.
 - [ ] **Leave the named volumes.** `riftal-mysql` and `riftal-world` hold the
       dev database and world. Removing either is a reset, never the routine
       ending.
@@ -251,18 +270,20 @@ In this order, because each rules out the ones below it:
 
 1. `wslc list` and `wslc logs <name>`. Read the actual error before theorizing.
 2. Port conflict. An earlier container still holds `19132`. Remove it.
-3. Instance cannot reach MySQL. Both on the same network? Using the container name, not `localhost`? `localhost` inside a container is that container.
-4. Client cannot join but the container looks healthy. Check that the publish is `/udp`. This is the most common single mistake in this stack.
-5. A phone or console cannot see the server while a client on this machine can. The bind, then the firewall, in that order. See the section above.
-6. Login fails with something that looks like a protocol error. Check `xbox-auth=false`. Behind a proxy `player.verify-xuid: false` is required too, and missing either produces exactly that symptom and it is not a protocol bug. Direct, there is no proxy stripping the XUID, so the default stays.
-7. Build fails in the first stage. `build/php` submodule is empty. See prerequisites.
+3. MySQL exits immediately with `[ERROR] [Entrypoint]: Database is uninitialized and password option is not specified`. The shell never sourced `images/.env`, so `MYSQL_ROOT_PASSWORD` was empty. Re-run the export block and start the container again; nothing was written, so there is nothing to clean up.
+4. Instance cannot reach MySQL. Both on the same network? Using the container name, not `localhost`? `localhost` inside a container is that container.
+5. Client cannot join but the container looks healthy. Check that the publish is `/udp`. This is the most common single mistake in this stack.
+6. A phone or console cannot see the server while a client on this machine can. The bind, then the firewall, in that order. See the section above.
+7. Login fails with something that looks like a protocol error. Check `xbox-auth=false`. Behind a proxy `player.verify-xuid: false` is required too, and missing either produces exactly that symptom and it is not a protocol bug. Direct, there is no proxy stripping the XUID, so the default stays.
+8. Build fails in the first stage. `build/php` submodule is empty. See prerequisites.
 
 ## The docker form
 
-**Not runnable on this machine.** `which docker` returns nothing here and
-installing it is the wrong answer. This section is here to read, not to follow:
-it is what `images/compose.yaml` means on a standard runtime, and it is what CI
-validates. The commands above are the ones that run locally.
+**Not runnable on this machine.** `which docker` returns nothing here. This is
+here to read, not to follow: it is what `images/compose.yaml` means on a
+standard runtime. CI checks that file with `compose config --quiet`
+(`.github/scripts/scan.sh:15`) and never starts it, so nothing has run `up` on
+these services anywhere.
 
 ```sh
 cd images
