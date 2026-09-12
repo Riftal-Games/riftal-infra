@@ -162,13 +162,16 @@ wslc logs riftal-instance
 
 - [ ] The log reaches the line starting `Done (`. Its absence is the failure,
       because a boot that dies still exits 0.
-- [ ] No line matches `/(EMERGENCY|ALERT|CRITICAL|ERROR)]`. PocketMine formats
-      severity as `[<thread>/<LEVEL>]`, so `[CRITICAL]` and `[ERROR]` as
-      literals match nothing ever and a check written that way passes every
-      boot including the broken ones. Derived from `MainLogger.php:84-96` and
-      from a deliberately broken boot, which logged two
-      `[Server thread/CRITICAL]` and two `[Server thread/EMERGENCY]`, never
-      reached `Done (`, and exited **0**.
+- [ ] No line matches `/(EMERGENCY|ALERT|CRITICAL|ERROR)]`. PocketMine's log
+      layout is `%s[%s/%s]: %s` filled with thread then level
+      (`MainLogger.php:38` and `:192`), so every severity prints as
+      `[<thread>/<LEVEL>]` and the literals `[CRITICAL]` and `[ERROR]` match
+      nothing on any boot. A check written that way passes the broken boots
+      too. The four levels above `WARNING` are at `MainLogger.php:84-96`.
+      Confirmed against a boot broken with a malformed plugin phar, which
+      logged `[Server thread/CRITICAL]` and `[Server thread/EMERGENCY]` lines,
+      never reached `Done (`, and still exited **0**. How many of each depends
+      on how the boot was broken, so count nothing and match the pattern.
 - [ ] `Online mode is disabled` appears. That is `--xbox-auth=false` taking
       effect, and its absence means the flag did not arrive.
 - [ ] `start.sh` prints a `WARNING` that files under `/plugins` are not owned by
@@ -195,23 +198,6 @@ so far, including the firewall one, came from a bridged WSL distro on this same
 machine. It is a genuine second host on the LAN and a real test of the firewall
 path, but it is not a phone. The first join from Nasir's device is the first
 time the rule above is confirmed rather than inferred.
-
-## The docker form
-
-Not runnable on this machine. `which docker` returns nothing here and installing
-it is the wrong answer. This is what `images/compose.yaml` means on a standard
-runtime, and it is what CI validates.
-
-```sh
-cd images
-docker compose up -d --wait
-docker compose logs -f instance
-echo stop | docker attach "$(docker compose ps -q instance)"
-docker compose down
-```
-
-`--wait` holds until the MySQL healthcheck passes, which is the piece `wslc` has
-no equivalent for.
 
 ## Two instances
 
@@ -270,6 +256,23 @@ In this order, because each rules out the ones below it:
 5. A phone or console cannot see the server while a client on this machine can. The bind, then the firewall, in that order. See the section above.
 6. Login fails with something that looks like a protocol error. Check `xbox-auth=false`. Behind a proxy `player.verify-xuid: false` is required too, and missing either produces exactly that symptom and it is not a protocol bug. Direct, there is no proxy stripping the XUID, so the default stays.
 7. Build fails in the first stage. `build/php` submodule is empty. See prerequisites.
+
+## The docker form
+
+**Not runnable on this machine.** `which docker` returns nothing here and
+installing it is the wrong answer. This section is here to read, not to follow:
+it is what `images/compose.yaml` means on a standard runtime, and it is what CI
+validates. The commands above are the ones that run locally.
+
+```sh
+cd images
+docker compose up -d --wait
+docker compose logs -f instance
+docker compose down
+```
+
+`--wait` holds until the MySQL healthcheck passes, which is the piece `wslc` has
+no equivalent for and the reason the local bring-up waits on a log line instead.
 
 ## Rules
 
