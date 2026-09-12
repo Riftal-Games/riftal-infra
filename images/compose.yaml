@@ -1,0 +1,78 @@
+# The local dev stack: one MySQL, one core instance, one network. No proxy.
+# WaterdogPE is deferred until instances actually split, so the instance is the
+# entry point a client connects to. See ../../docs/decision-log.md, 2026-09-12.
+#
+# Standard docker compose. wslc has no compose verb, so /dev-stack carries the
+# hand translation to `wslc run` flags. Nothing here may depend on wslc.
+services:
+  mysql:
+    image: mysql:8
+    # Loopback only. Nothing outside this machine has any reason to reach the
+    # database, and a MySQL on a LAN interface is a far worse door than a game
+    # port.
+    ports:
+      - "127.0.0.1:3306:3306"
+    environment:
+      # No default, on purpose. An unset value stops MySQL with "Database is
+      # uninitialized and password option is not specified", which is the
+      # failure we want over a committed password that works.
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: riftal_dev
+    volumes:
+      - riftal-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+    networks:
+      - riftal-dev
+
+  instance:
+    image: local-pocketmine-mp
+    # The server takes console commands on stdin, and `stop` on stdin is the
+    # only clean shutdown. An abrupt halt can corrupt a world mid-write.
+    stdin_open: true
+    # Loopback by default, so joining from a phone is a deliberate act and not
+    # a leftover. INSTANCE_BIND=0.0.0.0 opens it to the LAN; see /dev-stack for
+    # what else that needs and for why it is never a public interface.
+    ports:
+      - "${INSTANCE_BIND:-127.0.0.1}:19132:19132/udp"
+    volumes:
+      - riftal-world:/data
+    environment:
+      # Flags beat server.properties in ServerConfigGroup, so the instance
+      # needs no config file mounted in and the world volume stays the only
+      # durable state.
+      #
+      # xbox-auth=false does not disable Xbox Live sign-in, it stops the server
+      # requiring it: a signed-in client joining directly still authenticates
+      # and still carries a real XUID. See
+      # ../../pmmp-core/docs/player-identity-consequences-for-m1.md, the matrix.
+      POCKETMINE_ARGS: >-
+        --level-name=mine_a
+        --level-type=normal
+        --xbox-auth=false
+        --motd=riftal-dev
+    # Rollout order, the same one /deploy-release uses: database, then
+    # instances. Nothing here reads MySQL yet; the order is what M1 inherits.
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - riftal-dev
+
+networks:
+  # Named so that the network a wslc bring-up creates by hand is the same one
+  # compose would have created.
+  riftal-dev:
+    name: riftal-dev
+
+volumes:
+  # A world and a database are not container-layer state. Neither name is a
+  # riftal_smoke_ name, so the guard protects both, which is the point.
+  riftal-mysql:
+    name: riftal-mysql
+  riftal-world:
+    name: riftal-world
