@@ -90,6 +90,22 @@ actually split, so a client connects to the instance itself
 Order still matters and is the same order `/deploy-release` uses: database,
 then instances. `depends_on` encodes it, gated on MySQL's healthcheck.
 
+**Run these with `wslc`.** There is no `docker` on this machine and there is not
+going to be. `wslc` has no `compose` verb, so the commands below are the hand
+translation of `compose.yaml`, and they are the primary form here. The `docker`
+equivalents are at the end for production and for reading the compose file
+against something.
+
+Run from Git Bash with `MSYS_NO_PATHCONV=1` so the `C:/...` mount arguments
+survive. `--network-alias` is what makes the database answer to `mysql`, the
+same name compose gives the service.
+
+```sh
+export MSYS_NO_PATHCONV=1
+INFRA=C:/Users/nasir/riftal-games/riftal-infra
+CORE=C:/Users/nasir/riftal-games/pmmp-core
+```
+
 ### 1. Build the core image
 
 Only when it is missing or `pmmp-core` changed. The first build compiles the
@@ -98,29 +114,66 @@ reuse that layer, which is why the Dockerfile splits PHP into its own stage. Do
 not restructure that.
 
 ```sh
-docker build -f ../pmmp-core/docker/Dockerfile -t local-pocketmine-mp \
-  --build-arg GIT_HASH="$(git -C ../pmmp-core rev-parse HEAD)" ../pmmp-core
+wslc build -f "$CORE/docker/Dockerfile" -t local-pocketmine-mp \
+  --build-arg GIT_HASH="$(git -C "$CORE" rev-parse HEAD)" "$CORE"
 ```
 
-### 2. Start the stack
-
-From `images/`. `--wait` holds until MySQL's healthcheck passes, so nothing
-boots against a database still initialising.
+### 2. Network
 
 ```sh
-docker compose up -d --wait
-docker compose logs -f instance
+wslc network create riftal-dev
 ```
 
-- [ ] MySQL log reaches `ready for connections` on `port: 3306`. It prints that
+### 3. MySQL
+
+```sh
+wslc run -d --name riftal-mysql --network riftal-dev --network-alias mysql \
+  -p 127.0.0.1:3306:3306 \
+  -e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" -e MYSQL_DATABASE=riftal_dev \
+  -v riftal-mysql:/var/lib/mysql mysql:8
+
+wslc logs riftal-mysql
+```
+
+- [ ] The log reaches `ready for connections` on `port: 3306`. It prints that
       line twice; the first is the init pass on `port: 0` and is not the one to
       wait for.
-- [ ] Instance log reaches the line starting `Done (`.
-- [ ] Instance log has no `[CRITICAL]`, no `[ERROR]` and no exception.
-      PocketMine exits 0 with errors in the log, so the log is the verdict and
-      the exit code is not.
+
+`wslc run` has no healthcheck flag worth wiring up, so the compose
+`depends_on: service_healthy` gate does not apply here. That log line is the
+gate instead, and starting the instance before it appears produces failures
+that look like schema bugs.
+
+### 4. Instance
+
+`INSTANCE_BIND` defaults to loopback. Set it to `0.0.0.0` only for the session
+in which a device actually joins, and see the section above for the firewall
+rule that has to accompany it.
+
+```sh
+wslc run -d -i --name riftal-instance --network riftal-dev \
+  -p "${INSTANCE_BIND:-127.0.0.1}:19132:19132/udp" \
+  -v riftal-world:/data -v "$INFRA/images/plugins:/plugins" \
+  -e "POCKETMINE_ARGS=--level-name=mine_a --level-type=normal --xbox-auth=false --motd=riftal-dev" \
+  local-pocketmine-mp
+
+wslc logs riftal-instance
+```
+
+- [ ] The log reaches the line starting `Done (`. Its absence is the failure,
+      because a boot that dies still exits 0.
+- [ ] No line matches `/(EMERGENCY|ALERT|CRITICAL|ERROR)]`. PocketMine formats
+      severity as `[<thread>/<LEVEL>]`, so `[CRITICAL]` and `[ERROR]` as
+      literals match nothing ever and a check written that way passes every
+      boot including the broken ones. Derived from `MainLogger.php:84-96` and
+      from a deliberately broken boot, which logged two
+      `[Server thread/CRITICAL]` and two `[Server thread/EMERGENCY]`, never
+      reached `Done (`, and exited **0**.
 - [ ] `Online mode is disabled` appears. That is `--xbox-auth=false` taking
       effect, and its absence means the flag did not arrive.
+- [ ] `start.sh` prints a `WARNING` that files under `/plugins` are not owned by
+      `pocketmine` when that directory is a bind mount from Windows. The warning
+      is about writes and nothing writes there at runtime.
 
 ## Verify
 
@@ -132,46 +185,33 @@ docker compose logs -f instance
       directly. What the plugin printed to chat is not evidence.
 - [ ] Replace the instance container, not just restart it, and confirm the
       world and the database survived. A restart reuses the same container
-      layer and so proves nothing about where state is written.
+      layer and so proves nothing about where state is written. Held on
+      2026-09-12: `Generating spawn terrain` went from 11 lines on the first
+      boot to 0 on the replacement, which instead logged `Preparing world
+      "mine_a"` off the volume.
 
-## Local convenience: wslc
+**Nothing here has been tested from a physically separate device.** Every probe
+so far, including the firewall one, came from a bridged WSL distro on this same
+machine. It is a genuine second host on the LAN and a real test of the firewall
+path, but it is not a phone. The first join from Nasir's device is the first
+time the rule above is confirmed rather than inferred.
 
-`wslc` has no `compose` verb, so `images/compose.yaml` is translated to `run`
-flags by hand. Nothing in the compose file depends on `wslc`; production runs
-standard docker. Run from Git Bash with `MSYS_NO_PATHCONV=1` so path arguments
-survive. `--network-alias` is what makes the container answer to `mysql`, the
-same name compose gives the service.
+## The docker form
+
+Not runnable on this machine. `which docker` returns nothing here and installing
+it is the wrong answer. This is what `images/compose.yaml` means on a standard
+runtime, and it is what CI validates.
 
 ```sh
-export MSYS_NO_PATHCONV=1
-wslc network create riftal-dev
-
-wslc run -d --name riftal-mysql --network riftal-dev --network-alias mysql \
-  -p 127.0.0.1:3306:3306 \
-  -e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" -e MYSQL_DATABASE=riftal_dev \
-  -v riftal-mysql:/var/lib/mysql mysql:8
-
-wslc logs riftal-mysql
-
-wslc run -d -i --name riftal-instance --network riftal-dev \
-  -p "${INSTANCE_BIND:-127.0.0.1}:19132:19132/udp" \
-  -v riftal-world:/data \
-  -e "POCKETMINE_ARGS=--level-name=mine_a --level-type=normal --xbox-auth=false --motd=riftal-dev" \
-  local-pocketmine-mp
-
-wslc logs riftal-instance
-echo stop | wslc attach riftal-instance
-wslc inspect riftal-instance
-wslc remove riftal-instance
+cd images
+docker compose up -d --wait
+docker compose logs -f instance
+echo stop | docker attach "$(docker compose ps -q instance)"
+docker compose down
 ```
 
-`wslc attach` forwards piped stdin to a container started with `-d -i`, so that
-is the console path. `wslc list` hides exited containers, so read `"Status"` and
-`"ExitCode"` from `inspect` before removing one.
-
-`wslc run` has no `--health-*` equivalent worth wiring up here, so the compose
-healthcheck does not apply and `ready for connections` in the log is what to
-wait on instead.
+`--wait` holds until the MySQL healthcheck passes, which is the piece `wslc` has
+no equivalent for.
 
 ## Two instances
 
@@ -191,16 +231,31 @@ Stop the instance through its console first. `stop` on stdin is the only clean
 shutdown; an abrupt halt can corrupt a world mid-write.
 
 ```sh
-echo stop | docker attach "$(docker compose ps -q instance)"
-docker compose logs instance | tail -n 5
-docker compose down
+echo stop | wslc attach riftal-instance
+wslc logs riftal-instance
+wslc inspect riftal-instance
+wslc remove riftal-instance
+
+wslc stop riftal-mysql
+wslc remove riftal-mysql
+wslc network remove riftal-dev
 ```
+
+`wslc attach` forwards piped stdin to a container started with `-d -i`, so that
+is the console path. `wslc list` hides exited containers, so read `"Status"` and
+`"ExitCode"` from `inspect` before removing one.
 
 - [ ] The shutdown sequence reached the log: `[CONSOLE: Stopping the server]`,
       `Unloading world`, then `Stopping other threads`. Only then is the
       container safe to remove.
-- [ ] **Leave the named volumes.** `down` keeps them; `down -v` destroys the dev
-      world and database and is never the routine ending.
+- [ ] **Set `INSTANCE_BIND` back to `127.0.0.1`** if this session set it to
+      `0.0.0.0`, and remove the firewall rule if the LAN publish is not wanted
+      again soon. `CLAUDE.md:62` says close it in the same session, and the
+      whole risk of a LAN-published offline-mode server is that it outlives the
+      reason it was opened.
+- [ ] **Leave the named volumes.** `riftal-mysql` and `riftal-world` hold the
+      dev database and world. Removing either is a reset, never the routine
+      ending.
 - [ ] Nothing left running. Orphaned containers holding published ports are the
       usual reason the next bring-up fails with a port conflict.
 

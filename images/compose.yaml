@@ -39,8 +39,12 @@ services:
     # what else that needs and for why it is never a public interface.
     ports:
       - "${INSTANCE_BIND:-127.0.0.1}:19132:19132/udp"
+    # The image declares VOLUME for both /data and /plugins, so anything left
+    # unmounted gets a fresh anonymous volume on every container start. Those
+    # accumulate under hash names that no cleanup rule can recognise.
     volumes:
       - riftal-world:/data
+      - ./plugins:/plugins
     environment:
       # Flags beat server.properties in ServerConfigGroup, so the instance
       # needs no config file mounted in and the world volume stays the only
