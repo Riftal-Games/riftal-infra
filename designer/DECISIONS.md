@@ -297,3 +297,22 @@ would otherwise prove nothing. It reaches the padding ring but never passes it,
 so `leaks` names the cells beside each hole, which a builder teleports to, not
 the whole ring. An even entrance width leans to the upper middle, as in
 `Bounds.from_center`, so platform, opening and `resolve_pos` agree on the centre.
+
+## 2026-09-28 `build_plot_grid` fills its whole footprint as road first and rings each plot in `plot_edge`; `build_signage` carries no top-level name
+
+Issue #45's scope split with #93 (`build_perimeter`, `build_room`) to fit the
+400-line lane; this closes the plot grid and the signage half only, per the
+current issue body, not its unedited historical text that still names
+perimeter and room. `checks.yaml` is untouched here for the same reason: the
+`region_inside`/`no_holes` line in #45's body describes boundary and walkway
+checks that belong with whichever issue actually ships `build_perimeter`.
+
+A plot's interior is left as road, same as the gap around it, because the
+plots layout waits for the M5 brainstorm; only the outline is the builder's
+job today. Filling the whole grid footprint once and then ringing each plot
+is simpler than computing the gap geometry directly, and a `buffer` of at
+least one road block between plots keeps every ring off its neighbours', so
+plots never touch. `SignageSpec` carries no name of its own, the same
+reasoning `StairsSpec` already recorded: a sign is a named place, a batch of
+them is not, and `build`'s report path already falls back to `kind` for
+exactly this case.
