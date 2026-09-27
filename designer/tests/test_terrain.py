@@ -150,7 +150,8 @@ def test_terraform_coalesces_a_flat_plateau_into_one_fill_but_never_merges_diffe
 
     ramp = _heightmap(Bounds2D((0, 0), (9, 0)), np.array([[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]))
     varied = terraform(ramp, ramp.bounds, mode="raise", level=4, block=STONE)
-    assert len(varied.ops) == 4  # every column below level 4 needs a different fill span; none share one
+    # every column below level 4 needs a different fill span; none share one
+    assert len(varied.ops) == 4
 
 
 def test_terraform_coalesces_a_run_but_splits_across_an_unchanged_row() -> None:

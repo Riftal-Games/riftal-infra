@@ -267,6 +267,17 @@ check within a block of a warp, so nothing else scans a whole walkway for a
 lava tile. At walkway level anything a player cannot pass through is an
 obstruction, liquid and danger included.
 
+## 2026-09-08 `MineSpec.geometry()` is the one source of a mine's bounds; `mine_valid` floods the interior as open and stops at the padding ring
+
+The builder and the check read the same `MineGeometry`, so a wall the builder
+places one block off is a named leak, not a disagreement between two copies of
+the arithmetic. The flood starts from every interior cell, treated as passable
+because a mine ships solid and is hollowed by players; a check on the built box
+would otherwise prove nothing. It reaches the padding ring but never passes it,
+so `leaks` names the cells beside each hole, which a builder teleports to, not
+the whole ring. An even entrance width leans to the upper middle, as in
+`Bounds.from_center`, so platform, opening and `resolve_pos` agree on the centre.
+
 ## 2026-09-27 `slope_map` reads only in-map neighbours; `raise` and `lower` are one-directional; feathering ramps from the edge of the edited bounds inward; a terraform column with no known height is left alone
 
 A column's slope is the largest height step to a four-neighbour that is also
@@ -300,14 +311,3 @@ best-score first and keeps one whenever it is more than `suppress` blocks
 much larger than the requested site is otherwise every one of its own
 near-duplicate placements. `near` ranks only the survivors, so the search
 still finds every qualifying area before choosing which one is closest.
-
-## 2026-09-08 `MineSpec.geometry()` is the one source of a mine's bounds; `mine_valid` floods the interior as open and stops at the padding ring
-
-The builder and the check read the same `MineGeometry`, so a wall the builder
-places one block off is a named leak, not a disagreement between two copies of
-the arithmetic. The flood starts from every interior cell, treated as passable
-because a mine ships solid and is hollowed by players; a check on the built box
-would otherwise prove nothing. It reaches the padding ring but never passes it,
-so `leaks` names the cells beside each hole, which a builder teleports to, not
-the whole ring. An even entrance width leans to the upper middle, as in
-`Bounds.from_center`, so platform, opening and `resolve_pos` agree on the centre.
