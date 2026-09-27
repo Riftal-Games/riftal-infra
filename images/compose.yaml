@@ -78,6 +78,41 @@ services:
     networks:
       - riftal-dev
 
+  # A second instance, same image and same MySQL, proving the instance-split
+  # shape (riftal-infra#6, CLAUDE.md hard rule 5) before any gameplay depends
+  # on it. Everything below differs from `instance`, above, on purpose: its
+  # own instance_id, its own world, its own volume, its own published port.
+  # The one thing that must NOT differ is which MySQL it points at, and
+  # nothing here does, because neither service names one; both share
+  # `riftal-dev` and reach the same `mysql` alias.
+  instance-b:
+    image: local-pocketmine-mp
+    stdin_open: true
+    # A distinct host port. The container still listens on 19132 internally;
+    # 19133 is only where the host maps it, same pattern as INSTANCE_BIND
+    # above for the first instance.
+    ports:
+      - "${INSTANCE_B_BIND:-127.0.0.1}:19133:19132/udp"
+    volumes:
+      - riftal-world-b:/data
+      - ./plugins:/plugins
+    environment:
+      INSTANCE_ID: ${INSTANCE_B_ID}
+      # A different level-name and level-type than `instance`, above, so the
+      # split is exercised against two genuinely different worlds rather than
+      # one world cloned onto a second port.
+      POCKETMINE_ARGS: >-
+        --level-name=plots_b
+        --level-type=flat
+        --xbox-auth=false
+        --motd=riftal-dev-b
+        --riftal-dev-bots=on
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - riftal-dev
+
 networks:
   # Named so that the network a wslc bring-up creates by hand is the same one
   # compose would have created.
@@ -91,3 +126,5 @@ volumes:
     name: riftal-mysql
   riftal-world:
     name: riftal-world
+  riftal-world-b:
+    name: riftal-world-b
