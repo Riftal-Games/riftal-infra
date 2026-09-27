@@ -18,7 +18,7 @@ from designer.builders.mine_spec import MineSpec
 from designer.config import ConfigError, load_settings
 from designer.palettes import load_palettes
 from designer.region import Bounds2D, Heightmap, Region, fetch_heightmap
-from designer.render import Marker, ascii_heightmap, markers_from_index, summary, topdown_png
+from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, summary, topdown_png
 from designer.verify import mine_valid
 from designer.world_index import Location, NamedRegion, WorldIndex, resolve_at
 
@@ -55,6 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
     _add_area(topdown)
     topdown.add_argument("--scale", type=int, default=4, metavar="S", help="Pixels per block.")
     topdown.add_argument("--out", metavar="PATH", help="Output file, default a timestamped name in reports/.")
+    isometric = renders.add_parser("isometric", help="2:1 dimetric map of a square around a point, coloured by top block.")
+    _add_area(isometric)
+    isometric.add_argument("--scale", type=int, default=2, metavar="S", help="Pixels per block edge.")
+    isometric.add_argument("--out", metavar="PATH", help="Output file, default a timestamped name in reports/.")
 
     terrain = commands.add_parser("terrain", help="Terrain analysis, flat-site search and terraform.")
     terrains = terrain.add_subparsers(dest="terrain")
@@ -104,9 +108,10 @@ def _heightmap(bridge: Bridge, options: argparse.Namespace) -> str:
     return ascii_heightmap(hm, markers, max_width=options.max_width, band=options.band)
 
 
-def _topdown(bridge: Bridge, options: argparse.Namespace) -> str:
+def _render(bridge: Bridge, options: argparse.Namespace) -> str:
     hm, markers = _fetch(bridge, options)
-    path = topdown_png(hm, load_palettes()["colors"], markers, scale=options.scale, out=options.out)
+    render_fn = topdown_png if options.render == "topdown" else isometric_png
+    path = render_fn(hm, load_palettes()["colors"], markers, scale=options.scale, out=options.out)
     stats = summary(hm)
     stats["size"] = "x".join(map(str, stats["size"]))
     return f"{path}\n" + " ".join(f"{k}={v}" for k, v in stats.items())
@@ -211,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
             elif options.command == "info":
                 print(json.dumps(bridge.server_info(), indent=2, sort_keys=True))
             elif options.command == "render":
-                print(_topdown(bridge, options))
+                print(_render(bridge, options))
             elif options.command == "terrain":
                 handler = {"analyze": _terrain_analyze, "find-site": _terrain_find_site, "terraform": _terrain_terraform}[options.terrain]
                 print(handler(bridge, options))

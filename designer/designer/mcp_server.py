@@ -34,7 +34,7 @@ from designer.builders.mine_spec import MineSpec
 from designer.edits import ApplyResult, EditList, Fill, Replace, SetBlock
 from designer.palettes import load_palettes
 from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region
-from designer.render import Marker, ascii_heightmap, markers_from_index, summary, topdown_png
+from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, summary, topdown_png
 from designer.snapshot import Snapshot, UndoStack
 from designer.verify import mine_valid
 from designer.world_index import KINDS, Location, NamedRegion, WorldIndex, resolve_at
@@ -174,16 +174,18 @@ async def heightmap_ascii(at: str, size: int = 64, world: str | None = None) -> 
     hm, markers = await _run(_area, at, size, world)
     return {"text": ascii_heightmap(hm, markers), "summary": _summary(hm)}
 
+RENDERS = {"topdown": topdown_png, "isometric": isometric_png}
+
 @tool
 async def render(at: str, kind: str = "topdown", size: int = 64, world: str | None = None) -> dict[str, Any]:
-    """Write a PNG under ``reports/`` and return its path with a summary; ``kind`` is ``topdown``.
+    """Write a PNG under ``reports/`` and return its path with a summary; ``kind`` is ``topdown`` or ``isometric``.
 
     RETURNS: path, summary.
     """
-    if kind != "topdown":
-        raise ValueError(f"unknown render kind {kind!r}; only topdown exists")
+    if kind not in RENDERS:
+        raise ValueError(f"unknown render kind {kind!r}; expected one of {sorted(RENDERS)}")
     hm, markers = await _run(_area, at, size, world)
-    path = await _run(topdown_png, hm, load_palettes()["colors"], markers)
+    path = await _run(RENDERS[kind], hm, load_palettes()["colors"], markers)
     return {"path": str(path), "summary": _summary(hm)}
 
 @tool
