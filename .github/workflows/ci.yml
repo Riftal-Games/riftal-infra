@@ -68,7 +68,7 @@ jobs:
             exit 0
           fi
           docker run --rm -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
-            sh -c 'set -e; for f in /plugins/*.php; do php -l "$f"; done'
+            find /plugins -name '*.php' -exec php -l {} +
 
       # astral-sh/setup-uv v10.0.1, pinned by commit so a tag move cannot
       # change the installer, and by uv version so the resolver matches the
