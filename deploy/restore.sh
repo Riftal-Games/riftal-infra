@@ -33,6 +33,18 @@ world_tars=("$BACKUP_SET"/worlds/*.tar.gz)
 shopt -u nullglob
 [ "${#world_tars[@]}" -gt 0 ] || fail "no world tars found under $BACKUP_SET/worlds"
 
+# Listed, not extracted: a truncated or otherwise corrupt tar fails `tar -t`
+# the same way it would fail `tar -x`, without writing anything. Checked for
+# every world before the database or any target directory is touched, so one
+# bad tar aborts the whole restore instead of being discovered only after
+# earlier worlds in the set have already been cleared and left neither
+# restored nor in their pre-restore state.
+echo "restore $BACKUP_SET: validating ${#world_tars[@]} world tar(s) before touching anything"
+for tar_file in "${world_tars[@]}"; do
+  name="$(basename "$tar_file" .tar.gz)"
+  tar -tzf "$tar_file" >/dev/null || fail "world tar for $name ($tar_file) failed integrity check, aborting before clearing anything"
+done
+
 echo "restore $BACKUP_SET: rebuilding database $MYSQL_DATABASE at $MYSQL_HOST:$MYSQL_PORT"
 # Dropped and recreated rather than loaded on top of whatever is already
 # there. A dump made without --add-drop-table cannot overwrite a stale row
