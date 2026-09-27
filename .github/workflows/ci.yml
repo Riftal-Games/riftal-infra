@@ -23,18 +23,20 @@ env:
 jobs:
   checks:
     name: lint and validate
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, riftal]
     timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install hadolint
+        # /usr/local/bin is root-owned on the self-hosted runner, unlike the
+        # hosted image where the runner user already owns it.
         run: |
           set -euo pipefail
-          curl -fsSL -o /usr/local/bin/hadolint \
+          curl -fsSL -o /tmp/hadolint \
             "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
-          chmod +x /usr/local/bin/hadolint
+          sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
           hadolint --version
 
       # Runs before the real scans on purpose. images/ and proxy/ hold only a
