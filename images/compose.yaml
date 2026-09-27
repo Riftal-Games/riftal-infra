@@ -54,11 +54,16 @@ services:
       # requiring it: a signed-in client joining directly still authenticates
       # and still carries a real XUID. See
       # ../../pmmp-core/docs/player-identity-consequences-for-m1.md, the matrix.
+      #
+      # riftal-dev-bots admits the headless bots from devtools/bot through
+      # plugins/RiftalDevBots.php. That plugin refuses them whenever
+      # xbox-auth is on, so the flag cannot open a production server.
       POCKETMINE_ARGS: >-
         --level-name=mine_a
         --level-type=normal
         --xbox-auth=false
         --motd=riftal-dev
+        --riftal-dev-bots=on
     # Rollout order, the same one /deploy-release uses: database, then
     # instances. Nothing here reads MySQL yet; the order is what M1 inherits.
     depends_on:

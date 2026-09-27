@@ -175,7 +175,7 @@ looks exactly like the bind not working.
 wslc run -d -i --name riftal-instance --network riftal-dev \
   -p "${INSTANCE_BIND:-127.0.0.1}:19132:19132/udp" \
   -v riftal-world:/data -v "$INFRA/images/plugins:/plugins" \
-  -e "POCKETMINE_ARGS=--level-name=mine_a --level-type=normal --xbox-auth=false --motd=riftal-dev" \
+  -e "POCKETMINE_ARGS=--level-name=mine_a --level-type=normal --xbox-auth=false --motd=riftal-dev --riftal-dev-bots=on" \
   local-pocketmine-mp
 
 wslc logs riftal-instance
@@ -231,11 +231,19 @@ That this is cheap is the whole argument for containers. If it ever stops being 
 
 ## Tear down
 
-Stop the instance through its console first. `stop` on stdin is the only clean
-shutdown; an abrupt halt can corrupt a world mid-write.
+Stop the instance first, and give it time: an abrupt halt can corrupt a world
+mid-write. `wslc stop` with a grace period is a clean shutdown. PocketMine runs
+as PID 1 (`start.sh` ends in `exec php`) and traps SIGTERM into the same
+`shutdown()` the console `stop` runs. Measured 2026-09-27: `Unloading world`,
+`Stopping other threads`, exit code 0.
+
+Prefer it to the console. Once anything closes the container's stdin, for
+example an `echo list | wslc attach` whose attach is then killed, the console
+reader sees EOF and never reads again, and `echo stop | wslc attach` then does
+nothing at all.
 
 ```sh
-echo stop | wslc attach riftal-instance
+wslc stop -t 60 riftal-instance
 wslc logs riftal-instance
 wslc inspect riftal-instance
 wslc remove riftal-instance
@@ -245,13 +253,13 @@ wslc remove riftal-mysql
 wslc network remove riftal-dev
 ```
 
-`wslc attach` forwards piped stdin to a container started with `-d -i`, so that
-is the console path. `wslc list` hides exited containers, so read `"Status"` and
-`"ExitCode"` from `inspect` before removing one.
+`wslc attach` still forwards piped stdin to a container started with `-d -i`,
+for console commands other than stopping. `wslc list` hides exited containers,
+so read `"Status"` and `"ExitCode"` from `inspect` before removing one.
 
-- [ ] The shutdown sequence reached the log: `[CONSOLE: Stopping the server]`,
-      `Unloading world`, then `Stopping other threads`. Only then is the
-      container safe to remove.
+- [ ] The shutdown sequence reached the log: `Unloading world`, then
+      `Stopping other threads`, and `inspect` shows exit code 0. Only then is
+      the container safe to remove.
 - [ ] **Edit `INSTANCE_BIND` back to `127.0.0.1` in `images/.env`** if this
       session set it to `0.0.0.0`, and drop the firewall rule if the LAN publish
       is not wanted again soon, elevated:
