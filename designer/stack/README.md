@@ -8,6 +8,21 @@ for local use. All paths assume this directory as the working directory and
 The world lives on the named volume `designer-world`. Containers are
 disposable, that volume is not. Never `down -v`, never `volume remove` it.
 
+## Port
+
+The instance's RakNet port publishes to host `19134/udp` by default, not
+`19132`. The regular dev stack (`../../images/compose.yaml`, run by
+`/dev-stack`) already holds `19132` for its always-on instance and `19133` for
+its second one, so `19132` here would collide with it and one of the two
+stacks would fail to bind, or silently steal the port depending on the
+container engine. `19134` lets both stacks run at once, each answering its
+own pong on its own port. Override with `DESIGNER_GAME_PORT` if `19134` is
+also taken:
+
+```sh
+DESIGNER_GAME_PORT=19135 docker compose up -d
+```
+
 ## Build the core image
 
 The first build compiles PHP and takes 20 to 40 minutes. Later builds reuse
@@ -138,7 +153,7 @@ wslc run --rm -v "$CORE/tests/plugins/DevTools:/src:ro" -v "$STACK/plugins:/out"
   --stub stub.php --out /out/DevTools.phar
 
 wslc run -d -i --name designer \
-  -p 127.0.0.1:19132:19132/udp -p 127.0.0.1:19140:19140/tcp \
+  -p "127.0.0.1:${DESIGNER_GAME_PORT:-19134}:19132/udp" -p 127.0.0.1:19140:19140/tcp \
   -v designer-world:/data -v "$STACK/plugins:/plugins" \
   -e DESIGNBRIDGE_TOKEN=local-dev-only \
   -e "POCKETMINE_ARGS=--level-name=design --level-type=normal --level-seed=20260907 --xbox-auth=false --gamemode=1 --max-players=4 --view-distance=16 --motd=riftal-designer" \

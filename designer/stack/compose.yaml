@@ -11,7 +11,12 @@ services:
     image: local-pocketmine-mp
     stdin_open: true
     ports:
-      - "127.0.0.1:19132:19132/udp"
+      # The regular dev stack (../../images/compose.yaml) already holds host
+      # 19132 for its always-on instance and 19133 for its second one, so this
+      # stack needs its own host port to run alongside either. The container
+      # still listens on 19132 internally; DESIGNER_GAME_PORT is only where
+      # the host maps it, same pattern as INSTANCE_BIND there.
+      - "127.0.0.1:${DESIGNER_GAME_PORT:-19134}:19132/udp"
       - "127.0.0.1:19140:19140/tcp"
     volumes:
       - designer-world:/data
