@@ -204,13 +204,10 @@ fi
 
 section "a run against a BACKUP_ROOT another run already holds the lock on fails fast"
 # Stands in for a manual out-of-band run overlapping the scheduled loop
-# (riftal-infra#166): holds backup.sh's own lock file directly, from a
-# separate container against the same volume, without running backup.sh
-# itself, so the contended run below has something real to fail against.
-docker run --rm -v "$BACKUPS_VOL:/backups" mysql:8 bash -c \
-  'exec 9>/backups/.lock; flock 9; sleep 12' &
-lock_holder_pid=$!
-sleep 4
+# (riftal-infra#166): holds backup.sh's own lock directory directly, without
+# running backup.sh itself, so the contended run below has something real to
+# fail against.
+backups 'mkdir /backups/.lock'
 
 if run_backup 3 mysql selftest >/tmp/out-lock-contended.log 2>&1; then
   fail "a run against an already-locked BACKUP_ROOT should exit nonzero"
@@ -224,7 +221,7 @@ else
   fail "expected a logged lock-contention message"; cat /tmp/out-lock-contended.log
 fi
 
-wait "$lock_holder_pid"
+backups 'rmdir /backups/.lock'
 
 if run_backup 3 mysql selftest >/tmp/out-lock-released.log 2>&1; then
   pass "a run succeeds once the earlier run's lock is released"

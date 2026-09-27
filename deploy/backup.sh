@@ -36,11 +36,20 @@ fail() {
   exit 1
 }
 
+# Set before the trap below can possibly fire, since `set -u` turns a
+# reference to an unset variable into its own error. Flipped to 1 only once
+# this run's own mkdir below actually wins the lock, so a run that lost the
+# race never removes a lock it does not hold.
+lock_acquired=0
+
 # Fires on every exit, including an uncaught failure under `set -e`, so a
 # broken run is never silent (acceptance criterion 5) and never leaves a
 # half-written set behind for retention to count as a real backup.
 cleanup() {
   status=$?
+  if [ "$lock_acquired" = 1 ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+  fi
   if [ "$status" -ne 0 ]; then
     echo "backup $ts: failed, exit $status" >&2
     rm -rf "$tmp_dir"
@@ -57,13 +66,16 @@ mkdir -p "$BACKUP_ROOT"
 # otherwise race on the same directory names and retention count
 # (riftal-infra#166). The lock is scoped to BACKUP_ROOT, not to this script
 # globally, so two different instances' backup volumes never contend on it.
-# It is held until this process exits, since the fd stays open for the
-# process's whole life and the kernel drops the flock when the fd closes,
-# so no separate release step is needed even on the failure path through
-# `cleanup` above.
-LOCK_FILE="$BACKUP_ROOT/.lock"
-exec {lock_fd}>"$LOCK_FILE"
-flock -n "$lock_fd" || fail "another run already holds the lock on $LOCK_FILE; refusing to run concurrently against the same BACKUP_ROOT"
+# mkdir is atomic on any POSIX filesystem and needs nothing beyond coreutils,
+# unlike flock, which is not installed in every image this script runs in.
+# `cleanup` above removes the directory on the way out, including on the
+# failure path, but only for the run that actually created it.
+LOCK_DIR="$BACKUP_ROOT/.lock"
+if mkdir "$LOCK_DIR" 2>/dev/null; then
+  lock_acquired=1
+else
+  fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+fi
 
 # A `.partial` older than the threshold belonged to a run that is never
 # coming back to finish it (OOM, a SIGKILL past the grace period, a host

@@ -104,9 +104,11 @@ cleared and left neither restored nor in their pre-restore state.
 
 ## Concurrency
 
-`backup.sh` takes an exclusive `flock` on `$BACKUP_ROOT/.lock` for the
-duration of the run, before it touches anything else under `BACKUP_ROOT`
-(including the stale-`.partial` sweep above). A second invocation against
+`backup.sh` takes an exclusive lock by `mkdir`ing `$BACKUP_ROOT/.lock` for
+the duration of the run, before it touches anything else under `BACKUP_ROOT`
+(including the stale-`.partial` sweep above). `mkdir` is atomic on any POSIX
+filesystem and needs nothing beyond coreutils, unlike `flock`, which is not
+installed in every image this script runs in. A second invocation against
 the same `BACKUP_ROOT`, such as a manual run below started while the
 `backup` compose service's scheduled loop is also running, fails immediately
 with a loud, logged message rather than waiting or racing. Two runs against
