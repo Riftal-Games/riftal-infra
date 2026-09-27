@@ -12,6 +12,14 @@ from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, S
 from tests.fake_bridge import FakeBridge
 
 
+def _checks_index(tmp_path: Path) -> Path:
+    index = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
+    index.add_location(Location("a", "design", (10, 64, 10)))
+    index.add_location(Location("b", "design", (20, 64, 20)))
+    index.add_location(Location("void", "design", (-40, 64, -40)))
+    return index.save(tmp_path / "index.json")
+
+
 def test_version_prints_name_and_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["--version"])
@@ -240,6 +248,42 @@ def test_build_road_apply_sends_the_edits_and_registers_the_region(
     report = json.loads(capsys.readouterr().out)
     assert report["ok"] is True and Path(report["snapshot"]).is_file()
     assert {e.name for e in WorldIndex.load(index_path).regions} == {"test_road"}
+
+
+def test_checks_run_prints_the_table_and_exits_zero_when_all_pass(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.checks.REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", _checks_index(tmp_path))
+    checks_path = tmp_path / "checks.yaml"
+    checks_path.write_text("version: 1\nchecks:\n  - check: travel_time\n    from: a\n    to: b\n", encoding="utf-8")
+
+    assert main(["checks", "run", "--path", str(checks_path)]) == 0
+    out = capsys.readouterr().out
+    assert "1 passed, 0 failed of 1." in out and "travel_time_a_b | travel_time | yes" in out
+    assert (tmp_path / "reports").is_dir()
+
+
+def test_checks_run_exits_one_on_a_failure_and_only_narrows_it(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.checks.REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", _checks_index(tmp_path))
+    checks_path = tmp_path / "checks.yaml"
+    checks_path.write_text(
+        "version: 1\nchecks:\n  - check: travel_time\n    from: a\n    to: b\n  - check: warp_safe\n    at: void\n    id: warp_void\n",
+        encoding="utf-8",
+    )
+
+    assert main(["checks", "run", "--path", str(checks_path)]) == 1
+    assert "1 passed, 1 failed of 2." in capsys.readouterr().out
+
+    assert main(["checks", "run", "--path", str(checks_path), "--only", "travel_time_a_b"]) == 0
+    assert "1 passed, 0 failed of 1." in capsys.readouterr().out
 
 
 def test_stack_subcommands_dispatch_and_report_stack_errors(

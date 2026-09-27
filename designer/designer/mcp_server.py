@@ -24,6 +24,7 @@ import anyio
 import numpy as np
 from mcp.server.fastmcp import Context, FastMCP
 
+from designer import checks as checks_mod
 from designer import config
 from designer import snapshot as snapshots
 from designer import terrain as terrain_mod
@@ -39,7 +40,7 @@ from designer.snapshot import Snapshot, UndoStack
 from designer.verify import mine_valid
 from designer.world_index import KINDS, Location, NamedRegion, WorldIndex, resolve_at
 
-MAX_AREA, MAX_RADIUS, MAX_LOG_LINES, MAX_BLOCKS_PER_CALL = 256, 8, 200, 4096
+MAX_AREA, MAX_RADIUS, MAX_LOG_LINES, MAX_BLOCKS_PER_CALL, MAX_CHECK_ROWS = 256, 8, 200, 4096, 60
 # One glyph per ``BlockClass`` value: air, solid, liquid, passable, danger.
 CLASS_GLYPHS = np.array(list(".#~,!"))
 NOT_DESIGNER = "the bridge is not a designer instance: server_info.designer is false"
@@ -242,6 +243,62 @@ async def tail_log(lines: int = 50) -> dict[str, Any]:
     RETURNS: lines, as the bridge answers.
     """
     return await _run(bridge().call, "tail_log", n=max(1, min(int(lines), MAX_LOG_LINES)))
+
+def _check(kind: str, args: dict[str, Any]) -> dict[str, Any]:
+    """One check run outside ``checks.yaml``, fetching only the bounds that kind needs."""
+    spec = checks_mod.CheckSpec(kind, kind, args)
+    ctx = checks_mod.RunContext.fetch(bridge(), checks_mod.plan_fetches([spec], index()))
+    found = checks_mod.run_one(ctx, index(), spec)
+    return {"passed": found.ok, "detail": found.detail, "coords": [list(c) for c in found.coords], "seconds": round(found.seconds, 3)}
+
+@tool
+async def check_path(start: str, end: str, max_seconds: int = 10) -> dict[str, Any]:
+    """Whether a walkable path from ``start`` to ``end`` exists and its travel time is under ``max_seconds``.
+
+    ``start`` and ``end`` are ``from``/``to`` in ``checks.yaml``, renamed here since ``from`` is a Python keyword.
+
+    RETURNS: passed, detail, coords, seconds.
+    """
+    margin, speed = checks_mod.DEFAULTS["corridor_margin"], checks_mod.DEFAULTS["walk_speed"]
+    return await _run(_check, "travel_time", {"from": start, "to": end, "margin": margin, "speed": speed, "max_seconds": max_seconds})
+
+@tool
+async def check_warp_safe(at: str) -> dict[str, Any]:
+    """Whether a warp landing at ``at`` is clear, grounded, free of liquid or danger, with no deep hole underfoot.
+
+    RETURNS: passed, detail, coords, seconds.
+    """
+    return await _run(_check, "warp_safe", {"at": at})
+
+@tool
+async def check_entity_clear(at: str) -> dict[str, Any]:
+    """Whether the 1x2 hitbox at ``at`` is free.
+
+    RETURNS: passed, detail, coords, seconds.
+    """
+    return await _run(_check, "entity_clear", {"at": at})
+
+@tool
+async def check_mine(region: str, spec: str) -> dict[str, Any]:
+    """Whether the named ``region`` matches the mine ``spec`` (a path under ``specs/``): enclosure, entrances, ore mix, floor.
+
+    RETURNS: passed, detail, coords, seconds.
+    """
+    return await _run(_check, "mine_valid", {"region": region, "spec": spec})
+
+def _run_checks(only: list[str] | None) -> dict[str, Any]:
+    report = checks_mod.run_checks(bridge(), index(), checks_mod.load_checks(), only=only)
+    path, failed = checks_mod.write_report(report), report.failed
+    table = [{"id": r.id, "check": r.check, "ok": r.ok, "seconds": round(r.seconds, 2), "detail": r.detail} for r in report.results[:MAX_CHECK_ROWS]]
+    return {"report": str(path), "passed": len(report.results) - len(failed), "failed": len(failed), "total": len(report.results), "table": table}
+
+@tool
+async def run_checks(only: list[str] | None = None) -> dict[str, Any]:
+    """Run every check in ``checks.yaml``, or only the ids in ``only``, and write the markdown report.
+
+    RETURNS: report, passed, failed, total, table (at most sixty rows) of id, check, ok, seconds, detail.
+    """
+    return await _run(_run_checks, only)
 
 def _read_only() -> dict[str, Any] | None:
     if os.environ.get("DESIGNER_READ_ONLY") == "1":
