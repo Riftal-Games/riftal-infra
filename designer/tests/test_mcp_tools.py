@@ -37,6 +37,7 @@ def server(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     index.add_region(NamedRegion("pad", "design", PAD.min, PAD.max))
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index.save(tmp_path / "index.json"))
     monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr("designer.checks.REPORTS_DIR", tmp_path / "reports")
     mcp_server.reset()
     yield fake
     mcp_server.reset()
@@ -387,6 +388,60 @@ def test_build_stairs_applies_with_no_name_and_falls_back_to_kind_for_the_report
     assert Path(result["extras_report"]) == config.REPORTS_DIR / "stairs-stairs-extras.json"
 
 
+def _with_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A fresh index with ``far`` (reachable) and ``void`` (outside the fake terrain's extent), plus ``spawn``."""
+    index = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
+    index.add_location(Location("spawn", "design", (5, 64, 5), tags=["spawn"]))
+    index.add_location(Location("far", "design", (10, 64, 10)))
+    index.add_location(Location("void", "design", (-40, 64, -40)))
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index.save(tmp_path / "checks_index.json"))
+    mcp_server.reset()
+
+
+def test_check_path_passes_within_max_seconds_and_fails_when_too_slow(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _with_locations(monkeypatch, tmp_path)
+    passed = call("check_path", start="spawn", end="far")
+    assert passed["ok"] and passed["passed"] and "blocks in" in passed["detail"]
+    too_strict = call("check_path", start="spawn", end="far", max_seconds=0)
+    assert too_strict["ok"] and too_strict["passed"] is False and "over 0 s" in too_strict["detail"]
+
+
+def test_check_warp_safe_and_entity_clear_read_one_position(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _with_locations(monkeypatch, tmp_path)
+    assert call("check_warp_safe", at="spawn")["passed"] is True
+    void = call("check_warp_safe", at="void")
+    assert void["ok"] and void["passed"] is False and void["coords"] == [[-40, 63, -40]]
+    assert call("check_entity_clear", at="spawn")["passed"] is True
+
+
+def test_check_mine_validates_a_built_region(server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    monkeypatch.setattr("designer.checks.PROJECT_ROOT", tmp_path)
+    spec_path = tmp_path / "specs" / "tbox.json"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+    assert call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")["ok"]
+
+    result = call("check_mine", region="tbox", spec="specs/tbox.json")
+    assert result["ok"] and result["passed"] and result["detail"] == "mine valid"
+    assert call("check_mine", region="tbox", spec="specs/nope.json")["passed"] is False
+
+
+def test_run_checks_writes_the_report_and_counts_both_outcomes(server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    text = "version: 1\nchecks:\n  - check: entity_clear\n    at: spawn\n  - check: warp_safe\n    at: void\n"
+    monkeypatch.setattr("designer.checks.DEFAULT_PATH", tmp_path / "checks.yaml")
+    (tmp_path / "checks.yaml").write_text(text, encoding="utf-8")
+
+    result = call("run_checks")
+    assert result["ok"] and (result["passed"], result["failed"], result["total"]) == (1, 1, 2)
+    assert len(result["table"]) == 2 and Path(result["report"]).is_file()
+    assert call("run_checks", only=["entity_clear_spawn"])["total"] == 1
+
+
 def test_every_tool_is_registered() -> None:
     names = {t.name for t in anyio.run(mcp_server.mcp.list_tools)}
     assert names == {
@@ -394,4 +449,5 @@ def test_every_tool_is_registered() -> None:
         "define_region", "define_location", "index_remove", "list_entities", "tail_log",
         "fill", "replace", "set_blocks", "snapshot", "restore", "undo", "list_snapshots", "list_undo",
         "analyze_terrain", "find_flat_site", "terraform", "build",
+        "check_path", "check_warp_safe", "check_entity_clear", "check_mine", "run_checks",
     }

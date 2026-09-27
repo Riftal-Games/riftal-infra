@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from designer import __version__
+from designer import checks as checks_mod
 from designer import snapshot as snapshots
 from designer import stack as stack_mod
 from designer import terrain as terrain_mod
@@ -94,6 +95,13 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--apply", action="store_true", help="Send the edits and register the index; default is a dry run that only reports them.")
     build.add_argument("--no-verify", action="store_true", help="Skip mine_valid on the built region.")
     build.add_argument("--no-index", action="store_true", help="Skip registering the builder's locations and regions.")
+
+    checks = commands.add_parser("checks", help="Run checks.yaml against the running server.")
+    checks_sub = checks.add_subparsers(dest="checks")
+    checks_sub.required = True
+    checks_run = checks_sub.add_parser("run", help="Run every check, or only the ids named, and print the report table.")
+    checks_run.add_argument("--only", nargs="+", metavar="ID", help="Run only these check ids; default every check.")
+    checks_run.add_argument("--path", metavar="PATH", help="checks.yaml to read; default designer/checks.yaml.")
 
     stack = commands.add_parser("stack", help="Manage the designer stack container.")
     stacks = stack.add_subparsers(dest="stack")
@@ -214,6 +222,22 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> str:
     return json.dumps(report, indent=2, sort_keys=True)
 
 
+def _checks_table(report: checks_mod.Report) -> str:
+    failed = report.failed
+    header = f"{len(report.results) - len(failed)} passed, {len(failed)} failed of {len(report.results)}."
+    rows = [f"{r.id} | {r.check} | {'yes' if r.ok else 'no'} | {r.seconds:.2f} | {r.detail}" for r in report.results]
+    return "\n".join([header, *rows])
+
+
+def _checks_run(bridge: Bridge, options: argparse.Namespace) -> int:
+    specs = checks_mod.load_checks(Path(options.path) if options.path else None)
+    report = checks_mod.run_checks(bridge, WorldIndex.load(), specs, only=options.only)
+    path = checks_mod.write_report(report)
+    print(path)
+    print(_checks_table(report))
+    return 1 if report.failed else 0
+
+
 def _stack(options: argparse.Namespace) -> str:
     runtime = stack_mod.runtime_name()
     if options.stack == "up":
@@ -261,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(handler(bridge, options))
             elif options.command == "build":
                 print(_build(bridge, options))
+            elif options.command == "checks":
+                return _checks_run(bridge, options)
             else:
                 print(_heightmap(bridge, options))
     except (ConfigError, BridgeError, KeyError, ValueError) as exc:
