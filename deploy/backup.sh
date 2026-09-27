@@ -36,11 +36,20 @@ fail() {
   exit 1
 }
 
+# Set before the trap below can possibly fire, since `set -u` turns a
+# reference to an unset variable into its own error. Flipped to 1 only once
+# this run's own mkdir below actually wins the lock, so a run that lost the
+# race never removes a lock it does not hold.
+lock_acquired=0
+
 # Fires on every exit, including an uncaught failure under `set -e`, so a
 # broken run is never silent (acceptance criterion 5) and never leaves a
 # half-written set behind for retention to count as a real backup.
 cleanup() {
   status=$?
+  if [ "$lock_acquired" = 1 ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+  fi
   if [ "$status" -ne 0 ]; then
     echo "backup $ts: failed, exit $status" >&2
     rm -rf "$tmp_dir"
@@ -49,6 +58,24 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$BACKUP_ROOT"
+
+# The scheduled loop only ever runs one invocation at a time, but
+# deploy/README.md also documents a manual out-of-band run sharing this same
+# BACKUP_ROOT. Without this, an overlapping manual run and scheduled run
+# could each sweep the other's still-live .partial out from under it, or
+# otherwise race on the same directory names and retention count
+# (riftal-infra#166). The lock is scoped to BACKUP_ROOT, not to this script
+# globally, so two different instances' backup volumes never contend on it.
+# mkdir is atomic on any POSIX filesystem and needs nothing beyond coreutils,
+# unlike flock, which is not installed in every image this script runs in.
+# `cleanup` above removes the directory on the way out, including on the
+# failure path, but only for the run that actually created it.
+LOCK_DIR="$BACKUP_ROOT/.lock"
+if mkdir "$LOCK_DIR" 2>/dev/null; then
+  lock_acquired=1
+else
+  fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+fi
 
 # A `.partial` older than the threshold belonged to a run that is never
 # coming back to finish it (OOM, a SIGKILL past the grace period, a host
@@ -104,7 +131,14 @@ echo "backup $ts: applying retention, keeping the last $BACKUP_RETENTION"
 # `mv` (OOM, a SIGKILL past the grace period, a host crash). Retention
 # leaves it alone rather than pruning it, the same way it leaves any other
 # non-backup file under BACKUP_ROOT alone.
-mapfile -t existing < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -not -name '*.partial' | sort)
+#
+# `.lock` is excluded for a sharper reason: it sorts before every
+# timestamp-named backup directory, so left in, it is always the first
+# thing pruned once excess > 0, tearing down this run's own lock mid-run
+# instead of via the EXIT trap and reopening the exact overlap window the
+# lock exists to close (riftal-infra#166).
+mapfile -t existing < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
+  -not -name '*.partial' -not -name '.lock' | sort)
 excess=$(( ${#existing[@]} - BACKUP_RETENTION ))
 if [ "$excess" -gt 0 ]; then
   for old in "${existing[@]:0:excess}"; do

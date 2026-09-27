@@ -102,6 +102,21 @@ cleared and left neither restored nor in their pre-restore state.
 | `PARTIAL_MAX_AGE_MINUTES` | no | `360` | Age past which a leftover `.partial` is swept |
 | `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
 
+## Concurrency
+
+`backup.sh` takes an exclusive lock by `mkdir`ing `$BACKUP_ROOT/.lock` for
+the duration of the run, before it touches anything else under `BACKUP_ROOT`
+(including the stale-`.partial` sweep above). `mkdir` is atomic on any POSIX
+filesystem and needs nothing beyond coreutils, unlike `flock`, which is not
+installed in every image this script runs in. A second invocation against
+the same `BACKUP_ROOT`, such as a manual run below started while the
+`backup` compose service's scheduled loop is also running, fails immediately
+with a loud, logged message rather than waiting or racing. Two runs against
+*different* `BACKUP_ROOT` volumes (different instances, or a manual run
+pointed at a scratch directory) never contend, since the lock lives inside
+`BACKUP_ROOT` itself. If a manual run fails this way, wait for the scheduled
+run to finish and try again, or run it against a separate `BACKUP_ROOT`.
+
 ## Running it locally, via `wslc`
 
 `selftest.sh` and `restore-selftest.sh` are the real proof and run under
