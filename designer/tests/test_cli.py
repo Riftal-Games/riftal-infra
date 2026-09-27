@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from designer import stack as stack_mod
 from designer.cli import main
 from designer.render import LEGEND_LINE
 from designer.world_index import Location, WorldEntry, WorldIndex
@@ -239,3 +240,30 @@ def test_build_road_apply_sends_the_edits_and_registers_the_region(
     report = json.loads(capsys.readouterr().out)
     assert report["ok"] is True and Path(report["snapshot"]).is_file()
     assert {e.name for e in WorldIndex.load(index_path).regions} == {"test_road"}
+
+
+def test_stack_subcommands_dispatch_and_report_stack_errors(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr("designer.cli.stack_mod.runtime_name", lambda: "docker")
+    monkeypatch.setattr("designer.cli.stack_mod.up", lambda runtime: calls.append(("up", runtime)))
+    monkeypatch.setattr("designer.cli.stack_mod.down", lambda runtime: calls.append(("down", runtime)))
+    monkeypatch.setattr("designer.cli.stack_mod.logs", lambda runtime: "log output")
+    monkeypatch.setattr("designer.cli.stack_mod.console", lambda runtime, line: calls.append(("console", runtime, line)))
+    monkeypatch.setattr("designer.cli.stack_mod.build_image", lambda runtime: calls.append(("build-image",)))
+
+    assert main(["stack", "up"]) == 0
+    assert main(["stack", "down"]) == 0
+    assert main(["stack", "logs"]) == 0
+    assert main(["stack", "console", "say hello"]) == 0
+    assert main(["stack", "build-image"]) == 0
+    assert calls == [("up", "docker"), ("down", "docker"), ("console", "docker", "say hello"), ("build-image",)]
+    assert capsys.readouterr().out == "up\ndown\nlog output\nsent: say hello\nbuilt local-pocketmine-mp\n"
+
+    def boom(runtime: str) -> None:
+        raise stack_mod.StackError("no running designer container")
+
+    monkeypatch.setattr("designer.cli.stack_mod.up", boom)
+    assert main(["stack", "up"]) == 1
+    assert "designer: no running designer container" in capsys.readouterr().err
