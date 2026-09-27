@@ -158,6 +158,17 @@ def test_isometric_png_raised_column_paints_side_faces_above_its_neighbour(tmp_p
     assert tuple(img[0, 0]) == (20, 20, 20)
 
 
+def test_isometric_png_paints_back_to_front_so_a_nearer_column_occludes_a_taller_one(tmp_path: Path) -> None:
+    # The taller column at iz=0 sits farther back (lower ix+iz) than the shorter one at iz=1,
+    # and its shaded west face reaches far enough down the screen to overlap the near column's
+    # unshaded top; painted back to front, the near column's flat top must win there.
+    hm = _heightmap(Bounds2D((0, 0), (0, 1)), np.array([[80], [64]]))
+    path = isometric_png(hm, COLORS, scale=2, out=tmp_path / "occlude.png")
+    img = _pixels(path)
+    stone = np.array(COLORS[STONE])
+    assert tuple(img[35, 6]) == tuple(stone)
+
+
 def test_isometric_png_projects_a_marker_to_its_expected_pixel(tmp_path: Path) -> None:
     hm = _heightmap(Bounds2D((0, 0), (1, 0)), np.full((1, 2), 64))
     path = isometric_png(hm, COLORS, [Marker("home", 1, 0, 64)], scale=2, out=tmp_path / "marker.png")

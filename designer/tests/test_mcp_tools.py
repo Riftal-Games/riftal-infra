@@ -6,6 +6,7 @@ from typing import Any
 import anyio
 import numpy as np
 import pytest
+from PIL import Image
 
 from designer import config, mcp_server
 from designer.blocks import BlockClass
@@ -84,6 +85,17 @@ def test_render_returns_a_path_under_reports_and_no_array(server: FakeBridge, tm
     assert not any(isinstance(v, list) for v in (*result.values(), *result["summary"].values()))
     assert result["summary"]["size"] == "16x16"
     assert call("render", at="spawn", kind="side")["ok"] is False
+
+
+def test_render_isometric_reaches_isometric_png_and_writes_a_taller_image(server: FakeBridge, tmp_path: Path) -> None:
+    topdown = call("render", at="spawn", size=16)
+    isometric = call("render", at="spawn", size=16, kind="isometric")
+    assert isometric["ok"] and set(isometric) == {"ok", "path", "summary"}
+    path = Path(isometric["path"])
+    assert path.parent == tmp_path / "reports" and path.suffix == ".png" and path.stat().st_size > 0
+    assert path != Path(topdown["path"])
+    # isometric_png's canvas is nz+nx blocks wide and tall, distinct from topdown_png's flat size*scale grid.
+    assert Image.open(path).size != Image.open(Path(topdown["path"])).size
 
 
 def test_inspect_caps_the_radius_and_slices_by_class(server: FakeBridge) -> None:
