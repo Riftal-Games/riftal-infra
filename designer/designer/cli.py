@@ -5,17 +5,22 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from designer import __version__
 from designer import snapshot as snapshots
 from designer import terrain as terrain_mod
 from designer.bridge import Bridge, BridgeError
+from designer.builders import BUILDERS
+from designer.builders.base import Palette
+from designer.builders.mine_spec import MineSpec
 from designer.config import ConfigError, load_settings
 from designer.palettes import load_palettes
-from designer.region import Bounds2D, Heightmap, fetch_heightmap
+from designer.region import Bounds2D, Heightmap, Region, fetch_heightmap
 from designer.render import Marker, ascii_heightmap, markers_from_index, summary, topdown_png
-from designer.world_index import WorldIndex, resolve_at
+from designer.verify import mine_valid
+from designer.world_index import Location, NamedRegion, WorldIndex, resolve_at
 
 
 def _add_area(parser: argparse.ArgumentParser) -> None:
@@ -76,6 +81,14 @@ def build_parser() -> argparse.ArgumentParser:
     terraform.add_argument("--feather", type=int, default=0, metavar="N", help="Blocks at the edge that blend instead of cutting sharply.")
     terraform.add_argument("--smooth-radius", type=int, default=2, metavar="N")
     terraform.add_argument("--apply", action="store_true", help="Send the edits; default is a dry run that only reports them.")
+
+    build = commands.add_parser("build", help="Build KIND from a spec and palette. Dry run by default; --apply sends it.")
+    build.add_argument("kind", choices=sorted(BUILDERS), metavar="KIND", help="A builder registered in designer.builders.BUILDERS.")
+    build.add_argument("--spec", required=True, metavar="PATH", help="Path to a JSON spec file.")
+    build.add_argument("--palette", required=True, metavar="NAME", help="A palette name from palettes.json.")
+    build.add_argument("--apply", action="store_true", help="Send the edits and register the index; default is a dry run that only reports them.")
+    build.add_argument("--no-verify", action="store_true", help="Skip mine_valid on the built region.")
+    build.add_argument("--no-index", action="store_true", help="Skip registering the builder's locations and regions.")
     return parser
 
 
@@ -146,6 +159,41 @@ def _terrain_terraform(bridge: Bridge, options: argparse.Namespace) -> str:
     return json.dumps(report, indent=2, sort_keys=True)
 
 
+def _build(bridge: Bridge, options: argparse.Namespace) -> str:
+    spec = json.loads(Path(options.spec).read_text(encoding="utf-8"))
+    edits = BUILDERS[options.kind](spec, Palette.load(options.palette))
+    report: dict[str, Any] = {
+        "kind": options.kind, "world": edits.world, "bounds": edits.bounds.to_json() if edits.bounds else None,
+        "blocks": edits.count_blocks(), "requests": len(edits.requests()), "apply": options.apply,
+        "locations": edits.extras.get("locations", []), "regions": edits.extras.get("regions", []),
+    }
+    if not options.no_verify and options.kind == "mine":
+        mine_spec = MineSpec.from_dict(edits.extras["mine_spec"])
+        geo = mine_spec.geometry()
+        region = edits.to_region(Region.empty(mine_spec.world, geo.padding.union(geo.exit_platform)))
+        found = mine_valid(region, mine_spec)
+        report["mine_valid"] = {"ok": found.ok, "detail": found.detail}
+    if options.apply and edits.bounds is not None:
+        report["snapshot"] = str(snapshots.take(bridge, edits.world, edits.bounds, f"build_{options.kind}").path)
+        result = edits.apply(bridge)
+        report["ok"] = result.ok
+        if not result.ok:
+            report["error"] = str(result.errors[0])
+        elif not options.no_index:
+            idx = WorldIndex.load()
+            names = (e["name"] for e in (*report["locations"], *report["regions"]))
+            taken = sorted(n for n in names if n in idx.names())
+            if taken:
+                report["ok"], report["error"] = False, f"{taken} already defined; rerun without --apply to inspect, then build a differently named spec"
+            else:
+                for loc in report["locations"]:
+                    idx.add_location(Location.from_json(loc))
+                for reg in report["regions"]:
+                    idx.add_region(NamedRegion.from_json(reg))
+                idx.save()
+    return json.dumps(report, indent=2, sort_keys=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     options = parser.parse_args(argv)
@@ -164,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
             elif options.command == "terrain":
                 handler = {"analyze": _terrain_analyze, "find-site": _terrain_find_site, "terraform": _terrain_terraform}[options.terrain]
                 print(handler(bridge, options))
+            elif options.command == "build":
+                print(_build(bridge, options))
             else:
                 print(_heightmap(bridge, options))
     except (ConfigError, BridgeError, KeyError, ValueError) as exc:
