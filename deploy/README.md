@@ -2,11 +2,9 @@
 
 `backup.sh` takes one coordinated snapshot of the shared MySQL database and
 every instance's world volume, close enough in time that restoring both
-together does not produce an inconsistent state
-(`../docs/specs/008-backup-and-restore.md`, carried in the `riftal-pm`
-workspace at `docs/specs/008-backup-and-restore.md`). `backup-loop.sh` runs it
-on a schedule. Restore is a separate, later piece of work; this is backup
-only.
+together does not produce an inconsistent state (the `riftal-pm` workspace's
+`docs/specs/008-backup-and-restore.md`). `backup-loop.sh` runs it on a
+schedule. Restore is a separate, later piece of work; this is backup only.
 
 ## What one run produces
 
@@ -23,14 +21,11 @@ A run that fails at any point removes its own partial directory and exits
 nonzero rather than leaving a half-written set behind for retention to count
 as a real backup.
 
-## Enumeration, not a fixed count
-
-`backup.sh` never hardcodes which volumes exist or how many. It tars whatever
-subdirectories it finds under `WORLDS_DIR`. What actually appears there is
-decided entirely by `images/compose.yaml`'s `backup` service, which mounts
-one read-only path per instance world volume. Splitting a world onto a new
-instance (`/add-instance`) adds one line there; the script needs no change,
-per `CLAUDE.md` hard rule 5.
+`backup.sh` never hardcodes which volumes exist or how many; it tars whatever
+subdirectories `WORLDS_DIR` holds. What appears there is decided by
+`images/compose.yaml`'s `backup` service, which mounts one read-only path per
+instance world volume. Splitting a world onto a new instance (`/add-instance`)
+adds one line there; the script needs no change, per `CLAUDE.md` hard rule 5.
 
 ## Retention
 

@@ -114,16 +114,14 @@ services:
       - riftal-dev
 
   # A coordinated MySQL dump plus a tar of every world volume, on a schedule,
-  # pruned to a retention count (docs/specs/008-backup-and-restore.md). The
-  # `mysql:8` image is reused rather than a new one, the same way
-  # ../migrations/run-migrations.sh runs inside it: it already carries
-  # mysqldump, bash and tar, so no image build enters the backup path.
+  # pruned to a retention count (docs/specs/008-backup-and-restore.md).
+  # `mysql:8` is reused rather than a new image, same as
+  # ../migrations/run-migrations.sh: it already has mysqldump, bash and tar.
   backup:
     image: mysql:8
-    # docker-entrypoint.sh execs a non-mysqld command straight through, the
-    # same passthrough ../migrations/run-migrations.sh relies on, so this
-    # never runs mysql:8's own init logic or needs MYSQL_ROOT_PASSWORD set
-    # for anything but the real mysqld in the `mysql` service.
+    # docker-entrypoint.sh execs a non-mysqld command straight through, so
+    # this skips mysql:8's own init logic and its MYSQL_ROOT_PASSWORD checks
+    # entirely; only the real mysqld in the `mysql` service needs those.
     command: ["bash", "/deploy/backup-loop.sh"]
     environment:
       MYSQL_HOST: mysql
