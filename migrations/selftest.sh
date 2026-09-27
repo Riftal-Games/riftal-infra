@@ -40,10 +40,12 @@ if [ "$ready" -ne 1 ]; then
 fi
 docker exec "$CONTAINER" mysql -uroot -pselftest -e \
   'CREATE DATABASE IF NOT EXISTS riftal_selftest_bad' >/dev/null
+docker exec "$CONTAINER" mysql -uroot -pselftest -e \
+  'CREATE DATABASE IF NOT EXISTS riftal_selftest_race' >/dev/null
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=6
+EXPECTED_ASSERTIONS=7
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -112,6 +114,32 @@ else
   fail "expected gadgets recorded (1) and broken not recorded (0), got $gadget_applied / $broken_applied"
 fi
 
+section "two invocations racing the same lock name do not double-apply"
+RACE_LOCK="selftest-race-$SUFFIX"
+run_migrations "$FIXTURES/race" riftal_selftest_race "$RACE_LOCK" \
+  >/tmp/out-race-a.log 2>&1 &
+race_pid_a=$!
+run_migrations "$FIXTURES/race" riftal_selftest_race "$RACE_LOCK" \
+  >/tmp/out-race-b.log 2>&1 &
+race_pid_b=$!
+
+race_rc_a=0
+if ! wait "$race_pid_a"; then race_rc_a=$?; fi
+race_rc_b=0
+if ! wait "$race_pid_b"; then race_rc_b=$?; fi
+
+things_count="$(query riftal_selftest_race 'SELECT COUNT(*) FROM things')"
+race_applied="$(query riftal_selftest_race \
+  "SELECT COUNT(*) FROM schema_migrations WHERE id='0001_create_things.sql'")"
+if [ "$race_rc_a" -eq 0 ] && [ "$race_rc_b" -eq 0 ] \
+   && [ "$things_count" = "1" ] && [ "$race_applied" = "1" ]; then
+  pass "the lock serialized the race: applied once, both invocations exited 0"
+else
+  fail "expected both racers to exit 0 and the migration applied exactly once, got exit $race_rc_a/$race_rc_b, things=$things_count, schema_migrations=$race_applied"
+  cat /tmp/out-race-a.log
+  cat /tmp/out-race-b.log
+fi
+
 printf '\n'
 ran=$((PASSES + FAILURES))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
@@ -123,4 +151,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error.\n' "$PASSES"
+printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention.\n' "$PASSES"

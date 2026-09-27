@@ -63,8 +63,10 @@ before failing loudly, and a hung `wslc` call otherwise gives no signal.
 
 `selftest.sh` proves the runner against a real, throwaway `mysql:8`
 container using the fixtures in `fixtures/`: no-op on an empty directory,
-ordered apply with both files recorded, a no-op second run, and a broken
-migration halting the run without being recorded. It calls `docker` directly,
+ordered apply with both files recorded, a no-op second run, a broken
+migration halting the run without being recorded, and two invocations racing
+the same lock name applying a pending migration exactly once. It calls
+`docker` directly,
 the same way `.github/workflows/ci.yml`'s PHP lint step already does, so it
 runs in CI and is **not runnable on Nasir's Windows machine**, which has no
 docker, only `wslc`. The `wslc` command above is how this runner is actually
