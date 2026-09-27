@@ -69,6 +69,16 @@ the retry `mkdir` still fails right after clearing a stale lock, something
 else is genuinely wrong and the run fails normally rather than retrying
 further.
 
+A run whose lock is swept while it is still genuinely working, not crashed,
+is possible once a lock can be swept at all: `LOCK_MAX_AGE_MINUTES` set too
+tight for a slower run at a larger scale, for instance. To keep that from
+turning into a second, worse failure, every acquisition stamps a unique
+owner token (a PID and this run's own timestamp) inside `$LOCK_DIR/owner`,
+and a run only ever removes the lock at exit if that token is still the one
+it wrote. A run that finds someone else's token there logs that it no longer
+owns the lock and leaves it alone, instead of deleting whoever swept and
+reacquired it out from under them.
+
 ## Schedule
 
 `backup-loop.sh` runs `backup.sh` once, then every `BACKUP_INTERVAL_SECONDS`

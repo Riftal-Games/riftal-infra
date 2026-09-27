@@ -51,13 +51,17 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=27
+EXPECTED_ASSERTIONS=30
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
 
+# Any argument past the first 5 is forwarded to backup.sh itself, so a
+# caller can drive its __test_acquire_lock / __test_release_lock entry
+# points (riftal-infra#173) instead of always running the full script.
 run_backup() {
   local retention="$1" host="$2" password="$3" partial_max_age="${4:-360}" lock_max_age="${5:-90}"
+  if [ "$#" -gt 5 ]; then shift 5; else shift "$#"; fi
   timeout 60 docker run --rm --network "$NETWORK" \
     -v "$SCRIPT_DIR/backup.sh:/deploy/backup.sh:ro" \
     -v "$BACKUPS_VOL:/backups" \
@@ -65,7 +69,7 @@ run_backup() {
     -e MYSQL_HOST="$host" -e MYSQL_USER=root -e MYSQL_PASSWORD="$password" \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION="$retention" \
     -e PARTIAL_MAX_AGE_MINUTES="$partial_max_age" -e LOCK_MAX_AGE_MINUTES="$lock_max_age" \
-    mysql:8 bash /deploy/backup.sh
+    mysql:8 bash /deploy/backup.sh "$@"
 }
 
 backups() {
@@ -236,6 +240,43 @@ fi
 
 backups 'rmdir /backups/.lock'
 
+section "a lock swept while its true owner is still alive is not undone by that owner's own stale cleanup"
+# QA's exact scenario on #171/#173: run A acquires the lock and is still
+# genuinely alive, not crashed, when its lock crosses LOCK_MAX_AGE_MINUTES.
+# Run B sees it as stale, sweeps it, and reacquires it with its own token.
+# Only afterward does A reach its own EXIT trap. Before an ownership token
+# existed, A's cleanup removed $LOCK_DIR unconditionally, deleting B's lock
+# and letting a third run start concurrently with B with no log line marking
+# the loss of mutual exclusion. __test_acquire_lock and __test_release_lock
+# drive backup.sh's real acquire_lock/release_lock directly so this is
+# exercised without waiting out two real backups.
+owner_a="$(run_backup 3 mysql selftest 360 60 __test_acquire_lock)"
+backups "touch -d '-2 hours' /backups/.lock"
+owner_b="$(run_backup 3 mysql selftest 360 60 __test_acquire_lock)"
+
+if [ -n "$owner_a" ] && [ -n "$owner_b" ] && [ "$owner_a" != "$owner_b" ]; then
+  pass "A's and B's lock acquisitions are stamped with distinct, non-empty ownership tokens"
+else
+  fail "expected two distinct ownership tokens, got A='$owner_a' B='$owner_b'"
+fi
+
+run_backup 3 mysql selftest 360 60 __test_release_lock "$owner_a" \
+  >/tmp/out-stale-cleanup.log 2>&1
+
+if backups 'test -d /backups/.lock'; then
+  pass "B's reacquired lock survives A's own stale cleanup running with A's original token"
+else
+  fail "A's cleanup deleted B's lock using a token that no longer matched, the exact use-after-free QA found on #173"
+fi
+
+if grep -qi "no longer this run" /tmp/out-stale-cleanup.log; then
+  pass "A's stale cleanup logs that it no longer owns the lock instead of silently deleting it"
+else
+  fail "expected A's cleanup to log that it no longer owns the lock"; cat /tmp/out-stale-cleanup.log
+fi
+
+backups 'rm -rf /backups/.lock'
+
 section "a run against a BACKUP_ROOT another run already holds the lock on fails fast"
 # Stands in for a manual out-of-band run overlapping the scheduled loop
 # (riftal-infra#166): holds backup.sh's own lock directory directly, without
@@ -311,4 +352,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, loud failure.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, loud failure.\n' "$PASSES"
