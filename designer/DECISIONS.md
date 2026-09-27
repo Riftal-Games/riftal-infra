@@ -267,6 +267,26 @@ check within a block of a warp, so nothing else scans a whole walkway for a
 lava tile. At walkway level anything a player cannot pass through is an
 obstruction, liquid and danger included.
 
+## 2026-09-28 `build_stairs`' rows sit at `base`'s own y, `HEADROOM` is 2; `build_platform`'s railing is a bottom slab ring; both register in `BUILDERS`
+
+A stairs row is the tread a player's feet stand one cell above, the same
+convention `road.py`'s rising tiles already use, so a row at `base.y + i`
+needs only its own cell and the one above cleared for `Region.stand_mask` to
+call it standable; that is `HEADROOM`, 2. The support fill under each row
+closes the gap down to `base`'s height so a staircase over uneven or hollow
+ground never opens over a void, mirroring the embankment `road.py` fills
+under a rising tile. `build_platform`'s optional railing is a bottom-half
+slab ring one block above the floor, low enough to read as an edge without
+blocking the view or the headroom clearance above it. `StairsSpec` carries
+no `name` and `build_stairs` marks nothing in the world index, because a
+staircase is a passage between two named places, not a place of its own;
+`build_platform` keeps `name` and tags its floor `walkway` like every other
+builder's floor. Both are registered in
+`designer.builders.BUILDERS` under `stairs` and `platform`: the CLI's `build`
+command and the MCP `build` tool already dispatch on any name in that
+registry, so leaving them out would make two working builders reachable only
+from a test file.
+
 ## 2026-09-08 `MineSpec.geometry()` is the one source of a mine's bounds; `mine_valid` floods the interior as open and stops at the padding ring
 
 The builder and the check read the same `MineGeometry`, so a wall the builder

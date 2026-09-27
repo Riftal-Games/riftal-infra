@@ -8,8 +8,10 @@ from typing import Any
 from designer.builders.base import Palette
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
+from designer.builders.platform import PlatformSpec, build_platform
 from designer.builders.road import build_road
 from designer.builders.road_spec import RoadSpec
+from designer.builders.stairs import StairsSpec, build_stairs
 from designer.edits import EditList
 from designer.region import Bounds2D, Heightmap
 
@@ -39,4 +41,6 @@ def _build_road(spec: dict[str, Any], palette: Palette, fetch: HeightmapFetch) -
 BUILDERS: dict[str, Callable[[dict[str, Any], Palette, HeightmapFetch], EditList]] = {
     "mine": lambda spec, palette, fetch: build_mine(MineSpec.from_dict(spec), palette),
     "road": _build_road,
+    "stairs": lambda spec, palette, fetch: build_stairs(StairsSpec.from_dict(spec), palette),
+    "platform": lambda spec, palette, fetch: build_platform(PlatformSpec.from_dict(spec), palette),
 }
