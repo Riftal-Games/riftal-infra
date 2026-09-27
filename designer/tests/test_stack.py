@@ -85,25 +85,25 @@ def test_up_dispatches_by_runtime(monkeypatch: pytest.MonkeyPatch, runtime: str)
     assert recorder.calls[0][0] == ("docker" if runtime == "docker" else "wslc")
 
 
-def test_down_polls_for_the_shutdown_marker_then_removes_and_never_kills(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("runtime", ["wslc", "docker"])
+def test_down_sends_stop_polls_logs_removes_and_never_kills(monkeypatch: pytest.MonkeyPatch, runtime: str) -> None:
     calls: list[list[str]] = []
+    stdins: list[object] = []
     seen = {"n": 0}
-
     def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(list(argv))
-        if "logs" in argv:
-            seen["n"] += 1
-            body = stack.SHUTDOWN_MARKER if seen["n"] >= 3 else "still running"
-            return subprocess.CompletedProcess(argv, 0, stdout=body, stderr="")
-        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
-
+        stdins.append(kwargs.get("input"))
+        seen["n"] += 1 if "logs" in argv else 0
+        stdout = "cid123\n" if "ps" in argv else (stack.SHUTDOWN_MARKER if seen["n"] >= 3 else "still running") if "logs" in argv else ""
+        return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(stack.time, "sleep", lambda _seconds: None)
-    stack.down("wslc", timeout=5, poll=0)
-
+    stack.down(runtime, timeout=5, poll=0)
+    attach = next(i for i, c in enumerate(calls) if "attach" in c)
+    assert calls[attach] == (["docker", "attach", "cid123"] if runtime == "docker" else ["wslc", "attach", "designer"]) and stdins[attach] == "stop\n"
     assert seen["n"] == 3
-    assert calls[0] == ["wslc", "attach", "designer"]
-    assert calls[-1] == ["wslc", "remove", "designer"]
+    assert next(c for c in calls if "logs" in c) == (["docker", "compose", "--file", str(stack.COMPOSE_FILE), "logs", "designer"] if runtime == "docker" else ["wslc", "logs", "designer"])
+    assert calls[-1] == (["docker", "compose", "--file", str(stack.COMPOSE_FILE), "down"] if runtime == "docker" else ["wslc", "remove", "designer"])
     assert not any("kill" in call for call in calls)
 
 
@@ -112,25 +112,25 @@ def test_wait_for_shutdown_times_out_without_the_marker() -> None:
         stack._wait_for_shutdown(lambda: "no marker here", timeout=0.05, poll=0.01)
 
 
-def test_console_sends_the_line_and_container_ref_raises_when_nothing_runs(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(subprocess, "run", Recorder(ps_stdout="cid123\n"))
+def test_console_sends_the_line_for_both_runtimes_and_container_ref_raises_when_nothing_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorder = Recorder(ps_stdout="cid123\n")
+    monkeypatch.setattr(subprocess, "run", recorder)
     stack.console("docker", "say hello")
-
+    stack.console("wslc", "say hello")
+    assert [c for c in recorder.calls if "attach" in c] == [["docker", "attach", "cid123"], ["wslc", "attach", "designer"]]
     monkeypatch.setattr(subprocess, "run", Recorder(ps_stdout=""))
     with pytest.raises(stack.StackError, match="stack up"):
         stack.container_ref("docker")
 
 
-def test_build_image_and_build_devtools_use_the_runtime_binary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("runtime", ["wslc", "docker"])
+def test_build_image_and_build_devtools_use_the_runtime_binary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, runtime: str) -> None:
     recorder = Recorder(git_stdout="abc1234\n")
     monkeypatch.setattr(subprocess, "run", recorder)
-    stack.build_image("wslc", core_dir=tmp_path)
-    image_call = recorder.calls[-1]
-    assert image_call[0] == "wslc" and "GIT_HASH=abc1234" in image_call and str(tmp_path) in image_call
-
-    stack.build_devtools("docker", core_dir=tmp_path, plugins_dir=tmp_path / "plugins")
-    devtools_call = recorder.calls[-1]
-    assert devtools_call[:3] == ["docker", "run", "--rm"] and any("DevTools" in a for a in devtools_call)
+    stack.build_image(runtime, core_dir=tmp_path)
+    assert recorder.calls[-1][0] == runtime and "GIT_HASH=abc1234" in recorder.calls[-1] and str(tmp_path) in recorder.calls[-1]
+    stack.build_devtools(runtime, core_dir=tmp_path, plugins_dir=tmp_path / "plugins")
+    assert recorder.calls[-1][:3] == [runtime, "run", "--rm"] and any("DevTools" in a for a in recorder.calls[-1])
 
 
 def test_exec_wraps_a_timeout_as_a_stack_error(monkeypatch: pytest.MonkeyPatch) -> None:
