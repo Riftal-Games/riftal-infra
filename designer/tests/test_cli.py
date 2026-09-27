@@ -7,6 +7,7 @@ from PIL import Image
 from designer.cli import main
 from designer.render import LEGEND_LINE
 from designer.world_index import Location, WorldEntry, WorldIndex
+from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge
 
 
@@ -128,3 +129,67 @@ def test_terrain_terraform_rejects_an_unknown_mode(capsys: pytest.CaptureFixture
         main(["terrain", "terraform", "--at", "spawn", "--size", "4", "--mode", "dig"])
     assert excinfo.value.code == 2
     assert "invalid choice: 'dig'" in capsys.readouterr().err
+
+
+def test_build_dry_run_reports_index_entries_and_mine_valid_without_touching_the_bridge(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "mine_stone"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["kind"] == "mine" and report["world"] == "design" and report["apply"] is False
+    assert report["mine_valid"] == {"ok": True, "detail": "mine valid"}
+    names = {e["name"] for e in (*report["locations"], *report["regions"])}
+    assert names == SMALL_MINE_NAMES
+    assert fake.requests == []
+
+
+def test_build_apply_registers_the_index_then_refuses_the_second_apply(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+    args = ["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--apply"]
+
+    assert main(args) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is True and Path(report["snapshot"]).is_file()
+    assert {e.name for e in (*WorldIndex.load(index_path).locations, *WorldIndex.load(index_path).regions)} == SMALL_MINE_NAMES
+
+    assert main(args) == 0
+    again = json.loads(capsys.readouterr().out)
+    assert again["ok"] is False and "already defined" in again["error"] and Path(again["snapshot"]).is_file()
+
+
+def test_build_no_verify_and_no_index_skip_their_steps(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--no-verify"]) == 0
+    assert "mine_valid" not in json.loads(capsys.readouterr().out)
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--apply", "--no-index"]) == 0
+    applied = json.loads(capsys.readouterr().out)
+    assert applied["ok"] is True and WorldIndex.load(index_path).locations == []
+
+
+def test_build_rejects_an_unknown_kind(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["build", "road", "--spec", "x", "--palette", "mine_stone"])
+    assert excinfo.value.code == 2
+    assert "invalid choice: 'road'" in capsys.readouterr().err
