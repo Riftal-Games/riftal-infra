@@ -81,7 +81,13 @@ mv "$tmp_dir" "$set_dir"
 echo "backup $ts: complete at $set_dir"
 
 echo "backup $ts: applying retention, keeping the last $BACKUP_RETENTION"
-mapfile -t existing < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort)
+# A `.partial` directory is never a backup, complete or not: this run's own
+# has already been renamed away by the `mv` above, so anything still named
+# `.partial` here is a stale leftover from a run that never reached that
+# `mv` (OOM, a SIGKILL past the grace period, a host crash). Retention
+# leaves it alone rather than pruning it, the same way it leaves any other
+# non-backup file under BACKUP_ROOT alone.
+mapfile -t existing < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -not -name '*.partial' | sort)
 excess=$(( ${#existing[@]} - BACKUP_RETENTION ))
 if [ "$excess" -gt 0 ]; then
   for old in "${existing[@]:0:excess}"; do

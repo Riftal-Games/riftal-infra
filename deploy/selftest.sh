@@ -51,7 +51,7 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=10
+EXPECTED_ASSERTIONS=14
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -127,6 +127,41 @@ if backups "test -d /backups/$dir1"; then
   fail "the first, oldest backup set should have been pruned"
 else
   pass "the first, oldest backup set was pruned"
+fi
+
+section "a stale .partial left by a crashed run is excluded from retention"
+mapfile -t before_stale < <(backups 'ls -1 /backups | sort')
+middle_before="${before_stale[1]}"
+
+# Named to sort lexically after every real timestamped backup, so it stands
+# in for a run that started after all of them and then died (OOM, a SIGKILL
+# past the grace period, a host crash) before reaching backup.sh's own
+# rename-on-completion. Populated the same shape as a real in-progress dir
+# so a defective retention has every chance to mistake it for one.
+partial_name="99999999T999999999999999Z.partial"
+backups "mkdir -p /backups/$partial_name/worlds && echo mid-write > /backups/$partial_name/mysql.sql"
+
+if run_backup 3 mysql selftest >/tmp/out-stale-partial.log 2>&1; then
+  pass "a run alongside a stale .partial directory still exits 0"
+else
+  fail "a run alongside a stale .partial directory should exit 0"; cat /tmp/out-stale-partial.log
+fi
+
+if backups "test -d /backups/$partial_name"; then
+  pass "the stale .partial directory is untouched by retention"
+else
+  fail "the stale .partial directory should survive retention, since it was never a real backup to prune"
+fi
+
+after_real_count="$(backups "ls -1 /backups | grep -cv '\.partial$'")"
+[ "$after_real_count" = "3" ] \
+  && pass "retention still holds exactly 3 real backup sets, unaffected by the stale .partial" \
+  || fail "expected 3 real backup sets after retention, got $after_real_count (the stale .partial got counted as one)"
+
+if backups "test -d /backups/$middle_before"; then
+  pass "the good backup retention 3 should keep was not evicted to make room for the stale .partial"
+else
+  fail "a good backup ($middle_before) was pruned to make room for junk, the exact defect riftal-infra#141 fixed"
 fi
 
 section "an unreachable database fails loudly instead of producing nothing"
