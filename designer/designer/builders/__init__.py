@@ -6,8 +6,9 @@ from collections.abc import Callable
 from typing import Any
 
 from designer.builders.base import Palette
+from designer.builders.mine import build_mine
 from designer.edits import EditList
 
 # Kind name to the builder that turns its spec dict into an ``EditList``. Each
-# builder issue adds its own entry; nothing names ``mine`` here yet.
-BUILDERS: dict[str, Callable[[Any, Palette], EditList]] = {}
+# builder issue adds its own entry.
+BUILDERS: dict[str, Callable[[Any, Palette], EditList]] = {"mine": build_mine}
