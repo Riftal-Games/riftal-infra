@@ -267,6 +267,40 @@ check within a block of a warp, so nothing else scans a whole walkway for a
 lava tile. At walkway level anything a player cannot pass through is an
 obstruction, liquid and danger included.
 
+## 2026-09-27 `slope_map` reads only in-map neighbours; `raise` and `lower` are one-directional; feathering ramps from the edge of the edited bounds inward; a terraform column with no known height is left alone
+
+A column's slope is the largest height step to a four-neighbour that is also
+on the map; a column with none (an isolated valid cell, or the map edge) gets
+`-1`, so `analyze_terrain`'s flat fraction never counts a column the map gives
+no evidence about as flat. `raise` only builds a column up to `level` and
+`lower` only cuts one down to it, each leaving a column already past `level`
+untouched, because a designer reaching for one of the two rarely wants the
+other's effect for free; `flatten` is the one mode that moves a column either
+way. `feather` measures inward from the edge of the bounds being edited, not
+outward from the terrain's own break: it is `0` at that edge, so the edited
+area blends into what was already there, and `1` at `feather` blocks in, so an
+edit deep inside its own bounds is never softened by a parameter that only
+describes its border. A column with `height == -1` has no floor to build from
+or cut down to, so `terraform` skips it rather than guessing one.
+
+## 2026-09-27 `terraform`'s per-column fills coalesce by merging x-runs then identical z-rows into one box; `find_flat_site` scores by range and a water penalty, then non-maximum suppression keeps one window per neighbourhood before ranking survivors by distance to `near`
+
+Two columns coalesce only when their fill needs the exact same `(y_min,
+y_max, block)`, which is exact on a level plateau and deliberately not on a
+slope, where forcing a shared box would either paint air onto stone or stone
+onto air for whichever column did not need it. A z-row is merged into the box
+above it only when its x-runs match exactly and its z is the immediate next
+integer, since a gap of even one untouched row would otherwise be silently
+included in the box's span. `find_flat_site`'s score is the window's height
+range plus its water fraction scaled by its cell count, so a review of ties
+prefers dry over wet only once the ground is already flat, never as a
+trade-off against unevenness. Non-maximum suppression walks candidates
+best-score first and keeps one whenever it is more than `suppress` blocks
+(default the site size) from every window already kept, because a flat area
+much larger than the requested site is otherwise every one of its own
+near-duplicate placements. `near` ranks only the survivors, so the search
+still finds every qualifying area before choosing which one is closest.
+
 ## 2026-09-08 `MineSpec.geometry()` is the one source of a mine's bounds; `mine_valid` floods the interior as open and stops at the padding ring
 
 The builder and the check read the same `MineGeometry`, so a wall the builder
