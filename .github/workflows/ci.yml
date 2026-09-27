@@ -84,6 +84,9 @@ jobs:
         with:
           version: "0.12.0"
 
+      - name: Dev bots admission guard self-test
+        run: bash images/plugins/selftest.sh
+
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
 

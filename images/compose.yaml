@@ -63,7 +63,13 @@ services:
       #
       # riftal-dev-bots admits the headless bots from devtools/bot through
       # plugins/RiftalDevBots.php. That plugin refuses them whenever
-      # xbox-auth is on, so the flag cannot open a production server.
+      # xbox-auth is on, so the flag cannot open a production server today.
+      # It stops being enough once WaterdogPE ships, since every proxied
+      # downstream also runs xbox-auth=false (riftal-infra#113), so
+      # RIFTAL_DEV_ENV below is the plugin's second, independent signal: a
+      # plain environment variable, never a PocketMine config value, that no
+      # production deploy path has any reason to set.
+      RIFTAL_DEV_ENV: "1"
       POCKETMINE_ARGS: >-
         --level-name=mine_a
         --level-type=normal
@@ -98,6 +104,8 @@ services:
       - ./plugins:/plugins
     environment:
       INSTANCE_ID: ${INSTANCE_B_ID}
+      # See RIFTAL_DEV_ENV on `instance`, above; same reason, same value.
+      RIFTAL_DEV_ENV: "1"
       # A different level-name and level-type than `instance`, above, so the
       # split is exercised against two genuinely different worlds rather than
       # one world cloned onto a second port.
