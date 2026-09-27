@@ -29,7 +29,7 @@ from designer import snapshot as snapshots
 from designer import terrain as terrain_mod
 from designer.bridge import Bridge, BridgeError
 from designer.builders import BUILDERS
-from designer.builders.base import Palette, require
+from designer.builders.base import Palette, opt
 from designer.builders.mine_spec import MineSpec
 from designer.edits import ApplyResult, EditList, Fill, Replace, SetBlock
 from designer.palettes import load_palettes
@@ -432,7 +432,8 @@ def build(
     Snapshots first and answers with the undo id, like every mutating tool. Registers the builder's
     locations and regions in the index unless ``register_index`` is false, refusing a name already
     taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is ``mine`` unless ``verify`` is
-    false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``.
+    false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
+    falling back to ``kind`` itself when the spec carries no ``name`` (``stairs``, deliberately).
 
     RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
     """
@@ -462,7 +463,7 @@ def build(
     out["extras_report"] = None
     if not dry_run:
         config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-        report_path = config.REPORTS_DIR / f"{kind}-{require(spec_dict, 'name')}-extras.json"
+        report_path = config.REPORTS_DIR / f"{kind}-{opt(spec_dict, 'name', kind)}-extras.json"
         report_path.write_text(json.dumps(edits.extras, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
         out["extras_report"] = str(report_path)
     return out

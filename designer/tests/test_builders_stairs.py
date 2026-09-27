@@ -43,7 +43,8 @@ def test_one_stairs_row_per_rise_step(palette: Palette) -> None:
     assert len(rows) == spec.rise
     assert {op.bounds.min[0] for op in rows} == set(range(1, spec.rise + 1))
     assert {op.bounds.min[1] for op in rows} == set(range(1, spec.rise + 1))
-    assert all(op.bounds.min == op.bounds.max for op in rows)  # width=1: one block per row
+    # width=1: one block per row
+    assert all(op.bounds.min == op.bounds.max for op in rows)
 
 
 @pytest.mark.parametrize("direction, weirdo", [("east", 0), ("west", 1), ("south", 2), ("north", 3)])
@@ -79,7 +80,8 @@ def test_width_widens_every_row(palette: Palette) -> None:
     edits = build_stairs(spec, palette)
     stairs_block = palette.block("stairs")
     rows = [op for op in edits.ops if isinstance(op, Fill) and op.block.startswith(stairs_block)]
-    assert all(op.bounds.size[2] == 3 for op in rows)  # "east" travel widens across z
+    # "east" travel widens across z
+    assert all(op.bounds.size[2] == 3 for op in rows)
 
 
 def test_build_stairs_is_deterministic(palette: Palette) -> None:
