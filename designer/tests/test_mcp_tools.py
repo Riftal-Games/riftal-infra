@@ -11,7 +11,7 @@ from designer import config, mcp_server
 from designer.blocks import BlockClass
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
+from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge, FakeWorld
 
 PAD = Bounds((0, 63, 0), (7, 65, 7))
@@ -358,6 +358,21 @@ def test_build_road_applies_registers_the_region_and_writes_the_extras_report(se
     assert result["ok"] and Path(result["snapshot"]).is_file()
     assert {r["name"] for r in call("index_list", kind="regions")["regions"]} >= {"test_road"}
     assert Path(result["extras_report"]) == config.REPORTS_DIR / "road-test_road-extras.json"
+
+
+def test_build_stairs_applies_with_no_name_and_falls_back_to_kind_for_the_report(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A spec with no ``name`` (every ``StairsSpec``, by design) must still apply and answer ``ok: True``.
+
+    Regression for the MCP-only crash where ``build()`` reached for ``spec["name"]`` to name the
+    extras report after the edits had already been sent, turning a real, applied build into an
+    ``ok: False`` answer.
+    """
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    result = call("build", kind="stairs", spec=SMALL_STAIRS_SPEC, palette="test_stone")
+    assert result["ok"] is True and result["dry_run"] is False and result["undo_id"] == 1
+    assert Path(result["snapshot"]).is_file() and _writes(server) == ["fill"] * 6
+    assert result["locations"] == [] and result["regions"] == [] and result["mine_valid"] is None
+    assert Path(result["extras_report"]) == config.REPORTS_DIR / "stairs-stairs-extras.json"
 
 
 def test_every_tool_is_registered() -> None:

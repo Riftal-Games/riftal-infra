@@ -24,6 +24,9 @@ SMALL_MINE_NAMES = {"tbox", "tbox_interior", "tbox_entrance", "tbox_exit_platfor
 
 # Flat inside FakeWorld's default extent (surface 63 everywhere), so the profile is level and no stairs are placed.
 SMALL_ROAD_SPEC = {"name": "test_road", "world": "design", "start": [0, 0], "end": [5, 0], "width": 1, "clear_height": 2}
+
+# Deliberately carries no "name": StairsSpec has none by design (DECISIONS.md, 2026-09-28).
+SMALL_STAIRS_SPEC = {"world": "design", "from": [0, 64, 0], "direction": "east", "rise": 2, "width": 1}
 STONE_PALETTES = {
     "colors": {},
     "palettes": {"test_stone": dict.fromkeys(("wall", "wall_trim", "floor", "ceiling", "light", "sign", "road", "road_edge", "stairs"), "minecraft:stone")},
