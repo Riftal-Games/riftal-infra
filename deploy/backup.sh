@@ -50,6 +50,21 @@ trap cleanup EXIT
 
 mkdir -p "$BACKUP_ROOT"
 
+# The scheduled loop only ever runs one invocation at a time, but
+# deploy/README.md also documents a manual out-of-band run sharing this same
+# BACKUP_ROOT. Without this, an overlapping manual run and scheduled run
+# could each sweep the other's still-live .partial out from under it, or
+# otherwise race on the same directory names and retention count
+# (riftal-infra#166). The lock is scoped to BACKUP_ROOT, not to this script
+# globally, so two different instances' backup volumes never contend on it.
+# It is held until this process exits, since the fd stays open for the
+# process's whole life and the kernel drops the flock when the fd closes,
+# so no separate release step is needed even on the failure path through
+# `cleanup` above.
+LOCK_FILE="$BACKUP_ROOT/.lock"
+exec {lock_fd}>"$LOCK_FILE"
+flock -n "$lock_fd" || fail "another run already holds the lock on $LOCK_FILE; refusing to run concurrently against the same BACKUP_ROOT"
+
 # A `.partial` older than the threshold belonged to a run that is never
 # coming back to finish it (OOM, a SIGKILL past the grace period, a host
 # crash): retention deliberately leaves every `.partial` alone since a fresh

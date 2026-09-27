@@ -51,7 +51,7 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=18
+EXPECTED_ASSERTIONS=21
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -202,6 +202,36 @@ else
   fail "a fresh .partial must never be destroyed, it could be a run genuinely still in progress"
 fi
 
+section "a run against a BACKUP_ROOT another run already holds the lock on fails fast"
+# Stands in for a manual out-of-band run overlapping the scheduled loop
+# (riftal-infra#166): holds backup.sh's own lock file directly, from a
+# separate container against the same volume, without running backup.sh
+# itself, so the contended run below has something real to fail against.
+docker run --rm -v "$BACKUPS_VOL:/backups" mysql:8 bash -c \
+  'exec 9>/backups/.lock; flock 9; sleep 12' &
+lock_holder_pid=$!
+sleep 4
+
+if run_backup 3 mysql selftest >/tmp/out-lock-contended.log 2>&1; then
+  fail "a run against an already-locked BACKUP_ROOT should exit nonzero"
+else
+  pass "a run against an already-locked BACKUP_ROOT exits nonzero"
+fi
+
+if grep -qi 'lock' /tmp/out-lock-contended.log; then
+  pass "the lock contention failure is logged, not silent"
+else
+  fail "expected a logged lock-contention message"; cat /tmp/out-lock-contended.log
+fi
+
+wait "$lock_holder_pid"
+
+if run_backup 3 mysql selftest >/tmp/out-lock-released.log 2>&1; then
+  pass "a run succeeds once the earlier run's lock is released"
+else
+  fail "a run should succeed once the lock is released"; cat /tmp/out-lock-released.log
+fi
+
 section "an unreachable database fails loudly instead of producing nothing"
 if run_backup 10 no-such-mysql-host selftest >/tmp/out-unreachable.log 2>&1; then
   fail "a run against an unreachable database should exit nonzero"
@@ -225,4 +255,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, loud failure.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, loud failure.\n' "$PASSES"
