@@ -8,10 +8,12 @@ from typing import Any
 from designer.builders.base import Palette
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
+from designer.builders.perimeter import PerimeterSpec, build_perimeter
 from designer.builders.platform import PlatformSpec, build_platform
 from designer.builders.plot_grid import PlotGridSpec, build_plot_grid
 from designer.builders.road import build_road
 from designer.builders.road_spec import RoadSpec
+from designer.builders.room import RoomSpec, build_room
 from designer.builders.signage import SignageSpec, build_signage
 from designer.builders.stairs import StairsSpec, build_stairs
 from designer.edits import EditList
@@ -34,6 +36,12 @@ def _build_road(spec: dict[str, Any], palette: Palette, fetch: HeightmapFetch) -
     return build_road(road_spec, palette, fetch(road_spec.world, _road_bounds(road_spec)))
 
 
+def _build_perimeter(spec: dict[str, Any], palette: Palette, fetch: HeightmapFetch) -> EditList:
+    perimeter_spec = PerimeterSpec.from_dict(spec)
+    hm = None if perimeter_spec.y is not None else fetch(perimeter_spec.world, perimeter_spec.footprint)
+    return build_perimeter(perimeter_spec, palette, hm)
+
+
 # Kind name to the builder that turns its spec dict into an ``EditList``. A
 # builder's own function typically wants its dataclass, not the raw dict, so
 # the entry here is the thing that closes over that conversion. Every entry
@@ -47,4 +55,6 @@ BUILDERS: dict[str, Callable[[dict[str, Any], Palette, HeightmapFetch], EditList
     "platform": lambda spec, palette, fetch: build_platform(PlatformSpec.from_dict(spec), palette),
     "plot_grid": lambda spec, palette, fetch: build_plot_grid(PlotGridSpec.from_dict(spec), palette),
     "signage": lambda spec, palette, fetch: build_signage(SignageSpec.from_dict(spec)),
+    "perimeter": _build_perimeter,
+    "room": lambda spec, palette, fetch: build_room(RoomSpec.from_dict(spec), palette),
 }

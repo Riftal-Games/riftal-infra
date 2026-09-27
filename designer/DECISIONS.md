@@ -316,3 +316,16 @@ plots never touch. `SignageSpec` carries no name of its own, the same
 reasoning `StairsSpec` already recorded: a sign is a named place, a batch of
 them is not, and `build`'s report path already falls back to `kind` for
 exactly this case.
+
+## 2026-09-28 `build_perimeter` walks the rectangle's edge as one ordered path; `build_room` shells and hollows like `build_mine`
+
+Tracing the wall once around the edge, corners visited exactly once, makes
+post placement a plain index into that walk rather than four side loops each
+skipping its own corners. Fixed `y` or a `Heightmap` is `build_road`'s choice
+again; given neither, the builder refuses rather than guessing a height.
+`RoomSpec` carries its own `RoomGeometry`, `MineSpec.geometry()`'s convention,
+so the opening the builder cuts and the opening a test checks are one
+calculation, and its door location sits one step outside the wall so a warp
+there does not land a player wedged in the frame. `checks.yaml` is untouched
+here for the reason the previous entry gives: `pvp_boundary` and room walkway
+coverage waits for a follow-up, since #165 names only plot and sign regions.
