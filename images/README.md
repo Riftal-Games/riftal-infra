@@ -1,7 +1,8 @@
 # images/
 
 The local dev stack (`compose.yaml`) and the plugins mounted into it. See
-`/dev-stack` for the runbook.
+`/dev-stack` for the runbook, and `../docs/dev-stack-two-instance.md` for the
+`instance-b` bring-up steps pending manual folding into that skill.
 
 ## Instance environment variables
 
