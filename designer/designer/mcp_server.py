@@ -25,6 +25,7 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from designer import config
 from designer import snapshot as snapshots
+from designer import terrain as terrain_mod
 from designer.bridge import Bridge, BridgeError
 from designer.edits import ApplyResult, EditList, Fill, Replace, SetBlock
 from designer.palettes import load_palettes
@@ -339,6 +340,65 @@ def set_blocks(blocks: list[list[Any]], world: str | None = None, dry_run: bool 
         raise ValueError(f"set_blocks takes 1 to {MAX_BLOCKS_PER_CALL} entries per call, got {len(blocks)}")
     edits = EditList(world or index().default_world, [SetBlock(*entry) for entry in blocks]).coalesce()
     return _apply(edits, "set_blocks", dry_run, ctx)
+
+def _target2d(target: str | dict[str, Any], world: str | None) -> tuple[str, Bounds2D]:
+    """A region name from the index, shrunk to its x/z footprint, or a ``{"min", "max"}`` 2D dict."""
+    if isinstance(target, str):
+        entry = index().resolve(target)
+        if not isinstance(entry, NamedRegion):
+            raise ValueError(f"{target!r} is a location; a target is a region name or a min/max dict")
+        (x0, _, z0), (x1, _, z1) = entry.min, entry.max
+        return world or entry.world, Bounds2D((x0, z0), (x1, z1))
+    return world or index().default_world, Bounds2D.from_json(target)
+
+def _terrain_stats(target: str | dict[str, Any], world: str | None, flat_slope: int) -> dict[str, Any]:
+    world, bounds = _target2d(target, world)
+    hm = fetch_heightmap(bridge(), world, bounds, need_top=True)
+    return terrain_mod.analyze_terrain(hm, flat_slope=flat_slope).to_json()
+
+@tool
+async def analyze_terrain(target: str | dict[str, Any], world: str | None = None, flat_slope: int = 1) -> dict[str, Any]:
+    """Height stats, slope map and the flat and water fractions of ``target``, a region name or ``{"min", "max"}``.
+
+    RETURNS: world, bounds, columns, min, max, mean, water_fraction, flat_fraction.
+    """
+    return await _run(_terrain_stats, target, world, flat_slope)
+
+def _find_sites(
+    target: str | dict[str, Any], size: int, world: str | None, near: str | None,
+    max_slope: int, max_range: int | None, max_water: float, limit: int,
+) -> dict[str, Any]:
+    world, bounds = _target2d(target, world)
+    hm = fetch_heightmap(bridge(), world, bounds, need_top=True)
+    near_pos = None if near is None else index().resolve_pos(near)
+    sites = terrain_mod.find_flat_site(hm, size, max_slope=max_slope, max_range=max_range, max_water=max_water, near=near_pos, limit=limit)
+    return {"world": world, "bounds": bounds.to_json(), "sites": [s.to_json() for s in sites]}
+
+@tool
+async def find_flat_site(
+    target: str | dict[str, Any], size: int, world: str | None = None, near: str | None = None,
+    max_slope: int = 1, max_range: int | None = None, max_water: float = 0.0, limit: int = 5,
+) -> dict[str, Any]:
+    """The best ``size``-square sites in ``target`` by slope, height range and water, ranked by distance to ``near`` when given.
+
+    RETURNS: world, bounds, sites as [{bounds, x, z, height, range, slope_max, water_fraction, score}].
+    """
+    return await _run(_find_sites, target, size, world, near, max_slope, max_range, max_water, limit)
+
+@mutating
+def terraform(
+    target: str | dict[str, Any], mode: str, world: str | None = None, level: int = 0, block: str = "minecraft:stone",
+    feather: int = 0, smooth_radius: int = 2, dry_run: bool = False, ctx: Context | None = None,
+) -> dict[str, Any]:
+    """Flatten, raise, lower or smooth every column of ``target`` toward ``level``; snapshots first, answers with the undo id.
+
+    RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
+    """
+    world, bounds = _target2d(target, world)
+    margin = feather + (smooth_radius if mode == "smooth" else 0)
+    hm = fetch_heightmap(bridge(), world, bounds.expand(margin) if margin else bounds)
+    edits = terrain_mod.terraform(hm, bounds, mode=mode, level=level, block=block, feather=feather, smooth_radius=smooth_radius)
+    return _apply(edits, "terraform", dry_run, ctx)
 
 @mutating
 def snapshot(target: str | dict[str, Any], label: str, world: str | None = None) -> dict[str, Any]:

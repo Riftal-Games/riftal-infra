@@ -78,3 +78,53 @@ def test_render_topdown_writes_the_png_and_prints_its_path_and_summary(
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == str(out) and Image.open(out).size == (64, 64 + LEGEND_LINE)
     assert lines[1] == "size=32x32 columns=256 min=63 max=63 mean=63.0 water=0.0 flat=1.0"
+
+
+def test_terrain_analyze_prints_stats_for_the_flat_area(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+
+    assert main(["terrain", "analyze", "--at", "spawn", "--size", "8"]) == 0
+    stats = json.loads(capsys.readouterr().out)
+    # spawn sits at the corner of FakeWorld's terrain extent, so only its x>=0,z>=0 quadrant is real ground.
+    assert stats == {
+        "world": "design", "bounds": {"min": [-4, -4], "max": [3, 3]}, "columns": 16,
+        "min": 63, "max": 63, "mean": 63.0, "water_fraction": 0.0, "flat_fraction": 1.0,
+    }
+
+
+def test_terrain_find_site_ranks_by_the_near_flag(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+
+    assert main([
+        "terrain", "find-site", "--at", "spawn", "--size", "16", "--site-size", "4",
+        "--max-slope", "0", "--max-range", "0", "--near", "spawn", "--limit", "1",
+    ]) == 0
+    sites = json.loads(capsys.readouterr().out)
+    assert len(sites) == 1 and sites[0]["height"] == 63 and sites[0]["score"] == 0.0
+
+
+def test_terrain_terraform_defaults_to_a_dry_run_and_apply_sends_it(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+
+    assert main(["terrain", "terraform", "--at", "spawn", "--size", "4", "--mode", "flatten", "--level", "70"]) == 0
+    dry = json.loads(capsys.readouterr().out)
+    assert dry["apply"] is False and dry["columns"] == 4 and "fill" not in [r["op"] for r in fake.requests]
+
+    assert main(["terrain", "terraform", "--at", "spawn", "--size", "4", "--mode", "flatten", "--level", "70", "--apply"]) == 0
+    applied = json.loads(capsys.readouterr().out)
+    assert applied["apply"] is True and applied["ok"] is True and applied["snapshot"]
+    assert Path(applied["snapshot"]).is_file() and "fill" in [r["op"] for r in fake.requests]
+
+
+def test_terrain_terraform_rejects_an_unknown_mode(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["terrain", "terraform", "--at", "spawn", "--size", "4", "--mode", "dig"])
+    assert excinfo.value.code == 2
+    assert "invalid choice: 'dig'" in capsys.readouterr().err
