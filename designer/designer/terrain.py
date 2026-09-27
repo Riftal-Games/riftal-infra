@@ -1,18 +1,21 @@
-"""Height and slope stats, and flat-site search. Pure over a ``Heightmap``."""
+"""Height and slope stats, flat-site search, and terraform. Pure over a ``Heightmap``; ``terraform`` returns an ``EditList``."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
-from designer.blocks import BlockClass, class_lut
-from designer.region import Bounds2D, Heightmap
+from designer.blocks import AIR, BlockClass, class_lut
+from designer.edits import EditList, Fill
+from designer.region import Bounds, Bounds2D, Heightmap
 
-# The four in-map neighbours a slope reads, as ``(dz, dx)``.
+MODES = ("flatten", "raise", "lower", "smooth")
+
+# The four in-map neighbours a slope or a smoothing blur reads, as ``(dz, dx)``.
 NEIGHBORS4 = ((0, 1), (0, -1), (1, 0), (-1, 0))
 
 
@@ -176,3 +179,109 @@ def find_flat_site(
         Site(hm.world, Bounds2D((x, z), (x + size - 1, z + size - 1)), x + size // 2, z + size // 2, height, rng_, smax_, water_, sc)
         for sc, x, z, height, rng_, smax_, water_ in kept[:limit]
     ]
+
+
+def _feather_t(x: int, z: int, bounds: Bounds2D, feather: int) -> float:
+    """0 at the edge of ``bounds``, ramping to 1 by ``feather`` blocks in; always 1 when ``feather`` is 0."""
+    if feather <= 0:
+        return 1.0
+    (x0, z0), (x1, z1) = bounds.min, bounds.max
+    depth = min(x - x0, x1 - x, z - z0, z1 - z)
+    return 1.0 if depth >= feather else max(depth, 0) / feather
+
+
+def _smoothed_heights(heights: np.ndarray, valid: np.ndarray, radius: int) -> np.ndarray:
+    """Mean of the valid heights in the Chebyshev ``radius`` neighbourhood, each column's own height included."""
+    total, count = np.zeros(heights.shape), np.zeros(heights.shape)
+    for dz in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            there = _shift(valid, dz, dx, False)
+            total += np.where(there, _shift(heights, dz, dx, 0.0), 0.0)
+            count += there
+    return np.divide(total, count, out=heights.copy(), where=count > 0)
+
+
+def _coalesce_fills(spans: Mapping[tuple[int, int], tuple[int, int, str]]) -> list[Fill]:
+    """Column ``(x, z)`` to ``(y_min, y_max, block)`` merged into the fewest axis-aligned ``Fill`` boxes.
+
+    Consecutive columns along x with an identical span become one run; consecutive
+    z rows whose runs match exactly become one box, so a rectangle of columns
+    that all need the same fill is one ``Fill`` however many columns it spans.
+    """
+    by_z: dict[int, dict[int, tuple[int, int, str]]] = {}
+    for (x, z), span in spans.items():
+        by_z.setdefault(z, {})[x] = span
+
+    runs_by_z: dict[int, list[tuple[int, int, tuple[int, int, str]]]] = {}
+    for z, cols in by_z.items():
+        runs: list[tuple[int, int, tuple[int, int, str]]] = []
+        for x in sorted(cols):
+            span = cols[x]
+            if runs and runs[-1][1] == x - 1 and runs[-1][2] == span:
+                runs[-1] = (runs[-1][0], x, span)
+            else:
+                runs.append((x, x, span))
+        runs_by_z[z] = runs
+
+    fills: list[Fill] = []
+    zs, used = sorted(runs_by_z), set()
+    for i, z in enumerate(zs):
+        if z in used:
+            continue
+        runs, z_end = runs_by_z[z], z
+        for z2 in zs[i + 1:]:
+            if z2 != z_end + 1 or runs_by_z[z2] != runs:
+                break
+            z_end, used = z2, used | {z2}
+        fills.extend(Fill(Bounds((x0, y0, z), (x1, y1, z_end)), block) for x0, x1, (y0, y1, block) in runs)
+    return fills
+
+
+def terraform(
+    hm: Heightmap, bounds: Bounds2D, *, mode: str, level: int = 0, block: str = "minecraft:stone",
+    feather: int = 0, smooth_radius: int = 2,
+) -> EditList:
+    """Edits that move every column of ``bounds`` toward ``level``, or toward a local blur for ``smooth``.
+
+    ``flatten`` forces every column to ``level``; ``raise`` only builds columns
+    below it up; ``lower`` only cuts columns above it down; ``smooth`` blurs
+    each column toward the mean height within ``smooth_radius``. ``feather``
+    blocks at the edge of ``bounds`` blend from the untouched terrain to the
+    full effect, so the edit leaves no cliff at its border. A column with no
+    known height is left alone. Every changed column becomes one vertical
+    ``Fill``, ``block`` where it rises or air where it is cut, and adjacent
+    columns needing the same fill coalesce into one box.
+    """
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+    if feather < 0:
+        raise ValueError(f"feather must be at least 0, got {feather}")
+    if mode == "smooth" and smooth_radius < 1:
+        raise ValueError(f"smooth_radius must be at least 1, got {smooth_radius}")
+    if hm.bounds.intersect(bounds) != bounds:
+        raise ValueError(f"terraform bounds {bounds.min}..{bounds.max} are not covered by the fetched heightmap {hm.bounds.min}..{hm.bounds.max}")
+
+    valid = hm.heights >= 0
+    smoothed = _smoothed_heights(hm.heights.astype(float), valid, smooth_radius) if mode == "smooth" else None
+
+    spans: dict[tuple[int, int], tuple[int, int, str]] = {}
+    for x in range(bounds.min[0], bounds.max[0] + 1):
+        for z in range(bounds.min[1], bounds.max[1] + 1):
+            iz, ix = hm.bounds.local((x, z))
+            if not valid[iz, ix]:
+                continue
+            original = int(hm.heights[iz, ix])
+            if mode == "flatten":
+                raw = float(level)
+            elif mode == "raise":
+                raw = float(max(original, level))
+            elif mode == "lower":
+                raw = float(min(original, level))
+            else:
+                raw = float(smoothed[iz, ix])
+            target = original + round((raw - original) * _feather_t(x, z, bounds, feather))
+            if target == original:
+                continue
+            spans[(x, z)] = (original + 1, target, block) if target > original else (target + 1, original, AIR)
+
+    return EditList(hm.world, _coalesce_fills(spans), {"terrain_mode": mode, "bounds": bounds.to_json(), "columns": len(spans)})
