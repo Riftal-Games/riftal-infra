@@ -51,20 +51,20 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=23
+EXPECTED_ASSERTIONS=27
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
 
 run_backup() {
-  local retention="$1" host="$2" password="$3" partial_max_age="${4:-360}"
+  local retention="$1" host="$2" password="$3" partial_max_age="${4:-360}" lock_max_age="${5:-90}"
   timeout 60 docker run --rm --network "$NETWORK" \
     -v "$SCRIPT_DIR/backup.sh:/deploy/backup.sh:ro" \
     -v "$BACKUPS_VOL:/backups" \
     -v "$WORLD_A_VOL:/worlds/world-a:ro" -v "$WORLD_B_VOL:/worlds/world-b:ro" \
     -e MYSQL_HOST="$host" -e MYSQL_USER=root -e MYSQL_PASSWORD="$password" \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION="$retention" \
-    -e PARTIAL_MAX_AGE_MINUTES="$partial_max_age" \
+    -e PARTIAL_MAX_AGE_MINUTES="$partial_max_age" -e LOCK_MAX_AGE_MINUTES="$lock_max_age" \
     mysql:8 bash /deploy/backup.sh
 }
 
@@ -202,6 +202,40 @@ else
   fail "a fresh .partial must never be destroyed, it could be a run genuinely still in progress"
 fi
 
+section "a lock older than LOCK_MAX_AGE_MINUTES is swept and logged, a fresh one still blocks a run"
+# Backdating the lock stands in for a run that died before its own EXIT trap
+# ever ran (OOM, a SIGKILL past the grace period, a host crash) -- the one
+# case mkdir's lock cannot self-release the way flock would (riftal-infra#171).
+backups "mkdir /backups/.lock && touch -d '-2 hours' /backups/.lock"
+
+if run_backup 3 mysql selftest 360 60 >/tmp/out-lock-stale.log 2>&1; then
+  pass "a run behind a lock older than LOCK_MAX_AGE_MINUTES clears it and still exits 0"
+else
+  fail "a run behind a stale lock should clear it and exit 0"; cat /tmp/out-lock-stale.log
+fi
+
+if grep -qi 'presumed abandoned' /tmp/out-lock-stale.log; then
+  pass "the stale lock sweep is logged, not silent"
+else
+  fail "expected the log to name the stale lock as swept"; cat /tmp/out-lock-stale.log
+fi
+
+backups 'mkdir /backups/.lock'
+
+if run_backup 3 mysql selftest 360 60 >/tmp/out-lock-fresh.log 2>&1; then
+  fail "a run behind a lock within LOCK_MAX_AGE_MINUTES should still fail fast"
+else
+  pass "a run behind a fresh lock within LOCK_MAX_AGE_MINUTES still fails fast, unswept"
+fi
+
+if grep -qi 'presumed abandoned' /tmp/out-lock-fresh.log; then
+  fail "a fresh lock, still within the age threshold, must never be swept"
+else
+  pass "a fresh lock is left untouched rather than swept"
+fi
+
+backups 'rmdir /backups/.lock'
+
 section "a run against a BACKUP_ROOT another run already holds the lock on fails fast"
 # Stands in for a manual out-of-band run overlapping the scheduled loop
 # (riftal-infra#166): holds backup.sh's own lock directory directly, without
@@ -277,4 +311,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, loud failure.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, loud failure.\n' "$PASSES"

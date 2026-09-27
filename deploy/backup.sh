@@ -21,6 +21,7 @@ BACKUP_ROOT="${BACKUP_ROOT:-/backups}"
 WORLDS_DIR="${WORLDS_DIR:-/worlds}"
 BACKUP_RETENTION="${BACKUP_RETENTION:-10}"
 PARTIAL_MAX_AGE_MINUTES="${PARTIAL_MAX_AGE_MINUTES:-360}"
+LOCK_MAX_AGE_MINUTES="${LOCK_MAX_AGE_MINUTES:-90}"
 
 # Nanosecond precision, not just seconds, so two runs started close together
 # (a manual run and the loop, or two runs in a test) never collide on the
@@ -74,7 +75,27 @@ LOCK_DIR="$BACKUP_ROOT/.lock"
 if mkdir "$LOCK_DIR" 2>/dev/null; then
   lock_acquired=1
 else
-  fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+  # The lock is only ever released by this script's own EXIT trap, which a
+  # hard kill (OOM, a SIGKILL past the grace period, a host crash) bypasses
+  # entirely, unlike flock, which the kernel releases on process death with
+  # no equivalent here. A held lock this old cannot belong to a run still
+  # working: a real run's own mysqldump-plus-tar duration is nowhere near
+  # LOCK_MAX_AGE_MINUTES, so it is presumed abandoned and cleared. The retry
+  # right after is the only race guard needed: if a second process is
+  # sweeping the same stale lock at the same moment, at most one of the two
+  # `mkdir` calls below can win, and the loser fails normally rather than
+  # trying to detect or defer to the winner.
+  if [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin "+$LOCK_MAX_AGE_MINUTES" 2>/dev/null)" ]; then
+    echo "backup $ts: $LOCK_DIR is older than ${LOCK_MAX_AGE_MINUTES}m, presumed abandoned by a run that never reached its own EXIT trap; clearing it and retrying"
+    rm -rf "$LOCK_DIR"
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      lock_acquired=1
+    else
+      fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+    fi
+  else
+    fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+  fi
 fi
 
 # A `.partial` older than the threshold belonged to a run that is never

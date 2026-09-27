@@ -50,6 +50,25 @@ and removes it, logging the directory it removed and why. A run that old is
 never coming back to finish, and a `.partial` younger than the threshold is
 always left alone, so a backup genuinely still in progress is never at risk.
 
+## Stale lock sweep
+
+`mkdir "$BACKUP_ROOT/.lock"` (see Concurrency, below) is released only by the
+script's own `EXIT` trap, which a hard kill (OOM, a SIGKILL past the grace
+period, a host crash) bypasses entirely, unlike `flock`, which the kernel
+releases automatically on process death with no equivalent here. Without a
+sweep, a lock stranded that way would fail every subsequent run forever, until
+an operator manually removes it.
+
+When `mkdir` fails because the lock already exists, `backup.sh` checks its
+age. One older than `LOCK_MAX_AGE_MINUTES` (default 90, see
+`images/.env.example`) cannot belong to a run still working: a real run's own
+mysqldump-plus-tar duration is nowhere near that, so it is presumed abandoned,
+cleared, and logged, and the script retries the `mkdir` once. A lock younger
+than the threshold is left alone and the run fails fast exactly as before. If
+the retry `mkdir` still fails right after clearing a stale lock, something
+else is genuinely wrong and the run fails normally rather than retrying
+further.
+
 ## Schedule
 
 `backup-loop.sh` runs `backup.sh` once, then every `BACKUP_INTERVAL_SECONDS`
@@ -100,6 +119,7 @@ cleared and left neither restored nor in their pre-restore state.
 | `BACKUP_RETENTION` | no | `10` | Backup sets kept before pruning |
 | `BACKUP_INTERVAL_SECONDS` | no | `21600` | `backup-loop.sh` only |
 | `PARTIAL_MAX_AGE_MINUTES` | no | `360` | Age past which a leftover `.partial` is swept |
+| `LOCK_MAX_AGE_MINUTES` | no | `90` | Age past which a held `.lock` is presumed abandoned and swept |
 | `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
 
 ## Concurrency
@@ -111,9 +131,10 @@ filesystem and needs nothing beyond coreutils, unlike `flock`, which is not
 installed in every image this script runs in. A second invocation against
 the same `BACKUP_ROOT`, such as a manual run below started while the
 `backup` compose service's scheduled loop is also running, fails immediately
-with a loud, logged message rather than waiting or racing. Two runs against
-*different* `BACKUP_ROOT` volumes (different instances, or a manual run
-pointed at a scratch directory) never contend, since the lock lives inside
+with a loud, logged message rather than waiting or racing, unless the held
+lock is stale enough to be swept first (see Stale lock sweep, above). Two runs
+against *different* `BACKUP_ROOT` volumes (different instances, or a manual
+run pointed at a scratch directory) never contend, since the lock lives inside
 `BACKUP_ROOT` itself. If a manual run fails this way, wait for the scheduled
 run to finish and try again, or run it against a separate `BACKUP_ROOT`.
 
