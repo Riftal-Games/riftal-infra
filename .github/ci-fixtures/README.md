@@ -4,10 +4,11 @@ Not part of the stack. Nothing here is ever built, run or deployed. These files
 exist so `.github/scripts/selftest.sh` can feed each CI check input it must
 reject and input it must accept.
 
-`images/` and `proxy/` hold only a `.gitkeep` today, so the real scans in
-`.github/workflows/ci.yml` find no files and pass by being empty. These fixtures
-are what makes those checks provably able to fail on this commit rather than on
-some future one.
+These fixtures are what makes hadolint and `docker compose config` provably
+able to fail on this commit rather than on some future one. `selftest.sh`
+drives them through `.github/scripts/scan.sh` itself, the same discovery,
+dispatch and loop the real scans in `.github/workflows/ci.yml` run, not a
+second copy of the two calls.
 
 Every file's first comment states the outcome it must produce. Change a check,
 and change the fixture that covers it in the same commit, or the self-test goes
