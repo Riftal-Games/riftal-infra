@@ -64,6 +64,13 @@ A restore is destructive by design, not incremental:
 Both are rebuilt to exactly what the chosen backup set describes, nothing
 merged on top.
 
+Before any of that, `restore.sh` lists every world tar in the set with
+`tar -tzf` and fails loudly if any one of them does not extract cleanly. This
+runs before the database is touched and before any target directory is
+cleared, so a corrupt tar for one world in a multi-world set aborts the whole
+restore instead of being found only after earlier worlds have already been
+cleared and left neither restored nor in their pre-restore state.
+
 ## Environment
 
 | Variable | Required | Default | Meaning |

@@ -69,7 +69,7 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=10
+EXPECTED_ASSERTIONS=14
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -145,6 +145,39 @@ restored_world_b="$(docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'ca
   && pass "world-b's marker also matches the backup-time value, proving every world volume is rebuilt, not just one" \
   || fail "expected world-b's restored marker, got $restored_world_b"
 
+section "a backup set with one corrupt world tar is rejected before any world directory is cleared"
+# world-a sorts before world-b, so the restore loop reaches world-a first.
+# Corrupting world-b's tar instead of world-a's is what actually exercises
+# riftal-infra#156: a validation pass that only checked the tar it was about
+# to extract would still have cleared and re-extracted world-a by the time
+# it reached the corrupt one.
+dir2="corrupt-$SUFFIX"
+backups "cp -r /backups/$dir1 /backups/$dir2 && echo not-a-valid-gzip-archive > /backups/$dir2/worlds/world-b.tar.gz"
+world_a 'echo 123 > /world/blocks_broken_mine_a.txt'
+docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
+  'echo drifted-again > /world/marker.txt' >/dev/null
+
+if run_restore "/backups/$dir2" >/tmp/out-corrupt.log 2>&1; then
+  fail "restoring a backup set with a corrupt world tar should exit nonzero"
+else
+  pass "restoring a backup set with a corrupt world tar exits nonzero"
+fi
+if grep -qi 'restore' /tmp/out-corrupt.log; then
+  pass "the corrupt-tar failure is logged, not silent"
+else
+  fail "expected a logged failure message for the corrupt world tar"; cat /tmp/out-corrupt.log
+fi
+
+survives_a="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
+[ "$survives_a" = "123" ] \
+  && pass "world-a, ordered ahead of the corrupt world-b tar, is untouched rather than cleared before the failure was found" \
+  || fail "expected world-a's pre-restore-attempt marker 123 to survive, got $survives_a"
+
+survives_b="$(docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'cat /world/marker.txt')"
+[ "$survives_b" = "drifted-again" ] \
+  && pass "world-b, whose own tar is the corrupt one, is untouched rather than left cleared and empty" \
+  || fail "expected world-b's pre-restore-attempt marker to survive, got $survives_b"
+
 section "a restore against a backup set that does not exist fails loudly instead of silently no-op'ing"
 if run_restore "/backups/no-such-set" >/tmp/out-missing.log 2>&1; then
   fail "restoring a nonexistent backup set should exit nonzero"
@@ -174,4 +207,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup, drift, restore to the backup-time state across the database and every world volume, loud failure on a missing backup set.\n' "$PASSES"
+printf 'all %s assertions passed: backup, drift, restore to the backup-time state across the database and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"
