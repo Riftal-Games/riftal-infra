@@ -35,6 +35,21 @@ subdirectories, oldest first, and removes whichever are beyond that count.
 Pruning only happens after a run succeeds, so a failed run never deletes a
 good backup to make room for the one it never produced.
 
+## Stale `.partial` sweep
+
+A `.partial` directory is left behind by a run killed non-gracefully (OOM, a
+SIGKILL past the grace period, a host crash) before it could rename itself
+into a completed backup set. Retention deliberately never prunes one, since
+a fresh `.partial` might be a run still in progress, but nothing else used
+to clean these up either, so they could accumulate silently
+(riftal-infra#151).
+
+Before each run does anything else, it looks for any `.partial` older than
+`PARTIAL_MAX_AGE_MINUTES` (default 360, six hours, see `images/.env.example`)
+and removes it, logging the directory it removed and why. A run that old is
+never coming back to finish, and a `.partial` younger than the threshold is
+always left alone, so a backup genuinely still in progress is never at risk.
+
 ## Schedule
 
 `backup-loop.sh` runs `backup.sh` once, then every `BACKUP_INTERVAL_SECONDS`
@@ -84,6 +99,7 @@ cleared and left neither restored nor in their pre-restore state.
 | `WORLDS_DIR` | no | `/worlds` | Parent of one subdirectory per world volume |
 | `BACKUP_RETENTION` | no | `10` | Backup sets kept before pruning |
 | `BACKUP_INTERVAL_SECONDS` | no | `21600` | `backup-loop.sh` only |
+| `PARTIAL_MAX_AGE_MINUTES` | no | `360` | Age past which a leftover `.partial` is swept |
 | `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
 
 ## Running it locally, via `wslc`

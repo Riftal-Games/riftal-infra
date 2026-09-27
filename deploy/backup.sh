@@ -20,6 +20,7 @@ MYSQL_DATABASE="${MYSQL_DATABASE:?MYSQL_DATABASE is required}"
 BACKUP_ROOT="${BACKUP_ROOT:-/backups}"
 WORLDS_DIR="${WORLDS_DIR:-/worlds}"
 BACKUP_RETENTION="${BACKUP_RETENTION:-10}"
+PARTIAL_MAX_AGE_MINUTES="${PARTIAL_MAX_AGE_MINUTES:-360}"
 
 # Nanosecond precision, not just seconds, so two runs started close together
 # (a manual run and the loop, or two runs in a test) never collide on the
@@ -46,6 +47,22 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+mkdir -p "$BACKUP_ROOT"
+
+# A `.partial` older than the threshold belonged to a run that is never
+# coming back to finish it (OOM, a SIGKILL past the grace period, a host
+# crash): retention deliberately leaves every `.partial` alone since a fresh
+# one might still be a real run in progress, so nothing else ever cleared
+# these, and they accumulated silently (riftal-infra#151). A fresh one
+# (including this run's own, just about to be created below) is always
+# younger than the threshold and is never touched by this.
+mapfile -t stale_partials < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
+  -name '*.partial' -mmin "+$PARTIAL_MAX_AGE_MINUTES")
+for stale in "${stale_partials[@]}"; do
+  echo "backup $ts: removing stale $stale, a .partial older than ${PARTIAL_MAX_AGE_MINUTES}m, presumed abandoned"
+  rm -rf "$stale"
+done
 
 mkdir -p "$tmp_dir/worlds"
 
