@@ -46,6 +46,12 @@ services:
       - riftal-world:/data
       - ./plugins:/plugins
     environment:
+      # Tags every shared-database row this instance writes, so a world
+      # split later still shows who wrote what. No default, like
+      # MYSQL_ROOT_PASSWORD above: RiftalGames\Lib\InstanceIdentity::
+      # fromEnvironment() in riftal-game's shared lib throws on a missing or
+      # empty value rather than guess an identity.
+      INSTANCE_ID: ${INSTANCE_ID}
       # Flags beat server.properties in ServerConfigGroup, so the instance
       # needs no config file mounted in and the world volume stays the only
       # durable state.
