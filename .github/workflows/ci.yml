@@ -87,6 +87,9 @@ jobs:
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
 
+      - name: Backup job self-test
+        run: bash deploy/selftest.sh
+
       - name: Designer toolkit tests
         working-directory: designer
         run: |

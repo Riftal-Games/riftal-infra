@@ -113,6 +113,38 @@ services:
     networks:
       - riftal-dev
 
+  # A coordinated MySQL dump plus a tar of every world volume, on a schedule,
+  # pruned to a retention count (docs/specs/008-backup-and-restore.md).
+  # `mysql:8` is reused rather than a new image, same as
+  # ../migrations/run-migrations.sh: it already has mysqldump, bash and tar.
+  backup:
+    image: mysql:8
+    # docker-entrypoint.sh execs a non-mysqld command straight through, so
+    # this skips mysql:8's own init logic and its MYSQL_ROOT_PASSWORD checks
+    # entirely; only the real mysqld in the `mysql` service needs those.
+    command: ["bash", "/deploy/backup-loop.sh"]
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: riftal_dev
+      BACKUP_RETENTION: ${BACKUP_RETENTION:-10}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-21600}
+    volumes:
+      - riftal-backups:/backups
+      # One read-only mount per instance world volume. Adding an instance
+      # (/add-instance) adds its line here; backup.sh enumerates whatever it
+      # finds under /worlds rather than assuming this list's length.
+      - riftal-world:/worlds/riftal-world:ro
+      - riftal-world-b:/worlds/riftal-world-b:ro
+      - ../deploy:/deploy:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - riftal-dev
+
 networks:
   # Named so that the network a wslc bring-up creates by hand is the same one
   # compose would have created.
@@ -128,3 +160,7 @@ volumes:
     name: riftal-world
   riftal-world-b:
     name: riftal-world-b
+  # Backup artifacts are exactly the kind of durable state this table is
+  # about: a container being replaced must never take a backup set with it.
+  riftal-backups:
+    name: riftal-backups
