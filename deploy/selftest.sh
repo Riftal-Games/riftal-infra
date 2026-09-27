@@ -51,19 +51,20 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=14
+EXPECTED_ASSERTIONS=18
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
 
 run_backup() {
-  local retention="$1" host="$2" password="$3"
+  local retention="$1" host="$2" password="$3" partial_max_age="${4:-360}"
   timeout 60 docker run --rm --network "$NETWORK" \
     -v "$SCRIPT_DIR/backup.sh:/deploy/backup.sh:ro" \
     -v "$BACKUPS_VOL:/backups" \
     -v "$WORLD_A_VOL:/worlds/world-a:ro" -v "$WORLD_B_VOL:/worlds/world-b:ro" \
     -e MYSQL_HOST="$host" -e MYSQL_USER=root -e MYSQL_PASSWORD="$password" \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION="$retention" \
+    -e PARTIAL_MAX_AGE_MINUTES="$partial_max_age" \
     mysql:8 bash /deploy/backup.sh
 }
 
@@ -164,6 +165,43 @@ else
   fail "a good backup ($middle_before) was pruned to make room for junk, the exact defect riftal-infra#141 fixed"
 fi
 
+section "a .partial older than PARTIAL_MAX_AGE_MINUTES is swept and logged, a fresh one survives"
+# Named and populated the same as the stale partial above, but this section
+# exercises the sweep itself rather than retention's deliberate blindness to
+# it, so it needs its own directory: the one above stays fresh throughout
+# this script and must not be swept by it either (riftal-infra#151).
+stale_partial_name="77777777T777777777777777Z.partial"
+fresh_partial_name="66666666T666666666666666Z.partial"
+backups "mkdir -p /backups/$stale_partial_name/worlds && \
+  echo mid-write > /backups/$stale_partial_name/mysql.sql && \
+  touch -d '-2 hours' /backups/$stale_partial_name"
+backups "mkdir -p /backups/$fresh_partial_name/worlds && \
+  echo mid-write > /backups/$fresh_partial_name/mysql.sql"
+
+if run_backup 3 mysql selftest 60 >/tmp/out-partial-sweep.log 2>&1; then
+  pass "a run alongside an old and a fresh .partial still exits 0"
+else
+  fail "a run alongside an old and a fresh .partial should exit 0"; cat /tmp/out-partial-sweep.log
+fi
+
+if backups "test -d /backups/$stale_partial_name"; then
+  fail "the .partial older than PARTIAL_MAX_AGE_MINUTES should have been swept, not left behind"
+else
+  pass "the .partial older than PARTIAL_MAX_AGE_MINUTES was swept"
+fi
+
+if grep -q "$stale_partial_name" /tmp/out-partial-sweep.log; then
+  pass "the sweep names the removed .partial directory in the log"
+else
+  fail "expected the log to name the swept .partial directory"; cat /tmp/out-partial-sweep.log
+fi
+
+if backups "test -d /backups/$fresh_partial_name"; then
+  pass "a fresh .partial, still within the age threshold, survives the sweep"
+else
+  fail "a fresh .partial must never be destroyed, it could be a run genuinely still in progress"
+fi
+
 section "an unreachable database fails loudly instead of producing nothing"
 if run_backup 10 no-such-mysql-host selftest >/tmp/out-unreachable.log 2>&1; then
   fail "a run against an unreachable database should exit nonzero"
@@ -187,4 +225,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, loud failure.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, loud failure.\n' "$PASSES"
