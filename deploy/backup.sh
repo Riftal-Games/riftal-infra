@@ -59,45 +59,77 @@ LOCK_DIR="$BACKUP_ROOT/.lock"
 # release_lock below removes the directory on the way out, including on the
 # failure path, but only for the run that still actually owns it.
 acquire_lock() {
-  if mkdir "$LOCK_DIR" 2>/dev/null; then
-    lock_acquired=1
-  else
-    # The lock is only ever released by this script's own EXIT trap, which a
-    # hard kill (OOM, a SIGKILL past the grace period, a host crash) bypasses
-    # entirely, unlike flock, which the kernel releases on process death with
-    # no equivalent here. A held lock this old cannot belong to a run still
-    # working: a real run's own mysqldump-plus-tar duration is nowhere near
-    # LOCK_MAX_AGE_MINUTES, so it is presumed abandoned and cleared. The
-    # retry right after is the only race guard needed against a *concurrent
-    # sweeper*: if a second process is sweeping the same stale lock at the
-    # same moment, at most one of the two `mkdir` calls below can win, and
-    # the loser fails normally rather than trying to detect or defer to the
-    # winner. A sweep racing the lock's own still-alive holder, rather than
-    # another sweeper, is the case release_lock's ownership check below
-    # exists for: this run stamping a fresh owner token is what lets that
-    # holder discover, at its own cleanup, that the lock is no longer its to
-    # remove.
-    if [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin "+$LOCK_MAX_AGE_MINUTES" 2>/dev/null)" ]; then
-      echo "backup $ts: $LOCK_DIR is older than ${LOCK_MAX_AGE_MINUTES}m, presumed abandoned by a run that never reached its own EXIT trap; clearing it and retrying" >&2
-      rm -rf "$LOCK_DIR"
-      if mkdir "$LOCK_DIR" 2>/dev/null; then
-        lock_acquired=1
-      else
-        fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
-      fi
-    else
-      fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
-    fi
-  fi
   # PID alone repeats every time this runs as a container's PID 1, and a
   # timestamp alone can theoretically repeat across two runs racing the same
   # nanosecond; $ts already carries nanosecond precision for exactly that
-  # reason (see above), so pairing it with $$ costs nothing and removes any
-  # doubt. This token is what a later run, sweeping this lock while this run
-  # is still alive, makes unrecoverable for this run to reclaim: the new
-  # owner file it writes no longer matches what this run wrote here.
+  # reason, so pairing it with $$ costs nothing and removes any doubt. This
+  # token is what a later run, sweeping this lock while this run is still
+  # alive, makes unrecoverable for this run to reclaim: the new owner file
+  # it writes no longer matches what this run wrote here.
   lock_owner="$$-$ts"
-  echo "$lock_owner" > "$LOCK_DIR/owner"
+
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    lock_acquired=1
+    echo "$lock_owner" > "$LOCK_DIR/owner"
+    return 0
+  fi
+
+  # The lock is only ever released by this script's own EXIT trap, which a
+  # hard kill (OOM, a SIGKILL past the grace period, a host crash) bypasses
+  # entirely, unlike flock, which the kernel releases on process death with
+  # no equivalent here. A held lock this old cannot belong to a run still
+  # working: a real run's own mysqldump-plus-tar duration is nowhere near
+  # LOCK_MAX_AGE_MINUTES, so it is presumed abandoned and cleared. A sweep
+  # racing the lock's own still-alive holder, rather than another sweeper,
+  # is the case release_lock's ownership check exists for: this run
+  # stamping a fresh owner token is what lets that holder discover, at its
+  # own cleanup, that the lock is no longer its to remove.
+  if [ -z "$(find "$LOCK_DIR" -maxdepth 0 -mmin "+$LOCK_MAX_AGE_MINUTES" 2>/dev/null)" ]; then
+    fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+  fi
+  echo "backup $ts: $LOCK_DIR is older than ${LOCK_MAX_AGE_MINUTES}m, presumed abandoned by a run that never reached its own EXIT trap; clearing it and retrying" >&2
+  # No-op outside deploy/selftest.sh's steal-vs-steal section. The window
+  # this widens is real in every run, just a handful of syscalls wide and
+  # not otherwise landable on demand: two sweepers must both pass the
+  # staleness check above for the same lock before either has moved it.
+  sleep "${STEAL_RACE_TEST_STALL_SECONDS:-0}"
+
+  # Two sweepers can both reach this point for the same abandoned lock. A
+  # bare `rm -rf` plus `mkdir` lets both proceed in turn: a second sweeper's
+  # own `rm -rf`, run unconditionally, can land after the first sweeper's
+  # `mkdir` and delete the fresh, already-claimed lock out from under it
+  # instead of the original abandoned one (riftal-infra#175). Renaming
+  # $LOCK_DIR itself out of the way, to a destination unique to this run,
+  # is the first half of closing that: rename(2) needs its source to still
+  # exist, and only one of two concurrent renames of the same source can
+  # ever find it there, since whichever runs first consumes it. The loser's
+  # `mv` fails with "No such file or directory" instead of silently
+  # capturing whatever the winner puts at $LOCK_DIR next.
+  discard_dir="$LOCK_DIR.discard.$lock_owner"
+  if ! mv -T "$LOCK_DIR" "$discard_dir" 2>/dev/null; then
+    fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+  fi
+
+  # The rename alone is not the whole fix: it is blind to *what* it moved.
+  # If the other sweeper wins the race to recreate $LOCK_DIR first, this
+  # run's rename captures that brand new lock instead of finding it already
+  # gone, since a directory rename does not care about its contents. A
+  # rename changes ctime, never mtime, so the captured copy's age still
+  # answers "was this the abandoned lock, or something recreated since": a
+  # winner's fresh directory fails this same staleness test, and the loser
+  # backs off by handing it straight back rather than deleting it.
+  if [ -z "$(find "$discard_dir" -maxdepth 0 -mmin "+$LOCK_MAX_AGE_MINUTES" 2>/dev/null)" ]; then
+    mv -T "$discard_dir" "$LOCK_DIR" 2>/dev/null || rm -rf "$discard_dir"
+    fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+  fi
+  rm -rf "$discard_dir"
+
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    lock_acquired=1
+    echo "$lock_owner" > "$LOCK_DIR/owner"
+  else
+    fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+  fi
 }
 
 # Called from cleanup on every exit. Removes $LOCK_DIR only when the owner
@@ -219,8 +251,13 @@ echo "backup $ts: applying retention, keeping the last $BACKUP_RETENTION"
 # thing pruned once excess > 0, tearing down this run's own lock mid-run
 # instead of via the EXIT trap and reopening the exact overlap window the
 # lock exists to close (riftal-infra#166).
+#
+# `.lock.discard.*` is a stale steal's discarded former lock, orphaned only
+# if that run was killed between winning the rename and its own follow-up
+# `rm -rf` (riftal-infra#175). It is never a backup either, and left
+# uncounted here for the same reason `.partial` is.
 mapfile -t existing < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
-  -not -name '*.partial' -not -name '.lock' | sort)
+  -not -name '*.partial' -not -name '.lock' -not -name '.lock.discard.*' | sort)
 excess=$(( ${#existing[@]} - BACKUP_RETENTION ))
 if [ "$excess" -gt 0 ]; then
   for old in "${existing[@]:0:excess}"; do

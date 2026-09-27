@@ -51,7 +51,7 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=30
+EXPECTED_ASSERTIONS=33
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -69,6 +69,7 @@ run_backup() {
     -e MYSQL_HOST="$host" -e MYSQL_USER=root -e MYSQL_PASSWORD="$password" \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION="$retention" \
     -e PARTIAL_MAX_AGE_MINUTES="$partial_max_age" -e LOCK_MAX_AGE_MINUTES="$lock_max_age" \
+    -e STEAL_RACE_TEST_STALL_SECONDS="${STEAL_RACE_TEST_STALL_SECONDS:-0}" \
     mysql:8 bash /deploy/backup.sh "$@"
 }
 
@@ -277,6 +278,60 @@ fi
 
 backups 'rm -rf /backups/.lock'
 
+section "two sweepers racing to steal the same abandoned lock: exactly one wins"
+# riftal-infra#175: unlike the section above, neither run here is ever the
+# live owner. Both independently find the same already-abandoned lock stale
+# and both attempt to steal it at once. STEAL_RACE_TEST_STALL_SECONDS widens
+# backup.sh's own steal-path window (a handful of syscalls in a real run, not
+# landable on demand) so both runs are reliably inside it together, which is
+# what makes this reproduce rather than pass by accident regardless of the
+# fix: an unwidened race left both exit-0 or both exit-1 to luck on this same
+# host, observed while first writing this test.
+backups "mkdir /backups/.lock && echo old-owner > /backups/.lock/owner && touch -d '-2 hours' /backups/.lock"
+
+# Captured separately from stderr, unlike most `run_backup` calls above:
+# command substitution's `$(...)` would only take stdout anyway, but this
+# runs both racers backgrounded rather than substituted, so it needs its own
+# split to read back just the echoed owner token below.
+STEAL_RACE_TEST_STALL_SECONDS=2 run_backup 3 mysql selftest 360 60 __test_acquire_lock \
+  >/tmp/out-steal-race-a.log 2>/tmp/err-steal-race-a.log &
+steal_race_pid_a=$!
+STEAL_RACE_TEST_STALL_SECONDS=2 run_backup 3 mysql selftest 360 60 __test_acquire_lock \
+  >/tmp/out-steal-race-b.log 2>/tmp/err-steal-race-b.log &
+steal_race_pid_b=$!
+
+steal_race_status_a=0; wait "$steal_race_pid_a" || steal_race_status_a=$?
+steal_race_status_b=0; wait "$steal_race_pid_b" || steal_race_status_b=$?
+
+steal_race_wins=0
+[ "$steal_race_status_a" -eq 0 ] && steal_race_wins=$((steal_race_wins + 1))
+[ "$steal_race_status_b" -eq 0 ] && steal_race_wins=$((steal_race_wins + 1))
+if [ "$steal_race_wins" -eq 1 ]; then
+  pass "exactly one of two simultaneous steal attempts against the same abandoned lock wins"
+else
+  fail "expected exactly one winner, got $steal_race_wins (both winning is riftal-infra#175's exact race, both losing strands the lock)"
+  cat /tmp/out-steal-race-a.log /tmp/err-steal-race-a.log /tmp/out-steal-race-b.log /tmp/err-steal-race-b.log
+fi
+
+steal_race_winner_owner=""
+[ "$steal_race_status_a" -eq 0 ] && steal_race_winner_owner="$(cat /tmp/out-steal-race-a.log)"
+[ "$steal_race_status_b" -eq 0 ] && steal_race_winner_owner="$(cat /tmp/out-steal-race-b.log)"
+steal_race_stored_owner="$(backups 'cat /backups/.lock/owner' 2>/dev/null || true)"
+if [ -n "$steal_race_winner_owner" ] && [ "$steal_race_stored_owner" = "$steal_race_winner_owner" ]; then
+  pass "the lock on disk is stamped with the winner's own token, not the loser's"
+else
+  fail "expected the stored owner to match the winner's token, got winner='$steal_race_winner_owner' stored='$steal_race_stored_owner'"
+fi
+
+steal_race_leftover="$(backups "find /backups -mindepth 1 -maxdepth 1 -name '.lock.discard.*'")"
+if [ -z "$steal_race_leftover" ]; then
+  pass "the loser's discarded copy of the old lock is cleaned up, not left behind"
+else
+  fail "expected no leftover .lock.discard.* directory, found: $steal_race_leftover"
+fi
+
+backups 'rm -rf /backups/.lock'
+
 section "a run against a BACKUP_ROOT another run already holds the lock on fails fast"
 # Stands in for a manual out-of-band run overlapping the scheduled loop
 # (riftal-infra#166): holds backup.sh's own lock directory directly, without
@@ -352,4 +407,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, loud failure.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, loud failure.\n' "$PASSES"
