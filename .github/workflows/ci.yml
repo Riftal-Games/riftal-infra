@@ -56,6 +56,20 @@ jobs:
       - name: Validate compose files
         run: bash .github/scripts/scan.sh compose
 
+      # No PHP on the runner is confirmed, so the check runs inside a pinned
+      # php:8.3-cli-alpine container instead of assuming a host binary.
+      - name: Lint PHP plugins
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(images/plugins/*.php)
+          if [ "${#files[@]}" -eq 0 ]; then
+            printf 'no PHP plugin files to lint\n'
+            exit 0
+          fi
+          docker run --rm -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
+            sh -c 'for f in /plugins/*.php; do php -l "$f"; done'
+
       # astral-sh/setup-uv v10.0.1, pinned by commit so a tag move cannot
       # change the installer, and by uv version so the resolver matches the
       # one on the development machine.
