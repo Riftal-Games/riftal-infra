@@ -16,7 +16,7 @@ PAD = Bounds((0, 63, 0), (7, 65, 7))
 MUTATING = {
     "fill": {"target": "pad", "block": "glass"}, "replace": {"target": "pad", "from_block": "grass_block", "to_block": "dirt"},
     "set_blocks": {"blocks": [[0, 70, 0, "stone"]]}, "snapshot": {"target": "pad", "label": "x"}, "restore": {"snapshot": 1},
-    "undo": {}, "list_snapshots": {}, "list_undo": {},
+    "undo": {}, "list_snapshots": {}, "list_undo": {}, "terraform": {"target": "pad", "mode": "flatten", "level": 70},
 }
 
 
@@ -160,7 +160,7 @@ def _pristine(fake: FakeBridge) -> bool:
     return bool(np.array_equal(fake.worlds["design"].blocks(PAD), FakeWorld().blocks(PAD)))
 
 
-@pytest.mark.parametrize("name", ["fill", "replace", "set_blocks", "snapshot", "restore", "undo"])
+@pytest.mark.parametrize("name", ["fill", "replace", "set_blocks", "snapshot", "restore", "undo", "terraform"])
 def test_every_mutating_tool_is_refused_when_the_bridge_is_not_a_designer(server: FakeBridge, name: str) -> None:
     server.designer = False
     assert call(name, **MUTATING[name]) == {"ok": False, "error": mcp_server.NOT_DESIGNER, "code": "not_designer"}
@@ -252,10 +252,46 @@ def test_set_blocks_over_the_cap_is_refused_and_a_run_becomes_a_fill(server: Fak
     assert call("set_blocks", blocks=[])["ok"] is False
 
 
+def test_analyze_terrain_reads_the_flat_pad(server: FakeBridge) -> None:
+    result = call("analyze_terrain", target="pad")
+    assert result["ok"] and result["bounds"] == {"min": [0, 0], "max": [7, 7]}
+    assert (result["columns"], result["min"], result["max"], result["mean"]) == (64, 63, 63, 63.0)
+    assert result["water_fraction"] == 0.0 and result["flat_fraction"] == 1.0
+    dict_target = call("analyze_terrain", target={"min": [0, 0], "max": [3, 3]})
+    assert dict_target["ok"] and dict_target["columns"] == 16
+    assert call("analyze_terrain", target="spawn")["ok"] is False
+
+
+def test_find_flat_site_returns_a_site_on_the_flat_pad(server: FakeBridge) -> None:
+    result = call("find_flat_site", target="pad", size=4, max_slope=0, max_range=0)
+    assert result["ok"] and result["bounds"] == {"min": [0, 0], "max": [7, 7]}
+    assert result["sites"] and result["sites"][0]["height"] == 63
+    assert call("find_flat_site", target="pad", size=99)["ok"] is False
+
+
+def test_terraform_snapshots_first_and_flattens_the_pad(server: FakeBridge, tmp_path: Path) -> None:
+    dry = call("terraform", target="pad", mode="flatten", level=70, dry_run=True)
+    assert dry["ok"] and dry["dry_run"] is True and dry["snapshot"] is None and _writes(server) == []
+    result = call("terraform", target="pad", mode="flatten", level=70)
+    assert result["ok"] and result["undo_id"] == 1 and result["bounds"] == {"min": [0, 64, 0], "max": [7, 70, 7]}
+    snap = Path(result["snapshot"])
+    assert snap.is_file() and not _pristine(server)
+    flattened = call("analyze_terrain", target="pad")
+    assert (flattened["min"], flattened["max"]) == (70, 70)
+    assert call("undo")["ok"] and _pristine(server)
+
+
+def test_terraform_target_by_dict_and_unknown_mode(server: FakeBridge) -> None:
+    result = call("terraform", target={"min": [0, 0], "max": [3, 3]}, world="design", mode="raise", level=70)
+    assert result["ok"] and result["bounds"] == {"min": [0, 64, 0], "max": [3, 70, 3]}
+    assert call("terraform", target="pad", mode="dig", level=70) == {"ok": False, "error": "mode must be one of ('flatten', 'raise', 'lower', 'smooth'), got 'dig'", "code": None}
+
+
 def test_every_tool_is_registered() -> None:
     names = {t.name for t in anyio.run(mcp_server.mcp.list_tools)}
     assert names == {
         "server_status", "index_list", "index_resolve", "heightmap_ascii", "render", "inspect",
         "define_region", "define_location", "index_remove", "list_entities", "tail_log",
         "fill", "replace", "set_blocks", "snapshot", "restore", "undo", "list_snapshots", "list_undo",
+        "analyze_terrain", "find_flat_site", "terraform",
     }

@@ -3,6 +3,15 @@
 Rendered by `python -m designer.tools_doc`; edit the docstrings in designer/designer/mcp_server.py, not this file.
 Every tool answers `{"ok": true, ...}` with the keys on its `Returns` line, or `{"ok": false, "error": ..., "code": ...}`.
 
+## analyze_terrain
+
+Height stats, slope map and the flat and water fractions of ``target``, a region name or ``{"min", "max"}``.
+
+```json
+{"properties": {"flat_slope": {"default": 1, "title": "Flat Slope", "type": "integer"}, "target": {"anyOf": [{"type": "string"}, {"additionalProperties": true, "type": "object"}], "title": "Target"}, "world": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "World"}}, "required": ["target"], "title": "analyze_terrainArguments", "type": "object"}
+```
+Returns: world, bounds, columns, min, max, mean, water_fraction, flat_fraction.
+
 ## define_location
 
 Add a named location to the index and save it; ``pos`` is the feet block.
@@ -29,6 +38,15 @@ Fill ``target``, a region name or ``{"min", "max"}``, with ``block``; snapshots 
 {"properties": {"block": {"title": "Block", "type": "string"}, "dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "target": {"anyOf": [{"type": "string"}, {"additionalProperties": true, "type": "object"}], "title": "Target"}, "world": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "World"}}, "required": ["target", "block"], "title": "fillArguments", "type": "object"}
 ```
 Returns: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
+
+## find_flat_site
+
+The best ``size``-square sites in ``target`` by slope, height range and water, ranked by distance to ``near`` when given.
+
+```json
+{"properties": {"limit": {"default": 5, "title": "Limit", "type": "integer"}, "max_range": {"anyOf": [{"type": "integer"}, {"type": "null"}], "default": null, "title": "Max Range"}, "max_slope": {"default": 1, "title": "Max Slope", "type": "integer"}, "max_water": {"default": 0.0, "title": "Max Water", "type": "number"}, "near": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "Near"}, "size": {"title": "Size", "type": "integer"}, "target": {"anyOf": [{"type": "string"}, {"additionalProperties": true, "type": "object"}], "title": "Target"}, "world": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "World"}}, "required": ["target", "size"], "title": "find_flat_siteArguments", "type": "object"}
+```
+Returns: world, bounds, sites as [{bounds, x, z, height, range, slope_max, water_fraction, score}].
 
 ## heightmap_ascii
 
@@ -164,6 +182,15 @@ The last ``lines`` (at most 200) of the server log, colour codes stripped.
 {"properties": {"lines": {"default": 50, "title": "Lines", "type": "integer"}}, "title": "tail_logArguments", "type": "object"}
 ```
 Returns: lines, as the bridge answers.
+
+## terraform
+
+Flatten, raise, lower or smooth every column of ``target`` toward ``level``; snapshots first, answers with the undo id.
+
+```json
+{"properties": {"block": {"default": "minecraft:stone", "title": "Block", "type": "string"}, "dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "feather": {"default": 0, "title": "Feather", "type": "integer"}, "level": {"default": 0, "title": "Level", "type": "integer"}, "mode": {"title": "Mode", "type": "string"}, "smooth_radius": {"default": 2, "title": "Smooth Radius", "type": "integer"}, "target": {"anyOf": [{"type": "string"}, {"additionalProperties": true, "type": "object"}], "title": "Target"}, "world": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "World"}}, "required": ["target", "mode"], "title": "terraformArguments", "type": "object"}
+```
+Returns: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
 
 ## undo
 
