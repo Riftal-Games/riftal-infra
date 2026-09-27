@@ -131,7 +131,14 @@ echo "backup $ts: applying retention, keeping the last $BACKUP_RETENTION"
 # `mv` (OOM, a SIGKILL past the grace period, a host crash). Retention
 # leaves it alone rather than pruning it, the same way it leaves any other
 # non-backup file under BACKUP_ROOT alone.
-mapfile -t existing < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -not -name '*.partial' | sort)
+#
+# `.lock` is excluded for a sharper reason: it sorts before every
+# timestamp-named backup directory, so left in, it is always the first
+# thing pruned once excess > 0, tearing down this run's own lock mid-run
+# instead of via the EXIT trap and reopening the exact overlap window the
+# lock exists to close (riftal-infra#166).
+mapfile -t existing < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
+  -not -name '*.partial' -not -name '.lock' | sort)
 excess=$(( ${#existing[@]} - BACKUP_RETENTION ))
 if [ "$excess" -gt 0 ]; then
   for old in "${existing[@]:0:excess}"; do
