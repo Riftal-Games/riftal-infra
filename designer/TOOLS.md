@@ -137,7 +137,7 @@ Returns: manifest, total, entries.
 
 ## render
 
-Write a PNG under ``reports/`` and return its path with a summary; ``kind`` is ``topdown``.
+Write a PNG under ``reports/`` and return its path with a summary; ``kind`` is ``topdown`` or ``isometric``.
 
 ```json
 {"properties": {"at": {"title": "At", "type": "string"}, "kind": {"default": "topdown", "title": "Kind", "type": "string"}, "size": {"default": 64, "title": "Size", "type": "integer"}, "world": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "World"}}, "required": ["at"], "title": "renderArguments", "type": "object"}

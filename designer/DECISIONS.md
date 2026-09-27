@@ -317,6 +317,21 @@ reasoning `StairsSpec` already recorded: a sign is a named place, a batch of
 them is not, and `build`'s report path already falls back to `kind` for
 exactly this case.
 
+## 2026-09-28 `isometric_png` projects on `half_w = 2*scale, half_h = scale`; canvas is `(nx+nz)*half_w` by `(nx+nz+span)*half_h`; a side face darkens by a fixed factor and is drawn only as deep as the neighbour falls short
+
+A 2:1 dimetric grid puts a column's screen position at
+`(ox+(ix-iz)*half_w, oy+(ix+iz)*half_h-(h-lo)*half_h)`; canceling the height
+term against the deepest possible drop (bounded by `span = hi-lo`, since no
+neighbour falls below the heightmap's own low point) gives an exact bound on
+how far any face can reach, which is the height formula above with `oy`
+fixed at `half_h*(span+1)` so the highest, nearest column's top vertex lands
+on pixel row zero. A missing or empty neighbour, including one past the
+heightmap's edge, is scored at `lo`: a cliff into unmapped ground still shows
+its full drop rather than vanishing at the boundary. The two faces darken by
+different fixed factors, not a computed light angle, so a block reads as
+three-dimensional from one flat top colour with no per-column shading pass
+to keep in sync with `topdown_png`'s.
+
 ## 2026-09-28 `build_perimeter` walks the rectangle's edge as one ordered path; `build_room` shells and hollows like `build_mine`
 
 Tracing the wall once around the edge, corners visited exactly once, makes

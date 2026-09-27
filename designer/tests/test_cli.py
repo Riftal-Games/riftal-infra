@@ -81,6 +81,20 @@ def test_render_topdown_writes_the_png_and_prints_its_path_and_summary(
     assert lines[1] == "size=32x32 columns=256 min=63 max=63 mean=63.0 water=0.0 flat=1.0"
 
 
+def test_render_isometric_writes_the_png_and_prints_its_path_and_summary(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    out = tmp_path / "spawn-iso.png"
+
+    assert main(["render", "isometric", "--at", "spawn", "--size", "8", "--scale", "2", "--out", str(out)]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == str(out) and out.is_file()
+    assert Image.open(out).size == (2 * 2 * (8 + 8), 2 * (8 + 8))
+    assert lines[1] == "size=8x8 columns=16 min=63 max=63 mean=63.0 water=0.0 flat=1.0"
+
+
 def test_terrain_analyze_prints_stats_for_the_flat_area(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

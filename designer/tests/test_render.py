@@ -10,8 +10,8 @@ from designer.config import REPORTS_DIR
 from designer.palettes import ROLES, load_palettes
 from designer.region import Bounds2D, Heightmap
 from designer.render import (
-    LEGEND_LINE, MARKER_FILL, RAMP, Marker, ascii_heightmap, fallback_color, markers_from_index, report_path, summary,
-    topdown_png,
+    LEGEND_LINE, MARKER_FILL, RAMP, Marker, ascii_heightmap, fallback_color, isometric_png, markers_from_index, report_path,
+    summary, topdown_png,
 )
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
@@ -134,6 +134,45 @@ def test_topdown_marker_pixel_and_default_report_path(tmp_path: Path, monkeypatc
     path = topdown_png(hm, COLORS, [Marker("home", 3, 5, 64), Marker("far", 40, 40, 1)])
     assert path.parent == tmp_path / "reports" and path.name.startswith("topdown-design-1_1-8x8-") and path.suffix == ".png"
     assert tuple(_pixels(path)[(5 - 1) * 4 + 2, (3 - 1) * 4 + 2]) == MARKER_FILL["location"]
+
+
+def test_isometric_png_canvas_size_matches_the_projection_formula(tmp_path: Path) -> None:
+    hm = _heightmap(Bounds2D((0, 0), (2, 1)), np.full((2, 3), 64))
+    path = isometric_png(hm, COLORS, scale=3, out=tmp_path / "flat.png")
+    nz, nx = hm.heights.shape
+    assert Image.open(path).size == (2 * 3 * (nx + nz), 3 * (nx + nz))
+    ramp = _heightmap(Bounds2D((0, 0), (1, 0)), np.array([[64, 70]]))
+    path = isometric_png(ramp, COLORS, scale=2, out=tmp_path / "ramp.png")
+    nz, nx = ramp.heights.shape
+    assert Image.open(path).size == (2 * 2 * (nx + nz), 2 * (nx + nz + 6))
+
+
+def test_isometric_png_raised_column_paints_side_faces_above_its_neighbour(tmp_path: Path) -> None:
+    hm = _heightmap(Bounds2D((0, 0), (1, 0)), np.array([[70, 64]]))
+    path = isometric_png(hm, COLORS, scale=2, out=tmp_path / "cliff.png")
+    img = _pixels(path)
+    stone = np.array(COLORS[STONE])
+    assert tuple(img[8, 6]) == tuple(int(c * 0.7) for c in stone)
+    assert tuple(img[8, 2]) == tuple(int(c * 0.5) for c in stone)
+    assert tuple(img[16, 8]) == tuple(stone)
+    assert tuple(img[0, 0]) == (20, 20, 20)
+
+
+def test_isometric_png_paints_back_to_front_so_a_nearer_column_occludes_a_taller_one(tmp_path: Path) -> None:
+    # The taller column at iz=0 sits farther back (lower ix+iz) than the shorter one at iz=1,
+    # and its shaded west face reaches far enough down the screen to overlap the near column's
+    # unshaded top; painted back to front, the near column's flat top must win there.
+    hm = _heightmap(Bounds2D((0, 0), (0, 1)), np.array([[80], [64]]))
+    path = isometric_png(hm, COLORS, scale=2, out=tmp_path / "occlude.png")
+    img = _pixels(path)
+    stone = np.array(COLORS[STONE])
+    assert tuple(img[35, 6]) == tuple(stone)
+
+
+def test_isometric_png_projects_a_marker_to_its_expected_pixel(tmp_path: Path) -> None:
+    hm = _heightmap(Bounds2D((0, 0), (1, 0)), np.full((1, 2), 64))
+    path = isometric_png(hm, COLORS, [Marker("home", 1, 0, 64)], scale=2, out=tmp_path / "marker.png")
+    assert tuple(_pixels(path)[4, 8]) == MARKER_FILL["location"]
 
 
 def test_palettes_file_binds_every_role_and_is_cached() -> None:
