@@ -1,0 +1,13 @@
+# Migration runner fixtures
+
+Not gameplay migrations. `riftal-game/lib/resources/sql/migrations/` is the
+only real source of those; these exist only so `selftest.sh` can prove
+`run-migrations.sh` against real files instead of an empty tree.
+
+- `good/` applies cleanly, in order, and is what the idempotency and
+  ordering assertions run against.
+- `bad/` carries one valid file ahead of one deliberately broken one, so the
+  self-test can assert both that the valid file is applied and recorded, and
+  that the broken one stops the run without being recorded.
+- `empty/` holds only a `.gitkeep`, standing in for a migrations directory
+  with nothing pending yet.
