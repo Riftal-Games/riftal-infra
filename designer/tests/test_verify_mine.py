@@ -40,7 +40,8 @@ def test_the_box_mine_is_valid(box_mine_region: Fixture) -> None:
     region, spec = box_mine_region
     found = mine_valid(region, spec)
     assert found.ok and found.detail == "mine valid" and found.coords == [] and found.leaks == []
-    assert found.entrances_found == 1 and found.data == {"undeclared": [], "floor_missing": 0}
+    assert found.entrances_found == 1
+    assert found.data == {"undeclared": [], "floor_missing": 0, "platform_missing": 0, "platform_blocked": 0}
     assert set(found.composition) == set(found.deviations) == set(spec.ores)
     assert found.composition["minecraft:stone"] == pytest.approx(0.6, abs=0.01)
     assert max(found.deviations.values()) < 0.01
@@ -97,3 +98,27 @@ def test_a_missing_floor_block_is_reported(box_mine_region: Fixture) -> None:
     assert found.data["floor_missing"] == 1
     region.set(5, 1, 6, "minecraft:lava")
     assert mine_valid(region, spec).coords == [(5, 1, 6)]
+
+
+def test_a_missing_exit_platform_block_is_reported(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(10, 1, -3, AIR)
+    found = mine_valid(region, spec)
+    assert not found.ok and found.detail == "1 exit platform cells missing" and found.coords == [(10, 1, -3)]
+    assert found.data["platform_missing"] == 1 and found.data["platform_blocked"] == 0
+
+
+def test_a_block_placed_on_the_exit_platform_is_reported(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(10, 2, -3, "minecraft:stone")
+    found = mine_valid(region, spec)
+    assert not found.ok and found.detail == "1 exit platform cells blocked above" and found.coords == [(10, 2, -3)]
+    assert found.data["platform_blocked"] == 1 and found.data["platform_missing"] == 0
+
+
+def test_an_undeclared_opening_overlapping_the_entrance_only_counts_the_extra_cells(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(10, 5, 0, AIR)
+    found = mine_valid(region, spec)
+    assert not found.ok and found.detail == "1 undeclared opening cells" and found.entrances_found == 1
+    assert found.data["undeclared"] == [(10, 5, 0)]
