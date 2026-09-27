@@ -21,7 +21,13 @@ SMALL_MINE_SPEC = {
     "ores": {"minecraft:stone": 1.0}, "seed": 1, "lights_every": 4, "reset_percent": 60,
 }
 SMALL_MINE_NAMES = {"tbox", "tbox_interior", "tbox_entrance", "tbox_exit_platform", "tbox_exit", "tbox_spawn", "sell_npc_tbox", "rankup_npc_tbox"}
-STONE_PALETTES = {"colors": {}, "palettes": {"test_stone": dict.fromkeys(("wall", "wall_trim", "floor", "ceiling", "light", "sign"), "minecraft:stone")}}
+
+# Flat inside FakeWorld's default extent (surface 63 everywhere), so the profile is level and no stairs are placed.
+SMALL_ROAD_SPEC = {"name": "test_road", "world": "design", "start": [0, 0], "end": [5, 0], "width": 1, "clear_height": 2}
+STONE_PALETTES = {
+    "colors": {},
+    "palettes": {"test_stone": dict.fromkeys(("wall", "wall_trim", "floor", "ceiling", "light", "sign", "road", "road_edge", "stairs"), "minecraft:stone")},
+}
 
 
 @pytest.fixture

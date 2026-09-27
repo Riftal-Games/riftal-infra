@@ -8,12 +8,35 @@ from typing import Any
 from designer.builders.base import Palette
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
+from designer.builders.road import build_road
+from designer.builders.road_spec import RoadSpec
 from designer.edits import EditList
+from designer.region import Bounds2D, Heightmap
+
+# A world name and the bounds a builder needs ground for, answered with the
+# ``Heightmap`` over them. Bound to a bridge by the CLI or MCP entry point,
+# so a builder never has to know how the fetch happens, only what it needs.
+HeightmapFetch = Callable[[str, Bounds2D], Heightmap]
+
+
+def _road_bounds(spec: RoadSpec) -> Bounds2D:
+    """The heightmap footprint a road spec implies: its centre line's bounding box."""
+    xs, zs = zip(*spec.centre_line(), strict=True)
+    return Bounds2D((min(xs), min(zs)), (max(xs), max(zs)))
+
+
+def _build_road(spec: dict[str, Any], palette: Palette, fetch: HeightmapFetch) -> EditList:
+    road_spec = RoadSpec.from_dict(spec)
+    return build_road(road_spec, palette, fetch(road_spec.world, _road_bounds(road_spec)))
+
 
 # Kind name to the builder that turns its spec dict into an ``EditList``. A
 # builder's own function typically wants its dataclass, not the raw dict, so
-# the entry here is the thing that closes over that conversion. Each builder
-# issue adds its own entry.
-BUILDERS: dict[str, Callable[[dict[str, Any], Palette], EditList]] = {
-    "mine": lambda spec, palette: build_mine(MineSpec.from_dict(spec), palette),
+# the entry here is the thing that closes over that conversion. Every entry
+# takes a ``HeightmapFetch`` alongside the spec and palette, whether or not
+# it needs real terrain, so one registry and one call site serve every
+# builder. Each builder issue adds its own entry.
+BUILDERS: dict[str, Callable[[dict[str, Any], Palette, HeightmapFetch], EditList]] = {
+    "mine": lambda spec, palette, fetch: build_mine(MineSpec.from_dict(spec), palette),
+    "road": _build_road,
 }
