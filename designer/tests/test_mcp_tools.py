@@ -298,6 +298,19 @@ def test_build_dry_run_reports_index_entries_and_mine_valid_without_touching_the
     names = {e["name"] for e in (*result["locations"], *result["regions"])}
     assert names == SMALL_MINE_NAMES
     assert _writes(server) == []
+    assert result["extras_report"] is None and not config.REPORTS_DIR.exists()
+
+
+def test_build_dry_run_writes_no_extras_report_but_apply_does(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    dry = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone", dry_run=True)
+    assert dry["ok"] and dry["dry_run"] is True and dry["extras_report"] is None
+    assert not config.REPORTS_DIR.exists()
+
+    result = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")
+    assert result["ok"] and result["dry_run"] is False
+    report = Path(result["extras_report"])
+    assert report.is_file() and report == config.REPORTS_DIR / "mine-tbox-extras.json"
 
 
 def test_build_applies_registers_the_index_and_writes_the_extras_report(

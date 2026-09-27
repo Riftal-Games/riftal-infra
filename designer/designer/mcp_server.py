@@ -432,7 +432,7 @@ def build(
     Snapshots first and answers with the undo id, like every mutating tool. Registers the builder's
     locations and regions in the index unless ``register_index`` is false, refusing a name already
     taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is ``mine`` unless ``verify`` is
-    false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json``.
+    false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``.
 
     RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
     """
@@ -455,10 +455,12 @@ def build(
             for reg in out["regions"]:
                 idx.add_region(NamedRegion.from_json(reg), replace=replace_index)
             idx.save()
-    config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    report_path = config.REPORTS_DIR / f"{kind}-{require(spec_dict, 'name')}-extras.json"
-    report_path.write_text(json.dumps(edits.extras, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
-    out["extras_report"] = str(report_path)
+    out["extras_report"] = None
+    if not dry_run:
+        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        report_path = config.REPORTS_DIR / f"{kind}-{require(spec_dict, 'name')}-extras.json"
+        report_path.write_text(json.dumps(edits.extras, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+        out["extras_report"] = str(report_path)
     return out
 
 @mutating
