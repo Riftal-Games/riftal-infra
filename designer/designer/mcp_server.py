@@ -11,6 +11,7 @@ undo entry before the first request goes out.
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import os
 import threading
@@ -27,11 +28,15 @@ from designer import config
 from designer import snapshot as snapshots
 from designer import terrain as terrain_mod
 from designer.bridge import Bridge, BridgeError
+from designer.builders import BUILDERS
+from designer.builders.base import Palette, require
+from designer.builders.mine_spec import MineSpec
 from designer.edits import ApplyResult, EditList, Fill, Replace, SetBlock
 from designer.palettes import load_palettes
-from designer.region import Bounds, Bounds2D, Heightmap, fetch_heightmap, fetch_region
+from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region
 from designer.render import Marker, ascii_heightmap, markers_from_index, summary, topdown_png
 from designer.snapshot import Snapshot, UndoStack
+from designer.verify import mine_valid
 from designer.world_index import KINDS, Location, NamedRegion, WorldIndex, resolve_at
 
 MAX_AREA, MAX_RADIUS, MAX_LOG_LINES, MAX_BLOCKS_PER_CALL = 256, 8, 200, 4096
@@ -399,6 +404,62 @@ def terraform(
     hm = fetch_heightmap(bridge(), world, bounds.expand(margin) if margin else bounds)
     edits = terrain_mod.terraform(hm, bounds, mode=mode, level=level, block=block, feather=feather, smooth_radius=smooth_radius)
     return _apply(edits, "terraform", dry_run, ctx)
+
+def _load_build_spec(spec: dict[str, Any] | str) -> dict[str, Any]:
+    """``spec`` as given, or a JSON file read from a path rooted under ``specs/``, never at the cwd."""
+    if isinstance(spec, dict):
+        return dict(spec)
+    root = (config.PROJECT_ROOT / "specs").resolve()
+    path = (root / spec).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"{spec!r} resolves outside the specs directory {root}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+def _mine_valid(edits: EditList) -> dict[str, Any]:
+    mine_spec = MineSpec.from_dict(edits.extras["mine_spec"])
+    geo = mine_spec.geometry()
+    region = edits.to_region(Region.empty(mine_spec.world, geo.padding.union(geo.exit_platform)))
+    found = mine_valid(region, mine_spec)
+    return {"ok": found.ok, "detail": found.detail}
+
+@mutating
+def build(
+    kind: str, spec: dict[str, Any] | str, palette: str = "mine_stone", register_index: bool = True,
+    replace_index: bool = False, verify: bool = True, dry_run: bool = False, ctx: Context | None = None,
+) -> dict[str, Any]:
+    """Build ``kind`` (a name in ``designer.builders.BUILDERS``) from ``spec``, a dict or a path under ``specs/``.
+
+    Snapshots first and answers with the undo id, like every mutating tool. Registers the builder's
+    locations and regions in the index unless ``register_index`` is false, refusing a name already
+    taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is ``mine`` unless ``verify`` is
+    false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json``.
+
+    RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
+    """
+    if kind not in BUILDERS:
+        raise ValueError(f"unknown build kind {kind!r}, expected one of {sorted(BUILDERS)}")
+    spec_dict = _load_build_spec(spec)
+    edits = BUILDERS[kind](spec_dict, Palette.load(palette))
+    out = _apply(edits, f"build_{kind}", dry_run, ctx)
+    out["locations"], out["regions"] = edits.extras.get("locations", []), edits.extras.get("regions", [])
+    out["mine_valid"] = _mine_valid(edits) if verify and kind == "mine" else None
+    if not dry_run and out.get("ok") is not False and register_index:
+        idx = index()
+        names = (e["name"] for e in (*out["locations"], *out["regions"]))
+        taken = sorted(n for n in names if n in idx.names())
+        if taken and not replace_index:
+            out = {**out, **_error(ValueError(f"{taken} already defined; pass replace_index=True to overwrite"))}
+        else:
+            for loc in out["locations"]:
+                idx.add_location(Location.from_json(loc), replace=replace_index)
+            for reg in out["regions"]:
+                idx.add_region(NamedRegion.from_json(reg), replace=replace_index)
+            idx.save()
+    config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = config.REPORTS_DIR / f"{kind}-{require(spec_dict, 'name')}-extras.json"
+    report_path.write_text(json.dumps(edits.extras, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    out["extras_report"] = str(report_path)
+    return out
 
 @mutating
 def snapshot(target: str | dict[str, Any], label: str, world: str | None = None) -> dict[str, Any]:

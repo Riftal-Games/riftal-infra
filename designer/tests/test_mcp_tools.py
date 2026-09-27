@@ -1,3 +1,4 @@
+import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from designer import config, mcp_server
 from designer.blocks import BlockClass
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
+from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge, FakeWorld
 
 PAD = Bounds((0, 63, 0), (7, 65, 7))
@@ -17,6 +19,7 @@ MUTATING = {
     "fill": {"target": "pad", "block": "glass"}, "replace": {"target": "pad", "from_block": "grass_block", "to_block": "dirt"},
     "set_blocks": {"blocks": [[0, 70, 0, "stone"]]}, "snapshot": {"target": "pad", "label": "x"}, "restore": {"snapshot": 1},
     "undo": {}, "list_snapshots": {}, "list_undo": {}, "terraform": {"target": "pad", "mode": "flatten", "level": 70},
+    "build": {"kind": "mine", "spec": SMALL_MINE_SPEC, "palette": "mine_stone"},
 }
 
 
@@ -27,6 +30,7 @@ def server(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
     monkeypatch.delenv("DESIGNER_READ_ONLY", raising=False)
     monkeypatch.setattr(config, "SNAPSHOTS_DIR", tmp_path / "snapshots")
+    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
     index = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
     index.add_location(Location("spawn", "design", (0, 64, 0), tags=["spawn"]))
     index.add_region(NamedRegion("pad", "design", PAD.min, PAD.max))
@@ -160,7 +164,7 @@ def _pristine(fake: FakeBridge) -> bool:
     return bool(np.array_equal(fake.worlds["design"].blocks(PAD), FakeWorld().blocks(PAD)))
 
 
-@pytest.mark.parametrize("name", ["fill", "replace", "set_blocks", "snapshot", "restore", "undo", "terraform"])
+@pytest.mark.parametrize("name", ["fill", "replace", "set_blocks", "snapshot", "restore", "undo", "terraform", "build"])
 def test_every_mutating_tool_is_refused_when_the_bridge_is_not_a_designer(server: FakeBridge, name: str) -> None:
     server.designer = False
     assert call(name, **MUTATING[name]) == {"ok": False, "error": mcp_server.NOT_DESIGNER, "code": "not_designer"}
@@ -287,11 +291,52 @@ def test_terraform_target_by_dict_and_unknown_mode(server: FakeBridge) -> None:
     assert call("terraform", target="pad", mode="dig", level=70) == {"ok": False, "error": "mode must be one of ('flatten', 'raise', 'lower', 'smooth'), got 'dig'", "code": None}
 
 
+def test_build_dry_run_reports_index_entries_and_mine_valid_without_touching_the_bridge(server: FakeBridge) -> None:
+    result = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="mine_stone", dry_run=True)
+    assert result["ok"] and result["dry_run"] is True and result["world"] == "design"
+    assert result["mine_valid"] == {"ok": True, "detail": "mine valid"}
+    names = {e["name"] for e in (*result["locations"], *result["regions"])}
+    assert names == SMALL_MINE_NAMES
+    assert _writes(server) == []
+
+
+def test_build_applies_registers_the_index_and_writes_the_extras_report(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    result = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")
+    assert result["ok"] and result["undo_id"] == 1 and Path(result["snapshot"]).is_file()
+    assert {l["name"] for l in call("index_list", kind="locations")["locations"]} >= {"tbox_exit", "tbox_spawn"}
+    assert {r["name"] for r in call("index_list", kind="regions")["regions"]} >= {"tbox", "tbox_interior"}
+    report = Path(result["extras_report"])
+    assert report == tmp_path / "reports" / "mine-tbox-extras.json"
+    assert json.loads(report.read_text())["mine_reset"]["reset_percent"] == 60
+
+
+def test_build_refuses_to_overwrite_the_index_unless_replace_index(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    first = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")
+    assert first["ok"] and first["undo_id"] == 1
+
+    again = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")
+    assert again["ok"] is False and "already defined" in again["error"]
+    assert again["snapshot"] and again["undo_id"] == 2
+
+    replaced = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone", replace_index=True)
+    assert replaced["ok"] and replaced["undo_id"] == 3
+
+
+def test_build_unknown_kind_and_a_spec_path_outside_specs_are_refused(server: FakeBridge) -> None:
+    assert call("build", kind="road", spec=SMALL_MINE_SPEC, palette="mine_stone")["ok"] is False
+    outside = call("build", kind="mine", spec="../outside.json", palette="mine_stone")
+    assert outside["ok"] is False and "outside the specs directory" in outside["error"]
+
+
 def test_every_tool_is_registered() -> None:
     names = {t.name for t in anyio.run(mcp_server.mcp.list_tools)}
     assert names == {
         "server_status", "index_list", "index_resolve", "heightmap_ascii", "render", "inspect",
         "define_region", "define_location", "index_remove", "list_entities", "tail_log",
         "fill", "replace", "set_blocks", "snapshot", "restore", "undo", "list_snapshots", "list_undo",
-        "analyze_terrain", "find_flat_site", "terraform",
+        "analyze_terrain", "find_flat_site", "terraform", "build",
     }

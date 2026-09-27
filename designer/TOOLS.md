@@ -12,6 +12,20 @@ Height stats, slope map and the flat and water fractions of ``target``, a region
 ```
 Returns: world, bounds, columns, min, max, mean, water_fraction, flat_fraction.
 
+## build
+
+Build ``kind`` (a name in ``designer.builders.BUILDERS``) from ``spec``, a dict or a path under ``specs/``.
+
+Snapshots first and answers with the undo id, like every mutating tool. Registers the builder's
+locations and regions in the index unless ``register_index`` is false, refusing a name already
+taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is ``mine`` unless ``verify`` is
+false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json``.
+
+```json
+{"properties": {"dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "kind": {"title": "Kind", "type": "string"}, "palette": {"default": "mine_stone", "title": "Palette", "type": "string"}, "register_index": {"default": true, "title": "Register Index", "type": "boolean"}, "replace_index": {"default": false, "title": "Replace Index", "type": "boolean"}, "spec": {"anyOf": [{"additionalProperties": true, "type": "object"}, {"type": "string"}], "title": "Spec"}, "verify": {"default": true, "title": "Verify", "type": "boolean"}}, "required": ["kind", "spec"], "title": "buildArguments", "type": "object"}
+```
+Returns: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
+
 ## define_location
 
 Add a named location to the index and save it; ``pos`` is the feet block.

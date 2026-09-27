@@ -13,6 +13,16 @@ MINE_SPEC = {
     "ores": {"stone": 60, "coal_ore": 30, "iron_ore": 10}, "seed": 1, "lights_every": 4, "reset_percent": 60,
 }
 
+# Small enough that its blocks are just air and stone, no lights placed (lights_every
+# outruns exit_path.length), so it builds clean on the fake bridge's tiny palette too.
+SMALL_MINE_SPEC = {
+    "name": "tbox", "world": "design", "origin": [0, 0, 0], "size": [7, 6, 7], "wall_thickness": 1, "floor_y": 1,
+    "entrance": {"side": "north", "width": 3, "height": 2}, "exit_path": {"length": 2, "width": 3},
+    "ores": {"minecraft:stone": 1.0}, "seed": 1, "lights_every": 4, "reset_percent": 60,
+}
+SMALL_MINE_NAMES = {"tbox", "tbox_interior", "tbox_entrance", "tbox_exit_platform", "tbox_exit", "tbox_spawn", "sell_npc_tbox", "rankup_npc_tbox"}
+STONE_PALETTES = {"colors": {}, "palettes": {"test_stone": dict.fromkeys(("wall", "wall_trim", "floor", "ceiling", "light", "sign"), "minecraft:stone")}}
+
 
 @pytest.fixture
 def fake():
