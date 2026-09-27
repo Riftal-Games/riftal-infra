@@ -9,8 +9,10 @@ from designer.builders.base import Palette
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
 from designer.builders.platform import PlatformSpec, build_platform
+from designer.builders.plot_grid import PlotGridSpec, build_plot_grid
 from designer.builders.road import build_road
 from designer.builders.road_spec import RoadSpec
+from designer.builders.signage import SignageSpec, build_signage
 from designer.builders.stairs import StairsSpec, build_stairs
 from designer.edits import EditList
 from designer.region import Bounds2D, Heightmap
@@ -43,4 +45,6 @@ BUILDERS: dict[str, Callable[[dict[str, Any], Palette, HeightmapFetch], EditList
     "road": _build_road,
     "stairs": lambda spec, palette, fetch: build_stairs(StairsSpec.from_dict(spec), palette),
     "platform": lambda spec, palette, fetch: build_platform(PlatformSpec.from_dict(spec), palette),
+    "plot_grid": lambda spec, palette, fetch: build_plot_grid(PlotGridSpec.from_dict(spec), palette),
+    "signage": lambda spec, palette, fetch: build_signage(SignageSpec.from_dict(spec)),
 }

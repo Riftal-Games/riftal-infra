@@ -433,7 +433,7 @@ def build(
     locations and regions in the index unless ``register_index`` is false, refusing a name already
     taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is ``mine`` unless ``verify`` is
     false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
-    falling back to ``kind`` itself when the spec carries no ``name`` (``stairs``, deliberately).
+    falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
 
     RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
     """
