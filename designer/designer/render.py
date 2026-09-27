@@ -220,3 +220,69 @@ def topdown_png(
     path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(path)
     return path
+
+
+# Darkening applied to the +x and +z side faces respectively, so a block reads as three
+# dimensional from a single flat top colour.
+ISO_RIGHT_SHADE, ISO_LEFT_SHADE = 0.7, 0.5
+
+
+def isometric_png(
+    hm: Heightmap, colors: Mapping[str, Any], markers: Iterable[Marker] = (), *, scale: int = 2, out: Path | str | None = None,
+) -> Path:
+    """Write a 2:1 dimetric PNG and return its path.
+
+    Each column draws a top rhombus in its block colour. A face towards its
+    +x neighbour and one towards its +z neighbour are drawn only as deep as
+    the height that neighbour falls short by, so a cliff gets a full face and
+    a gentle ramp a shallow one; an edge or an empty neighbour counts as the
+    heightmap's own low point. Columns paint back to front by ``ix + iz`` so
+    a nearer column covers what lies behind it, and markers project the same
+    way, drawn last.
+    """
+    if scale < 1:
+        raise ValueError(f"scale must be at least 1, got {scale}")
+    half_w, half_h = 2 * scale, scale
+    xmin, zmin = hm.bounds.min
+    nz, nx = hm.heights.shape
+    valid = hm.heights >= 0
+    top, palette = (hm.top, hm.palette) if hm.top is not None else (np.where(valid, 1, 0), [AIR, "unknown"])
+    lut, _ = _palette_colors(palette, colors)
+    stats = summary(hm)
+    lo, hi = (0, 0) if stats["min"] is None else (stats["min"], stats["max"])
+    span = hi - lo
+    heights = np.where(valid, hm.heights, lo).astype(int)
+    ox, oy = nz * half_w, half_h * (span + 1)
+
+    def project(ix: int, iz: int, h: int) -> tuple[int, int]:
+        return ox + (ix - iz) * half_w, oy + (ix + iz) * half_h - (h - lo) * half_h
+
+    def neighbour(ix: int, iz: int) -> int:
+        return int(heights[iz, ix]) if 0 <= ix < nx and 0 <= iz < nz and valid[iz, ix] else lo
+
+    canvas = Image.new("RGB", (half_w * (nx + nz), half_h * (nx + nz + span)), (20, 20, 20))
+    draw = ImageDraw.Draw(canvas)
+    for ix, iz in sorted(((ix, iz) for iz in range(nz) for ix in range(nx)), key=lambda p: p[0] + p[1]):
+        if not valid[iz, ix]:
+            continue
+        h = int(heights[iz, ix])
+        cx, cy = project(ix, iz, h)
+        rgb = tuple(int(c) for c in lut[top[iz, ix]])
+        east, south, west = (cx + half_w, cy), (cx, cy + half_h), (cx - half_w, cy)
+        draw.polygon([(cx, cy - half_h), east, south, west], fill=rgb)
+        for corner, shade, drop in ((east, ISO_RIGHT_SHADE, h - neighbour(ix + 1, iz)), (west, ISO_LEFT_SHADE, h - neighbour(ix, iz + 1))):
+            if drop > 0:
+                face = tuple(int(c * shade) for c in rgb)
+                draw.polygon([corner, south, (south[0], south[1] + drop * half_h), (corner[0], corner[1] + drop * half_h)], fill=face)
+
+    for m in markers:
+        if hm.bounds.contains((m.x, m.z)):
+            px, py = project(m.x - xmin, m.z - zmin, m.y)
+            fill = MARKER_FILL.get(m.kind, MARKER_FILL["location"])
+            draw.ellipse([px - scale, py - scale, px + scale, py + scale], fill=fill, outline=(0, 0, 0))
+            draw.text((px + scale + 2, py - 5), m.label, fill=TEXT_COLOR, font=ImageFont.load_default())
+
+    path = report_path("isometric", hm.world, hm.bounds, "png") if out is None else Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+    return path
