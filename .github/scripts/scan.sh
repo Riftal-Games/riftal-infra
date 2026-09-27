@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Runs one scan over the real tree: `dockerfiles` or `compose`.
 #
-# Discovery and dispatch below are the code the self-test proves can fail. The
-# two check_ functions and the loop calling them are proven by nothing: the
-# self-test drives its own copies of them. riftal-infra#23 closes the gap.
+# The self-test drives this exact script, with no root or prune argument, the
+# same way ci.yml calls it below, so discovery, dispatch, the two check_
+# functions and the loop are all exercised by what gates a merge, not by a
+# copy of them.
 set -euo pipefail
 
 kind="${1:?usage: scan.sh <dockerfiles|compose> [root] [prune-path]}"
@@ -30,7 +31,7 @@ esac
 mapfile -t files < <(printf '%s' "$found")
 printf 'found %d %s outside the fixtures\n' "${#files[@]}" "$label"
 if [ "${#files[@]}" -eq 0 ]; then
-  printf 'nothing to check yet; the self-test proves the rules, not this scan\n'
+  printf 'nothing to check yet in this tree\n'
   exit 0
 fi
 
