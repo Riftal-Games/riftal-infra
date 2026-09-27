@@ -1,10 +1,10 @@
-# Backup job
+# Backup and restore
 
 `backup.sh` takes one coordinated snapshot of the shared MySQL database and
 every instance's world volume, close enough in time that restoring both
 together does not produce an inconsistent state (the `riftal-pm` workspace's
 `docs/specs/008-backup-and-restore.md`). `backup-loop.sh` runs it on a
-schedule. Restore is a separate, later piece of work; this is backup only.
+schedule. `restore.sh` rebuilds both from one chosen backup set.
 
 ## What one run produces
 
@@ -42,6 +42,28 @@ good backup to make room for the one it never produced.
 failed run is logged and the loop keeps going, so one bad run does not cost
 every backup after it until someone notices the container died.
 
+## Restore
+
+`restore.sh` rebuilds the shared MySQL database and every world volume from
+one specific backup set named by `BACKUP_SET` (a directory `backup.sh`
+produced, e.g. `/backups/20260928T120000000000000Z`). There is no "latest"
+default: an operator restoring after a bad deploy or a corrupted world is
+often trying to get back to a point *before* the most recent backup, and a
+default that silently picks the newest one can restore straight back into
+the bad state.
+
+A restore is destructive by design, not incremental:
+
+- The target database is dropped and recreated before the dump loads, so a
+  stale row or table the backup no longer knows about (the dump was taken
+  without `--add-drop-table`) cannot survive a restore.
+- Each target world directory is cleared before its tar extracts, so a file
+  written since the backup (a block broken afterward, a corrupted region
+  file) cannot survive next to the restored one.
+
+Both are rebuilt to exactly what the chosen backup set describes, nothing
+merged on top.
+
 ## Environment
 
 | Variable | Required | Default | Meaning |
@@ -55,13 +77,15 @@ every backup after it until someone notices the container died.
 | `WORLDS_DIR` | no | `/worlds` | Parent of one subdirectory per world volume |
 | `BACKUP_RETENTION` | no | `10` | Backup sets kept before pruning |
 | `BACKUP_INTERVAL_SECONDS` | no | `21600` | `backup-loop.sh` only |
+| `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
 
 ## Running it locally, via `wslc`
 
-`selftest.sh` is the real proof and runs under `docker` on the self-hosted CI
-runner, the same split as `../migrations/selftest.sh`: not runnable on
-Nasir's Windows machine, which has no `docker`, only `wslc`. One run by hand,
-against the dev stack's own throwaway data, after `riftal-mysql` is up:
+`selftest.sh` and `restore-selftest.sh` are the real proof and run under
+`docker` on the self-hosted CI runner, the same split as
+`../migrations/selftest.sh`: not runnable on Nasir's Windows machine, which
+has no `docker`, only `wslc`. One backup run by hand, against the dev
+stack's own throwaway data, after `riftal-mysql` is up:
 
 ```sh
 export MSYS_NO_PATHCONV=1
@@ -78,4 +102,20 @@ wslc run --rm --network riftal-dev \
   mysql:8 bash /deploy/backup.sh
 ```
 
-Wrap it in `timeout 120` when running unattended.
+And the matching restore, naming one backup set directory that run produced
+(list `riftal-backups` to find one, or read the loop's own log). Note the
+world volumes are mounted read-write here, unlike the backup run above,
+because restoring writes into them:
+
+```sh
+wslc run --rm --network riftal-dev \
+  -v "$INFRA/deploy:/deploy:ro" \
+  -v riftal-backups:/backups:ro \
+  -v riftal-world:/worlds/riftal-world \
+  -v riftal-world-b:/worlds/riftal-world-b \
+  -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
+  -e MYSQL_DATABASE=riftal_dev -e BACKUP_SET=/backups/<timestamp> \
+  mysql:8 bash /deploy/restore.sh
+```
+
+Wrap either in `timeout 120` when running unattended.
