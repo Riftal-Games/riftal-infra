@@ -244,12 +244,12 @@ section "a lock swept while its true owner is still alive is not undone by that 
 # QA's exact scenario on #171/#173: run A acquires the lock and is still
 # genuinely alive, not crashed, when its lock crosses LOCK_MAX_AGE_MINUTES.
 # Run B sees it as stale, sweeps it, and reacquires it with its own token.
-# Only afterward does A reach its own EXIT trap. Before an ownership token
-# existed, A's cleanup removed $LOCK_DIR unconditionally, deleting B's lock
-# and letting a third run start concurrently with B with no log line marking
-# the loss of mutual exclusion. __test_acquire_lock and __test_release_lock
-# drive backup.sh's real acquire_lock/release_lock directly so this is
-# exercised without waiting out two real backups.
+# Only afterward does A reach its own EXIT trap, where its cleanup must
+# recognize the lock now belongs to B, refuse to remove it, and log that it
+# no longer owns the lock, rather than deleting B's lock and letting a third
+# run start concurrently with B undetected. __test_acquire_lock and
+# __test_release_lock drive backup.sh's real acquire_lock/release_lock
+# directly so this is exercised without waiting out two real backups.
 owner_a="$(run_backup 3 mysql selftest 360 60 __test_acquire_lock)"
 backups "touch -d '-2 hours' /backups/.lock"
 owner_b="$(run_backup 3 mysql selftest 360 60 __test_acquire_lock)"
