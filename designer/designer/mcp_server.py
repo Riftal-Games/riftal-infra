@@ -438,8 +438,12 @@ def build(
     """
     if kind not in BUILDERS:
         raise ValueError(f"unknown build kind {kind!r}, expected one of {sorted(BUILDERS)}")
+
+    def fetch(world: str, bounds: Bounds2D) -> Heightmap:
+        return fetch_heightmap(bridge(), world, bounds)
+
     spec_dict = _load_build_spec(spec)
-    edits = BUILDERS[kind](spec_dict, Palette.load(palette))
+    edits = BUILDERS[kind](spec_dict, Palette.load(palette), fetch)
     out = _apply(edits, f"build_{kind}", dry_run, ctx)
     out["locations"], out["regions"] = edits.extras.get("locations", []), edits.extras.get("regions", [])
     out["mine_valid"] = _mine_valid(edits) if verify and kind == "mine" else None

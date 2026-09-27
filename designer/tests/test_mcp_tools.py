@@ -11,7 +11,7 @@ from designer import config, mcp_server
 from designer.blocks import BlockClass
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, STONE_PALETTES
+from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge, FakeWorld
 
 PAD = Bounds((0, 63, 0), (7, 65, 7))
@@ -340,9 +340,24 @@ def test_build_refuses_to_overwrite_the_index_unless_replace_index(server: FakeB
 
 
 def test_build_unknown_kind_and_a_spec_path_outside_specs_are_refused(server: FakeBridge) -> None:
-    assert call("build", kind="road", spec=SMALL_MINE_SPEC, palette="mine_stone")["ok"] is False
+    assert call("build", kind="bogus", spec=SMALL_MINE_SPEC, palette="mine_stone")["ok"] is False
     outside = call("build", kind="mine", spec="../outside.json", palette="mine_stone")
     assert outside["ok"] is False and "outside the specs directory" in outside["error"]
+
+
+def test_build_road_dry_run_fetches_the_heightmap_and_reports_the_region(server: FakeBridge) -> None:
+    result = call("build", kind="road", spec=SMALL_ROAD_SPEC, palette="mine_stone", dry_run=True)
+    assert result["ok"] and result["dry_run"] is True and result["world"] == "design"
+    assert result["regions"][0]["name"] == "test_road" and result["regions"][0]["tags"] == ["road", "walkway"]
+    assert [r["op"] for r in server.requests if r["op"] != "server_info"] == ["get_heightmap"]
+
+
+def test_build_road_applies_registers_the_region_and_writes_the_extras_report(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    result = call("build", kind="road", spec=SMALL_ROAD_SPEC, palette="test_stone")
+    assert result["ok"] and Path(result["snapshot"]).is_file()
+    assert {r["name"] for r in call("index_list", kind="regions")["regions"]} >= {"test_road"}
+    assert Path(result["extras_report"]) == config.REPORTS_DIR / "road-test_road-extras.json"
 
 
 def test_every_tool_is_registered() -> None:

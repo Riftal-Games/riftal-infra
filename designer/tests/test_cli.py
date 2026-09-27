@@ -7,7 +7,7 @@ from PIL import Image
 from designer.cli import main
 from designer.render import LEGEND_LINE
 from designer.world_index import Location, WorldEntry, WorldIndex
-from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, STONE_PALETTES
+from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge
 
 
@@ -190,6 +190,38 @@ def test_build_no_verify_and_no_index_skip_their_steps(
 
 def test_build_rejects_an_unknown_kind(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
-        main(["build", "road", "--spec", "x", "--palette", "mine_stone"])
+        main(["build", "bogus", "--spec", "x", "--palette", "mine_stone"])
     assert excinfo.value.code == 2
-    assert "invalid choice: 'road'" in capsys.readouterr().err
+    assert "invalid choice: 'bogus'" in capsys.readouterr().err
+
+
+def test_build_road_dry_run_fetches_the_heightmap_and_reports_no_apply(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_ROAD_SPEC), encoding="utf-8")
+
+    assert main(["build", "road", "--spec", str(spec_path), "--palette", "mine_stone"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["kind"] == "road" and report["world"] == "design" and report["apply"] is False
+    assert report["regions"][0]["name"] == "test_road" and report["regions"][0]["tags"] == ["road", "walkway"]
+    assert [r["op"] for r in fake.requests] == ["get_heightmap"]
+
+
+def test_build_road_apply_sends_the_edits_and_registers_the_region(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_ROAD_SPEC), encoding="utf-8")
+
+    assert main(["build", "road", "--spec", str(spec_path), "--palette", "test_stone", "--apply"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is True and Path(report["snapshot"]).is_file()
+    assert {e.name for e in WorldIndex.load(index_path).regions} == {"test_road"}

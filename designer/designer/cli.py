@@ -160,8 +160,11 @@ def _terrain_terraform(bridge: Bridge, options: argparse.Namespace) -> str:
 
 
 def _build(bridge: Bridge, options: argparse.Namespace) -> str:
+    def fetch(world: str, bounds: Bounds2D) -> Heightmap:
+        return fetch_heightmap(bridge, world, bounds)
+
     spec = json.loads(Path(options.spec).read_text(encoding="utf-8"))
-    edits = BUILDERS[options.kind](spec, Palette.load(options.palette))
+    edits = BUILDERS[options.kind](spec, Palette.load(options.palette), fetch)
     report: dict[str, Any] = {
         "kind": options.kind, "world": edits.world, "bounds": edits.bounds.to_json() if edits.bounds else None,
         "blocks": edits.count_blocks(), "requests": len(edits.requests()), "apply": options.apply,
