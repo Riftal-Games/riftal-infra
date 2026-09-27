@@ -50,20 +50,6 @@ trap cleanup EXIT
 
 mkdir -p "$BACKUP_ROOT"
 
-# A `.partial` older than the threshold belonged to a run that is never
-# coming back to finish it (OOM, a SIGKILL past the grace period, a host
-# crash): retention deliberately leaves every `.partial` alone since a fresh
-# one might still be a real run in progress, so nothing else ever cleared
-# these, and they accumulated silently (riftal-infra#151). A fresh one
-# (including this run's own, just about to be created below) is always
-# younger than the threshold and is never touched by this.
-mapfile -t stale_partials < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
-  -name '*.partial' -mmin "+$PARTIAL_MAX_AGE_MINUTES")
-for stale in "${stale_partials[@]}"; do
-  echo "backup $ts: removing stale $stale, a .partial older than ${PARTIAL_MAX_AGE_MINUTES}m, presumed abandoned"
-  rm -rf "$stale"
-done
-
 mkdir -p "$tmp_dir/worlds"
 
 echo "backup $ts: dumping database $MYSQL_DATABASE from $MYSQL_HOST:$MYSQL_PORT"
