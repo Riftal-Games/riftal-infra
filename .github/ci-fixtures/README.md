@@ -27,5 +27,16 @@ YAML with a `services` key that is nested rather than top level. Filename-based
 discovery misses the first; matching `services` anywhere in the file claims the
 second. Only a top-level key check gets both right.
 
+`good/php-plugins/` and the three `bad/php-plugins-*/` directories are batches, not
+single files, because the defect they cover only shows up across a multi-file
+`images/plugins/*.php` glob: a broken file's own exit status has to survive being one
+of several `php -l` invocations in a loop, not just one on its own. Each `bad/`
+directory carries exactly one broken file, named `a_broken.php`, `m_broken.php` or
+`z_broken.php` for its position in alphabetical glob order, alongside two untouched
+valid companions, so the self-test can assert both that the broken file is named as a
+failure and that the companion on the far side of it still gets its own clean result.
+Three implementation rounds on this check each held for one position and broke on
+another; that is why all three positions are pinned.
+
 The real scans exclude this directory. If they ever stop excluding it, CI is red
 forever and the reason is here.
