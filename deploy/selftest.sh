@@ -51,7 +51,7 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=18
+EXPECTED_ASSERTIONS=23
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -202,6 +202,58 @@ else
   fail "a fresh .partial must never be destroyed, it could be a run genuinely still in progress"
 fi
 
+section "a run against a BACKUP_ROOT another run already holds the lock on fails fast"
+# Stands in for a manual out-of-band run overlapping the scheduled loop
+# (riftal-infra#166): holds backup.sh's own lock directory directly, without
+# running backup.sh itself, so the contended run below has something real to
+# fail against.
+backups 'mkdir /backups/.lock'
+
+if run_backup 3 mysql selftest >/tmp/out-lock-contended.log 2>&1; then
+  fail "a run against an already-locked BACKUP_ROOT should exit nonzero"
+else
+  pass "a run against an already-locked BACKUP_ROOT exits nonzero"
+fi
+
+if grep -qi 'lock' /tmp/out-lock-contended.log; then
+  pass "the lock contention failure is logged, not silent"
+else
+  fail "expected a logged lock-contention message"; cat /tmp/out-lock-contended.log
+fi
+
+backups 'rmdir /backups/.lock'
+
+if run_backup 3 mysql selftest >/tmp/out-lock-released.log 2>&1; then
+  pass "a run succeeds once the earlier run's lock is released"
+else
+  fail "a run should succeed once the lock is released"; cat /tmp/out-lock-released.log
+fi
+
+section "retention never treats its own held lock directory as a backup set to prune"
+# A run's own lock is created at the start and released only by the EXIT
+# trap at the very end, so it is present throughout that same run's own
+# retention step (riftal-infra#166). Checking "does .lock exist after the
+# run" cannot tell a fixed retention from a broken one: the EXIT trap's
+# rmdir removes it either way once the script exits, whether or not
+# retention's prune loop already got there first. What distinguishes them
+# is whether that loop ever names the lock directory as something to
+# prune, which its own log records regardless of timing, so BACKUP_RETENTION
+# is set here to the current real backup count, guaranteeing this run's
+# retention step has something to prune and so actually exercises the
+# excluded-name list.
+retention_lock_count="$(backups "ls -1 /backups | grep -cv '\.partial$'")"
+if run_backup "$retention_lock_count" mysql selftest >/tmp/out-lock-retention.log 2>&1; then
+  pass "a run whose own retention step has something to prune still exits 0"
+else
+  fail "a run whose own retention step has something to prune should exit 0"; cat /tmp/out-lock-retention.log
+fi
+
+if grep -q 'pruning .*\.lock' /tmp/out-lock-retention.log; then
+  fail "retention named the lock directory as a prune candidate, riftal-infra#166's exact regression"
+else
+  pass "retention never names the lock directory as a prune candidate"
+fi
+
 section "an unreachable database fails loudly instead of producing nothing"
 if run_backup 10 no-such-mysql-host selftest >/tmp/out-unreachable.log 2>&1; then
   fail "a run against an unreachable database should exit nonzero"
@@ -225,4 +277,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, loud failure.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, loud failure.\n' "$PASSES"
