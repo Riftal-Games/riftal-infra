@@ -132,6 +132,7 @@ services:
       BACKUP_RETENTION: ${BACKUP_RETENTION:-10}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-21600}
       PARTIAL_MAX_AGE_MINUTES: ${PARTIAL_MAX_AGE_MINUTES:-360}
+      LOCK_MAX_AGE_MINUTES: ${LOCK_MAX_AGE_MINUTES:-90}
     volumes:
       - riftal-backups:/backups
       # One read-only mount per instance world volume. Adding an instance
