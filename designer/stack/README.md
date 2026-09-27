@@ -67,8 +67,10 @@ docker compose logs -f designer
 
 Ready is the line starting `Done (`; the timing in the parentheses varies per
 boot. DevTools is loaded when `[DevTools] Registered folder plugin loader` and
-`Enabling DevTools` appear before it. Any `[CRITICAL]` or exception in the log
-is a failed boot even though the container is still running.
+`Enabling DevTools` appear before it. PocketMine logs severity as
+`[<thread>/<LEVEL>]`, so check for `/(ERROR|CRITICAL|EMERGENCY|ALERT)]` or an
+exception in the log; either one is a failed boot even though the container is
+still running.
 
 `start.sh` prints a `WARNING` that files under `/plugins` are not owned by
 `pocketmine` when `plugins/` is a bind mount from Windows. The phar still loads;
