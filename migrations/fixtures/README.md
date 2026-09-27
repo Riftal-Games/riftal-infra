@@ -11,3 +11,7 @@ only real source of those; these exist only so `selftest.sh` can prove
   that the broken one stops the run without being recorded.
 - `empty/` holds only a `.gitkeep`, standing in for a migrations directory
   with nothing pending yet.
+- `race/` holds one file with a `SLEEP` in it, wide enough that two
+  concurrent `run-migrations.sh` invocations racing the same lock name both
+  land inside the window where the file still looks pending, so the
+  self-test's lock-contention assertion has something to actually contend.
