@@ -90,6 +90,9 @@ jobs:
       - name: Backup job self-test
         run: bash deploy/selftest.sh
 
+      - name: Restore drill self-test
+        run: bash deploy/restore-selftest.sh
+
       - name: Designer toolkit tests
         working-directory: designer
         run: |
