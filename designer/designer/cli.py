@@ -10,6 +10,7 @@ from typing import Any
 
 from designer import __version__
 from designer import snapshot as snapshots
+from designer import stack as stack_mod
 from designer import terrain as terrain_mod
 from designer.bridge import Bridge, BridgeError
 from designer.builders import BUILDERS
@@ -93,6 +94,17 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--apply", action="store_true", help="Send the edits and register the index; default is a dry run that only reports them.")
     build.add_argument("--no-verify", action="store_true", help="Skip mine_valid on the built region.")
     build.add_argument("--no-index", action="store_true", help="Skip registering the builder's locations and regions.")
+
+    stack = commands.add_parser("stack", help="Manage the designer stack container.")
+    stacks = stack.add_subparsers(dest="stack")
+    stacks.required = True
+    stacks.add_parser("up", help="Start the designer stack detached.")
+    stacks.add_parser("down", help="Send stop, wait for the shutdown line, then remove the container.")
+    stacks.add_parser("logs", help="Print the container's log.")
+    console_cmd = stacks.add_parser("console", help="Send one console command to the running server.")
+    console_cmd.add_argument("line", help="The command to send, e.g. 'say hello'.")
+    stacks.add_parser("build-image", help="Build the local-pocketmine-mp image from the pmmp-core sibling repo.")
+    stacks.add_parser("build-devtools", help="Build DevTools.phar from pmmp-core's DevTools plugin.")
     return parser
 
 
@@ -202,11 +214,38 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> str:
     return json.dumps(report, indent=2, sort_keys=True)
 
 
+def _stack(options: argparse.Namespace) -> str:
+    runtime = stack_mod.runtime_name()
+    if options.stack == "up":
+        stack_mod.up(runtime)
+        return "up"
+    if options.stack == "down":
+        stack_mod.down(runtime)
+        return "down"
+    if options.stack == "logs":
+        return stack_mod.logs(runtime)
+    if options.stack == "console":
+        stack_mod.console(runtime, options.line)
+        return f"sent: {options.line}"
+    if options.stack == "build-image":
+        stack_mod.build_image(runtime)
+        return f"built {stack_mod.IMAGE}"
+    stack_mod.build_devtools(runtime)
+    return "built DevTools.phar"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     options = parser.parse_args(argv)
     if options.command is None:
         parser.print_help()
+        return 0
+    if options.command == "stack":
+        try:
+            print(_stack(options))
+        except stack_mod.StackError as exc:
+            print(f"designer: {exc}", file=sys.stderr)
+            return 1
         return 0
     try:
         settings = load_settings()
