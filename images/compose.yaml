@@ -84,7 +84,9 @@ services:
         --motd=riftal-dev
         --riftal-dev-bots=on
     # Rollout order, the same one /deploy-release uses: database, then
-    # instances. Nothing here reads MySQL yet; the order is what M1 inherits.
+    # instances. With RiftalMines.phar built, the plugin connects to MySQL
+    # synchronously on enable, and a database that does not answer yet takes
+    # the whole server down within seconds of boot.
     depends_on:
       mysql:
         condition: service_healthy
