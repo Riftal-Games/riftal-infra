@@ -48,14 +48,12 @@ done
 
 if [ -f "$here/RiftalMines.phar" ]; then
 	# The plugin's bundled config names a database nothing here resolves, and
-	# it connects on enable, so without the rendered one the whole server dies.
-	if [ ! -f "$here/RiftalMines.config.yml" ]; then
-		echo "start-instance.sh: RiftalMines.phar is built but RiftalMines.config.yml is not rendered; run render-config.sh" >&2
-		exit 1
-	fi
-	cp "$here/RiftalMines.phar" "$roster/"
+	# it connects on enable, so a config with the wrong password takes the
+	# whole server down. Rendering from this container's own environment on
+	# every boot means the password is always the one mysql was started with.
 	mkdir -p /data/plugin_data/RiftalMines
-	cp "$here/RiftalMines.config.yml" /data/plugin_data/RiftalMines/config.yml
+	bash "$here/render-config.sh" /data/plugin_data/RiftalMines/config.yml
+	cp "$here/RiftalMines.phar" "$roster/"
 fi
 
 cd /opt/pocketmine
