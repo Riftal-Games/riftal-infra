@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -151,6 +152,12 @@ def test_load_applies_every_rule_add_applies(index: WorldIndex, tmp_path: Path, 
         WorldIndex.load(path)
     with pytest.raises(type(refusal), match="rule_only_add_knows"):
         index.add_location(Location("gate", "design", (0, 0, 0)))
+
+
+def test_load_reports_an_unreadable_file_as_an_index_file_error(tmp_path: Path) -> None:
+    for path in (tmp_path / "missing.json", tmp_path):
+        with pytest.raises(world_index.IndexFileError, match=rf"^cannot read the world index {re.escape(str(path))}: \S"):
+            WorldIndex.load(path)
 
 
 def test_load_reports_a_bare_key_error_as_a_value_error(index: WorldIndex, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

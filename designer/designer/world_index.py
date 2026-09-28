@@ -97,6 +97,11 @@ def _missing(kind: str, name: str, known: Sequence[str]) -> KeyError:
     hint = f", did you mean {near[0]!r}?" if near else ""
     return KeyError(f"no such {kind} {name!r}{hint}")
 
+
+class IndexFileError(ValueError):
+    """The index file could not be read; a ``ValueError`` so every caller that reports a bad index reports this one too."""
+
+
 @dataclass
 class WorldIndex:
     version: int = VERSION
@@ -109,7 +114,11 @@ class WorldIndex:
     @classmethod
     def load(cls, path: Path | None = None) -> WorldIndex:
         path = DEFAULT_PATH if path is None else Path(path)
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise IndexFileError(f"cannot read the world index {path}: {exc.strerror or exc}") from None
+        data = json.loads(text)
         if data.get("version") != VERSION:
             raise ValueError(f"{path} is version {data.get('version')!r}; this toolkit reads version {VERSION}")
         lists = {kind: [t.from_json(e) for e in data.get(kind, [])] for kind, t in zip(KINDS, (WorldEntry, Location, NamedRegion))}

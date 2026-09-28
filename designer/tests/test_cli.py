@@ -68,6 +68,33 @@ def test_index_reports_a_bad_file_without_a_traceback(monkeypatch: pytest.Monkey
     assert main(["index", "list"]) == 1 and capsys.readouterr().err.startswith("designer: ")
 
 
+@pytest.mark.parametrize("args", [
+    ["index", "resolve", "spawn"],
+    ["heightmap", "--at", "spawn", "--size", "8"],
+    ["render", "topdown", "--at", "spawn", "--size", "8"],
+    ["render", "slice", "--at", "spawn", "--size", "8", "--y", "64"],
+    ["terrain", "analyze", "--at", "spawn", "--size", "8"],
+    ["build", "mine", "--spec", "{spec}", "--palette", "mine_stone"],
+    ["build", "mine", "--spec", "{spec}", "--palette", "mine_stone", "--apply"],
+    ["checks", "run"],
+], ids=["index-resolve", "heightmap", "render-topdown", "render-slice", "terrain-analyze", "build-dry-run", "build-apply", "checks-run"])
+def test_every_command_reports_a_missing_index_in_one_line(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path, args: list[str]
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    missing = tmp_path / "missing.json"
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", missing)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+
+    assert main([a.format(spec=spec_path) for a in args]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(f"designer: cannot read the world index {missing}: ") and captured.err.count("\n") == 1
+    assert fake.requests == []
+
+
 def test_heightmap_prints_the_map_with_header_and_legend(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
