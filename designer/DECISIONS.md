@@ -609,3 +609,15 @@ every zone or none. Before its checks, the build registers each step's locations
 into its own copy of the index through `WorldIndex.register`, the helper the MCP `build` tool
 and `designer build` use, replacing any committed entry of the same name because the step is
 what ships. The committed `world_index.json` is never written by a level build.
+
+## 2026-09-29 A level build refuses a step that names a committed index entry differently
+
+Instances are delivered the committed `world_index.json`, not the build's copy (ADR 009), so a
+step that replaced a committed entry with a differently placed one let the checks and the lock
+pass on geometry the delivered index does not carry (#357). A step may name a committed entry
+only by reproducing it exactly, compared as whole entries: kind, world, coordinates, yaw,
+pitch, tags and meta. Anything else refuses before that step sends an edit, naming the entry
+and each field with the step's value and the committed one. Carrying the step's entry into the
+lock instead was rejected: the lock would then describe an index no instance receives, and
+moving a committed entry stays a change to `world_index.json` a reviewer sees. This supersedes
+the replacement described in the entry above.

@@ -24,8 +24,10 @@ read and written by `designer/level.py`.
   committed file relative to `designer/`, `palette` a name in `palettes.json`. Every
   step must write the zone's world.
 - Each step's locations and regions are registered into the build's own copy of
-  `world_index.json` before the checks run, replacing a committed entry of the same
-  name. The committed file is never written, and two steps naming one entry refuse.
+  `world_index.json` before the checks run. The committed file is never written. A
+  step may name a committed entry only by reproducing it exactly: a name whose kind,
+  world, coordinates, tags or other fields differ refuses the build before that step
+  writes anything, naming the entry and each field. Two steps naming one entry refuse.
 - A check belongs to a zone when its `checks.yaml` entry carries `zone: <zone>`. The
   build runs only those, and needs at least one. Each must resolve against the built
   index, read the zone's world and pass. A check with no `zone` never gates a build.

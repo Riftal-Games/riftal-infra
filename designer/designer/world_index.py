@@ -222,7 +222,7 @@ class WorldIndex:
         return self._add(region, self.regions, replace)
 
     def register(self, locations: Iterable[Mapping[str, Any]], regions: Iterable[Mapping[str, Any]], *, replace: bool = False) -> None:
-        """Add a builder's ``locations`` and ``regions`` JSON: the MCP ``build``, ``designer build`` and ``build_level`` all register here."""
+        """Add a builder's ``locations`` and ``regions`` JSON, locations first; a taken name raises unless ``replace``, which overwrites it."""
         for loc in locations:
             self.add_location(Location.from_json(dict(loc)), replace=replace)
         for reg in regions:

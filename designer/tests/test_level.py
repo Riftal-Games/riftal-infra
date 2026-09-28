@@ -1,13 +1,17 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 
+from designer import world_index
 from designer.bridge import Bridge
+from designer.builders import BUILDERS
+from designer.builders.base import Palette
 from designer.level import LevelError, Saved, build_level, content_sha256, pregen_bounds
 from designer.region import Bounds, Bounds2D, Region, fetch_region
-from designer.world_index import Location, WorldEntry, WorldIndex
+from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge, FakeWorld
 
@@ -153,15 +157,43 @@ def test_zone_checks_must_exist_resolve_and_read_the_zone(bridge: Bridge, root: 
     assert not (root / "levels" / "zt.lock.json").exists()
 
 
+def _step_spawn() -> Location:
+    locations = BUILDERS["mine"]({**SMALL_MINE_SPEC, "world": "zt"}, Palette.load("test_stone"), None).extras["locations"]
+    return next(Location.from_json(l) for l in locations if l["name"] == "tbox_spawn")
+
+
 def test_zone_checks_resolve_names_the_steps_made(bridge: Bridge, root: Path) -> None:
     _checks(root, {"check": "region_inside", "zone": "zt", "inner": "tbox_interior", "outer": "tbox"},
             {"check": "entity_clear", "zone": "zt", "at": "tbox_spawn"})
     index = _index()
-    buried = Location("tbox_spawn", "zt", (40, 10, 40))
-    index.locations.append(buried)
+    committed = _step_spawn()
+    index.locations.append(committed)
     assert _build(bridge, root, index=index).exists()
-    assert index.resolve("tbox_spawn") is buried
+    assert index.resolve("tbox_spawn") is committed
     assert not (SMALL_MINE_NAMES - {"tbox_spawn"}) & index.names().keys(), "the build registered into the caller's index"
+
+
+@pytest.mark.parametrize(("change", "match"), [
+    pytest.param(lambda s: Location(s.name, s.world, (40, 10, 40), s.yaw, s.pitch, s.tags), r"pos \[3, 1, -2\] \(world_index.json \[40, 10, 40\]\)", id="pos"),
+    pytest.param(lambda s: Location(s.name, "zo", s.pos, s.yaw, s.pitch, s.tags), "world zt .world_index.json zo.", id="world"),
+    pytest.param(lambda s: NamedRegion(s.name, s.world, s.pos, s.pos), "Location in the step, a NamedRegion", id="kind"),
+])
+def test_a_step_differing_from_a_committed_entry_refuses(fake: FakeBridge, bridge: Bridge, root: Path, change: Any, match: str) -> None:
+    index = _index()
+    index.worlds.append(WorldEntry("zo", "normal", 7, "lumber"))
+    committed = change(_step_spawn())
+    (index.regions if isinstance(committed, NamedRegion) else index.locations).append(committed)
+    with pytest.raises(LevelError, match=rf"step 0 .* differs from world_index.json: 'tbox_spawn' .*{match}"):
+        _build(bridge, root, index=index)
+    assert not fake.worlds["zt"].edits and not (root / "levels" / "zt.lock.json").exists()
+
+
+def test_the_committed_index_file_is_byte_identical_after_a_build(bridge: Bridge, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _index().save(root / "world_index.json", updated="2026-09-29T00:00:00+00:00")
+    before = path.read_bytes()
+    monkeypatch.setattr(world_index, "DEFAULT_PATH", path)
+    assert build_level(bridge, "zt", lambda: SAVED, root=root, checks_path=root / "checks.yaml").exists()
+    assert path.read_bytes() == before
 
 
 def test_other_zones_unresolved_checks_do_not_block(bridge: Bridge, root: Path) -> None:
