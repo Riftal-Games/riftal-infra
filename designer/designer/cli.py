@@ -23,7 +23,7 @@ from designer.palettes import load_palettes
 from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region
 from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, slice_png, summary, topdown_png
 from designer.verify import mine_valid
-from designer.world_index import Location, NamedRegion, WorldIndex, resolve_at
+from designer.world_index import KINDS, Location, NamedRegion, WorldIndex, resolve_at
 
 
 def _add_area(parser: argparse.ArgumentParser) -> None:
@@ -48,6 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("ping", help="Round-trip the bridge and print the time.")
     commands.add_parser("info", help="Print the bridge's server_info.")
+    index = commands.add_parser("index", help="Query world_index.json without a server.")
+    index_commands = index.add_subparsers(dest="index_command", required=True)
+    listing = index_commands.add_parser("list", help="Print worlds, locations and regions as JSON.")
+    listing.add_argument("--kind", choices=KINDS)
+    listing.add_argument("--tag", help="Only locations and regions carrying this tag.")
+    index_commands.add_parser("resolve", help="Print the location or region called NAME.").add_argument("name")
     heightmap = commands.add_parser("heightmap", help="Print an ASCII heightmap of a square around a point.")
     _add_area(heightmap)
     heightmap.add_argument("--band", type=int, metavar="B", help="Blocks of height per ramp character.")
@@ -260,6 +266,21 @@ def _checks_run(bridge: Bridge, options: argparse.Namespace) -> int:
     return 1 if report.failed else 0
 
 
+def _run_index(options: argparse.Namespace) -> int:
+    try:
+        index = WorldIndex.load()
+        if options.index_command == "resolve":
+            print(json.dumps(index.resolve(options.name).to_json(), sort_keys=True))
+            return 0
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"designer: {exc.args[0] if isinstance(exc, KeyError) else exc}", file=sys.stderr)
+        return 1
+    kinds = (options.kind,) if options.kind else KINDS[1:] if options.tag else KINDS
+    data = index.to_json()
+    print(json.dumps({k: [e for e in data[k] if not options.tag or options.tag in e.get("tags", [])] for k in kinds}, indent=2, sort_keys=True))
+    return 0
+
+
 def _stack(options: argparse.Namespace) -> str:
     runtime = stack_mod.runtime_name()
     if options.stack == "up":
@@ -286,6 +307,8 @@ def main(argv: list[str] | None = None) -> int:
     if options.command is None:
         parser.print_help()
         return 0
+    if options.command == "index":
+        return _run_index(options)
     if options.command == "stack":
         try:
             print(_stack(options))
