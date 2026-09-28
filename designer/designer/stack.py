@@ -37,6 +37,7 @@ STOP_TIMEOUT = 60
 SHUTDOWN_MARKER = "Stopping other threads"
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+_PROJECT_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
 
 class StackError(Exception):
@@ -72,10 +73,55 @@ def _expand(value: object, env: Mapping[str, str]) -> str:
     return _VAR_RE.sub(repl, str(value))
 
 
+def _project_name(document: Mapping[str, object], compose_file: Path, env: Mapping[str, str]) -> str:
+    """Compose's project name: a non-empty ``COMPOSE_PROJECT_NAME`` taken as
+    given and refused unless it is lowercase letters, digits, ``_`` and ``-``
+    starting with a letter or digit, else the interpolated top-level
+    ``name:``, else the compose file's directory name, both normalized.
+
+    Only an absent or literal empty ``name:`` falls back to the directory.
+    Compose refuses a ``name:`` that is not a string with ``name must be a
+    string``, and one that interpolates or normalizes to empty with ``project
+    name must not be empty``."""
+    explicit = env.get("COMPOSE_PROJECT_NAME")
+    if explicit:
+        if not _PROJECT_RE.fullmatch(explicit):
+            raise StackError(f"COMPOSE_PROJECT_NAME {explicit!r} is not a valid compose project name.")
+        return explicit
+    top = document.get("name", "")
+    if not isinstance(top, str):
+        raise StackError(f"the top-level name {top!r} is not a string; docker compose refuses it too.")
+    raw = _expand(top, env) if top else compose_file.resolve().parent.name
+    project = re.sub(r"[^a-z0-9_-]", "", raw.lower()).lstrip("_-")
+    if not project:
+        raise StackError(f"cannot derive a compose project name from {raw!r}.")
+    return project
+
+
+def _volume_names(declared: Mapping[str, object], project: str, env: Mapping[str, str]) -> dict[str, str]:
+    """Map each top-level volume key to the volume compose would mount. Compose
+    refuses a null ``name:`` with ``must be a string`` and one that resolves
+    empty with ``invalid volume name or ID: value is empty``, so either is
+    refused here rather than mounted."""
+    names = {}
+    for key, value in declared.items():
+        value = value or {}
+        if "name" in value:
+            name = _expand(value["name"] or "", env)
+            if not name:
+                raise StackError(f"volume {key!r} has a name that resolves empty; docker compose refuses it too.")
+        elif value.get("external"):
+            name = key
+        else:
+            name = f"{project}_{key}"
+        names[key] = name
+    return names
+
+
 def _resolve_volume(spec: str, base: Path, names: Mapping[str, str]) -> str:
-    """A bare name (``designer-world``) is a named volume, mapped through the
-    top-level ``name:`` the way compose maps it; a ``./`` or ``../`` host
-    resolves relative to the compose file, same as compose."""
+    """A bare name (``designer-world``) is a named volume, mapped to the name
+    compose gives it; a ``./`` or ``../`` host resolves relative to the compose
+    file, same as compose."""
     host, _, remainder = spec.partition(":")
     if host.startswith("./") or host.startswith("../"):
         host = str((base / host).resolve()).replace("\\", "/")
@@ -92,7 +138,7 @@ def load_service(compose_file: Path = COMPOSE_FILE, env: Mapping[str, str] | Non
         document = yaml.safe_load(compose_file.read_text(encoding="utf-8"))
         service = document["services"][SERVICE]
         declared = document.get("volumes") or {}
-        names = {key: _expand(value["name"], env) for key, value in declared.items() if value and "name" in value}
+        names = _volume_names(declared, _project_name(document, compose_file, env), env)
     except (OSError, yaml.YAMLError, KeyError, TypeError, AttributeError) as exc:
         raise StackError(f"cannot read the {SERVICE!r} service from {compose_file}: {exc}") from exc
     base = compose_file.parent
