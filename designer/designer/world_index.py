@@ -3,7 +3,7 @@ from __future__ import annotations
 import difflib
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -144,6 +144,11 @@ class WorldIndex:
 
     def names(self) -> dict[str, Location | NamedRegion]:
         return {e.name: e for e in (*self.locations, *self.regions)}
+
+    def taken(self, entries: Iterable[Mapping[str, Any]]) -> list[str]:
+        """The names among ``entries``, a builder's location and region JSON, that this index already defines, sorted."""
+        defined = self.names()
+        return sorted(e["name"] for e in entries if e["name"] in defined)
 
     def world(self, name: str) -> WorldEntry:
         for entry in self.worlds:

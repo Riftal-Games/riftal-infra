@@ -8,7 +8,7 @@ from designer import config
 from designer import stack as stack_mod
 from designer.cli import main
 from designer.render import LEGEND_LINE
-from designer.world_index import Location, WorldEntry, WorldIndex
+from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge
 
@@ -220,7 +220,32 @@ def test_build_apply_registers_the_index_then_refuses_the_second_apply(
 
     assert main(args) == 0
     again = json.loads(capsys.readouterr().out)
-    assert again["ok"] is False and "already defined" in again["error"] and Path(again["snapshot"]).is_file()
+    assert again["ok"] is False and "already defined" in again["error"] and "snapshot" not in again
+
+
+def test_build_apply_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    monkeypatch.setattr(config, "SNAPSHOTS_DIR", tmp_path / "snapshots")
+    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
+    seeded = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
+    seeded.add_location(Location("tbox_spawn", "design", (0, 64, 0)))
+    seeded.add_region(NamedRegion("tbox", "design", (0, 60, 0), (1, 61, 1)))
+    index_path = seeded.save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--apply"]) == 0
+    refused = json.loads(capsys.readouterr().out)
+    assert refused["ok"] is False and refused["error"].startswith("['tbox', 'tbox_spawn'] already defined")
+    assert [r["op"] for r in fake.requests if r["op"] in ("set_blocks", "fill", "replace")] == []
+    assert "snapshot" not in refused and refused["extras_report"] is None
+    assert not (tmp_path / "snapshots").exists() and not (tmp_path / "reports").exists()
+    assert WorldIndex.load(index_path).to_json() == seeded.to_json()
 
 
 def test_build_apply_writes_the_extras_report_matching_the_mcp_build_tool(

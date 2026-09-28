@@ -489,10 +489,25 @@ def test_build_refuses_to_overwrite_the_index_unless_replace_index(server: FakeB
 
     again = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")
     assert again["ok"] is False and "already defined" in again["error"]
-    assert again["snapshot"] and again["undo_id"] == 2
+    assert "snapshot" not in again and len(call("list_undo")["entries"]) == 1
 
     replaced = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone", replace_index=True)
-    assert replaced["ok"] and replaced["undo_id"] == 3
+    assert replaced["ok"] and replaced["undo_id"] == 2
+
+
+def test_build_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    seeded = WorldIndex.load(tmp_path / "index.json")
+    seeded.add_location(Location("tbox_spawn", "design", (0, 64, 0)))
+    seeded.add_region(NamedRegion("tbox", "design", (0, 60, 0), (1, 61, 1)))
+    seeded.save(tmp_path / "index.json")
+
+    refused = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")
+    assert refused == {"ok": False, "error": "['tbox', 'tbox_spawn'] already defined; pass replace_index=True to overwrite", "code": None}
+    assert _writes(server) == [] and call("list_undo")["entries"] == []
+    assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
 
 
 def test_build_unknown_kind_and_a_spec_path_outside_specs_are_refused(server: FakeBridge) -> None:
