@@ -15,7 +15,7 @@ import numpy as np
 from designer import __version__, config
 from designer.blocks import RLE_ORDER
 from designer.bridge import Bridge
-from designer.edits import DEFAULT_BATCH, ApplyResult, EditList, SetBlock
+from designer.edits import DEFAULT_BATCH, ApplyResult, EditList, Fill, Op, SetBlock
 from designer.region import Bounds, Region, fetch_region
 
 TS_FORMAT = "%Y%m%dT%H%M%S.%fZ"
@@ -100,6 +100,42 @@ def diff(a: Snapshot | Region, b: Snapshot | Region) -> Diff:
     return Diff(int(mask.sum()), bbox, by_type)
 
 
+def _restore_ops(target: Region, mask: np.ndarray, batch: int) -> list[Op]:
+    """The ops that repaint every ``True`` cell of ``mask`` back to ``target``.
+
+    Runs of equal value along x are found in numpy: a sentinel marks the cells
+    ``mask`` excludes, a boolean diff finds where each run starts, and the run
+    lengths come from the gaps between starts. That is one pass over the array
+    regardless of how many runs it holds, rather than a Python loop building one
+    ``SetBlock`` per changed cell before anything is coalesced, which is two
+    million iterations for a fully changed 128^3 region. A run becomes a
+    ``Fill`` only once it is longer than ``batch``: shorter than that, its cells
+    ride in the same shared ``set_blocks`` request as every other row's, for
+    free, while a ``Fill`` always costs one request of its own however short the
+    run, however many other rows are waiting in the same batch.
+    """
+    ny, nz, nx = mask.shape
+    x0, y0, z0 = target.bounds.min
+    coded = np.where(mask, target.blocks.astype(np.int32), np.int32(-1)).reshape(-1, nx)
+    starts_here = np.ones_like(coded, dtype=bool)
+    if nx > 1:
+        starts_here[:, 1:] = coded[:, 1:] != coded[:, :-1]
+    flat, starts = coded.ravel(), np.flatnonzero(starts_here.ravel())
+    lengths, values = np.append(starts[1:], flat.size) - starts, flat[starts]
+    rows, x_local = np.divmod(starts, nx)
+    iy, iz = np.divmod(rows, nz)
+    ops: list[Op] = []
+    for y, z, x, length, value in zip(iy.tolist(), iz.tolist(), x_local.tolist(), lengths.tolist(), values.tolist()):
+        if value < 0:
+            continue
+        block = target.palette[value]
+        if length > batch:
+            ops.append(Fill(Bounds((x0 + x, y0 + y, z0 + z), (x0 + x + length - 1, y0 + y, z0 + z)), block))
+        else:
+            ops.extend(SetBlock(x0 + x + i, y0 + y, z0 + z, block) for i in range(length))
+    return ops
+
+
 def restore(
     bridge: Bridge, snap: Snapshot, *, only_changed: bool = True, dry_run: bool = False, batch: int = DEFAULT_BATCH,
 ) -> ApplyResult:
@@ -110,9 +146,7 @@ def restore(
         mask = target.blocks != now
     else:
         mask = np.ones(target.blocks.shape, dtype=bool)
-    x0, y0, z0 = snap.bounds.min
-    ops = [SetBlock(x0 + ix, y0 + iy, z0 + iz, target.palette[target.blocks[iy, iz, ix]]) for iy, iz, ix in zip(*np.nonzero(mask))]
-    edits = EditList(snap.world, ops, {"restore": str(snap.path)}).coalesce()
+    edits = EditList(snap.world, _restore_ops(target, mask, batch), {"restore": str(snap.path)})
     return edits.apply(bridge, dry_run=dry_run, batch=batch, before=lambda world, bounds: take(bridge, world, bounds, "restore"))
 
 
@@ -174,12 +208,25 @@ class UndoStack:
         return results
 
     def prune(self, keep_days: int = 14, *, dry_run: bool = True) -> list[Path]:
-        """Snapshots older than ``keep_days``; with ``dry_run`` off they and their entries are deleted."""
+        """Snapshots older than ``keep_days``; with ``dry_run`` off they and their entries are deleted.
+
+        Every path is resolved against ``SNAPSHOTS_DIR`` and refused if it lands
+        outside it, checked for every entry before anything is unlinked, so a
+        manifest hand-edited or corrupted to name a path elsewhere never reaches
+        ``unlink`` and never deletes part of the batch before the refusal.
+        """
         cutoff = datetime.now(UTC) - timedelta(days=keep_days)
         entries = self.entries()
         old = [e for e in entries if datetime.strptime(e["timestamp"], TS_FORMAT).replace(tzinfo=UTC) < cutoff]
         if old and not dry_run:
+            root = config.SNAPSHOTS_DIR.resolve()
+            resolved = []
             for entry in old:
-                Path(entry["path"]).unlink(missing_ok=True)
+                path = Path(entry["path"]).resolve()
+                if not path.is_relative_to(root):
+                    raise ValueError(f"{entry['path']!r} resolves outside the snapshots directory {root}")
+                resolved.append(path)
+            for path in resolved:
+                path.unlink(missing_ok=True)
             self._write([e for e in entries if e not in old])
         return [Path(e["path"]) for e in old]
