@@ -17,12 +17,14 @@ read and written by `designer/level.py`.
 
 - The file name is the zone. It matches `^[a-z0-9_]+$` and never contains `world`,
   `player` or `backup`, which are refused before any engine call.
-- `generator` and `seed` are authoritative. The zone's `worlds` entry in
-  `world_index.json` must exist and agree, or the build fails before any engine call.
+- `generator` and `seed` are authoritative. `seed` must be a JSON integer: `7.0`,
+  `"7"` and `true` are refused. The zone's `worlds` entry in `world_index.json` must
+  exist and agree, or the build fails before any engine call.
 - `bounds` is the box that must exist as chunks, and the box `content_sha256` covers.
 - `steps` run in order. `build` is a builder in `designer.builders.BUILDERS`, `spec` a
   committed file relative to `designer/`, `palette` a name in `palettes.json`. Every
-  step must write the zone's world.
+  step's spec must name the zone as its `world`. An unknown builder or palette, or a
+  spec naming another world, refuses the build before any engine call.
 - Each step's locations and regions are registered into the build's own copy of
   `world_index.json` before the checks run. The committed file is never written. A
   step may name a committed entry only by reproducing it exactly: a name whose kind,

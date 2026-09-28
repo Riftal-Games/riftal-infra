@@ -114,12 +114,32 @@ def test_unknown_builder_refuses_before_any_call(fake: FakeBridge, bridge: Bridg
     assert fake.requests == []
 
 
-def test_step_writing_another_world_refuses(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
-    fake.worlds["zo"] = FakeWorld()
-    (root / "specs" / "zt.json").write_text(json.dumps({**SMALL_MINE_SPEC, "world": "zo"}), encoding="utf-8")
-    with pytest.raises(LevelError, match="writes world 'zo'"):
+def test_unknown_palette_refuses_before_any_call(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    recipe = {**RECIPE, "steps": [{"build": "mine", "spec": "specs/zt.json", "palette": "test_stoen"}]}
+    (root / "levels" / "zt.json").write_text(json.dumps(recipe), encoding="utf-8")
+    with pytest.raises(LevelError, match="step 0: no palette 'test_stoen'"):
         _build(bridge, root)
-    assert not fake.worlds["zo"].edits and not (root / "levels" / "zt.lock.json").exists()
+    assert fake.requests == []
+
+
+@pytest.mark.parametrize("seed", [7.9, 7.0, "7", True, None])
+def test_seed_that_is_not_an_integer_refuses_before_any_call(fake: FakeBridge, bridge: Bridge, root: Path, seed: Any) -> None:
+    (root / "levels" / "zt.json").write_text(json.dumps({**RECIPE, "seed": seed}), encoding="utf-8")
+    with pytest.raises(LevelError, match="seed must be an integer"):
+        _build(bridge, root)
+    assert fake.requests == []
+
+
+@pytest.mark.parametrize(("spec", "match"), [
+    pytest.param({**SMALL_MINE_SPEC, "world": "zo"}, "step 0 .* writes world 'zo', not the zone 'zt'", id="other-zone"),
+    pytest.param({k: v for k, v in SMALL_MINE_SPEC.items() if k != "world"}, "cannot read the world of spec", id="no-world"),
+])
+def test_step_naming_another_world_refuses_before_any_call(fake: FakeBridge, bridge: Bridge, root: Path, spec: dict, match: str) -> None:
+    fake.worlds["zo"] = FakeWorld()
+    (root / "specs" / "zt.json").write_text(json.dumps(spec), encoding="utf-8")
+    with pytest.raises(LevelError, match=match):
+        _build(bridge, root)
+    assert fake.requests == []
 
 
 def test_failed_step_refuses(fake: FakeBridge, bridge: Bridge, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
