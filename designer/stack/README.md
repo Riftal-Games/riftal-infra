@@ -1,6 +1,7 @@
 # Designer stack
 
-One core container, no proxy, no database. `compose.yaml` is the definition;
+One core container, no proxy, no database. It also admits dev bots on
+request; see [Bot scenarios](#bot-scenarios). `compose.yaml` is the definition;
 the commands below are its standard docker form, followed by the `wslc` form
 for local use. All paths assume this directory as the working directory and
 `pmmp-core` as a sibling of `riftal-infra`.
@@ -127,6 +128,67 @@ docker compose down
 
 `down` keeps the named volume.
 
+## Bot scenarios
+
+This stack is the one where a playtester scenario can drive a DesignBridge op
+(`fill`, `get_light`) and check both its effect in the world and its audit
+line. `images/plugins/RiftalDevBots.php` is mounted here as well, so bots are
+admitted under the same three signals as on the dev stack: the
+`riftal-dev-bots` flag, `xbox-auth=false`, and `RIFTAL_DEV_ENV=1`. The flag is
+`DESIGNER_DEV_BOTS`, `off` by default, so a builder's session never admits
+bots it did not ask for.
+
+A scenario edits the world, so it never runs on `designer-world`. Point
+`DESIGNER_VOLUME` at a `riftal_smoke_` volume, which the guard lets you remove
+afterwards; a name with `world` in it is refused even with that prefix.
+
+```sh
+export DESIGNBRIDGE_TOKEN=choose-your-own-value
+export DESIGNER_DEV_BOTS=on DESIGNER_VOLUME=riftal_smoke_designbridge
+docker compose up -d
+```
+
+Before running anything, read the boot log for all of these, plus `Done (`
+and no `/(ERROR|CRITICAL|EMERGENCY|ALERT)]`:
+
+- `[RiftalDevBots] dev bots admitted`. `dev bots refused` means
+  `DESIGNER_DEV_BOTS` did not reach the container.
+- `[DesignBridge] enabled, bridge target 0.0.0.0:19140`. `no token
+  configured` means `DESIGNBRIDGE_TOKEN` was empty.
+
+How a scenario reaches the stack, from `riftal-pm/devtools`:
+
+- **Bots** join through a second `relay.js` (see the root `CLAUDE.md` on why
+  bots never join a published port directly). `19142` stays the dev stack's
+  relay, so this one listens on `19143` and forwards to this stack's game
+  port:
+
+  ```sh
+  RELAY_PORT=19143 RELAY_UPSTREAM_PORT=19134 node relay.js
+  BOT_PORT=19143 node run-scenario.js <name> --container <container>
+  ```
+
+  `<container>` is `designer` under `wslc`, or `docker compose ps -q
+  designer` under compose; add `--engine docker` for the WSL docker engine.
+- **Ops** go to `127.0.0.1:19140` over TCP with `DESIGNBRIDGE_TOKEN`, the same
+  protocol `designer/`'s toolkit bridge client speaks.
+- **The audit line** is appended to
+  `/data/plugin_data/DesignBridge/designbridge.log` inside the container:
+
+  ```sh
+  docker compose exec designer cat /data/plugin_data/DesignBridge/designbridge.log
+  ```
+
+Under the WSL docker engine (`wsl -d Ubuntu-26.04 -u runner -- docker ...`),
+the distro runs bridged and a `127.0.0.1` publish there is not reachable from
+Windows. Set `DESIGNER_BIND` to the distro's own address, the first one
+`wsl -d Ubuntu-26.04 -- hostname -I` prints, and give the relay and the ops
+client that address (`RELAY_UPSTREAM_HOST` for the relay), the same thing
+`dev-stack.ps1` does for the dev stack. Never set it to `0.0.0.0` or a LAN
+address: `19140` edits the world for anyone holding the token.
+
+Stop cleanly as above, then `docker volume rm riftal_smoke_designbridge`.
+
 ## Export a world folder
 
 A throwaway container reads the volume and copies one world out.
@@ -146,7 +208,8 @@ arguments survive.
 
 ```sh
 export MSYS_NO_PATHCONV=1
-STACK=C:/Users/nasir/riftal-games/riftal-infra/designer/stack
+INFRA=C:/Users/nasir/riftal-games/riftal-infra
+STACK=$INFRA/designer/stack
 CORE=C:/Users/nasir/riftal-games/pmmp-core
 GAME=C:/Users/nasir/riftal-games/riftal-game
 export DESIGNBRIDGE_TOKEN=choose-your-own-value
@@ -161,10 +224,11 @@ wslc run --rm -v "$CORE/tests/plugins/DevTools:/src:ro" -v "$STACK/plugins:/out"
 
 wslc run -d -i --name designer \
   -p "127.0.0.1:${DESIGNER_GAME_PORT:-19134}:19132/udp" -p 127.0.0.1:19140:19140/tcp \
-  -v designer-world:/data -v "$STACK/plugins:/plugins" \
+  -v "${DESIGNER_VOLUME:-designer-world}:/data" -v "$STACK/plugins:/plugins" \
   -v "$GAME/designbridge:/plugins/DesignBridge:ro" \
-  -e "DESIGNBRIDGE_TOKEN=$DESIGNBRIDGE_TOKEN" \
-  -e "POCKETMINE_ARGS=--level-name=design --level-type=normal --level-seed=20260907 --xbox-auth=false --gamemode=1 --max-players=4 --view-distance=16 --motd=riftal-designer" \
+  -v "$INFRA/images/plugins/RiftalDevBots.php:/plugins/RiftalDevBots.php:ro" \
+  -e "DESIGNBRIDGE_TOKEN=$DESIGNBRIDGE_TOKEN" -e RIFTAL_DEV_ENV=1 \
+  -e "POCKETMINE_ARGS=--level-name=design --level-type=normal --level-seed=20260907 --xbox-auth=false --gamemode=1 --max-players=4 --view-distance=16 --motd=riftal-designer --riftal-dev-bots=${DESIGNER_DEV_BOTS:-off}" \
   local-pocketmine-mp
 
 wslc logs designer
