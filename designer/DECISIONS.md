@@ -530,3 +530,19 @@ described (#302). A name given twice is refused even under `replace_index`, sinc
 otherwise let the second silently overwrite the first. Validation runs only when the build will
 register: a dry run, `register_index=False` or `--no-index` registers nothing, so it checks
 nothing. The extras report is still written whenever blocks were sent.
+
+## 2026-09-28 A mine spec's `safe_zone` defaults to true and tags the mine's outer region
+
+`MineSpec` takes an optional `safe_zone`, a JSON `true` or `false`, and `build_mine` tags the
+outer region `["mine", "safe_zone"]` when it is true and `["mine"]` when it is false. The
+default is true because the design plan makes regular mines safe zones by default (6.1), with
+riots as the only PvP, and names the contested mine as the one mine that is always PvP (7.2).
+A contested mine's spec sets `safe_zone: false`. Only the outer region carries the tag: the
+entrance lies inside it, and the exit platform is walkway outside the mine. A string, a number
+or `null` is refused, `safe_zone must be true or false, got <value>`, since `"false"` would
+otherwise read as true. The committed `lumber` and `mine_a` specs state `true` explicitly.
+RiftalRiots treats a world as safe when any of its regions carries `safe_zone`, so a built
+mine's own region is enough. The hand-defined `lumber_safe_zone` region stays in the committed
+index until a lumber build is registered there, since nothing else makes the lumber world safe
+today. It is named apart from the builder's `lumber` region, so neither overwrites the other
+(#295).
