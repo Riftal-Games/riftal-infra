@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from designer import config
 from designer import stack as stack_mod
 from designer.cli import main
 from designer.render import LEGEND_LINE
@@ -67,6 +66,33 @@ def test_index_list_refuses_a_tag_on_worlds(capsys: pytest.CaptureFixture[str]) 
 def test_index_reports_a_bad_file_without_a_traceback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", tmp_path / "missing.json")
     assert main(["index", "list"]) == 1 and capsys.readouterr().err.startswith("designer: ")
+
+
+@pytest.mark.parametrize("args", [
+    ["index", "resolve", "spawn"],
+    ["heightmap", "--at", "spawn", "--size", "8"],
+    ["render", "topdown", "--at", "spawn", "--size", "8"],
+    ["render", "slice", "--at", "spawn", "--size", "8", "--y", "64"],
+    ["terrain", "analyze", "--at", "spawn", "--size", "8"],
+    ["build", "mine", "--spec", "{spec}", "--palette", "mine_stone"],
+    ["build", "mine", "--spec", "{spec}", "--palette", "mine_stone", "--apply"],
+    ["checks", "run"],
+], ids=["index-resolve", "heightmap", "render-topdown", "render-slice", "terrain-analyze", "build-dry-run", "build-apply", "checks-run"])
+def test_every_command_reports_a_missing_index_in_one_line(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path, args: list[str]
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    missing = tmp_path / "missing.json"
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", missing)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+
+    assert main([a.format(spec=spec_path) for a in args]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(f"designer: cannot read the world index {missing}: ") and captured.err.count("\n") == 1
+    assert fake.requests == []
 
 
 def test_heightmap_prints_the_map_with_header_and_legend(
@@ -237,8 +263,6 @@ def test_build_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
     monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
-    monkeypatch.setattr(config, "SNAPSHOTS_DIR", tmp_path / "snapshots")
-    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
     seeded = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
     seeded.add_location(Location("tbox_spawn", "design", (0, 64, 0)))
     seeded.add_region(NamedRegion("tbox", "design", (0, 60, 0), (1, 61, 1)))
@@ -264,8 +288,6 @@ def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", refusable.token)
     monkeypatch.setenv("DESIGNER_PORT", str(refusable.port))
-    monkeypatch.setattr(config, "SNAPSHOTS_DIR", tmp_path / "snapshots")
-    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
     index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     before = index_path.read_bytes()
@@ -286,7 +308,6 @@ def test_build_apply_writes_the_extras_report_matching_the_mcp_build_tool(
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
     monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
-    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
     index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     spec_path = tmp_path / "spec.json"
@@ -365,7 +386,6 @@ def test_checks_run_prints_the_table_and_exits_zero_when_all_pass(
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
-    monkeypatch.setattr("designer.checks.REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", _checks_index(tmp_path))
     checks_path = tmp_path / "checks.yaml"
     checks_path.write_text("version: 1\nchecks:\n  - check: travel_time\n    from: a\n    to: b\n", encoding="utf-8")
@@ -381,7 +401,6 @@ def test_checks_run_exits_one_on_a_failure_and_only_narrows_it(
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
-    monkeypatch.setattr("designer.checks.REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", _checks_index(tmp_path))
     checks_path = tmp_path / "checks.yaml"
     checks_path.write_text(

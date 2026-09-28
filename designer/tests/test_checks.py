@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from designer.bridge import Bridge
-from designer.checks import CheckSpec, Fetch, RunContext, load_checks, plan_fetches, run_checks, run_one, write_report
+from designer.checks import CheckSpec, Fetch, RunContext, check_world, load_checks, plan_fetches, run_checks, run_one, write_report
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.fake_bridge import FakeBridge, FakeWorld
@@ -65,6 +65,12 @@ def test_plan_unions_a_world_and_separates_another(tmp_path: Path) -> None:
     ], index)
     assert plan["design"] == Fetch(Bounds((-43, 56, -43), (24, 72, 24)))
     assert plan["mine_a"] == Fetch(Bounds((-3, 60, -3), (9, 69, 9)), light=True)
+
+
+def test_region_inside_reads_the_world_of_its_inner_region(tmp_path: Path) -> None:
+    index = _index(tmp_path)
+    assert check_world(index, CheckSpec("i", "region_inside", {"inner": "box", "outer": "box"})) == "mine_a"
+    assert check_world(index, CheckSpec("i", "region_inside", {"inner": "nope", "outer": "box"})) is None
 
 
 def test_run_fetches_once_and_reports_both_outcomes(fake: FakeBridge, bridge: Bridge, tmp_path: Path) -> None:
