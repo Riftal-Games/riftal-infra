@@ -49,16 +49,16 @@ REFUSED_BUILDS = [
 # Read at import, before any fixture redirects a path, so the session check watches the working tree itself.
 TREE = config.PROJECT_ROOT
 COMMITTED_INDEX = world_index.DEFAULT_PATH
-# Interpreter and tool caches change under any run, and stack/ is a live server's bind mount; no toolkit writer targets them.
-UNWATCHED = {"__pycache__", "stack"}
 BEFORE = pytest.StashKey[dict[Path, tuple[int, int]]]()
 TOUCHED = pytest.StashKey[list[Path]]()
 
 
-def _tree_state() -> dict[Path, tuple[int, int]]:
+def _tree_state(root: Path) -> dict[Path, tuple[int, int]]:
     found = {}
-    for top, dirs, files in os.walk(TREE):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in UNWATCHED]
+    for top, dirs, files in os.walk(root):
+        # Interpreter caches change under any run at any depth, and the top-level stack/ is a live server's bind mount;
+        # no toolkit writer targets either.
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "__pycache__" and Path(top, d) != root / "stack"]
         # A directory counts by existence alone: its mtime moves whenever a pruned cache appears inside it.
         found[Path(top)] = (0, 0)
         for name in files:
@@ -68,12 +68,12 @@ def _tree_state() -> dict[Path, tuple[int, int]]:
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    session.config.stash[BEFORE] = _tree_state()
+    session.config.stash[BEFORE] = _tree_state(TREE)
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
     """Fails an otherwise green run when any file under the designer tree appeared, changed or vanished."""
-    before, after = session.config.stash[BEFORE], _tree_state()
+    before, after = session.config.stash[BEFORE], _tree_state(TREE)
     touched = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
     session.config.stash[TOUCHED] = touched
     if touched and session.exitstatus == pytest.ExitCode.OK:
