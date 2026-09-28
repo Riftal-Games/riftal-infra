@@ -55,3 +55,12 @@ def test_one_location_per_sign_tagged_sign() -> None:
 def test_build_signage_is_deterministic() -> None:
     spec = _spec()
     assert build_signage(spec).to_json() == build_signage(spec).to_json()
+
+
+def test_sign_rejects_a_fractional_position_instead_of_truncating_it() -> None:
+    with pytest.raises(ValueError, match="pos must be three integers"):
+        Sign.from_dict({"name": "a", "pos": [-0.5, 64, 2.9], "text": "t"})
+
+
+def test_sign_accepts_a_whole_float_position() -> None:
+    assert Sign.from_dict({"name": "a", "pos": [4.0, 64, -2.0], "text": "t"}).pos == (4, 64, -2)

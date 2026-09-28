@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from designer.coords import int_coords
 from designer.edits import EditList, Text
 from designer.world_index import Location
 
@@ -28,7 +29,7 @@ class Sign:
         try:
             if len(data["pos"]) != 3:
                 raise ValueError("pos must be three integers")
-            return cls(str(data["name"]), tuple(int(v) for v in data["pos"]), str(data["text"]))
+            return cls(str(data["name"]), int_coords(data["pos"], "pos must be three integers"), str(data["text"]))
         except (TypeError, KeyError, IndexError) as e:
             raise ValueError(f"sign is malformed: {e!r}") from e
 
