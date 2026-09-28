@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -37,6 +38,14 @@ def test_sessionfinish_fails_only_a_green_run_that_wrote(
     conftest.pytest_sessionfinish(session)
     assert session.exitstatus == expected
     assert session.config.stash[conftest.TOUCHED] == ([written] if touched else [])
+
+
+def test_tree_state_records_a_directory_by_existence_alone(tmp_path: Path) -> None:
+    (tmp_path / "d").mkdir()
+    for path in (tmp_path, tmp_path / "d"):
+        os.utime(path, ns=(1_000_000_000, 1_000_000_000))
+    state = conftest._tree_state(tmp_path)
+    assert state[tmp_path] == state[tmp_path / "d"] == (0, 0)
 
 
 def test_tree_state_prunes_dot_dirs_caches_and_only_the_top_level_stack(tmp_path: Path) -> None:
