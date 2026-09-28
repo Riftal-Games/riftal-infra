@@ -82,6 +82,7 @@ class Bridge:
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
         self._info: tuple[float, dict[str, Any]] | None = None
+        self._sleep: Callable[[float], None] = time.sleep
 
     def __repr__(self) -> str:
         return f"Bridge({self.host!r}, {self.port})"
@@ -127,7 +128,10 @@ class Bridge:
         on_progress: Callable[[int, int], None] | None = None, **args: Any,
     ) -> dict[str, Any]:
         """Submit a job op and return its final status; a job done in its first tick costs no poll."""
-        return self._settle(self.call(op, **args), poll, timeout, on_progress)
+        status = self.call(op, **args)
+        if "job" not in status:
+            raise BridgeProtocolError(f"{op!r} is not a job op: response has no 'job'")
+        return self._settle(status, poll, timeout, on_progress)
 
     def wait_job(
         self, job_id: str, *, poll: float = JOB_POLL, timeout: float = JOB_TIMEOUT,
@@ -164,7 +168,7 @@ class Bridge:
                 except BridgeError:
                     pass
                 raise JobTimeout(job_id, status)
-            time.sleep(min(interval, remaining))
+            self._sleep(min(interval, remaining))
             interval = min(interval * JOB_POLL_GROWTH, JOB_POLL_CAP)
             status = self.call("get_job", job=job_id)
 
