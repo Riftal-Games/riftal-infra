@@ -110,6 +110,14 @@ acquire_lock() {
     fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
   fi
 
+  # No-op outside deploy/selftest.sh's discard-sweep-vs-still-alive-owner
+  # section. Widens the window between the rename just above and the
+  # staleness check just below, the same way STEAL_RACE_TEST_STALL_SECONDS
+  # widens the window before the rename: a real run crosses this gap in a
+  # handful of syscalls, too narrow to land a concurrent sweep of this run's
+  # own discard directory against on demand otherwise.
+  sleep "${DISCARD_RACE_TEST_STALL_SECONDS:-0}"
+
   # The rename alone is not the whole fix: it is blind to *what* it moved.
   # If the other sweeper wins the race to recreate $LOCK_DIR first, this
   # run's rename captures that brand new lock instead of finding it already
