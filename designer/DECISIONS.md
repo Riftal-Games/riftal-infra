@@ -439,9 +439,14 @@ carries no block of its own, per `Text`'s own docstring, so the failure `entity_
 a marker placed inside solid terrain, invisible and pointless; `warp_safe`'s stricter landing
 rule does not apply, since nobody warps to a floating label.
 
-`specs/plots.json` and `specs/signage.json` back the two entries with a real, buildable
-`PlotGridSpec` and `SignageSpec`, the same relationship `specs/mine_a.json` has to `mine_valid`,
-so `plots_0_0` and `plots_entrance_sign` are not names invented for the config file alone.
-Building the plots world stays out of scope until the M5 brainstorm decides what a plot holds,
-same as `build_plot_grid` and `build_signage` shipping in #164 without touching the live map;
-these two entries wait alongside `mine_a`'s own for the session that actually builds them.
+Unlike `mine_a`'s entries, this pair does not read a committed `specs/*.json`: `plot_size:
+[7, 7]` and `buffer: 3` are exactly the two values `tuning-numbers.md` lists as open pending
+the M5 plots brainstorm (design plan §10), and neither is Nasir's or the brainstorm's to inherit
+as already decided just because a checks-coverage PR needed some footprint to test against. The
+fixture spec that exercises `no_holes` and `entity_clear` lives inline in
+`tests/test_checks_plot_signage.py`, the same way `test_builders_plot_grid.py`'s own `_spec`
+picks `[4, 4]`/`2`: arbitrary numbers sized only to give a check something to pass or fail, not a
+proposal for what a plot is. Building the plots world stays out of scope until the M5 brainstorm
+decides that, same as `build_plot_grid` and `build_signage` shipping in #164 without touching the
+live map; `mine_a`'s own entries wait alongside these two for the session that actually builds
+them, but only `mine_a`'s spec is real design data.

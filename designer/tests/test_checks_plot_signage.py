@@ -1,23 +1,30 @@
 """``checks.yaml``'s ``no_holes`` and ``entity_clear`` entries against real ``build_plot_grid``
-and ``build_signage`` output, backed by the committed ``specs/plots.json`` and
-``specs/signage.json``."""
+and ``build_signage`` output.
 
-import json
+``_PLOT_SPEC``'s ``plot_size`` and ``buffer`` are throwaway numbers picked only to give
+``no_holes`` a footprint and ``entity_clear`` a sign position to check, the same way
+``test_builders_plot_grid.py``'s own ``_spec`` picks ``[4, 4]``/``2``. They are inline here,
+not read from a committed ``specs/*.json`` file, and they are not a proposal: the real plot
+dimensions and buffer are still open, pending the M5 plots brainstorm (design plan §10), and
+these fixture numbers must never be mistaken for that decision.
+"""
 
 from designer.builders.base import Palette
 from designer.builders.plot_grid import PlotGridSpec, build_plot_grid
 from designer.builders.signage import SignageSpec, build_signage
 from designer.checks import RunContext, load_checks, run_one
-from designer.config import PROJECT_ROOT
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
 PLOT_ID, SIGN_ID = "no_holes_plots_0_0_65", "entity_clear_plots_entrance_sign"
 
+_PLOT_SPEC = {"name": "plots", "world": "plots", "origin": [0, 0], "y": 64, "rows": 2, "cols": 2, "plot_size": [7, 7], "buffer": 3}
+_SIGN_SPEC = {"world": "plots", "signs": [{"name": "plots_entrance_sign", "pos": [3, 65, 3], "text": "Player Plots"}]}
+
 
 def _built() -> tuple[WorldIndex, RunContext]:
-    plot_spec = PlotGridSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / "plots.json").read_text(encoding="utf-8")))
-    sign_spec = SignageSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / "signage.json").read_text(encoding="utf-8")))
+    plot_spec = PlotGridSpec.from_dict(_PLOT_SPEC)
+    sign_spec = SignageSpec.from_dict(_SIGN_SPEC)
     plots = build_plot_grid(plot_spec, Palette.load("mine_stone"))
     signs = build_signage(sign_spec)
     assert plots.world == signs.world

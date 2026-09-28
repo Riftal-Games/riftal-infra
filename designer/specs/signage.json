@@ -1,6 +1,0 @@
-{
-  "world": "plots",
-  "signs": [
-    {"name": "plots_entrance_sign", "pos": [3, 65, 3], "text": "Player Plots"}
-  ]
-}
