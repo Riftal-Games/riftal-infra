@@ -114,8 +114,17 @@ def test_volume_names_follow_compose_project_prefixing(tmp_path: Path) -> None:
     by_env = stack.load_service(write_volumes_compose(tmp_path, "third", "name: Top_Name\n"), env={"COMPOSE_PROJECT_NAME": "from-env"})
     assert by_env.volumes == ("from-env_unnamed:/a", "external:/b", "pinned-default:/c")
 
+
+@pytest.mark.parametrize("explicit", ["Upper", "_x", "a!"])
+def test_a_compose_project_name_compose_refuses_is_refused(tmp_path: Path, explicit: str) -> None:
     with pytest.raises(stack.StackError, match="COMPOSE_PROJECT_NAME"):
-        stack.load_service(write_volumes_compose(tmp_path, "fourth"), env={"COMPOSE_PROJECT_NAME": "Upper"})
+        stack.load_service(write_volumes_compose(tmp_path), env={"COMPOSE_PROJECT_NAME": explicit})
+
+
+@pytest.mark.parametrize(("top", "expected"), [("name: Top_Name\n", "top_name"), ("", "my_stackdir")])
+def test_an_empty_compose_project_name_falls_through(tmp_path: Path, top: str, expected: str) -> None:
+    service = stack.load_service(write_volumes_compose(tmp_path, top=top), env={"COMPOSE_PROJECT_NAME": ""})
+    assert service.volumes[0] == f"{expected}_unnamed:/a"
 
 
 @pytest.mark.parametrize(

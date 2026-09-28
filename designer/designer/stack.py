@@ -97,8 +97,9 @@ def _project_name(document: Mapping[str, object], compose_file: Path, env: Mappi
 
 def _volume_names(declared: Mapping[str, object], project: str, env: Mapping[str, str]) -> dict[str, str]:
     """Map each top-level volume key to the volume compose would mount. Compose
-    refuses a ``name:`` that resolves empty with ``invalid volume name or ID:
-    value is empty``, so an empty name is refused here rather than mounted."""
+    refuses a null ``name:`` with ``must be a string`` and one that resolves
+    empty with ``invalid volume name or ID: value is empty``, so either is
+    refused here rather than mounted."""
     names = {}
     for key, value in declared.items():
         value = value or {}

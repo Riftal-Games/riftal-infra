@@ -594,5 +594,6 @@ top-level `name:`, else the compose file's directory, lowercased, every characte
 those dropped, and leading `_` and `-` stripped. Only an absent or literal empty top-level
 `name:` falls back to the directory. One that is not a string, or that interpolates or
 normalizes to empty, raises `StackError`, since compose refuses it with `name must be a string`
-or `project name must not be empty`. A volume `name:` that resolves empty raises `StackError`,
-since compose refuses it with `invalid volume name or ID: value is empty` (#277).
+or `project name must not be empty`. A volume `name:` that is null or resolves empty raises
+`StackError`, since compose refuses a null one with `must be a string` and an empty one with
+`invalid volume name or ID: value is empty` (#277).
