@@ -468,3 +468,13 @@ resolves every path it is about to unlink against `SNAPSHOTS_DIR` and refuses th
 batch, before any file is touched, if one lands outside it, because the manifest is
 read back off disk and a hand edit or a bad write is exactly the kind of input `unlink`
 must never trust blind.
+
+## 2026-09-28 `entity_clear` fails a `pos` outside the region instead of raising
+
+`entity_clear` carries the `region.bounds.contains` guard that `warp_safe` took for
+#89, with the same failed `Check` and the same detail, so a direct call on a position
+outside the fetched region reports it instead of raising `ValueError` out of
+`Bounds.local`. The guard lives in `entity_clear` alone: `warp_safe` calls it first and
+returns its failure unchanged, so one guard covers both and there is one message to keep
+in sync. As with #89, the checks runner (#41) already fences `ctx.around`; this is for a
+direct caller that skips the runner.

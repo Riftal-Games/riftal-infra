@@ -107,6 +107,13 @@ def test_warp_safe_outside_the_region_fails_instead_of_raising(flat_plane_with_h
     assert found.coords == [(100, 4, 100)]
 
 
+def test_entity_clear_outside_the_region_fails_instead_of_raising(flat_plane_with_hole: Region) -> None:
+    found = entity_clear(flat_plane_with_hole, (100, 4, 100))
+    assert not found.ok
+    assert found.detail == "(100, 4, 100) is outside the fetched region (0, 0, 0)..(39, 7, 39)"
+    assert found.coords == [(100, 4, 100)]
+
+
 def test_region_inside_both_ways() -> None:
     outer = Bounds((0, 0, 0), (39, 7, 39))
     inner = Bounds((10, 1, 10), (20, 6, 20))
