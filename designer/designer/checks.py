@@ -118,6 +118,13 @@ def _ends(index: WorldIndex, args: dict[str, Any]) -> tuple[str, Pos, Pos, Bound
     return world, a, b, Bounds(a, b).expand(int(args["margin"]), "xz").expand(MARGIN_Y, "y")
 
 
+def _mine_spec(args: dict[str, Any]) -> MineSpec:
+    path = PROJECT_ROOT / str(args["spec"])
+    if not path.is_file():
+        raise ValueError(f"mine spec {path} does not exist")
+    return MineSpec.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+
 def _needs(index: WorldIndex, spec: CheckSpec) -> tuple[str, Bounds, bool] | None:
     """The world, the blocks and whether light is wanted for one check; ``None`` when it reads no blocks."""
     if spec.kind in ("path_exists", "travel_time"):
@@ -129,6 +136,9 @@ def _needs(index: WorldIndex, spec: CheckSpec) -> tuple[str, Bounds, bool] | Non
     if spec.kind == "region_inside":
         return None
     named = _region(index, spec.args["region"])
+    if spec.kind == "mine_valid":
+        geo = _mine_spec(spec.args).geometry()
+        return named.world, geo.padding.union(geo.exit_platform), False
     return named.world, named.bounds if spec.kind == "light_ok" else named.bounds.expand(1), spec.kind == "light_ok"
 
 
@@ -222,11 +232,9 @@ def _run_holes(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Chec
 
 
 def _run_mine(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Check:
-    named, path = _region(index, args["region"]), PROJECT_ROOT / str(args["spec"])
-    if not path.is_file():
-        raise ValueError(f"mine spec {path} does not exist")
-    spec = MineSpec.from_dict(json.loads(path.read_text(encoding="utf-8")))
-    return mine_valid(ctx.region(named.world, spec.geometry().padding), spec)
+    named, spec = _region(index, args["region"]), _mine_spec(args)
+    geo = spec.geometry()
+    return mine_valid(ctx.region(named.world, geo.padding.union(geo.exit_platform)), spec)
 
 
 CHECK_RUNNERS: dict[str, Callable[[RunContext, WorldIndex, dict[str, Any]], Check]] = {
