@@ -33,8 +33,11 @@ def tar_of(files: dict[str, bytes]) -> bytes:
 class FakeEngine:
     """Answers the engine and git argv the build sends, holding volumes, containers and logs in memory."""
 
-    def __init__(self, stop_log: str = "", boot_log: str = "", exit_lag: int = 0) -> None:
+    def __init__(self, stop_log: str = "", boot_log: str = "", exit_lag: int = 0, save_lag: int = 0) -> None:
         self.calls: list[list[str]] = []
+        self.booted = BOOTED
+        self.save_lag = save_lag
+        self.pending: dict[str, list] = {}
         self.volumes: set[str] = set()
         self.exited: set[str] = set()
         self.mounts: dict[str, list[str]] = {}
@@ -78,13 +81,22 @@ class FakeEngine:
             out = json.dumps([{k: v for k, v in info.items() if k not in self.omit}]).encode()
         elif args[:2] == ["run", "-d"]:
             name = args[args.index("--name") + 1]
-            self.mounts[name], self.logs[name] = [name], self.boot_log + BOOTED
+            self.mounts[name], self.logs[name] = [name], self.boot_log + self.booted
         elif args[:2] == ["run", "--rm"]:
             out, self.written = (b"", stdin or b"") if "tee" in args else (tar_of(self.level), b"")
         elif args[0] == "logs":
             out = self.logs[args[1]].encode()
+            # The save lands save_lag reads after the stop, so a stop that reads the log once misses it.
+            if args[1] in self.pending:
+                self.pending[args[1]][0] -= 1
+                if not self.pending[args[1]][0]:
+                    self.logs[args[1]] += self.pending.pop(args[1])[1]
         elif args[0] == "attach" and stdin == b"stop\n":
-            self.logs[args[1]] += f"{self.stop_log}[Server thread/INFO]: {stack.SHUTDOWN_MARKER}\n"
+            saved = f"{self.stop_log}[Server thread/INFO]: {stack.SHUTDOWN_MARKER}\n"
+            if self.save_lag:
+                self.pending[args[1]] = [self.save_lag, saved]
+            else:
+                self.logs[args[1]] += saved
             if self.exit_lag:
                 self.lag[args[1]] = self.exit_lag
             else:
@@ -116,8 +128,10 @@ def test_build_boots_stops_and_writes_the_lock_and_manifest(fake: FakeBridge, ro
     run = next(a for a in engine.calls if a[1:3] == ["run", "-d"])
     assert run[run.index("-p") + 1] == "127.0.0.1:19190:19140/tcp" and run.count("-p") == 1
     flags = next(a for a in run if a.startswith("POCKETMINE_ARGS=")).split()
-    assert {"POCKETMINE_ARGS=--level-name=zt", "--level-type=normal", "--level-seed=7", "--auto-report.enabled=0"} <= set(flags)
+    assert {"POCKETMINE_ARGS=--level-name=zt", "--level-type=normal", "--level-seed=7", "--xbox-auth=false", "--auto-report.enabled=0"} <= set(flags)
     assert "riftal_smoke_level_zt:/data" in run and "/src/designbridge:/plugins/DesignBridge:ro" in run
+    copy_out = next(a for a in engine.calls if a[1:3] == ["run", "--rm"] and "tar" in a)
+    assert copy_out[copy_out.index("-v") + 1] == "riftal_smoke_level_zt:/data:ro"
     assert f"DESIGNBRIDGE_TOKEN={engine.tokens[0]}" in run
     verbs = engine.verbs()
     assert verbs.index("attach riftal_smoke_level_zt") < verbs.index("rm riftal_smoke_level_zt") < verbs.index("run --rm")
@@ -149,17 +163,66 @@ def test_each_build_runs_with_its_own_token(fake: FakeBridge, root: Path) -> Non
     assert runs == [f"DESIGNBRIDGE_TOKEN={t}" for t in engine.tokens] and len(set(engine.tokens)) == 2
 
 
-def test_an_error_in_the_boot_log_stops_before_the_bridge_is_reached(fake: FakeBridge, root: Path) -> None:
-    engine = FakeEngine(boot_log="[Server thread/CRITICAL]: Could not load plugin DesignBridge\n")
-    with pytest.raises(LevelError, match="Could not load plugin DesignBridge"):
+@pytest.mark.parametrize(("boot_log", "match"), [
+    ("[Server thread/CRITICAL]: Could not load plugin DesignBridge\n", "Could not load plugin DesignBridge"),
+    ("[Server thread/INFO]: pocketmine\\plugin\\PluginException: bad plugin.yml\n", "PluginException: bad plugin.yml"),
+])
+def test_an_error_in_the_boot_log_stops_before_the_bridge_is_reached(fake: FakeBridge, root: Path, boot_log: str, match: str) -> None:
+    engine = FakeEngine(boot_log=boot_log)
+    with pytest.raises(LevelError, match=match):
         _build(engine, fake, root)
     assert engine.tokens == [] and "rm riftal_smoke_level_zt" in engine.verbs()
 
 
-def test_removal_waits_for_the_container_to_exit(fake: FakeBridge, root: Path) -> None:
-    engine = FakeEngine(exit_lag=1)
+@pytest.mark.parametrize("booted", BOOTED.splitlines(keepends=True))
+def test_boot_waits_for_both_ready_lines(fake: FakeBridge, root: Path, monkeypatch: pytest.MonkeyPatch, booted: str) -> None:
+    monkeypatch.setattr(level_engine, "BOOT_TIMEOUT", 1)
+    engine = FakeEngine()
+    engine.booted = booted
+    with pytest.raises(LevelError, match="logged no"):
+        _build(engine, fake, root)
+    assert engine.tokens == [] and "rm riftal_smoke_level_zt" in engine.verbs()
+
+
+# At a lag of 2 the first two inspects report running, and removal needs the status read, not just a wait.
+@pytest.mark.parametrize("exit_lag", [1, 2])
+def test_removal_waits_for_the_container_to_exit(fake: FakeBridge, root: Path, exit_lag: int) -> None:
+    engine = FakeEngine(exit_lag=exit_lag)
     _build(engine, fake, root)
     assert "rm riftal_smoke_level_zt" in engine.verbs() and "riftal_smoke_level_zt" not in engine.mounts
+
+
+def test_an_error_logged_with_a_late_shutdown_line_still_refuses_the_build(fake: FakeBridge, root: Path) -> None:
+    engine = FakeEngine("[Server thread/ERROR]: Could not save chunk\n", save_lag=1)
+    with pytest.raises(LevelError, match="Could not save chunk"):
+        _build(engine, fake, root)
+    assert "rm riftal_smoke_level_zt" in engine.verbs() and not (root / "levels" / "zt.lock.json").exists()
+
+
+def test_the_marker_and_text_files_feed_the_content_hash(fake: FakeBridge, root: Path) -> None:
+    hashes = []
+    for docs in ({}, {}, {"design_npcs.json": b'{"npcs": [{"name": "guard"}]}'}, {"design_texts.json": b'{"texts": [{"text": "Mine A"}]}'}):
+        engine = FakeEngine()
+        engine.level.update(docs)
+        hashes.append(json.loads(_build(engine, fake, root).read_text(encoding="utf-8"))["content_sha256"])
+    assert hashes[0] == hashes[1] and len(set(hashes)) == 3
+
+
+def test_a_changed_lock_does_not_mark_the_toolkit_dirty(tmp_path: Path) -> None:
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t", *args], check=True, capture_output=True)
+
+    (tmp_path / "levels").mkdir()
+    (tmp_path / "levels" / "zt.lock.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("a\n", encoding="utf-8")
+    git("init", "-q")
+    git("add", ".")
+    git("commit", "-q", "-m", "c")
+    (tmp_path / "levels" / "zt.lock.json").write_text('{"seed": 8}\n', encoding="utf-8")
+    (tmp_path / "levels" / "zu.lock.json").write_text("{}\n", encoding="utf-8")
+    assert not level_engine.commit(level_engine.run_process, tmp_path).endswith("-dirty")
+    (tmp_path / "README.md").write_text("b\n", encoding="utf-8")
+    assert level_engine.commit(level_engine.run_process, tmp_path).endswith("-dirty")
 
 
 def test_a_dirty_tree_marks_its_commit(fake: FakeBridge, root: Path) -> None:
