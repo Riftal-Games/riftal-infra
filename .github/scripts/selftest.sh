@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=17
+EXPECTED_ASSERTIONS=19
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -172,6 +172,10 @@ expect_scan_fails() {
 section "hadolint, through scan.sh's own check_dockerfiles"
 expect_scan_ok dockerfiles "$FIXTURES/good/Dockerfile"
 expect_scan_bad dockerfiles "$FIXTURES/bad/Dockerfile" DL3007
+
+section "hadolint reaches Containerfile, not only Dockerfile"
+expect_scan_ok dockerfiles "$FIXTURES/good/Containerfile"
+expect_scan_bad dockerfiles "$FIXTURES/bad/Containerfile" DL3007
 
 section "compose discovery, by content and not by filename"
 expect_listed "$FIXTURES/good" compose.yaml

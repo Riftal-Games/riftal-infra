@@ -1,0 +1,6 @@
+# Expected: hadolint DL3007, and nothing else. Same defect as bad/Dockerfile,
+# under the Containerfile name, so a discovery regression that drops that name
+# again goes red here instead of shipping silently.
+FROM ubuntu:latest
+
+CMD ["/bin/bash"]
