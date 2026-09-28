@@ -214,10 +214,11 @@ deliver() {
   bash "$root/deliver.sh" "$@" > "$root/out" 2>&1
 }
 d="$work/deliver/data/plugin_data"
-check "RiftalRanks, RiftalRiots and RiftalEconomy each get the designer index byte for byte, stale copy replaced" \
+check "RiftalRanks, RiftalRiots, RiftalEconomy and RiftalMines each get the designer index byte for byte, stale copy replaced" \
   'deliver "$INDEX" true && cmp -s "$INDEX" "$d/RiftalRanks/world_index.json" &&
     cmp -s "$INDEX" "$d/RiftalRiots/world_index.json" &&
-    cmp -s "$INDEX" "$d/RiftalEconomy/world_index.json"'
+    cmp -s "$INDEX" "$d/RiftalEconomy/world_index.json" &&
+    cmp -s "$INDEX" "$d/RiftalMines/world_index.json"'
 check "the copies belong to the uid the script runs as, uid 1000 in the image" \
   'deliver "$INDEX" true && [ -f "$d/RiftalRiots/world_index.json" ] && [ -z "$(find "$d" ! -user "$me")" ]'
 check "the start command runs after delivery with its arguments intact" \

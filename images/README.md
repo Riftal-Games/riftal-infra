@@ -21,13 +21,17 @@ Set in `images/.env`, copied from `.env.example`. Never commit `.env`.
 `instance` and `instance-b` both mount `../designer/world_index.json`
 read-only at `/etc/riftal/world_index.json` and start through
 `plugins/deliver-world-index.sh`, which copies it to
-`/data/plugin_data/RiftalRanks/`, `/data/plugin_data/RiftalRiots/` and
-`/data/plugin_data/RiftalEconomy/` on every
+`/data/plugin_data/RiftalRanks/`, `/data/plugin_data/RiftalRiots/`,
+`/data/plugin_data/RiftalEconomy/` and `/data/plugin_data/RiftalMines/` on every
 boot, as uid 1000, before handing over to the instance's own start script.
 The designer file is the deploy's index. RiftalRanks and RiftalRiots also bundle a
 `resources/world_index.json` and read that one until riftal-game#208 switches
 them to their data folder; from then the delivered copy is what they read.
-RiftalEconomy bundles none; its sell shop reads the delivered copy. It
+RiftalEconomy bundles none; its sell shop reads the delivered copy.
+RiftalMines bundles none either; its join teleport, once
+`join_teleport.enabled` is on, reads the delivered copy and rejects every join
+without it. RiftalMines loads on `instance` alone, so on `instance-b` that copy
+sits unread. It
 names worlds, never instances, so every instance gets the same one and a split
 changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
