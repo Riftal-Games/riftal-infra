@@ -505,3 +505,13 @@ error (#245, #248).
 `checks.yaml`'s one block coordinate, `no_holes`'s `floor_y`, is written by hand like a
 builder spec and never reported by the server, so it follows the spec rule, not
 `verify`'s floor: a fraction fails the check with `floor_y must be an integer` (#251).
+
+Every size and count in a builder spec is a whole number under the same check, through
+`whole_int`: a wall thickness, a door or entrance width, height and offset, an exit
+path's length and width, a stair `rise`, a road's `width` and `clear_height`, a
+perimeter's `height` and `post_every`, a plot grid's `rows`, `cols`, `plot_size` and
+`buffer`, a room's or mine's `lights_every`, and a mine's `seed`. `reset_percent` is
+one too: the `mines` plugin's `MineDefinition` refuses a non-integer percent, so a
+fraction the builder let through would stop the mine loading rather than tune it. The
+counts in `checks.yaml`, `margin`, `max_drop` and `min_level`, fail their check the same
+way, `<field> must be an integer, got <value>` (#250).

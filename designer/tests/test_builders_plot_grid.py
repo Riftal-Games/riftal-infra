@@ -87,3 +87,15 @@ def test_path_exists_between_two_far_plots(palette: Palette) -> None:
     region = edits.to_region()
     found = path_exists(region, (1, spec.y + 1, 1), (7, spec.y + 1, 7))
     assert found.ok, found.detail
+
+
+@pytest.mark.parametrize("over, message", [
+    ({"rows": 2.5}, r"rows must be an integer, got 2\.5"),
+    ({"cols": 2.5}, r"cols must be an integer, got 2\.5"),
+    ({"plot_size": [2.5, 4]}, r"plot_size must be integers, got \(2\.5, 4\)"),
+    ({"plot_size": [4, 2.5]}, r"plot_size must be integers, got \(4, 2\.5\)"),
+    ({"buffer": 2.5}, r"buffer must be an integer, got 2\.5"),
+])
+def test_from_dict_rejects_a_fractional_size_or_count(over: dict, message: str) -> None:
+    with pytest.raises(ValueError, match=f"^{message}$"):
+        _spec(**over)
