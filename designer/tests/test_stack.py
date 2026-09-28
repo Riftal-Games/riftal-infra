@@ -80,6 +80,52 @@ def test_the_real_compose_file_keeps_its_security_and_bot_defaults() -> None:
     assert overridden.volumes[0] == "riftal_smoke_x:/data"
 
 
+VOLUMES_TEXT = """
+{top}services:
+  designer:
+    image: local-pocketmine-mp
+    volumes:
+      - unnamed:/a
+      - external:/b
+      - pinned:/c
+volumes:
+  unnamed:
+  external:
+    external: true
+  pinned:
+    name: ${{PINNED:-pinned-default}}
+"""
+
+
+def write_volumes_compose(tmp_path: Path, directory: str = "My_Stack.Dir", top: str = "") -> Path:
+    path = tmp_path / directory / "compose.yaml"
+    path.parent.mkdir()
+    path.write_text(VOLUMES_TEXT.format(top=top), encoding="utf-8")
+    return path
+
+
+def test_volume_names_follow_compose_project_prefixing(tmp_path: Path) -> None:
+    by_directory = stack.load_service(write_volumes_compose(tmp_path), env={})
+    assert by_directory.volumes == ("my_stackdir_unnamed:/a", "external:/b", "pinned-default:/c")
+
+    by_top_level = stack.load_service(write_volumes_compose(tmp_path, "other", "name: Top_Name\n"), env={})
+    assert by_top_level.volumes[0] == "top_name_unnamed:/a"
+
+    by_env = stack.load_service(write_volumes_compose(tmp_path, "third", "name: Top_Name\n"), env={"COMPOSE_PROJECT_NAME": "from-env"})
+    assert by_env.volumes == ("from-env_unnamed:/a", "external:/b", "pinned-default:/c")
+
+    with pytest.raises(stack.StackError, match="COMPOSE_PROJECT_NAME"):
+        stack.load_service(write_volumes_compose(tmp_path, "fourth"), env={"COMPOSE_PROJECT_NAME": "Upper"})
+
+
+@pytest.mark.parametrize("name", ["${PINNED}", '""', ""])
+def test_a_volume_name_that_resolves_empty_is_refused(tmp_path: Path, name: str) -> None:
+    compose = write_volumes_compose(tmp_path)
+    compose.write_text(compose.read_text(encoding="utf-8").replace("${PINNED:-pinned-default}", name), encoding="utf-8")
+    with pytest.raises(stack.StackError, match="'pinned'.*empty"):
+        stack.load_service(compose, env={})
+
+
 def test_wslc_run_argv_carries_ports_volumes_env_and_image() -> None:
     service = stack.ServiceSpec(image="local-pocketmine-mp", ports=("p",), volumes=("v",), environment={"K": "V"})
     argv = stack._wslc_run_argv(service)
