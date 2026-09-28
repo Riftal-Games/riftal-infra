@@ -8,7 +8,7 @@ from typing import Any
 
 from designer.blocks import AIR
 from designer.builders.base import Palette, facing_state
-from designer.coords import int_coords
+from designer.coords import int_coord, int_coords
 from designer.edits import EditList, Fill
 from designer.region import Bounds, Bounds2D
 from designer.world_index import NamedRegion
@@ -36,7 +36,7 @@ class PlatformSpec:
             raise ValueError(f"platform spec is missing {missing}")
         try:
             footprint = Bounds2D(*(int_coords(data[k], "min and max must be integers") for k in ("min", "max")))
-            spec = cls(str(data["name"]), str(data["world"]), footprint, int(data["y"]), bool(data.get("railing", False)))
+            spec = cls(str(data["name"]), str(data["world"]), footprint, int_coord(data["y"], "y must be an integer"), bool(data.get("railing", False)))
         except (TypeError, KeyError, IndexError) as e:
             raise ValueError(f"platform spec is malformed: {e!r}") from e
         return spec

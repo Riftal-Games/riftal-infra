@@ -29,6 +29,16 @@ def test_from_dict_rejects_a_non_positive_dimension(field: str, match: str) -> N
         _spec(**{field: 0})
 
 
+@pytest.mark.parametrize("over, match", [
+    ({"origin": [-0.5, 0]}, "origin must be integers"),
+    ({"origin": [0, -0.5]}, "origin must be integers"),
+    ({"y": -0.5}, "y must be an integer"),
+])
+def test_from_dict_rejects_a_fractional_coordinate(over: dict, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        _spec(**over)
+
+
 def test_plot_count_matches_rows_times_cols(palette: Palette) -> None:
     edits = build_plot_grid(_spec(rows=2, cols=3), palette)
     assert len(edits.extras["regions"]) == 6
