@@ -1,12 +1,97 @@
-# Does WaterdogPE handle protocol 2168?
+# Does WaterdogPE handle protocol 2193?
 
-Finding for riftal-infra#3. Evidence gathered 2026-09-07. This answers the question
-that riftal-infra#2, the proxy image, cannot start without: does the image pin a
-released jar, or does it build from source? Those are two different Dockerfiles.
+Finding for riftal-infra#106. Evidence gathered 2026-09-28. `pmmp-core#4`/PR #45
+rebased the fork onto upstream 5.49.1, Bedrock 1.26.50, **protocol 2193**
+(`riftal-pm/docs/decision-log.md`, 2026-09-27), so that is the number a proxy in
+front of it has to advertise. This document answers the same question this
+workspace has now asked three times at three different numbers, 2168 then 2169 then
+2193, each time the fork's own target moved. It does not build anything. It records
+what is true and what is still unproven.
 
-It does not build anything. It records what is true and what is still unproven.
+## Current answer, protocol 2193
 
-## Short answer
+**No stable WaterdogPE release handles protocol 2193.** The latest stable release is
+still v2.0.3, unchanged since 2024-12-04 (`gh api repos/WaterdogPE/WaterdogPE/releases`,
+checked 2026-09-28), topping out at protocol 766 and predating 1.26 entirely.
+
+**`master` declares 2193, with one codec, and no divergence between the two
+display names it covers.** Verified 2026-09-28 by cloning
+`https://github.com/WaterdogPE/WaterdogPE.git` at `master` head
+`c76a112f51c4dc3b2551ff739c69da8b8b81e859` (committed 2026-09-27T21:43:51Z) and
+reading `ProtocolVersion.java` directly. Line 157:
+
+```java
+MINECRAFT_PE_1_26_50(2193, Bedrock_v2193.CODEC, "26.50", "26.51"),
+```
+
+One `Bedrock_v2193` codec, no second `Bedrock_v2193_*` import, no second enum entry
+at 2193. That is the opposite shape from 2168, which needed
+`Bedrock_v2168` **and** `Bedrock_v2168_hotfix4` at lines 154-155 of the same file
+(preserved below) because 1.26.40 and 1.26.44 shared a protocol number but not a
+wire format. Nothing in `master`'s own table says 26.50 and 26.51 have that problem.
+
+**26.52, the build PR #45's body reports an actual device joining with, has no entry
+in `master`'s table at all.** The enum ends at `MINECRAFT_PE_1_26_50`. That is silence,
+not a negative finding: it says WaterdogPE has not catalogued 26.52 as its own entry,
+not that 26.52 diverges from 26.50/26.51's codec.
+
+### 2193 itself arrived corrected, not settled on the first try
+
+The same commit history method that caught the 2168/1.26.44 problem, read fresh
+against `ProtocolVersion.java`'s history via
+`gh api repos/WaterdogPE/WaterdogPE/commits?path=...`, shows 2193 needed three
+follow-up commits after it first appeared:
+
+| Date (UTC) | Commit | Change |
+|---|---|---|
+| 2026-09-10T00:18:51Z | `da683c11` | Adds 1.26.50 as **protocol 2192**, new codec class `Bedrock_v2192` |
+| 2026-09-15T16:05:46Z | `cca3bb25` | Renumbers the entry to **2193**, still using the `Bedrock_v2192` codec class unchanged |
+| 2026-09-15T17:12:17Z | `38d358cf` | Patches that same codec at runtime, `Bedrock_v2192.CODEC.toBuilder().protocolVersion(2193).build()`, to report 2193 without a matching codec class |
+| 2026-09-22T22:16:39Z | `42b73d74` | Adds a real `Bedrock_v2193` codec class and switches to it; "26.51" is added as a second display name on the same entry |
+
+So the number 1.26.50 first shipped under, 2192, was wrong for five days, and the
+patched-in-place codec that followed the correction lasted one more week before a
+dedicated `Bedrock_v2193` codec replaced it. That final commit is six days old at
+this evidence date. This is the same class of risk the original 2168 finding named,
+version-number churn on WaterdogPE's own side rather than on the client's, and it is
+resolved as of `42b73d74`, not before it. A build pinned to a `master` commit before
+2026-09-22 would advertise 2193 without actually running the codec that now backs it.
+
+Confirmed independently in the downloadable artifact, not only in source: the
+`latest` snapshot jar downloaded 2026-09-28
+(`sha256:2b74e370003da8e45b3f0fb551ec4dec9cc980cf128b385c2fa2e97d22fe1934`,
+`git.properties` inside it reads `git.commit.id=c76a112f51c4dc3b2551ff739c69da8b8b81e859`,
+matching the clone) contains a real, distinct `org/cloudburstmc/protocol/bedrock/codec/v2193/`
+package with its own serializers (`BossEventSerializer_v2193`, `CameraPresetsSerializer_v2193`,
+`DebugDrawerSerializer_v2193`, `PlayerAuthInputSerializer_v2193`, and more), not a
+renamed copy of `v2168`'s classes, alongside the still-present `v2168` package from
+the earlier finding. Downloading the jar and listing its contents, not reading a
+changelog.
+
+**Nobody in this workspace has watched a 2193 client connect through a WaterdogPE
+proxy.** That is the same tier 3 gap the original finding left open at 2168, and
+riftal-infra#28 (filed to close it) still names the older number; it needs the same
+update this document just got, and is flagged separately.
+
+## What #2 can still rely on
+
+Unchanged from the original finding, re-confirmed 2026-09-28 against the same jar:
+
+- **Java 17 is the floor.** `ProtocolVersion.class` inside the 2026-09-28 snapshot jar
+  has bytecode major version 61 (`cafebabe 0000 003d`), same as the 2026-09-07 jar.
+- **`19132` is UDP.** Unchanged; not re-checked this round, no reason to expect a
+  change.
+- **The image is ours, on `ubuntu:24.04`.** Unchanged; upstream's own Dockerfile
+  still targets a different base and should not be consumed directly.
+
+The rest of this document is the 2026-09-07 finding at 2168, later read against
+2169. It is preserved because its tier 1/2/3 method and its account of what changed
+between 1.26.40 and 1.26.44 with no protocol bump are still the reference case this
+document points back to above. Its own "short answer" and decision below are
+superseded by the current answer above; nothing past this point should be read as
+describing WaterdogPE's support for 2193.
+
+## Short answer, 2168 (superseded, kept as the reference case above points to)
 
 **No stable WaterdogPE release handles protocol 2168.** The latest stable, v2.0.3,
 tops out at protocol 766 (MCBE 1.21.50) and predates 1.26 entirely.
@@ -359,3 +444,7 @@ current Bedrock protocol is unconfirmed."
 Confirmed, and now specific. v2.0.3 stops at protocol 766. 2.0.4-SNAPSHOT is still
 what carries 2168 and is still unreleased. Both version numbers in that entry are
 unchanged 27 days later, and the stable one has been unchanged since 2024-12-04.
+
+Still true 51 days later, at 2193: v2.0.3 has not moved, and the codec the fork now
+needs still lives only on the unreleased snapshot. See
+[Current answer, protocol 2193](#current-answer-protocol-2193) above.
