@@ -127,7 +127,7 @@ class WorldIndex:
             try:
                 self._admissible(entry, what)
             except KeyError as missing:
-                raise ValueError(f"{what}: {missing.args[0]}") from None
+                raise ValueError(f"{what}: {missing.args[0] if missing.args else 'not admissible'}") from None
             if entry.name in seen:
                 raise ValueError(f"{what} duplicates {seen[entry.name]}")
             seen[entry.name] = what

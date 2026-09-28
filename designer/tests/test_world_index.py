@@ -144,6 +144,17 @@ def test_load_applies_every_rule_add_applies(index: WorldIndex, tmp_path: Path, 
         index.add_location(Location("gate", "design", (0, 0, 0)))
 
 
+def test_load_reports_a_bare_key_error_as_a_value_error(index: WorldIndex, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = index.save(tmp_path / "index.json")
+
+    def refuse(self: WorldIndex, entry: Location | NamedRegion, what: str | None = None) -> None:
+        raise KeyError()
+
+    monkeypatch.setattr(WorldIndex, "_admissible", refuse)
+    with pytest.raises(ValueError, match=r"^Location 'spawn': not admissible$"):
+        WorldIndex.load(path)
+
+
 def test_tag_queries(index: WorldIndex) -> None:
     index.add_region(NamedRegion("pit", "mine_a", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
     index.add_location(Location("seller", "mine_a", (1, 1, 1), tags=["npc", "sell"]))

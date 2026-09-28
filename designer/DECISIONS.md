@@ -565,7 +565,8 @@ are throwaway sizes, not a layout proposal.
 
 `WorldIndex.validate`, which `WorldIndex.load` runs, checks each location and region through
 `_admissible`, the rule `add_location`, `add_region` and `preflight` use, so a rule added there
-is enforced on load too (#307). Load still raises `ValueError` for every refusal: a `KeyError`
-from `_admissible` is re-raised as a `ValueError` prefixed with the entry, so an unlisted world
-reads `Location 'gate': no such world 'desgin', did you mean 'design'?` and gains the spelling
-hint `add_location` gives. A bad name still reads `Location 'Gate' must match ^[a-z0-9_]+$`.
+is enforced on load too (#307). Load raises `ValueError` for every refusal: a `KeyError` from
+`_admissible` is re-raised as a `ValueError` prefixed with the entry, so an unlisted world reads
+`Location 'gate': no such world 'desgin', did you mean 'design'?`, the same hint `add_location`
+gives, and a bad name reads `Location 'Gate' must match ^[a-z0-9_]+$`. A `KeyError` with no
+message reads `Location 'gate': not admissible`.
