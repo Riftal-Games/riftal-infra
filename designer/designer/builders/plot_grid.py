@@ -9,6 +9,7 @@ from typing import Any
 
 from designer.blocks import AIR
 from designer.builders.base import Palette
+from designer.coords import int_coord, int_coords
 from designer.edits import EditList, Fill
 from designer.region import Bounds
 from designer.world_index import NamedRegion
@@ -40,8 +41,9 @@ class PlotGridSpec:
             raise ValueError(f"plot grid spec is missing {missing}")
         try:
             spec = cls(
-                str(data["name"]), str(data["world"]), (int(data["origin"][0]), int(data["origin"][1])),
-                int(data["y"]), int(data["rows"]), int(data["cols"]),
+                str(data["name"]), str(data["world"]),
+                int_coords((data["origin"][0], data["origin"][1]), "origin must be integers"),
+                int_coord(data["y"], "y must be an integer"), int(data["rows"]), int(data["cols"]),
                 (int(data["plot_size"][0]), int(data["plot_size"][1])), int(data.get("buffer", 3)),
             )
         except (TypeError, KeyError, IndexError) as e:

@@ -8,7 +8,7 @@ from functools import reduce
 from typing import Any
 
 from designer.builders.base import Palette
-from designer.coords import int_coords
+from designer.coords import int_coord, int_coords
 from designer.edits import EditList, Fill
 from designer.region import Bounds, Bounds2D, Heightmap
 from designer.world_index import NamedRegion
@@ -37,7 +37,7 @@ class PerimeterSpec:
             y = data.get("y")
             spec = cls(
                 str(data["name"]), str(data["world"]), footprint, int(data["height"]),
-                None if y is None else int(y), int(data.get("post_every", 8)),
+                None if y is None else int_coord(y, "y must be an integer"), int(data.get("post_every", 8)),
             )
         except (TypeError, KeyError, IndexError) as e:
             raise ValueError(f"perimeter spec is malformed: {e!r}") from e
