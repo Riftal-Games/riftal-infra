@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from designer import config
 from designer import stack as stack_mod
 from designer.cli import main
 from designer.render import LEGEND_LINE
@@ -204,6 +205,29 @@ def test_build_apply_registers_the_index_then_refuses_the_second_apply(
     assert main(args) == 0
     again = json.loads(capsys.readouterr().out)
     assert again["ok"] is False and "already defined" in again["error"] and Path(again["snapshot"]).is_file()
+
+
+def test_build_apply_writes_the_extras_report_matching_the_mcp_build_tool(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone"]) == 0
+    dry = json.loads(capsys.readouterr().out)
+    assert dry["extras_report"] is None and not (tmp_path / "reports").exists()
+
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--apply"]) == 0
+    applied = json.loads(capsys.readouterr().out)
+    report_path = Path(applied["extras_report"])
+    assert report_path == tmp_path / "reports" / "mine-tbox-extras.json"
+    assert json.loads(report_path.read_text())["mine_reset"]["reset_percent"] == 60
 
 
 def test_build_no_verify_and_no_index_skip_their_steps(

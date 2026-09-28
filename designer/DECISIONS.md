@@ -408,3 +408,20 @@ instead of `ascii_heightmap`'s pooled average, because a `BlockClass` is categor
 of enum values is not a class. `side_by_side` takes two already-rendered PNG paths rather than
 two `Heightmap`s or `Region`s: it exists to compare a render someone already made against
 another one, typically the same bounds before and after an edit, not to render anything itself.
+
+## 2026-09-28 `designer build --apply` (CLI) writes `reports/<kind>-<name>-extras.json` on the same terms as the MCP `build` tool
+
+`edits.extras["mine_reset"]` is the only place a mine's ore weights per layer, its interior
+bounds, floor and reset percent exist; the region meta the index stores does not carry it. The
+CLI's `_build` reached feature parity with `mcp_server.build` (#145) for the index and
+`mine_valid`, but never wrote the extras report, so a mine built through the CLI, the reviewed,
+human path acceptance criterion 3 exercises, had nowhere for `mines/` to read `mine_reset` from
+at runtime. The write now happens whenever `--apply` sent blocks, keyed the same way the MCP
+tool keys it, `<kind>-<name-or-kind>-extras.json`, and happens unconditionally once blocks are
+sent, even when index registration then refuses an already-taken name, because the extras
+describe what was just built, not whether the index accepted it. `mines/` is meant to read the
+report at `reports/mine-<name>-extras.json` once, at world load, and treat it as the mine's
+static reset config; it is not re-read per reset, since a changed report means a rebuild, not a
+runtime event. `designer build`'s CLI has no `--replace-index` next to `--no-index`: the CLI is
+the reviewed path where re-running under a new name is the expected flow, and the MCP tool's
+`replace_index` exists for an agent iterating in one session without a human between attempts.
