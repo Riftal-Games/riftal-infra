@@ -103,12 +103,15 @@ behind, orphaned (riftal-infra#175, riftal-infra#183).
 
 Right after a run acquires the lock, after the `.partial` sweep above, it
 sweeps every `$LOCK_DIR.discard.*` directory it finds, logging each one it
-removes. No
-age filter applies here, unlike the `.partial` and stale-lock sweeps above:
-`acquire_lock` only ever returns, as it just has for this run, once every
-discard directory it itself created has already been renamed back or
-removed, so anything still present at this point belongs to some earlier
-run, never this one, and is always safe to remove.
+removes. No age filter applies here, unlike the `.partial` and stale-lock
+sweeps above: `acquire_lock` only ever returns, as it just has for this run,
+once every discard directory it itself created has already been renamed back
+or removed, so this run's own discard directory is never still here to sweep.
+A discard directory left by a different, still-running process is safe to
+sweep too: that process's own staleness check on its own now-missing discard
+directory finds nothing, so it takes the existing "hand it back" branch and
+fails with the same "another run already holds the lock" error every other
+contention path already produces.
 
 ## Schedule
 

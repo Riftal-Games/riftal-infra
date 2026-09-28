@@ -208,10 +208,14 @@ done
 # A $LOCK_DIR.discard.* left on disk here is a stale steal's rename target
 # from a run killed between winning that rename and its own follow-up rm -rf
 # (riftal-infra#175, riftal-infra#183). Unlike .partial above, no age check
-# applies: acquire_lock only returns, as it just has for this run, once every
-# discard directory it created has been renamed back or removed, so anything
-# still here cannot belong to a steal race still in flight and is always
-# safe to remove.
+# applies: acquire_lock only returns, as it just has for this run, once its
+# own discard directory has been renamed back or removed, so this run's own
+# discard directory is never still here to sweep. A discard directory left
+# by a different, still-running process is safe to sweep too: that process's
+# staleness check on its own now-missing discard directory finds nothing, so
+# it takes the existing "hand it back" branch and fails with the same
+# "another run already holds the lock" error every other contention path
+# already produces.
 mapfile -t stale_discards < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
   -name '.lock.discard.*')
 for stale in "${stale_discards[@]}"; do
