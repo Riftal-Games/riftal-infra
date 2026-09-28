@@ -579,7 +579,7 @@ in the build, and a name the index already defines. The CLI's `designer build` p
 `designer: <reason>` on stderr, prints no report and exits 1 for each; the MCP `build` tool raises,
 so it answers `ok: false` with the reason. `WorldIndex.preflight` is read-only, so both run it on a
 dry run too, and a dry run refuses exactly what the build would, before the snapshot and the
-first edit. Exit 1 on the CLI means an index refusal; a failed bridge write and a failing
-`mine_valid` still exit 0 and are read from the report. Only `--no-index` on the CLI, or
+first edit. Exit 1 on the CLI means an index refusal. A failed bridge write and a failing
+`mine_valid` exit 0 and are read from the report. Only `--no-index` on the CLI, or
 `register_index=False` on the tool, skips the check, since neither registers anything, and
 `replace_index` lets the tool's taken names through on a dry run as on a build (#308).
