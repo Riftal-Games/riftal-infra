@@ -73,3 +73,14 @@ def test_region_is_tagged_walkway(palette: Palette) -> None:
 def test_build_platform_is_deterministic(palette: Palette) -> None:
     spec = _spec(railing=True)
     assert build_platform(spec, palette).to_json() == build_platform(spec, palette).to_json()
+
+
+@pytest.mark.parametrize("field", ["min", "max"])
+def test_from_dict_rejects_a_fractional_coordinate(field: str) -> None:
+    with pytest.raises(ValueError, match="min and max must be integers"):
+        _spec(**{field: [-0.5, 6]})
+
+
+def test_from_dict_rejects_a_fractional_y() -> None:
+    with pytest.raises(ValueError, match="y must be an integer"):
+        _spec(y=-0.5)

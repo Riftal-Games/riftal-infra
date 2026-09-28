@@ -93,3 +93,24 @@ def test_hollow_fill_carves_the_interior_to_air(spec: MineSpec, palette: Palette
     edits, region = _built_region(hollow, palette)
     geo = hollow.geometry()
     assert region.sub(geo.interior).counts() == {"minecraft:air": geo.interior.volume}
+
+
+@pytest.mark.parametrize("field", ["origin", "size"])
+def test_from_dict_rejects_a_fractional_coordinate(field: str) -> None:
+    data = {**json.loads(SPEC_PATH.read_text(encoding="utf-8")), field: [-0.5, 20, 20]}
+    with pytest.raises(ValueError, match="origin and size must be three integers"):
+        MineSpec.from_dict(data)
+
+
+def test_from_dict_rejects_a_fractional_floor_y() -> None:
+    data = {**json.loads(SPEC_PATH.read_text(encoding="utf-8")), "floor_y": -0.5}
+    with pytest.raises(ValueError, match="floor_y must be an integer"):
+        MineSpec.from_dict(data)
+
+
+@pytest.mark.parametrize("field", ["y_from", "y_to"])
+def test_from_dict_rejects_a_fractional_ore_layer_bound(field: str) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["ore_layers"][0][field] = -0.5
+    with pytest.raises(ValueError, match="y_from and y_to must be integers"):
+        MineSpec.from_dict(data)

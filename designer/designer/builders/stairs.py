@@ -8,6 +8,7 @@ from typing import Any
 
 from designer.blocks import AIR
 from designer.builders.base import DIRS, Palette, facing_state, perpendicular
+from designer.coords import int_coords
 from designer.edits import EditList, Fill
 from designer.region import Bounds
 
@@ -38,7 +39,7 @@ class StairsSpec:
             if len(data["from"]) != 3:
                 raise ValueError("from must be three integers")
             spec = cls(
-                str(data["world"]), tuple(int(v) for v in data["from"]), str(data["direction"]),
+                str(data["world"]), int_coords(data["from"], "from must be three integers"), str(data["direction"]),
                 int(data["rise"]), int(data.get("width", 1)),
             )
         except (TypeError, KeyError, IndexError) as e:

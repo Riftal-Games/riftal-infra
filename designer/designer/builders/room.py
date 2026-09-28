@@ -9,6 +9,7 @@ from typing import Any
 from designer.blocks import AIR, format_name, parse_name
 from designer.builders.base import Palette
 from designer.builders.mine_spec import SIDES
+from designer.coords import int_coords
 from designer.edits import EditList, Fill, SetBlock
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion
@@ -61,9 +62,10 @@ class RoomSpec:
         try:
             if any(len(data[k]) != 3 for k in ("origin", "size")):
                 raise ValueError("origin and size must be three integers")
+            origin, size = (int_coords(data[k], "origin and size must be three integers") for k in ("origin", "size"))
             door = data["door"]
             spec = cls(
-                str(data["name"]), str(data["world"]), tuple(int(v) for v in data["origin"]), tuple(int(v) for v in data["size"]),
+                str(data["name"]), str(data["world"]), origin, size,
                 int(data.get("wall_thickness", 1)),
                 Door(str(door["side"]), int(door["width"]), int(door["height"]), int(door.get("offset", 0))),
                 int(data.get("lights_every", 4)),

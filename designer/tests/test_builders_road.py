@@ -127,3 +127,10 @@ def test_path_exists_along_the_road_crosses_the_ramps_cliff(ramp_region: Region,
 
     found = path_exists(region, (1, profile[0] + 1, 5), (26, profile[-1] + 1, 5))
     assert found.ok, found.detail
+
+
+@pytest.mark.parametrize("field", ["start", "end"])
+def test_from_dict_rejects_a_fractional_coordinate(field: str) -> None:
+    data = {"name": "r", "world": "road", "start": [0, 0], "end": [6, 0], field: [-0.5, 3]}
+    with pytest.raises(ValueError, match="start and end must be integers"):
+        RoadSpec.from_dict(data)

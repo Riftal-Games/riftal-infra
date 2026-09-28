@@ -6,7 +6,7 @@ from designer.bridge import Bridge
 from designer.checks import CheckSpec, Fetch, RunContext, load_checks, plan_fetches, run_checks, run_one, write_report
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.fake_bridge import FakeBridge
+from tests.fake_bridge import FakeBridge, FakeWorld
 
 CHECKS = """
 version: 1
@@ -84,3 +84,10 @@ def test_missing_mine_spec_file_fails_the_check(tmp_path: Path) -> None:
     spec = CheckSpec("m", "mine_valid", {"region": "box", "spec": "specs/nope.json"})
     result = run_one(RunContext({}), _index(tmp_path), spec)
     assert not result.ok and result.detail.endswith("nope.json does not exist")
+
+
+def test_no_holes_fails_a_fractional_floor_y_instead_of_truncating_it(fake: FakeBridge, bridge: Bridge, tmp_path: Path) -> None:
+    fake.worlds["mine_a"] = FakeWorld()
+    ctx = RunContext.fetch(bridge, {"mine_a": Fetch(Bounds((0, 59, 0), (9, 70, 9)))})
+    result = run_one(ctx, _index(tmp_path), CheckSpec("h", "no_holes", {"region": "box", "floor_y": -0.5}))
+    assert not result.ok and result.detail == "floor_y must be an integer, got -0.5"

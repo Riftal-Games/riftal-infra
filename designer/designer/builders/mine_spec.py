@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from designer.blocks import format_name, parse_name
+from designer.coords import int_coord, int_coords
 from designer.region import Bounds
 
 # Side name to the axis it faces along and the direction along it.
@@ -80,13 +81,17 @@ class MineSpec:
         try:
             if any(len(data[k]) != 3 for k in ("origin", "size")):
                 raise ValueError("origin and size must be three integers")
+            origin, size = (int_coords(data[k], "origin and size must be three integers") for k in ("origin", "size"))
             door, path = data["entrance"], data["exit_path"]
             spec = cls(
-                str(data["name"]), str(data["world"]), tuple(int(v) for v in data["origin"]), tuple(int(v) for v in data["size"]),
-                int(data.get("wall_thickness", 2)), int(data["floor_y"]),
+                str(data["name"]), str(data["world"]), origin, size,
+                int(data.get("wall_thickness", 2)), int_coord(data["floor_y"], "floor_y must be an integer"),
                 Entrance(str(door["side"]), int(door["width"]), int(door["height"]), int(door.get("offset", 0))),
                 ExitPath(int(path["length"]), int(path["width"])), _weights(data["ores"], "ores"),
-                tuple(OreLayer(int(l["y_from"]), int(l["y_to"]), _weights(l["ores"], "ore_layers")) for l in data.get("ore_layers") or ()),
+                tuple(
+                    OreLayer(*int_coords((l["y_from"], l["y_to"]), "y_from and y_to must be integers"), _weights(l["ores"], "ore_layers"))
+                    for l in data.get("ore_layers") or ()
+                ),
                 str(data.get("fill", "solid")), int(data.get("seed", 0)), int(data.get("lights_every", 4)), int(data.get("reset_percent", 60)),
             )
         except (TypeError, KeyError) as e:

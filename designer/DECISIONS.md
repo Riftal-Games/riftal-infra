@@ -495,3 +495,13 @@ the way `verify` does. Every writer of an index position hands it a block: the
 blocks, `world_index.json` holds none, and an `x,y,z` string parses as integers. A
 fraction there is a mistake, and flooring it would store a block nobody chose. A whole
 float such as `4.0` is accepted, a `bool` is not (#241).
+
+Builder spec coordinates follow the same rule through `designer.coords`: `int_coords`
+for a point, a footprint corner or an ore layer's `y_from` and `y_to`, `int_coord` for
+a single value such as `y` or `floor_y`. Both share one whole-number check, so a digit
+string such as `"4"` is rejected too, and a spec value is a JSON number or it is an
+error (#245, #248).
+
+`checks.yaml`'s one block coordinate, `no_holes`'s `floor_y`, is written by hand like a
+builder spec and never reported by the server, so it follows the spec rule, not
+`verify`'s floor: a fraction fails the check with `floor_y must be an integer` (#251).
