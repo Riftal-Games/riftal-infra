@@ -45,6 +45,14 @@ services:
     volumes:
       - riftal-world:/data
       - ./plugins:/plugins
+      # RiftalMines resets the worlds this instance hosts and no others, so
+      # it mounts here alone rather than into the shared ./plugins above,
+      # which instance-b also sees. See plugins/instance-only/README.md for
+      # why the config line below is not optional: the plugin's own shipped
+      # default names a database host and user that resolve on no form of
+      # this stack, and connects to them synchronously on enable.
+      - ./plugins/instance-only/RiftalMines.phar:/plugins/RiftalMines.phar:ro
+      - ./plugins/instance-only/RiftalMines.config.yml:/data/plugin_data/RiftalMines/config.yml:ro
     environment:
       # Tags every shared-database row this instance writes, so a world
       # split later still shows who wrote what. No default, like

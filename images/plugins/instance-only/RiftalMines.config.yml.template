@@ -1,0 +1,33 @@
+# Rendered to RiftalMines.config.yml by render-config.sh before the instance
+# starts, and mounted over the plugin's own bundled default at
+# /data/plugin_data/RiftalMines/config.yml. plugin_data lives on the
+# riftal-world volume, so this file only takes effect on that volume's first
+# boot of the plugin; PluginBase::saveDefaultConfig() never overwrites a file
+# that already exists there.
+#
+# Every value below except the database section is the plugin's own shipped
+# default (riftal-game/mines/resources/config.yml). The database section
+# differs because that file's defaults name a host, schema and user that
+# exist nowhere on this stack: MYSQL_DATABASE is riftal_dev (images/compose.yaml),
+# and the dev stack has never provisioned a separate "mines" MySQL user, so
+# this uses the same root credentials the backup service already uses
+# rather than inventing a second, equally dev-only credential.  "mysql" is
+# this stack's actual resolvable network alias for the database container,
+# under both the compose and wslc bring-up forms; "riftal-mysql" (the
+# plugin's shipped default) resolves under neither.
+database:
+  host: "mysql"
+  schema: "riftal_dev"
+  username: "root"
+  password: "__MYSQL_ROOT_PASSWORD__"
+  port: 3306
+  worker-limit: 1
+
+worlds:
+  lumber: "worlds/lumber.json"
+
+default_reset_percent: 60
+
+refill_blocks_per_tick: 4096
+
+refill_tick_budget_ms: 15
