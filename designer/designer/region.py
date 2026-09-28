@@ -16,6 +16,12 @@ from designer.bridge import Bridge
 # The bridge's ``max_region_edge``; any request with a longer edge is refused.
 MAX_EDGE = 128
 
+# The inclusive y range of a PocketMine LevelDB world, whose top block is 319.
+# DesignBridge refuses a box below -64 but accepts one reaching y 320 (riftal-game#209),
+# so clipping to this range is the toolkit's own guard at the ceiling.
+# The bridge does not report a world's range, so a world with another one is not covered.
+WORLD_MIN_Y, WORLD_MAX_Y = -64, 319
+
 # Blocks a ground heightmap looks through, so a tree is not a surface.
 CANOPY_SUFFIXES = ("_leaves", "_log", "_wood")
 

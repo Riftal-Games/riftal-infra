@@ -153,6 +153,9 @@ Returns: kind, entry, pos.
 
 Block counts and one ASCII slice per y around ``at``, ``radius`` at most 8; glyphs ``. # ~ , !`` by class.
 
+The box stops at the build range, y -64..319, so ``bounds`` is shorter than ``2*radius+1`` near either end;
+an ``at`` outside that range is refused.
+
 ```json
 {"properties": {"at": {"title": "At", "type": "string"}, "radius": {"default": 3, "title": "Radius", "type": "integer"}, "world": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "World"}}, "required": ["at"], "title": "inspectArguments", "type": "object"}
 ```
