@@ -415,7 +415,7 @@ bounds, floor and reset percent exist; the region meta the index stores does not
 CLI's `_build` reached feature parity with `mcp_server.build` (#145) for the index and
 `mine_valid`, but never wrote the extras report, so a mine built through the CLI, the reviewed,
 human path acceptance criterion 3 exercises, had nowhere for `mines/` to read `mine_reset` from
-at runtime. The write now happens whenever `--apply` sent blocks, keyed the same way the MCP
+at runtime. The write happens whenever `--apply` sent blocks, keyed the same way the MCP
 tool keys it, `<kind>-<name-or-kind>-extras.json`, and happens unconditionally once blocks are
 sent, even when index registration then refuses an already-taken name, because the extras
 describe what was just built, not whether the index accepted it. `mines/` is meant to read the
@@ -476,3 +476,13 @@ the position and the region, the same detail `warp_safe` reports, instead of rai
 `warp_safe` calls it first and returns its failure unchanged, so one guard covers both
 and there is one message to keep in sync. As with #89, the checks runner (#41) already
 fences `ctx.around`; this is for a direct caller that skips the runner.
+
+## 2026-09-28 A position in `verify` is the block it falls in, each coordinate floored
+
+`entity_clear`, `warp_safe` and `path_exists` accept fractional positions, a player's
+feet as the server reports them, and map each to its block with one helper, `_block`,
+which floors every coordinate. Block `n` spans `[n, n + 1)`, so `-0.5` is block `-1`
+and `39.5` is block `39`; truncation toward zero would put `-0.5` in block `0`. The
+region guard and `Bounds.local` both read the floored position, so a position is either
+inside the region and indexed, or outside it and a failed check, never one and then the
+other. `coords` and `detail` name the floored block, not the raw position (#233).
