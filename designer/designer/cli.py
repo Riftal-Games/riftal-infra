@@ -226,7 +226,7 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> str:
         found = mine_valid(region, mine_spec)
         report["mine_valid"] = {"ok": found.ok, "detail": found.detail}
     idx = WorldIndex.load() if options.apply and not options.no_index else None
-    taken = idx.taken((*report["locations"], *report["regions"])) if idx is not None else []
+    taken = idx.preflight(report["locations"], report["regions"]) if idx is not None else []
     if taken:
         report["ok"], report["error"] = False, f"{taken} already defined; rerun without --apply to inspect, then build a differently named spec"
     elif options.apply and edits.bounds is not None:
@@ -270,12 +270,11 @@ def _run_index(options: argparse.Namespace) -> int:
         if options.index_command == "resolve":
             print(json.dumps(index.resolve(options.name).to_json(), sort_keys=True))
             return 0
+        listing = index.select(options.kind, options.tag)
     except (OSError, ValueError, KeyError) as exc:
         print(f"designer: {exc.args[0] if isinstance(exc, KeyError) else exc}", file=sys.stderr)
         return 1
-    kinds = (options.kind,) if options.kind else KINDS[1:] if options.tag else KINDS
-    data = index.to_json()
-    print(json.dumps({k: [e for e in data[k] if not options.tag or options.tag in e.get("tags", [])] for k in kinds}, indent=2, sort_keys=True))
+    print(json.dumps(listing, indent=2, sort_keys=True))
     return 0
 
 

@@ -94,7 +94,7 @@ def build_mine(spec: MineSpec, palette: Palette) -> EditList:
     ops.append(SetBlock(*rankup_pos, sign_block))
 
     regions = [
-        NamedRegion(spec.name, spec.world, geo.outer.min, geo.outer.max, ["mine"], {"reset_percent": spec.reset_percent}),
+        NamedRegion(spec.name, spec.world, geo.outer.min, geo.outer.max, spec.region_tags(), {"reset_percent": spec.reset_percent}),
         NamedRegion(f"{spec.name}_interior", spec.world, geo.interior.min, geo.interior.max, ["mine_interior"]),
         NamedRegion(f"{spec.name}_entrance", spec.world, geo.entrance.min, geo.entrance.max, ["mine", "walkway"]),
         NamedRegion(f"{spec.name}_exit_platform", spec.world, geo.exit_platform.min, geo.exit_platform.max, ["walkway"]),
@@ -118,6 +118,7 @@ def build_mine(spec: MineSpec, palette: Palette) -> EditList:
         "exit_path": {"length": spec.exit_path.length, "width": spec.exit_path.width},
         "ores": dict(spec.ores), "ore_layers": mine_reset["ore_layers"], "fill": spec.fill,
         "seed": spec.seed, "lights_every": spec.lights_every, "reset_percent": spec.reset_percent,
+        "safe_zone": spec.safe_zone,
     }
     extras = {
         "mine_reset": mine_reset, "mine_spec": mine_spec_dict,

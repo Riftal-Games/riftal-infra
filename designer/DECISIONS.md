@@ -515,3 +515,34 @@ one too: the `mines` plugin's `MineDefinition` refuses a non-integer percent, so
 fraction the builder let through would stop the mine loading rather than tune it. The
 counts in `checks.yaml`, `margin`, `max_drop` and `min_level`, fail their check the same
 way, `<field> must be an integer, got <value>` (#250).
+
+## 2026-09-28 A build validates every index entry before any snapshot, undo entry or edit
+
+Supersedes the sentence in the 2026-09-28 extras report entry that has index registration
+refuse an already-taken name after blocks are sent. Both the CLI's `_build` and the MCP `build`
+tool call `WorldIndex.preflight` on the builder's locations and regions before the snapshot, the
+undo entry and the first edit. It applies the same `_admissible` rule `add_location` and
+`add_region` use, a name matching `NAME_RE` in a listed world, refuses a name given twice within
+the one build, and returns the names the index already defines, which each caller refuses unless
+the MCP tool's `replace_index` is set. QA on #300 saw a spec named `TBox` send 11 writes and push
+an undo entry before `_add` refused `TBox_exit`, leaving blocks in the world that no index entry
+described (#302). A name given twice is refused even under `replace_index`, since `_add` would
+otherwise let the second silently overwrite the first. Validation runs only when the build will
+register: a dry run, `register_index=False` or `--no-index` registers nothing, so it checks
+nothing. The extras report is still written whenever blocks were sent.
+
+## 2026-09-28 A mine spec's `safe_zone` defaults to true and tags the mine's outer region
+
+`MineSpec` takes an optional `safe_zone`, a JSON `true` or `false`, and `build_mine` tags the
+outer region `["mine", "safe_zone"]` when it is true and `["mine"]` when it is false. The
+default is true because the design plan makes regular mines safe zones by default (6.1), with
+riots as the only PvP, and names the contested mine as the one mine that is always PvP (7.2).
+A contested mine's spec sets `safe_zone: false`. Only the outer region carries the tag: the
+entrance lies inside it, and the exit platform is walkway outside the mine. A string, a number
+or `null` is refused, `safe_zone must be true or false, got <value>`, since `"false"` would
+otherwise read as true. The committed `lumber` and `mine_a` specs state `true` explicitly.
+RiftalRiots treats a world as safe when any of its regions carries `safe_zone`, so a built
+mine's own region is enough. The hand-defined `lumber_safe_zone` region stays in the committed
+index until a lumber build is registered there, since nothing else makes the lumber world safe
+today. It is named apart from the builder's `lumber` region, so neither overwrites the other
+(#295).

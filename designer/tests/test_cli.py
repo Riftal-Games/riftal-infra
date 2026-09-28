@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PIL import Image
@@ -9,7 +10,7 @@ from designer import stack as stack_mod
 from designer.cli import main
 from designer.render import LEGEND_LINE
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
+from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge
 
 
@@ -55,6 +56,12 @@ def test_index_commands_need_no_bridge(capsys: pytest.CaptureFixture[str]) -> No
     assert main(["index", "resolve", "spawn"]) == 0
     assert json.loads(capsys.readouterr().out)["pos"] == [0, 64, 0]
     assert main(["index", "resolve", "spwan"]) == 1 and "did you mean 'spawn'" in capsys.readouterr().err
+
+
+def test_index_list_refuses_a_tag_on_worlds(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["index", "list", "--kind", "worlds", "--tag", "spawn"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err.startswith("designer: worlds carry no tags")
 
 
 def test_index_reports_a_bad_file_without_a_traceback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -246,6 +253,28 @@ def test_build_apply_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
     assert "snapshot" not in refused and refused["extras_report"] is None
     assert not (tmp_path / "snapshots").exists() and not (tmp_path / "reports").exists()
     assert WorldIndex.load(index_path).to_json() == seeded.to_json()
+
+
+@pytest.mark.parametrize(("kind", "change", "error"), REFUSED_BUILDS)
+def test_build_apply_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
+    refusable: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path,
+    kind: str, change: dict[str, Any], error: str,
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", refusable.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(refusable.port))
+    monkeypatch.setattr(config, "SNAPSHOTS_DIR", tmp_path / "snapshots")
+    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    before = index_path.read_bytes()
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps({**SMALL_MINE_SPEC, **change}), encoding="utf-8")
+
+    assert main(["build", kind, "--spec", str(spec_path), "--palette", "test_stone", "--apply"]) == 1
+    assert error in capsys.readouterr().err
+    assert [r["op"] for r in refusable.requests if r["op"] in ("set_blocks", "fill", "replace")] == []
+    assert not (tmp_path / "snapshots").exists() and not (tmp_path / "reports").exists()
+    assert index_path.read_bytes() == before
 
 
 def test_build_apply_writes_the_extras_report_matching_the_mcp_build_tool(
