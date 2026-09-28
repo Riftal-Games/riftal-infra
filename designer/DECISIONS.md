@@ -546,3 +546,17 @@ mine's own region is enough. The hand-defined `lumber_safe_zone` region stays in
 index until a lumber build is registered there, since nothing else makes the lumber world safe
 today. It is named apart from the builder's `lumber` region, so neither overwrites the other
 (#295).
+
+## 2026-09-28 `checks.yaml` covers pvp_boundary and room regions; `no_holes` takes an optional `inset`
+
+Issue #169, the other half of #165. A `pvp_boundary` region is checked with `region_inside`
+against `contested_walkable`, a region authored into the index by hand the way
+`lumber_safe_zone` is, because no builder emits a world's walkable footprint. The boundary's
+bounds include its wall height, so that region spans the headroom above the floor as well as
+the floor itself. A room's region is its outer shell, walls included, so `no_holes` over the
+whole footprint reads every wall cell at walking height as a hole. `inset`, whole and at least
+0, shrinks the checked footprint in x and z by that many blocks on each side; set to the room's
+`wall_thickness`, it checks the floor inside the walls and nothing else. It defaults to 0, so an
+entry without it checks the region's whole footprint. The names are placeholders for the contested
+world the M1 map leaves unbuilt, and the fixture specs in `tests/test_checks_perimeter_room.py`
+are throwaway sizes, not a layout proposal.
