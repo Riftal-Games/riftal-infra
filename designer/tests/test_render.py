@@ -8,15 +8,15 @@ from PIL import Image
 from designer.blocks import AIR
 from designer.config import REPORTS_DIR
 from designer.palettes import ROLES, load_palettes
-from designer.region import Bounds2D, Heightmap
+from designer.region import Bounds, Bounds2D, Heightmap, Region
 from designer.render import (
-    LEGEND_LINE, MARKER_FILL, RAMP, Marker, ascii_heightmap, fallback_color, isometric_png, markers_from_index, report_path,
-    summary, timelapse_png, topdown_png,
+    LEGEND_LINE, MARKER_FILL, RAMP, SIDE_BY_SIDE_GAP, Marker, ascii_heightmap, fallback_color, isometric_png, markers_from_index,
+    report_path, side_by_side, slice_ascii, slice_png, summary, timelapse_png, topdown_png,
 )
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
 WORLD = "design"
-STONE, WATER = "minecraft:stone", "minecraft:water"
+STONE, WATER, LADDER, LAVA = "minecraft:stone", "minecraft:water", "minecraft:ladder", "minecraft:lava"
 COLORS = load_palettes()["colors"]
 
 
@@ -205,3 +205,103 @@ def test_palettes_file_binds_every_role_and_is_cached() -> None:
     data = load_palettes()
     assert data is load_palettes() and len(ROLES) == 14 and set(data["palettes"]["mine_stone"]) == set(ROLES)
     assert COLORS["minecraft:water"] == [63, 118, 228] and all(len(rgb) == 3 for rgb in COLORS.values())
+
+
+def _floor_region() -> Region:
+    """4x2x2 off the tick grid: a stone floor at y=0, water at (2,0,1); y=1 is air except a direct water block at (3,1,1)."""
+    region = Region.empty("plane", Bounds((1, 0, 1), (4, 1, 2)))
+    region.fill(Bounds((1, 0, 1), (4, 0, 2)), STONE)
+    region.set(2, 0, 1, WATER)
+    region.set(3, 1, 1, WATER)
+    return region
+
+
+def test_slice_png_size_and_air_over_floor_is_darker_than_the_floor(tmp_path: Path) -> None:
+    region = _floor_region()
+    floor = slice_png(region, 0, COLORS, scale=4, out=tmp_path / "floor.png")
+    above = slice_png(region, 1, COLORS, scale=4, out=tmp_path / "above.png")
+    assert Image.open(above).size == Image.open(floor).size == (4 * 4, 2 * 4 + LEGEND_LINE)
+
+    floor_stone, above_air = _pixels(floor)[2, 0 * 4 + 2].astype(int), _pixels(above)[2, 0 * 4 + 2].astype(int)
+    assert above_air.sum() < floor_stone.sum()
+    assert tuple(above_air) == tuple(int(c * 0.6) for c in COLORS[STONE])
+
+    # (2,1) is water underfoot: the air cell above it is darkened, tinted water, not plain darkened stone.
+    above_over_water = _pixels(above)[2, 1 * 4 + 2].astype(int)
+    assert above_over_water.tolist() != above_air.tolist()
+
+    # (3,1) is a direct, non-air water block at the sliced layer, tinted the same way a top-down render tints it.
+    direct_water = _pixels(above)[2, 2 * 4 + 2].astype(int)
+    assert direct_water[2] > direct_water[0]
+
+
+def test_slice_png_refuses_a_y_outside_the_region_and_a_bad_scale() -> None:
+    region = _floor_region()
+    with pytest.raises(ValueError, match="scale must be at least 1"):
+        slice_png(region, 0, COLORS, scale=0)
+    with pytest.raises(ValueError, match="y=9 is outside 0..1"):
+        slice_png(region, 9, COLORS)
+
+
+def test_slice_png_marker_pixel_and_default_report_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+    region = _floor_region()
+    path = slice_png(region, 0, COLORS, [Marker("home", 2, 1, 0), Marker("far", 40, 40, 0)])
+    assert path.parent == tmp_path / "reports" and path.name.startswith("slice-plane-1_1-4x2-") and path.suffix == ".png"
+    assert tuple(_pixels(path)[2, 1 * 4 + 2]) == MARKER_FILL["location"]
+
+
+def _class_row_region() -> Region:
+    """1x1x5: one column per ``BlockClass``, in glyph order air, solid, liquid, passable, danger."""
+    region = Region.empty("classes", Bounds((0, 0, 0), (4, 0, 0)))
+    region.set(1, 0, 0, STONE)
+    region.set(2, 0, 0, WATER)
+    region.set(3, 0, 0, LADDER)
+    region.set(4, 0, 0, LAVA)
+    return region
+
+
+def test_slice_ascii_shows_one_glyph_per_class_and_a_legend_row() -> None:
+    region = _class_row_region()
+    text = slice_ascii(region, 0)
+    lines = text.splitlines()
+    assert lines[0] == "world=classes x=0..4 z=0..0 y=0 step=1"
+    assert _rows(text, 5)[0] == ".#~,!"
+    assert ". air, # solid, ~ liquid, , passable, ! danger" in lines
+
+
+def test_slice_ascii_marker_lands_on_its_cell() -> None:
+    region = _class_row_region()
+    text = slice_ascii(region, 0, [Marker("home", 2, 0, 0)])
+    assert _rows(text, 5)[0][2] == "A" and "A home (2,0,0)" in text.splitlines()
+
+
+def test_slice_ascii_refuses_a_y_outside_the_region_and_a_bad_max_width() -> None:
+    region = _class_row_region()
+    with pytest.raises(ValueError, match="max_width must be at least 1"):
+        slice_ascii(region, 0, max_width=0)
+    with pytest.raises(ValueError, match="y=9 is outside 0..0"):
+        slice_ascii(region, 9)
+
+
+def test_side_by_side_width_is_both_widths_plus_the_gap_and_height_adds_the_label_bar(tmp_path: Path) -> None:
+    before, after = Image.new("RGB", (6, 4), (10, 20, 30)), Image.new("RGB", (10, 8), (40, 50, 60))
+    before_path, after_path = tmp_path / "before.png", tmp_path / "after.png"
+    before.save(before_path)
+    after.save(after_path)
+
+    out = tmp_path / "combo.png"
+    path = side_by_side(before_path, after_path, out=out)
+    assert path == out
+    assert Image.open(out).size == (6 + 10 + SIDE_BY_SIDE_GAP, 8 + LEGEND_LINE)
+    combo = _pixels(out)
+    assert tuple(combo[LEGEND_LINE, 2]) == (10, 20, 30)
+    assert tuple(combo[LEGEND_LINE, 6 + SIDE_BY_SIDE_GAP + 2]) == (40, 50, 60)
+
+
+def test_side_by_side_default_report_path_and_custom_labels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+    tiny = tmp_path / "tiny.png"
+    Image.new("RGB", (2, 2)).save(tiny)
+    path = side_by_side(tiny, tiny, labels=("was", "now"))
+    assert path.parent == tmp_path / "reports" and path.name.startswith("side_by_side-") and path.suffix == ".png"
