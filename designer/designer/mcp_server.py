@@ -244,7 +244,8 @@ async def timelapse(region: str, out: str | None = None) -> dict[str, Any]:
 async def inspect(at: str, radius: int = 3, world: str | None = None) -> dict[str, Any]:
     """Block counts and one ASCII slice per y around ``at``, ``radius`` at most 8; glyphs ``. # ~ , !`` by class.
 
-    The box stops at the build range, y -64..319, so ``bounds`` is shorter than ``2*radius+1`` near either end.
+    The box stops at the build range, y -64..319, so ``bounds`` is shorter than ``2*radius+1`` near either end;
+    an ``at`` outside that range is refused.
 
     RETURNS: world, center, bounds, counts, slices as [{y, rows}] from the lowest y up.
     """

@@ -167,9 +167,11 @@ def test_inspect_at_the_build_floor_or_ceiling_stops_at_it(server: FakeBridge, y
     assert [s["y"] for s in result["slices"]] == list(range(lo, hi + 1))
 
 
-def test_inspect_centred_outside_the_build_range_is_refused(server: FakeBridge) -> None:
-    result = call("inspect", at=f"16,{FakeWorld.MIN_Y - 1},16", radius=2)
+@pytest.mark.parametrize("y", [FakeWorld.MIN_Y - 1, FakeWorld.MAX_Y + 1])
+def test_inspect_centred_outside_the_build_range_is_refused(server: FakeBridge, y: int) -> None:
+    result = call("inspect", at=f"16,{y},16", radius=2)
     assert result["ok"] is False and "outside the build range" in result["error"]
+    assert server.requests == []
 
 
 def test_inspect_resolves_a_spawn_that_is_only_a_tag(server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
