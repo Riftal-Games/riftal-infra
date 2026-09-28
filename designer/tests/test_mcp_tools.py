@@ -524,6 +524,22 @@ def test_build_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
     assert call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone", dry_run=True, replace_index=True)["ok"] is True
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_build_without_register_index_lets_a_taken_name_through_and_leaves_the_index_alone(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, dry_run: bool
+) -> None:
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    seeded = WorldIndex.load(tmp_path / "index.json")
+    seeded.add_location(Location("tbox_spawn", "design", (0, 64, 0)))
+    seeded.add_region(NamedRegion("tbox", "design", (0, 60, 0), (1, 61, 1)))
+    seeded.save(tmp_path / "index.json")
+    before = (tmp_path / "index.json").read_bytes()
+
+    built = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone", register_index=False, dry_run=dry_run)
+    assert built["ok"] is True and "error" not in built
+    assert (tmp_path / "index.json").read_bytes() == before
+
+
 @pytest.mark.parametrize("replace_index", [False, True])
 @pytest.mark.parametrize(("kind", "change", "error"), REFUSED_BUILDS)
 def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
