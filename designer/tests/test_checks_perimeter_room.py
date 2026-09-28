@@ -83,10 +83,17 @@ def test_no_holes_fails_an_inset_that_is_negative_fractional_or_swallows_the_foo
     assert not result.ok and match in result.detail
 
 
-def test_no_holes_fails_an_inset_of_exactly_half_the_short_side_when_that_side_runs_along_z() -> None:
-    """A 10x6 footprint with inset 3: the square, odd room cannot tell ``>=`` from ``>`` or see a z-only
-    overrun, and ``Bounds`` sorts its corners, so a missed overrun reads a flipped box instead of raising."""
+@pytest.mark.parametrize(
+    "name, far, footprint",
+    [("wide", (13, 68, 9), "10x6"), ("tall", (9, 68, 13), "6x10")],
+)
+def test_no_holes_fails_an_inset_of_exactly_half_the_short_side_on_either_axis(
+    name: str, far: tuple[int, int, int], footprint: str
+) -> None:
+    """Inset 3 on a 10x6 footprint short along z and on a 6x10 one short along x. The square, odd room
+    cannot tell ``>=`` from ``>`` or see an overrun on one axis alone, and ``Bounds`` sorts its corners,
+    so a missed overrun reads a flipped box instead of raising."""
     index, ctx = _room()
-    index.add_region(NamedRegion("wide", "contested", (4, 65, 4), (13, 68, 9), []))
-    result = run_one(ctx, index, CheckSpec("h", "no_holes", {"region": "wide", "floor_y": 66, "inset": 3}))
-    assert not result.ok and "inset 3 leaves nothing of 'wide''s 10x6 footprint" in result.detail
+    index.add_region(NamedRegion(name, "contested", (4, 65, 4), far, []))
+    result = run_one(ctx, index, CheckSpec("h", "no_holes", {"region": name, "floor_y": 66, "inset": 3}))
+    assert not result.ok and f"inset 3 leaves nothing of {name!r}'s {footprint} footprint" in result.detail
