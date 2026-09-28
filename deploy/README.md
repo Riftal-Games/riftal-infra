@@ -147,6 +147,12 @@ A restore is destructive by design, not incremental:
 Both are rebuilt to exactly what the chosen backup set describes, nothing
 merged on top.
 
+The dump carries no MySQL roles or logins, so a restore onto a fresh server
+leaves every plugin login missing. Run `../migrations/run-migrations.sh`
+after every restore, with `GRANTS_FILE` and each `RIFTAL_DB_PASSWORD_<NAME>`
+set: it reapplies no recorded migration and rebuilds the roles and logins
+(`../migrations/README.md`, Provisioning logins).
+
 Before any of that, `restore.sh` lists every world tar in the set with
 `tar -tzf` and fails loudly if any one of them does not extract cleanly. This
 runs before the database is touched and before any target directory is

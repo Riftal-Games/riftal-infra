@@ -17,6 +17,9 @@ under containers, not less (CLAUDE.md hard rule 5).
 3. Stops on the first migration that errors, with a nonzero exit and that
    file left unrecorded. A later run retries it and everything after it.
 4. Is a no-op success when nothing is pending, so running it twice is safe.
+5. Provisions the per-plugin MySQL logins of ADR 008 (riftal-pm
+   `docs/decisions/008-per-plugin-mysql-users.md`) on every run, still under
+   the same lock. See Provisioning logins below.
 
 Migration files themselves are authored in
 `riftal-game/lib/resources/sql/migrations/` (riftal-game#21). This repo only
@@ -34,6 +37,27 @@ runs them; it never authors gameplay migrations.
 | `MIGRATIONS_DIR` | no | sibling checkout's `riftal-game/lib/resources/sql/migrations` | Mount the real directory in explicitly rather than relying on the fallback |
 | `MIGRATIONS_LOCK_NAME` | no | `riftal_schema_migrations` | Override only for running more than one independent test in parallel |
 | `MIGRATIONS_LOCK_TIMEOUT` | no | `60` (seconds) | |
+| `GRANTS_FILE` | no | sibling checkout's `riftal-game/lib/resources/sql/grants.sql` | Mount the real file in explicitly, as with `MIGRATIONS_DIR` |
+| `RIFTAL_DB_PASSWORD_<NAME>` | no | | One per plugin login to provision, e.g. `RIFTAL_DB_PASSWORD_MINES` for `mines`. At least 24 characters, `[A-Za-z0-9]` only |
+
+## Provisioning logins
+
+After the migrations, every run:
+
+1. Applies `GRANTS_FILE`, which creates the `riftal_role_*` roles and their
+   privileges. A missing file is noted and skipped. Grants are never recorded
+   as applied: a dump restored onto a fresh server carries
+   `schema_migrations` but no roles, so they are rebuilt every run.
+2. For each `RIFTAL_DB_PASSWORD_<NAME>`, runs `CREATE USER IF NOT EXISTS` and
+   then `ALTER USER` for `'<name>'@'%'`, so the environment always decides the
+   password. Rotating one is changing the variable and running this again.
+3. Grants `riftal_role_<name>` to the login and sets it as the default role.
+
+It fails loudly, before touching anything, on a password under 24 characters
+or with a character outside `[A-Za-z0-9]`, and, before creating any login, on
+a login whose `riftal_role_<name>` does not exist. No password is ever
+printed. It is not a `/docker-entrypoint-initdb.d` script: it runs wherever
+migrations run, including after every `../deploy/restore.sh`.
 
 ## Running it locally, via `wslc`
 
@@ -55,6 +79,11 @@ wslc run --rm --network riftal-dev \
   mysql:8 bash /run-migrations.sh
 ```
 
+To provision logins in the same run, add
+`-v "$GAME/lib/resources/sql/grants.sql:/grants.sql:ro" -e GRANTS_FILE=/grants.sql`
+and one `-e RIFTAL_DB_PASSWORD_<NAME>` per login. The bind mount fails the run
+until `riftal-game` ships `grants.sql` (riftal-game#259).
+
 Wrap the `wslc run` above in `timeout 120` when running it unattended: if the
 lock cannot be acquired, this hangs for `MIGRATIONS_LOCK_TIMEOUT` seconds
 before failing loudly, and a hung `wslc` call otherwise gives no signal.
@@ -65,7 +94,10 @@ before failing loudly, and a hung `wslc` call otherwise gives no signal.
 container using the fixtures in `fixtures/`: no-op on an empty directory,
 ordered apply with both files recorded, a no-op second run, a broken
 migration halting the run without being recorded, and two invocations racing
-the same lock name applying a pending migration exactly once. It calls
+the same lock name applying a pending migration exactly once, and login
+provisioning against `fixtures/grants/`: a login created on an existing
+schema, an idempotent second run, rotation, a restore onto a fresh server,
+and the loud refusals. It calls
 `docker` directly,
 the same way `.github/workflows/ci.yml`'s PHP lint step already does, so it
 runs in CI and is **not runnable on Nasir's Windows machine**, which has no
