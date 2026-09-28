@@ -5,8 +5,14 @@
  * @main riftal\dev\joinorder\Main
  * @version 0.0.1
  * @api 5.0.0
- * @depend RiftalDevBots
+ * @loadbefore RiftalDevBots
  * @description Self-test fixture for selftest.sh beside it. Never loaded by a stack.
+ */
+
+/*
+ * Loading first registers Placer before RiftalDevBots' join handler, so at a
+ * priority tie Placer runs first and the spawn return lands last. A tie is
+ * then a failure the self-test sees, not one plugin load order hides.
  */
 
 declare(strict_types=1);

@@ -50,8 +50,8 @@ final class DevEnvGate{
  * Bots mark themselves with ClientData DeviceModel "riftal-devbot". Once
  * admitted they are ordinary Player objects, so every gameplay plugin already
  * treats them as players. The one thing done to them is a return to spawn on
- * join, so scenarios are repeatable, which any plugin placing players on join
- * overrides; see onJoin().
+ * join, so scenarios are repeatable. A plugin placing players on join
+ * overrides that return; see onJoin().
  *
  * Admission needs the riftal-dev-bots server option (the --riftal-dev-bots=on
  * flag or server.properties), xbox-auth off, and RIFTAL_DEV_ENV=1; see
@@ -125,9 +125,9 @@ final class Main extends PluginBase{
 	 * run. Inventory and everything else a player keeps still carries over.
 	 *
 	 * Registered at LOWEST so it runs first: any plugin placing players on join
-	 * at NORMAL or later, such as RiftalMines' join_teleport, has the last word,
-	 * and the bot lands where a real player would. join-order/selftest.sh holds
-	 * this order.
+	 * at any priority after LOWEST, such as RiftalMines' join_teleport, has the
+	 * last word, and the bot lands where a real player would.
+	 * join-order/selftest.sh holds this order.
 	 */
 	private function onJoin(PlayerJoinEvent $event) : void{
 		$player = $event->getPlayer();

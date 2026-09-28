@@ -8,9 +8,11 @@
 # PlayerJoinEvent through PocketMine's own handler lists, logs every teleport
 # in the order the handlers made it, and shuts the server down.
 #
-# It then runs a copy with the join handler registered at MONITOR, the order
-# that let the spawn return undo the placement, and expects the probe to see
-# that, so the check is known to tell the two apart on every run.
+# It then runs copies with the join handler registered at NORMAL and at
+# MONITOR, the orders at which the spawn return undoes the placement, and
+# expects the probe to see that, so the check is known to tell them apart on
+# every run. NORMAL ties with the placer, and the probe registers first so the
+# tie goes against RiftalDevBots.
 #
 # Needs the local-pocketmine-mp image, present on the self-hosted runners. It
 # publishes no port and keeps nothing: /data is the container's own anonymous
@@ -25,7 +27,7 @@ JOIN_LINE='registerEvent(PlayerJoinEvent::class, $this->onJoin(...), EventPriori
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=3
+EXPECTED_ASSERTIONS=5
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -63,16 +65,22 @@ printf '%s\n' "$result"
   && pass "RiftalDevBots returns the bot to spawn first and the placer has the last word" \
   || fail "expected the spawn return then the placement, got: $result"
 
-printf '\n== the join handler at MONITOR undoes the placement, and the probe sees it\n'
-sed 's/\(onJoin(\.\.\.), EventPriority::\)[A-Z]*/\1MONITOR/' "$PLUGIN" > "$work/monitor.php"
-[ "$(grep -cF "${JOIN_LINE}MONITOR" "$work/monitor.php")" = 1 ] \
-  && pass "the MONITOR copy registers the join handler at MONITOR" \
-  || fail "could not find the join handler's registration in $PLUGIN"
-result="$(probe "$work/monitor.php")"
-printf '%s\n' "$result"
-[ "$result" = "join-order-probe admitted=yes teleports=placer,spawn" ] \
-  && pass "at MONITOR the probe sees the spawn return land last" \
-  || fail "expected the placement then the spawn return, got: $result"
+# $1 a priority at which the spawn return undoes the placement
+control() {
+  local copy="$work/$1.php" result
+  printf '\n== the join handler at %s undoes the placement, and the probe sees it\n' "$1"
+  sed "s/\(onJoin(\.\.\.), EventPriority::\)[A-Z]*/\1$1/" "$PLUGIN" > "$copy"
+  [ "$(grep -cF "${JOIN_LINE}$1" "$copy")" = 1 ] \
+    && pass "the $1 copy registers the join handler at $1" \
+    || fail "could not find the join handler's registration in $PLUGIN"
+  result="$(probe "$copy")"
+  printf '%s\n' "$result"
+  [ "$result" = "join-order-probe admitted=yes teleports=placer,spawn" ] \
+    && pass "at $1 the probe sees the spawn return land last" \
+    || fail "expected the placement then the spawn return at $1, got: $result"
+}
+control NORMAL
+control MONITOR
 
 printf '\n'
 ran=$((PASSES + FAILURES))
