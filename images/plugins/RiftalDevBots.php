@@ -3,7 +3,7 @@
 /**
  * @name RiftalDevBots
  * @main riftal\dev\bots\Main
- * @version 0.2.0
+ * @version 0.2.1
  * @api 5.0.0
  * @description Dev stack only. Admits the headless player bots from devtools/bot.
  */
@@ -50,7 +50,8 @@ final class DevEnvGate{
  * Bots mark themselves with ClientData DeviceModel "riftal-devbot". Once
  * admitted they are ordinary Player objects, so every gameplay plugin already
  * treats them as players. The one thing done to them is a return to spawn on
- * join, so scenarios are repeatable; see onJoin().
+ * join, so scenarios are repeatable, unless another plugin places them; see
+ * onJoin().
  *
  * Admission needs the riftal-dev-bots server option (the --riftal-dev-bots=on
  * flag or server.properties), xbox-auth off, and RIFTAL_DEV_ENV=1; see
@@ -100,7 +101,7 @@ final class Main extends PluginBase{
 
 		$manager = $server->getPluginManager();
 		$manager->registerEvent(PlayerPreLoginEvent::class, $this->onPreLogin(...), EventPriority::LOWEST, $this);
-		$manager->registerEvent(PlayerJoinEvent::class, $this->onJoin(...), EventPriority::MONITOR, $this);
+		$manager->registerEvent(PlayerJoinEvent::class, $this->onJoin(...), EventPriority::LOWEST, $this);
 		$manager->registerEvent(PlayerQuitEvent::class, $this->onQuit(...), EventPriority::MONITOR, $this);
 	}
 
@@ -122,6 +123,10 @@ final class Main extends PluginBase{
 	 * carries over between sessions, which would make each scenario begin
 	 * wherever the last one ended and drift further out every run. Inventory
 	 * and everything else a player keeps still carries over.
+	 *
+	 * Registered at LOWEST so it runs first: any plugin that places players on
+	 * join, such as RiftalMines' join_teleport, runs after it and has the last
+	 * word, and the bot lands where a real player would.
 	 */
 	private function onJoin(PlayerJoinEvent $event) : void{
 		$player = $event->getPlayer();
