@@ -695,8 +695,8 @@ def build(
 
     Snapshots first and answers with the undo id, like every mutating tool. Registers the builder's
     locations and regions in the index unless ``register_index`` is false, refusing a name already
-    taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is ``mine`` unless ``verify`` is
-    false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
+    taken, before any edit is sent, unless ``replace_index``; runs ``mine_valid`` when ``kind`` is
+    ``mine`` unless ``verify`` is false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
     falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
 
     RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
@@ -709,21 +709,21 @@ def build(
 
     spec_dict = _load_build_spec(spec)
     edits = BUILDERS[kind](spec_dict, Palette.load(palette), fetch)
+    locations, regions = edits.extras.get("locations", []), edits.extras.get("regions", [])
+    register = not dry_run and register_index
+    taken = index().taken((*locations, *regions)) if register and not replace_index else []
+    if taken:
+        raise ValueError(f"{taken} already defined; pass replace_index=True to overwrite")
     out = _apply(edits, f"build_{kind}", dry_run, ctx)
-    out["locations"], out["regions"] = edits.extras.get("locations", []), edits.extras.get("regions", [])
+    out["locations"], out["regions"] = locations, regions
     out["mine_valid"] = _mine_valid(edits) if verify and kind == "mine" else None
-    if not dry_run and out.get("ok") is not False and register_index:
+    if register and out.get("ok") is not False:
         idx = index()
-        names = (e["name"] for e in (*out["locations"], *out["regions"]))
-        taken = sorted(n for n in names if n in idx.names())
-        if taken and not replace_index:
-            out = {**out, **_error(ValueError(f"{taken} already defined; pass replace_index=True to overwrite"))}
-        else:
-            for loc in out["locations"]:
-                idx.add_location(Location.from_json(loc), replace=replace_index)
-            for reg in out["regions"]:
-                idx.add_region(NamedRegion.from_json(reg), replace=replace_index)
-            idx.save()
+        for loc in locations:
+            idx.add_location(Location.from_json(loc), replace=replace_index)
+        for reg in regions:
+            idx.add_region(NamedRegion.from_json(reg), replace=replace_index)
+        idx.save()
     out["extras_report"] = None
     if not dry_run:
         config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
