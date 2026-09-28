@@ -8,7 +8,7 @@ the edit outright regardless of what this repo's own `.claude/settings.json`
 or agent definitions say. **A human needs to fold this into
 `.claude/skills/dev-stack/SKILL.md` by hand.**
 
-Two corrections to the current SKILL.md text:
+Three corrections to the current SKILL.md text:
 
 1. The "Bring it up" section's opening line still reads "one core
    `instance`". Since riftal-infra#129, `images/compose.yaml` defines two:
@@ -23,6 +23,21 @@ Two corrections to the current SKILL.md text:
    inspect`, distinct worlds confirmed in the boot log (`Preparing world
    "mine_a"` vs `Preparing world "plots_b"`), and a RakNet ping against each
    published port answered with a distinct MOTD on the same protocol number.
+3. Step 4, "Instance", creates `riftal-instance` without
+   `--auto-report.enabled=0`, so a crash in that container uploads its dump
+   to the core image's crash archive. Every PocketMine service in
+   `images/compose.yaml` and `designer/stack/compose.yaml` passes the flag
+   (riftal-infra#232). Only `0` turns reporting off: the flag's value is a
+   raw string cast with `(bool)`, and `(bool) "false"` is `true`. Step 4's
+   `POCKETMINE_ARGS` line should read:
+
+   ```sh
+     -e "POCKETMINE_ARGS=--level-name=mine_a --level-type=normal --xbox-auth=false --motd=riftal-dev --riftal-dev-bots=on --auto-report.enabled=0" \
+   ```
+
+   A `riftal-instance` container created without the flag reports crashes
+   until it is recreated: `stop` on stdin, wait for the shutdown line, remove,
+   and a fresh `wslc run` against the same `riftal-world` volume.
 
 ## 5. Second instance (`instance-b`)
 
@@ -39,9 +54,10 @@ the top of this runbook if either was just edited.
 wslc run -d -i --name riftal-instance-b --network riftal-dev \
   -p "${INSTANCE_B_BIND:-127.0.0.1}:19133:19132/udp" \
   -v riftal-world-b:/data -v "$INFRA/images/plugins:/plugins" \
+  -v "$INFRA/designer/world_index.json:/etc/riftal/world_index.json:ro" \
   -e "INSTANCE_ID=${INSTANCE_B_ID}" \
-  -e "POCKETMINE_ARGS=--level-name=plots_b --level-type=flat --xbox-auth=false --motd=riftal-dev-b --riftal-dev-bots=on" \
-  local-pocketmine-mp
+  -e "POCKETMINE_ARGS=--level-name=plots_b --level-type=flat --xbox-auth=false --motd=riftal-dev-b --riftal-dev-bots=on --auto-report.enabled=0" \
+  local-pocketmine-mp bash /plugins/deliver-world-index.sh start-pocketmine
 
 wslc logs riftal-instance-b
 ```

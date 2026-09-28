@@ -24,6 +24,12 @@ def _weights(data: Any, key: str) -> dict[str, float]:
     return ores
 
 
+def _flag(value: Any, key: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be true or false, got {value!r}")
+    return value
+
+
 @dataclass(frozen=True)
 class Entrance:
     side: str
@@ -72,6 +78,11 @@ class MineSpec:
     seed: int = 0
     lights_every: int = 4
     reset_percent: int = 60
+    safe_zone: bool = True
+
+    def region_tags(self) -> list[str]:
+        """Tags for the outer region. Design plan 6.1 makes a regular mine safe by default; 7.2 keeps the contested mine PvP."""
+        return ["mine", "safe_zone"] if self.safe_zone else ["mine"]
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> MineSpec:
@@ -104,6 +115,7 @@ class MineSpec:
                 str(data.get("fill", "solid")), whole_int(data.get("seed", 0), "seed must be an integer"),
                 whole_int(data.get("lights_every", 4), "lights_every must be an integer"),
                 whole_int(data.get("reset_percent", 60), "reset_percent must be an integer"),
+                _flag(data.get("safe_zone", True), "safe_zone"),
             )
         except (TypeError, KeyError) as e:
             raise ValueError(f"mine spec is malformed: {e!r}") from e

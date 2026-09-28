@@ -1,8 +1,7 @@
-# Rendered to RiftalMines.config.yml by render-config.sh before the instance
-# starts. start-instance.sh copies it to
-# /data/plugin_data/RiftalMines/config.yml on every boot, so the rendered file
-# stays authoritative; PluginBase::saveDefaultConfig() never overwrites a file
-# that already exists there.
+# start-instance.sh renders this to /data/plugin_data/RiftalMines/config.yml
+# with render-config.sh on every boot, so this template stays authoritative;
+# PluginBase::saveDefaultConfig() never overwrites a file that already exists
+# there.
 #
 # Every value below except the database section and `worlds` is the plugin's
 # own shipped default (riftal-game/mines/resources/config.yml). `worlds` names

@@ -11,9 +11,10 @@ from PIL import Image
 
 from designer import config, mcp_server
 from designer.blocks import BlockClass
+from designer.cli import main
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
+from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge, FakeWorld
 
 PAD = Bounds((0, 63, 0), (7, 65, 7))
@@ -149,6 +150,21 @@ def test_inspect_caps_the_radius_and_slices_by_class(server: FakeBridge) -> None
     assert call("inspect", at="300,300", radius=1)["ok"] is False
 
 
+@pytest.mark.parametrize("y", [-1, -10, FakeWorld.MIN_Y])
+def test_inspect_at_a_column_whose_surface_is_below_zero_fills_its_y(server: FakeBridge, y: int) -> None:
+    world = server.worlds["design"]
+    world.edits[(300, y, 300)] = world.index_of("minecraft:stone")
+    assert call("inspect", at="300,300", radius=1)["center"] == [300, y, 300]
+
+
+def test_inspect_at_an_empty_column_beside_a_surface_below_zero_says_it_is_empty(server: FakeBridge) -> None:
+    world = server.worlds["design"]
+    world.edits[(300, -1, 300)] = world.index_of("minecraft:stone")
+    assert call("inspect", at="300,300", radius=1)["center"] == [300, -1, 300]
+    result = call("inspect", at="301,300", radius=1)
+    assert result["ok"] is False and "column 301,300 in design is empty; give x,y,z" in result["error"]
+
+
 def test_the_fake_bridge_refuses_an_inspect_box_that_leaves_the_build_range(server: FakeBridge) -> None:
     floor, ceiling = FakeWorld.MIN_Y, FakeWorld.MAX_Y
     for lo, hi in ((floor - 2, floor + 2), (ceiling - 2, ceiling + 2)):
@@ -216,6 +232,17 @@ def test_unknown_name_is_an_error_dict_and_never_raises(server: FakeBridge) -> N
     assert [w["name"] for w in call("index_list", kind="worlds")["worlds"]] == ["design"]
     failed = call("list_entities", world="mars")
     assert failed["ok"] is False and failed["code"] == "WORLD_NOT_FOUND"
+
+
+def test_index_list_answers_as_the_cli_does(server: FakeBridge, capsys: pytest.CaptureFixture[str]) -> None:
+    assert call("define_location", name="gate", pos=[1, 64, 1], world="design", tags=["spawn"])["ok"]
+    for kind, tag in ((None, None), (None, "spawn"), ("locations", "spawn"), ("regions", None), ("worlds", None)):
+        assert main(["index", "list", *(["--kind", kind] if kind else []), *(["--tag", tag] if tag else [])]) == 0
+        listed = call("index_list", kind=kind, tag=tag)
+        assert listed.pop("ok") is True and listed.pop("default_world") == "design"
+        assert listed == json.loads(capsys.readouterr().out)
+    assert main(["index", "list", "--kind", "worlds", "--tag", "spawn"]) == 1
+    assert capsys.readouterr().err == f"designer: {call('index_list', kind='worlds', tag='spawn')['error']}\n"
 
 
 def test_list_entities_and_tail_log_cap(server: FakeBridge) -> None:
@@ -474,10 +501,41 @@ def test_build_refuses_to_overwrite_the_index_unless_replace_index(server: FakeB
 
     again = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")
     assert again["ok"] is False and "already defined" in again["error"]
-    assert again["snapshot"] and again["undo_id"] == 2
+    assert "snapshot" not in again and len(call("list_undo")["entries"]) == 1
 
     replaced = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone", replace_index=True)
-    assert replaced["ok"] and replaced["undo_id"] == 3
+    assert replaced["ok"] and replaced["undo_id"] == 2
+
+
+def test_build_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    seeded = WorldIndex.load(tmp_path / "index.json")
+    seeded.add_location(Location("tbox_spawn", "design", (0, 64, 0)))
+    seeded.add_region(NamedRegion("tbox", "design", (0, 60, 0), (1, 61, 1)))
+    seeded.save(tmp_path / "index.json")
+
+    refused = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")
+    assert refused == {"ok": False, "error": "['tbox', 'tbox_spawn'] already defined; pass replace_index=True to overwrite", "code": None}
+    assert _writes(server) == [] and call("list_undo")["entries"] == []
+    assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
+
+
+@pytest.mark.parametrize("replace_index", [False, True])
+@pytest.mark.parametrize(("kind", "change", "error"), REFUSED_BUILDS)
+def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
+    server: FakeBridge, refusable: FakeBridge, tmp_path: Path, kind: str, change: dict[str, Any], error: str, replace_index: bool,
+) -> None:
+    spec = {**SMALL_MINE_SPEC, **change}
+    before = (tmp_path / "index.json").read_bytes()
+    assert call("build", kind=kind, spec=spec, palette="test_stone", replace_index=replace_index, dry_run=True)["ok"] is True
+
+    refused = call("build", kind=kind, spec=spec, palette="test_stone", replace_index=replace_index)
+    assert refused["ok"] is False and error in refused["error"]
+    assert _writes(server) == [] and call("list_undo")["entries"] == []
+    assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
+    assert (tmp_path / "index.json").read_bytes() == before
 
 
 def test_build_unknown_kind_and_a_spec_path_outside_specs_are_refused(server: FakeBridge) -> None:

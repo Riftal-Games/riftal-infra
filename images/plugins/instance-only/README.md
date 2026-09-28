@@ -9,7 +9,7 @@ Both instances see this folder through the shared `./plugins` bind, and
 PocketMine never loads from a subfolder, so `instance-b` ignores it.
 `instance` runs `start-instance.sh` instead of the image's `start-pocketmine`:
 it assembles its plugin roster in the container's own disposable filesystem
-and copies the rendered config onto the volume as uid 1000. It otherwise
+and renders the config onto the volume as uid 1000. It otherwise
 does what `start-pocketmine` does for `instance-b`: the ownership warning,
 `POCKETMINE_PLUGINS` from Poggit (into the roster, never `./plugins`) and
 `POCKETMINE_ANSI`. `start-pocketmine` hard-codes `--plugins=/plugins`, so
@@ -21,9 +21,10 @@ mountpoint as root: a stray in `./plugins` that `instance-b` then fails to
 load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
 fails on either.
 
-Two files here are gitignored: `*.phar` by the repo root's `.gitignore`,
-`RiftalMines.config.yml` by this folder's own (it carries a real database
-password once rendered). Only `RiftalMines.config.yml.template` is tracked.
+`*.phar` is gitignored by the repo root's `.gitignore`, and
+`RiftalMines.config.yml` by this folder's own, since a copy rendered by hand
+carries a real database password. Only `RiftalMines.config.yml.template` is
+tracked.
 
 ## Build `RiftalMines.phar`
 
@@ -78,15 +79,16 @@ A phar that was never built is skipped without a word (see below), so this
 check, or reading `Loading RiftalMines` in the boot log, is the only way to
 catch a boot that silently never had the plugin at all.
 
-## Render the config override
+## The config override
 
-```sh
-set -a; . ../../.env; set +a
-./render-config.sh
-```
-
-`RiftalMines.config.yml` now carries the real `MYSQL_ROOT_PASSWORD`. Rerun
-after editing `.env`.
+With `RiftalMines.phar` present, `start-instance.sh` runs `render-config.sh`
+on every boot, writing the template to
+`/data/plugin_data/RiftalMines/config.yml` with the container's own
+`MYSQL_ROOT_PASSWORD`. Compose passes `instance` the same `images/.env` value
+it passes `mysql`, so the two cannot disagree; a `wslc run` of `instance`
+needs `-e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD"` for the same reason.
+Unset, the boot stops before PocketMine starts and names the variable. No
+file rendered into this folder is read.
 
 ## Why an override is required, not optional
 
@@ -99,13 +101,14 @@ the plugin alone: `RiftalGames\Lib\Database\ConnectionProvider::open()` in
 `Main::onEnable()` connects synchronously, so a `SqlError` there is uncaught
 and takes the whole server down within 4 seconds of boot (verified
 2026-09-28: `SQL CONNECT error: ... getaddrinfo for riftal-mysql failed`).
-So `start-instance.sh` refuses to start with the phar built and the config
-not rendered, naming `render-config.sh`, rather than let the server crash.
+A config rendered with a password `mysql` does not have fails the same way,
+with `Access denied for user 'root'`, which is why it is rendered at boot
+rather than kept here (riftal-infra#266).
 
-Both files here are gitignored, so a clone that has built neither is the
+The phar is gitignored, so a clone that has not built it is the
 default state `compose.yaml` has to tolerate. Verified 2026-09-28, each on a
-fresh volume and each stopped with `stop` on stdin: with neither file,
-`instance` reaches `Done` with `RiftalDevBots` alone; with both, it loads
+fresh volume and each stopped with `stop` on stdin: without the phar,
+`instance` reaches `Done` with `RiftalDevBots` alone; with it, it loads
 `RiftalMines` and reaches `Done` with the one `lumber` line below as its only
 error; `instance-b` booted afterwards reaches `Done` without `RiftalMines`;
 `/data/plugin_data` is owned by uid 1000 every time, and nothing new appears

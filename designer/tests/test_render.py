@@ -8,7 +8,7 @@ from PIL import Image
 from designer.blocks import AIR
 from designer.config import REPORTS_DIR
 from designer.palettes import ROLES, load_palettes
-from designer.region import Bounds, Bounds2D, Heightmap, Region
+from designer.region import EMPTY_Y, Bounds, Bounds2D, Heightmap, Region
 from designer.render import (
     LEGEND_LINE, MARKER_FILL, RAMP, SIDE_BY_SIDE_GAP, SLICE_FLOOR_SHADE, WATER_TINT, Marker, ascii_heightmap, fallback_color,
     isometric_png, markers_from_index, report_path, side_by_side, slice_ascii, slice_png, summary, timelapse_png, topdown_png,
@@ -22,7 +22,7 @@ COLORS = load_palettes()["colors"]
 
 def _heightmap(bounds: Bounds2D, heights: np.ndarray, top: np.ndarray | None = None) -> Heightmap:
     palette = [AIR, STONE, WATER]
-    top = np.where(heights >= 0, 1, 0) if top is None else top
+    top = np.where(heights != EMPTY_Y, 1, 0) if top is None else top
     return Heightmap(WORLD, bounds, heights.astype(np.int16), top.astype(np.int16), palette)
 
 
@@ -66,23 +66,23 @@ def test_water_glyph_only_where_the_top_block_is_liquid() -> None:
 def test_band_and_header_follow_the_height_range_unless_given() -> None:
     bounds = Bounds2D((0, 0), (19, 0))
     heights = np.arange(60, 80).reshape(1, 20)
-    heights[0, 5] = -1
+    heights[0, 5] = EMPTY_Y
     text = ascii_heightmap(_heightmap(bounds, heights))
     assert text.splitlines()[0] == "world=design x=0..19 z=0..0 y=60..79 band=2 step=1"
     assert _rows(text, 20)[0] == "..,,: --==++**##%%@@"
     assert text.splitlines()[-1] == "ramp . y<62 to @ y>=78, ~ liquid, space empty"
     assert "band=5 step=1" in ascii_heightmap(_heightmap(bounds, heights), band=5)
     assert _rows(ascii_heightmap(_heightmap(bounds, heights), band=5), 20)[0] == "..... ,,,,:::::-----"
-    assert "y=empty" in ascii_heightmap(_heightmap(bounds, np.full((1, 20), -1)))
+    assert "y=empty" in ascii_heightmap(_heightmap(bounds, np.full((1, 20), EMPTY_Y)))
 
 
 def test_summary_counts_water_and_flat_columns() -> None:
-    heights = np.array([[64, 64, 66, -1]])
+    heights = np.array([[64, 64, 66, EMPTY_Y]])
     top = np.array([[1, 2, 1, 0]])
     stats = summary(_heightmap(Bounds2D((0, 0), (3, 0)), heights, top))
     assert stats == {"size": (4, 1), "columns": 3, "min": 64, "max": 66, "mean": 194 / 3, "water": 1 / 3, "flat": 2 / 3}
     assert summary(Heightmap(WORLD, Bounds2D((0, 0), (0, 0)), np.full((1, 1), 64, dtype=np.int16)))["water"] is None
-    assert summary(Heightmap(WORLD, Bounds2D((0, 0), (0, 0)), np.full((1, 1), -1, dtype=np.int16)))["min"] is None
+    assert summary(Heightmap(WORLD, Bounds2D((0, 0), (0, 0)), np.full((1, 1), EMPTY_Y, dtype=np.int16)))["min"] is None
 
 
 def test_markers_from_index_and_report_path() -> None:
@@ -103,7 +103,7 @@ def _pixels(path: Path) -> np.ndarray:
 
 
 def test_topdown_png_size_water_tint_height_shading_and_empty_columns(tmp_path: Path) -> None:
-    heights = np.array([[64, 64, 70, -1], [64, 64, 64, 64]])
+    heights = np.array([[64, 64, 70, EMPTY_Y], [64, 64, 64, 64]])
     top = np.array([[1, 1, 1, 0], [1, 2, 1, 1]])
     path = topdown_png(_heightmap(Bounds2D((1, 1), (4, 2)), heights, top), COLORS, out=tmp_path / "t.png")
     img = _pixels(path)

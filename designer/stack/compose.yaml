@@ -42,6 +42,9 @@ services:
       # riftal-dev-bots flag; see README.md. Whether bots are admitted is
       # DESIGNER_DEV_BOTS alone, off unless a bot scenario asks for it.
       RIFTAL_DEV_ENV: "1"
+      # auto-report.enabled keeps crash dumps off crash.axolotl-pm.org. It
+      # must be 0, since (bool) "false" is true; see `instance` in
+      # ../../images/compose.yaml.
       POCKETMINE_ARGS: >-
         --level-name=design
         --level-type=normal
@@ -51,6 +54,7 @@ services:
         --max-players=4
         --view-distance=16
         --motd=riftal-designer
+        --auto-report.enabled=0
         --riftal-dev-bots=${DESIGNER_DEV_BOTS:-off}
 
 volumes:

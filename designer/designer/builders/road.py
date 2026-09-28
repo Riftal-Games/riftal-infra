@@ -38,7 +38,7 @@ def road_profile(hm: Heightmap, centre: Sequence[Point], *, window: int = 3) -> 
     """The road's y per step of ``centre``: ground height smoothed by a running median, then slope-limited so no
     step to the next differs by more than one block, up or down."""
     raw = [hm.height(x, z) for x, z in centre]
-    empty = [p for p, h in zip(centre, raw) if h < 0]
+    empty = [p for p, h in zip(centre, raw) if h is None]
     if empty:
         raise ValueError(f"heightmap has no ground at {empty[0]}")
     return _slope_limit(_running_median(raw, window))

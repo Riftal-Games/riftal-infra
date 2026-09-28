@@ -3,7 +3,7 @@ from __future__ import annotations
 import difflib
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -136,6 +136,19 @@ class WorldIndex:
         lists = {kind: [e.to_json() for e in sorted(getattr(self, kind), key=lambda e: e.name)] for kind in KINDS}
         return {"version": self.version, "updated": self.updated, "default_world": self.default_world, **lists}
 
+    def select(self, kind: str | None = None, tag: str | None = None) -> dict[str, list[dict[str, Any]]]:
+        """The name-ordered JSON lists for ``kind``, or for every kind; ``tag`` keeps tagged entries and drops worlds.
+
+        ``designer index list`` and the ``index_list`` tool both answer from here, so they refuse and filter alike.
+        """
+        if kind is not None and kind not in KINDS:
+            raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
+        if kind == "worlds" and tag is not None:
+            raise ValueError("worlds carry no tags; drop the tag or ask for locations or regions")
+        kinds = (kind,) if kind is not None else KINDS[1:] if tag is not None else KINDS
+        data = self.to_json()
+        return {k: [e for e in data[k] if tag is None or tag in e["tags"]] for k in kinds}
+
     def save(self, path: Path | None = None, *, updated: str | None = None) -> Path:
         path = DEFAULT_PATH if path is None else Path(path)
         self.updated = datetime.now(UTC).isoformat(timespec="seconds") if updated is None else updated
@@ -144,6 +157,20 @@ class WorldIndex:
 
     def names(self) -> dict[str, Location | NamedRegion]:
         return {e.name: e for e in (*self.locations, *self.regions)}
+
+    def preflight(self, locations: Iterable[Mapping[str, Any]], regions: Iterable[Mapping[str, Any]]) -> list[str]:
+        """The names among a builder's ``locations`` and ``regions`` JSON that this index already defines, sorted.
+
+        Raises instead on the first entry ``add_location`` or ``add_region`` would refuse for any other
+        reason, or on a name given twice, so a build can refuse it before sending a single edit.
+        """
+        seen: set[str] = set()
+        for entry in (*map(Location.from_json, locations), *map(NamedRegion.from_json, regions)):
+            self._admissible(entry)
+            if entry.name in seen:
+                raise ValueError(f"name {entry.name!r} is given twice in one build")
+            seen.add(entry.name)
+        return sorted(seen & self.names().keys())
 
     def world(self, name: str) -> WorldEntry:
         for entry in self.worlds:
@@ -173,10 +200,13 @@ class WorldIndex:
     def regions_tagged(self, tag: str) -> list[NamedRegion]:
         return [r for r in self.regions if tag in r.tags]
 
-    def _add(self, entry: Any, into: list[Any], replace: bool) -> Any:
+    def _admissible(self, entry: Location | NamedRegion) -> None:
         if not NAME_RE.fullmatch(entry.name):
             raise ValueError(f"name {entry.name!r} must match {NAME_RE.pattern}")
         self.world(entry.world)
+
+    def _add(self, entry: Any, into: list[Any], replace: bool) -> Any:
+        self._admissible(entry)
         if entry.name in self.names():
             if not replace:
                 raise ValueError(f"{entry.name!r} is already defined; pass replace=True to overwrite it")

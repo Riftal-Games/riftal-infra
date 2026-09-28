@@ -240,24 +240,22 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> str:
         region = edits.to_region(Region.empty(mine_spec.world, geo.padding.union(geo.exit_platform)))
         found = mine_valid(region, mine_spec)
         report["mine_valid"] = {"ok": found.ok, "detail": found.detail}
-    if options.apply and edits.bounds is not None:
+    idx = WorldIndex.load() if options.apply and not options.no_index else None
+    taken = idx.preflight(report["locations"], report["regions"]) if idx is not None else []
+    if taken:
+        report["ok"], report["error"] = False, f"{taken} already defined; rerun without --apply to inspect, then build a differently named spec"
+    elif options.apply and edits.bounds is not None:
         report["snapshot"] = str(snapshots.take(bridge, edits.world, edits.bounds, f"build_{options.kind}").path)
         result = edits.apply(bridge)
         report["ok"] = result.ok
         if not result.ok:
             report["error"] = str(result.errors[0])
-        elif not options.no_index:
-            idx = WorldIndex.load()
-            names = (e["name"] for e in (*report["locations"], *report["regions"]))
-            taken = sorted(n for n in names if n in idx.names())
-            if taken:
-                report["ok"], report["error"] = False, f"{taken} already defined; rerun without --apply to inspect, then build a differently named spec"
-            else:
-                for loc in report["locations"]:
-                    idx.add_location(Location.from_json(loc))
-                for reg in report["regions"]:
-                    idx.add_region(NamedRegion.from_json(reg))
-                idx.save()
+        elif idx is not None:
+            for loc in report["locations"]:
+                idx.add_location(Location.from_json(loc))
+            for reg in report["regions"]:
+                idx.add_region(NamedRegion.from_json(reg))
+            idx.save()
         config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         report_path = config.REPORTS_DIR / f"{options.kind}-{opt(spec, 'name', options.kind)}-extras.json"
         report_path.write_text(json.dumps(edits.extras, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
@@ -287,12 +285,11 @@ def _run_index(options: argparse.Namespace) -> int:
         if options.index_command == "resolve":
             print(json.dumps(index.resolve(options.name).to_json(), sort_keys=True))
             return 0
+        listing = index.select(options.kind, options.tag)
     except (OSError, ValueError, KeyError) as exc:
         print(f"designer: {exc.args[0] if isinstance(exc, KeyError) else exc}", file=sys.stderr)
         return 1
-    kinds = (options.kind,) if options.kind else KINDS[1:] if options.tag else KINDS
-    data = index.to_json()
-    print(json.dumps({k: [e for e in data[k] if not options.tag or options.tag in e.get("tags", [])] for k in kinds}, indent=2, sort_keys=True))
+    print(json.dumps(listing, indent=2, sort_keys=True))
     return 0
 
 

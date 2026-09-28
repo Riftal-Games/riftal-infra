@@ -42,7 +42,7 @@ from designer.region import (
 from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, summary, timelapse_png, topdown_png
 from designer.snapshot import Snapshot, UndoStack
 from designer.verify import mine_valid
-from designer.world_index import KINDS, Location, NamedRegion, WorldIndex, resolve_at
+from designer.world_index import Location, NamedRegion, WorldIndex, resolve_at
 
 MAX_AREA, MAX_RADIUS, MAX_LOG_LINES, MAX_BLOCKS_PER_CALL, MAX_CHECK_ROWS = 256, 8, 200, 4096, 60
 # One glyph per ``BlockClass`` value: air, solid, liquid, passable, danger.
@@ -125,7 +125,7 @@ def _full_pos(at: str, world: str | None) -> tuple[str, tuple[int, int, int]]:
     world, (x, y, z) = resolve_at(index(), at, world)
     if y is None:
         y = fetch_heightmap(bridge(), world, Bounds2D((x, z), (x, z))).height(x, z)
-        if y < 0:
+        if y is None:
             raise ValueError(f"column {x},{z} in {world} is empty; give x,y,z")
     return world, (x, y, z)
 
@@ -170,16 +170,8 @@ async def index_list(kind: str | None = None, tag: str | None = None) -> dict[st
 
     RETURNS: default_world, then a list per kind asked for: worlds, locations, regions; a tag drops worlds.
     """
-    if kind is not None and kind not in KINDS:
-        raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
-    if kind == "worlds" and tag is not None:
-        raise ValueError("worlds carry no tags; drop the tag or ask for locations or regions")
     idx = index()
-    kinds = KINDS if kind is None else (kind,)
-    out = {k: [e.to_json() for e in getattr(idx, k)] for k in kinds}
-    if tag is not None:
-        out = {k: [e for e in v if tag in e.get("tags", ())] for k, v in out.items() if k != "worlds"}
-    return {"default_world": idx.default_world, **out}
+    return {"default_world": idx.default_world, **idx.select(kind, tag)}
 
 @tool
 async def index_resolve(name: str) -> dict[str, Any]:
@@ -693,10 +685,12 @@ def build(
 ) -> dict[str, Any]:
     """Build ``kind`` (a name in ``designer.builders.BUILDERS``) from ``spec``, a dict or a path under ``specs/``.
 
-    Snapshots first and answers with the undo id, like every mutating tool. Registers the builder's
-    locations and regions in the index unless ``register_index`` is false, refusing a name already
-    taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is ``mine`` unless ``verify`` is
-    false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
+    Checks every location and region it will register before the snapshot, the undo entry and the
+    first edit, then answers with the undo id like every mutating tool. Registers the builder's
+    locations and regions in the index unless ``register_index`` is false or ``dry_run``, refusing a
+    name that breaks the index's naming rules, names an unlisted world or appears twice in the build,
+    and a name already taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is
+    ``mine`` unless ``verify`` is false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
     falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
 
     RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
@@ -709,21 +703,21 @@ def build(
 
     spec_dict = _load_build_spec(spec)
     edits = BUILDERS[kind](spec_dict, Palette.load(palette), fetch)
+    locations, regions = edits.extras.get("locations", []), edits.extras.get("regions", [])
+    register = not dry_run and register_index
+    taken = index().preflight(locations, regions) if register else []
+    if taken and not replace_index:
+        raise ValueError(f"{taken} already defined; pass replace_index=True to overwrite")
     out = _apply(edits, f"build_{kind}", dry_run, ctx)
-    out["locations"], out["regions"] = edits.extras.get("locations", []), edits.extras.get("regions", [])
+    out["locations"], out["regions"] = locations, regions
     out["mine_valid"] = _mine_valid(edits) if verify and kind == "mine" else None
-    if not dry_run and out.get("ok") is not False and register_index:
+    if register and out.get("ok") is not False:
         idx = index()
-        names = (e["name"] for e in (*out["locations"], *out["regions"]))
-        taken = sorted(n for n in names if n in idx.names())
-        if taken and not replace_index:
-            out = {**out, **_error(ValueError(f"{taken} already defined; pass replace_index=True to overwrite"))}
-        else:
-            for loc in out["locations"]:
-                idx.add_location(Location.from_json(loc), replace=replace_index)
-            for reg in out["regions"]:
-                idx.add_region(NamedRegion.from_json(reg), replace=replace_index)
-            idx.save()
+        for loc in locations:
+            idx.add_location(Location.from_json(loc), replace=replace_index)
+        for reg in regions:
+            idx.add_region(NamedRegion.from_json(reg), replace=replace_index)
+        idx.save()
     out["extras_report"] = None
     if not dry_run:
         config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)

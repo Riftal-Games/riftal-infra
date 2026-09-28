@@ -22,6 +22,12 @@ MAX_EDGE = 128
 # The bridge does not report a world's range, so a world with another one is not covered.
 WORLD_MIN_Y, WORLD_MAX_Y = -64, 319
 
+# A ``Heightmap``'s height for an empty column: below the floor, so no surface can share it.
+EMPTY_Y = WORLD_MIN_Y - 1
+
+# DesignBridge's ``get_heightmap`` height for an empty column, which a surface at y -1 shares.
+WIRE_EMPTY_Y = -1
+
 # Blocks a ground heightmap looks through, so a tree is not a surface.
 CANOPY_SUFFIXES = ("_leaves", "_log", "_wood")
 
@@ -286,10 +292,12 @@ class Region:
 
 @dataclass(eq=False)
 class Heightmap:
-    """Highest block per column as ``heights[z][x]``, ``-1`` for an empty column.
+    """Highest block per column as ``heights[z][x]``, ``EMPTY_Y`` for an empty column.
 
-    ``top`` is that block's palette index, air for an empty column, or ``None``
-    when the source did not report it.
+    ``EMPTY_Y`` lies below ``WORLD_MIN_Y``, so every height from ``WORLD_MIN_Y``
+    up is a real surface; ``filled`` masks the columns that have one, and
+    ``height`` answers ``None`` for the rest. ``top`` is that block's palette
+    index, air for an empty column, or ``None`` when the source did not report it.
     """
 
     world: str
@@ -316,7 +324,7 @@ class Heightmap:
             raise ValueError(f"tiles span several worlds: {sorted({t.world for t in tiles})}")
         bounds = reduce(Bounds2D.union, (t.bounds for t in tiles))
         with_top = all(t.top is not None for t in tiles)
-        out = cls(tiles[0].world, bounds, np.full(bounds.shape, -1, dtype=np.int16), np.zeros(bounds.shape, dtype=np.int16) if with_top else None)
+        out = cls(tiles[0].world, bounds, np.full(bounds.shape, EMPTY_Y, dtype=np.int16), np.zeros(bounds.shape, dtype=np.int16) if with_top else None)
         index: dict[str, int] = {AIR: 0}
         for tile in tiles:
             at = bounds.slices(tile.bounds)
@@ -327,8 +335,14 @@ class Heightmap:
         out.palette[:] = index
         return out
 
-    def height(self, x: int, z: int) -> int:
-        return int(self.heights[self.bounds.local((x, z))])
+    def filled(self) -> np.ndarray:
+        """Bool ``[z][x]``: the column has a highest block."""
+        return self.heights != EMPTY_Y
+
+    def height(self, x: int, z: int) -> int | None:
+        """The column's highest block's y, ``None`` when the column is empty."""
+        y = int(self.heights[self.bounds.local((x, z))])
+        return None if y == EMPTY_Y else y
 
     def top_name(self, x: int, z: int) -> str:
         if self.top is None:
@@ -419,21 +433,29 @@ def fetch_heightmap(bridge: Bridge, world: str, bounds: Bounds2D, *, need_top: b
 
     ``need_top`` guarantees the top blocks: when the server reports none, the
     tile's observed height range is fetched as a region and the tops derived.
+    A wire height of ``WIRE_EMPTY_Y`` is empty only when its top is air; a
+    server that reports no tops has the y -1 layer fetched to tell them apart.
     """
     tiles = []
     for tile in bounds.tiles():
         result = bridge.call_job("get_heightmap", world=world, bounds=tile.to_json())["result"]
         heights = np.asarray(result["heights"], dtype=np.int16).reshape(tile.shape)
+        empty = heights == WIRE_EMPTY_Y
         top, palette = None, [AIR]
         if result.get("top") is not None:
             top, palette = np.asarray(result["top"], dtype=np.int16).reshape(tile.shape), list(result["palette"])
             if AIR not in palette:
                 palette.append(AIR)
-            top[heights < 0] = palette.index(AIR)
-        elif need_top:
+            empty &= class_lut(palette)[top] == BlockClass.AIR
+            top[empty] = palette.index(AIR)
+        elif empty.any():
+            layer = Bounds((tile.min[0], WIRE_EMPTY_Y, tile.min[1]), (tile.max[0], WIRE_EMPTY_Y, tile.max[1]))
+            empty &= fetch_region(bridge, world, layer).classes()[0] == BlockClass.AIR
+        heights[empty] = EMPTY_Y
+        if top is None and need_top:
             top = np.zeros(tile.shape, dtype=np.int16)
-            if (heights >= 0).any():
-                lo, hi = int(heights[heights >= 0].min()), int(heights.max())
+            if (~empty).any():
+                lo, hi = int(heights[~empty].min()), int(heights.max())
                 box = Bounds((tile.min[0], lo, tile.min[1]), (tile.max[0], hi, tile.max[1]))
                 derived = heightmap_from_region(fetch_region(bridge, world, box))
                 top, palette = derived.top, derived.palette
@@ -450,7 +472,7 @@ def heightmap_from_region(region: Region, *, ground: bool = False) -> Heightmap:
     surface = ~skip
     iy = surface.shape[0] - 1 - surface[::-1].argmax(axis=0)
     found = surface.any(axis=0)
-    heights = np.where(found, iy + region.bounds.min[1], -1).astype(np.int16)
+    heights = np.where(found, iy + region.bounds.min[1], EMPTY_Y).astype(np.int16)
     top = np.where(found, np.take_along_axis(region.blocks, iy[None], axis=0)[0], 0).astype(np.int16)
     (x0, _, z0), (x1, _, z1) = region.bounds.min, region.bounds.max
     return Heightmap(region.world, Bounds2D((x0, z0), (x1, z1)), heights, top, list(region.palette))
