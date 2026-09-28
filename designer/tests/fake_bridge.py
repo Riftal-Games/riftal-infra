@@ -23,7 +23,10 @@ from designer.blocks import encode_rle, format_name, parse_name
 from designer.edits import MAX_SET_BLOCKS
 from designer.region import MAX_EDGE, Bounds, Bounds2D
 
-ALLOWED_BLOCKS = frozenset({"minecraft:air", "minecraft:stone", "minecraft:grass_block", "minecraft:dirt", "minecraft:oak_planks", "minecraft:glass"})
+ALLOWED_BLOCKS = frozenset({
+    "minecraft:air", "minecraft:stone", "minecraft:grass_block", "minecraft:dirt",
+    "minecraft:oak_planks", "minecraft:glass", "minecraft:diamond_block",
+})
 
 
 class FakeOpError(Exception):
@@ -236,7 +239,10 @@ class FakeBridge:
         return {"pong": True, "tick": len(self.requests)}
 
     def op_server_info(self, args: dict[str, Any]) -> dict[str, Any]:
-        return {"designer": self.designer, "pmmp_version": "fake", "protocol": 2168, "worlds": []}
+        return {
+            "designer": self.designer, "pmmp_version": "fake", "protocol": 2168, "worlds": [],
+            "tps": 20.0, "tps_avg": 19.8, "tick_usage": 0.12, "tick_usage_avg": 0.15, "memory_bytes": 123456789,
+        }
 
     def op_list_worlds(self, args: dict[str, Any]) -> list[dict[str, Any]]:
         return [{"name": name, "loaded": True} for name in self.worlds]

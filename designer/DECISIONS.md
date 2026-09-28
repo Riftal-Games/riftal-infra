@@ -363,6 +363,23 @@ there does not land a player wedged in the frame. `checks.yaml` is untouched
 here for the reason the previous entry gives: `pvp_boundary` and room walkway
 coverage waits for a follow-up, since #165 names only plot and sign regions.
 
+## 2026-09-28 `metrics` refreshes `server_info`; `persist_mark`/`persist_verify` split a `persist_check` across a container replacement; `timelapse` frames on bounds, not label
+
+`metrics` forces `refresh=True` rather than reading the cached `server_info`, since the whole
+point is a TPS and tick-usage reading taken right before or right after a heavy operation, and
+the 30 s TTL other tools rely on would otherwise answer with a stale sample. `persist_mark` and
+`persist_verify` are two tools rather than one because the check spans a container being
+replaced on the same volume: the MCP server that marks the block is not the one that verifies
+it, so the marker (world, position, block) is written to `reports/persist-markers.json`, not
+kept in memory, the same reasoning that put the undo manifest on disk. `persist_mark` goes
+through `_apply` like `fill`, so the write it makes is snapshotted and undoable like any other.
+`timelapse` finds its frames by bounds equality against the named region rather than by which
+tool or label produced them, because a mutating tool's own before-mutation snapshot over that
+same region is exactly as much a frame as an explicit `snapshot` call naming it; a snapshot
+covering some other box, such as a builder's extras, is not. `topdown_png`'s pixel math is
+split into `_topdown_image`, shared with `timelapse_png`, so the two renders can never drift out
+of shading agreement with each other.
+
 ## 2026-09-28 `warp_safe` fails a `pos` outside the region instead of raising
 
 `entity_clear` calls `Bounds.local` on the raw `pos` before any of `warp_safe`'s

@@ -167,14 +167,8 @@ def _palette_colors(palette: list[str], colors: Mapping[str, Any]) -> tuple[np.n
     return lut, hashed
 
 
-def topdown_png(
-    hm: Heightmap, colors: Mapping[str, Any], markers: Iterable[Marker] = (), *,
-    scale: int = 4, grid: int = 16, out: Path | str | None = None,
-) -> Path:
-    """Write a top-down PNG, one ``scale`` pixel square per column, and return its path."""
-    if scale < 1 or grid < 1:
-        raise ValueError(f"scale and grid must be at least 1, got {scale} and {grid}")
-    (xmin, zmin), (xmax, zmax) = hm.bounds.min, hm.bounds.max
+def _topdown_image(hm: Heightmap, colors: Mapping[str, Any], scale: int) -> tuple[Image.Image, dict[str, tuple[int, int, int]]]:
+    """The shaded top-down image alone, no grid, ticks, markers or legend, plus its hashed-colour names."""
     nz, nx = hm.heights.shape
     valid = hm.heights >= 0
     top, palette = (hm.top, hm.palette) if hm.top is not None else (np.where(valid, 1, 0), [AIR, "unknown"])
@@ -190,6 +184,20 @@ def topdown_png(
     rgb[liquid] = rgb[liquid] * 0.5 + WATER_TINT * 0.5
     rgb[~valid] = 0
     img = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8)).resize((nx * scale, nz * scale), Image.Resampling.NEAREST)
+    return img, hashed
+
+
+def topdown_png(
+    hm: Heightmap, colors: Mapping[str, Any], markers: Iterable[Marker] = (), *,
+    scale: int = 4, grid: int = 16, out: Path | str | None = None,
+) -> Path:
+    """Write a top-down PNG, one ``scale`` pixel square per column, and return its path."""
+    if scale < 1 or grid < 1:
+        raise ValueError(f"scale and grid must be at least 1, got {scale} and {grid}")
+    (xmin, zmin), (xmax, zmax) = hm.bounds.min, hm.bounds.max
+    img, hashed = _topdown_image(hm, colors, scale)
+    stats = summary(hm)
+    lo, hi = (0, 0) if stats["min"] is None else (stats["min"], stats["max"])
 
     y_range = "empty" if stats["min"] is None else f"{lo}..{hi}"
     legend = [(None, f"world={hm.world} x={xmin}..{xmax} z={zmin}..{zmax} y={y_range} scale={scale}")]
@@ -217,6 +225,36 @@ def topdown_png(
         draw.text((2 if swatch is None else LEGEND_LINE + 2, y), text, fill=TEXT_COLOR, font=font)
 
     path = report_path("topdown", hm.world, hm.bounds, "png") if out is None else Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+    return path
+
+
+def timelapse_png(
+    frames: Iterable[tuple[str, Heightmap]], colors: Mapping[str, Any], *, scale: int = 2, gap: int = 4, out: Path | str | None = None,
+) -> Path:
+    """Write one top-down PNG per ``(label, heightmap)`` frame side by side, oldest first, and return its path.
+
+    Every frame is shaded exactly as ``topdown_png`` shades one, with no grid or markers: a
+    timelapse compares silhouettes across time, not the coordinates of any single frame.
+    """
+    frames = list(frames)
+    if not frames:
+        raise ValueError("timelapse needs at least one frame")
+    if scale < 1 or gap < 0:
+        raise ValueError(f"scale must be at least 1 and gap at least 0, got {scale} and {gap}")
+    tiles = [(label, _topdown_image(hm, colors, scale)[0]) for label, hm in frames]
+    tile_height = max(img.height for _, img in tiles)
+    width = sum(img.width for _, img in tiles) + gap * (len(tiles) - 1)
+    canvas = Image.new("RGB", (width, tile_height + LEGEND_LINE), (20, 20, 20))
+    draw, font, x = ImageDraw.Draw(canvas), ImageFont.load_default(), 0
+    for label, img in tiles:
+        canvas.paste(img, (x, LEGEND_LINE))
+        draw.text((x + 2, 0), label, fill=TEXT_COLOR, font=font)
+        x += img.width + gap
+
+    world, bounds = frames[0][1].world, frames[0][1].bounds
+    path = report_path("timelapse", world, bounds, "png") if out is None else Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(path)
     return path
