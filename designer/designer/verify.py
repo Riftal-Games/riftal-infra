@@ -227,10 +227,15 @@ def entity_clear(region: Region, pos: Sequence[int]) -> Check:
     feet that is neither air nor passable, and it must be solid, because a
     player over liquid sinks and over danger burns. A column with no support
     inside the region obstructs nothing here; ``warp_safe`` is the check that
-    demands a landing. ``coords`` names the offending cells.
+    demands a landing. ``coords`` names the offending cells. ``pos`` outside
+    the region is a failed check, not a crash, for a caller that did not fetch
+    around it first.
     """
+    at = tuple(int(v) for v in pos)
+    if not region.bounds.contains(at):
+        return Check(False, f"{at} is outside the fetched region {region.bounds.min}..{region.bounds.max}", [at])
     iy, iz, ix = region.bounds.local(pos)
-    x, y, z = (int(v) for v in pos)
+    x, y, z = at
     classes, passable = region.classes(), region.passable()
     blocked = [(x, y + d, z) for d in (0, 1) if iy + d < classes.shape[0] and not passable[iy + d, iz, ix]]
     if blocked:
@@ -259,9 +264,6 @@ def warp_safe(region: Region, pos: Sequence[int]) -> Check:
     check, not a crash: a warp target is often hand-typed, and a fetch that
     missed it by a block is exactly the case this check exists to catch.
     """
-    at = tuple(int(v) for v in pos)
-    if not region.bounds.contains(at):
-        return Check(False, f"{at} is outside the fetched region {region.bounds.min}..{region.bounds.max}", [at])
     clear = entity_clear(region, pos)
     if not clear.ok:
         return clear
