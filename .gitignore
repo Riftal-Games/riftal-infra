@@ -16,3 +16,10 @@ backups/
 
 CLAUDE.local.md
 .claude/settings.local.json
+
+# This repo's own skills and agent files under .claude/ are the deliberate
+# exception to the global ignore of `.claude/` in ~/.gitignore_global. Without
+# these negations a new skill or agent file added here is silently dropped and
+# never reaches git.
+!.claude/
+!.claude/**
