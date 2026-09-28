@@ -226,7 +226,7 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> str:
         found = mine_valid(region, mine_spec)
         report["mine_valid"] = {"ok": found.ok, "detail": found.detail}
     idx = WorldIndex.load() if options.apply and not options.no_index else None
-    taken = idx.taken((*report["locations"], *report["regions"])) if idx is not None else []
+    taken = idx.preflight(report["locations"], report["regions"]) if idx is not None else []
     if taken:
         report["ok"], report["error"] = False, f"{taken} already defined; rerun without --apply to inspect, then build a differently named spec"
     elif options.apply and edits.bounds is not None:

@@ -693,9 +693,11 @@ def build(
 ) -> dict[str, Any]:
     """Build ``kind`` (a name in ``designer.builders.BUILDERS``) from ``spec``, a dict or a path under ``specs/``.
 
-    Snapshots first and answers with the undo id, like every mutating tool. Registers the builder's
-    locations and regions in the index unless ``register_index`` is false, refusing a name already
-    taken, before any edit is sent, unless ``replace_index``; runs ``mine_valid`` when ``kind`` is
+    Checks every location and region it will register before the snapshot, the undo entry and the
+    first edit, then answers with the undo id like every mutating tool. Registers the builder's
+    locations and regions in the index unless ``register_index`` is false or ``dry_run``, refusing a
+    name that breaks the index's naming rules, names an unlisted world or appears twice in the build,
+    and a name already taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is
     ``mine`` unless ``verify`` is false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
     falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
 
@@ -711,8 +713,8 @@ def build(
     edits = BUILDERS[kind](spec_dict, Palette.load(palette), fetch)
     locations, regions = edits.extras.get("locations", []), edits.extras.get("regions", [])
     register = not dry_run and register_index
-    taken = index().taken((*locations, *regions)) if register and not replace_index else []
-    if taken:
+    taken = index().preflight(locations, regions) if register else []
+    if taken and not replace_index:
         raise ValueError(f"{taken} already defined; pass replace_index=True to overwrite")
     out = _apply(edits, f"build_{kind}", dry_run, ctx)
     out["locations"], out["regions"] = locations, regions
