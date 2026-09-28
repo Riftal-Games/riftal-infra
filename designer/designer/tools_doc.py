@@ -24,7 +24,8 @@ RETURNS_TAG = "RETURNS:"
 HEADER = (
     "# Designer MCP tools\n\n"
     "Rendered by `python -m designer.tools_doc`; edit the docstrings in designer/designer/mcp_server.py, not this file.\n"
-    "Every tool answers `{\"ok\": true, ...}` with the keys on its `Returns` line, or `{\"ok\": false, \"error\": ..., \"code\": ...}`.\n"
+    "Every tool answers `{\"ok\": true, ...}` with the keys on its `Returns` line; a call that stops partway merges those\n"
+    "same keys with `{\"ok\": false, \"error\": ..., \"code\": ...}` rather than replacing them.\n"
 )
 
 

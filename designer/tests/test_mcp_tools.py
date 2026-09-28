@@ -21,6 +21,12 @@ MUTATING = {
     "set_blocks": {"blocks": [[0, 70, 0, "stone"]]}, "snapshot": {"target": "pad", "label": "x"}, "restore": {"snapshot": 1},
     "undo": {}, "list_snapshots": {}, "list_undo": {}, "terraform": {"target": "pad", "mode": "flatten", "level": 70},
     "build": {"kind": "mine", "spec": SMALL_MINE_SPEC, "palette": "mine_stone"},
+    "spawn_npc": {"name": "n", "at": "spawn"}, "move_entity": {"id": "e1", "at": "spawn"}, "remove_entity": {"id": "e1"},
+    "set_spawn": {"world": "design", "at": "spawn"}, "set_text": {"at": "spawn", "text": "hi"}, "remove_text": {"id": "t1"},
+    "save_world": {"world": "design"}, "load_world": {"name": "design", "confirm": True},
+    "create_world": {"name": "quarry", "generator": "normal", "seed": 1, "confirm": True},
+    "pregen": {"world": "design", "min": [0, 0], "max": [15, 15], "confirm": True},
+    "run_command": {"command": "say hi", "confirm": True},
 }
 
 
@@ -37,6 +43,7 @@ def server(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     index.add_region(NamedRegion("pad", "design", PAD.min, PAD.max))
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index.save(tmp_path / "index.json"))
     monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr("designer.checks.REPORTS_DIR", tmp_path / "reports")
     mcp_server.reset()
     yield fake
     mcp_server.reset()
@@ -176,7 +183,11 @@ def _pristine(fake: FakeBridge) -> bool:
     return bool(np.array_equal(fake.worlds["design"].blocks(PAD), FakeWorld().blocks(PAD)))
 
 
-@pytest.mark.parametrize("name", ["fill", "replace", "set_blocks", "snapshot", "restore", "undo", "terraform", "build"])
+@pytest.mark.parametrize("name", [
+    "fill", "replace", "set_blocks", "snapshot", "restore", "undo", "terraform", "build",
+    "spawn_npc", "move_entity", "remove_entity", "set_spawn", "set_text", "remove_text",
+    "save_world", "load_world", "create_world", "pregen", "run_command",
+])
 def test_every_mutating_tool_is_refused_when_the_bridge_is_not_a_designer(server: FakeBridge, name: str) -> None:
     server.designer = False
     assert call(name, **MUTATING[name]) == {"ok": False, "error": mcp_server.NOT_DESIGNER, "code": "not_designer"}
@@ -387,6 +398,125 @@ def test_build_stairs_applies_with_no_name_and_falls_back_to_kind_for_the_report
     assert Path(result["extras_report"]) == config.REPORTS_DIR / "stairs-stairs-extras.json"
 
 
+def _with_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A fresh index with ``far`` (reachable) and ``void`` (outside the fake terrain's extent), plus ``spawn``."""
+    index = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
+    index.add_location(Location("spawn", "design", (5, 64, 5), tags=["spawn"]))
+    index.add_location(Location("far", "design", (10, 64, 10)))
+    index.add_location(Location("void", "design", (-40, 64, -40)))
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index.save(tmp_path / "checks_index.json"))
+    mcp_server.reset()
+
+
+def test_check_path_passes_within_max_seconds_and_fails_when_too_slow(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _with_locations(monkeypatch, tmp_path)
+    passed = call("check_path", start="spawn", end="far")
+    assert passed["ok"] and passed["passed"] and "blocks in" in passed["detail"]
+    too_strict = call("check_path", start="spawn", end="far", max_seconds=0)
+    assert too_strict["ok"] and too_strict["passed"] is False and "over 0 s" in too_strict["detail"]
+
+
+def test_check_warp_safe_and_entity_clear_read_one_position(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _with_locations(monkeypatch, tmp_path)
+    assert call("check_warp_safe", at="spawn")["passed"] is True
+    void = call("check_warp_safe", at="void")
+    assert void["ok"] and void["passed"] is False and void["coords"] == [[-40, 63, -40]]
+    assert call("check_entity_clear", at="spawn")["passed"] is True
+
+
+def test_check_mine_validates_a_built_region(server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    monkeypatch.setattr("designer.checks.PROJECT_ROOT", tmp_path)
+    spec_path = tmp_path / "specs" / "tbox.json"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+    assert call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")["ok"]
+
+    result = call("check_mine", region="tbox", spec="specs/tbox.json")
+    assert result["ok"] and result["passed"] and result["detail"] == "mine valid"
+    assert call("check_mine", region="tbox", spec="specs/nope.json")["passed"] is False
+
+
+def test_run_checks_writes_the_report_and_counts_both_outcomes(server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    text = "version: 1\nchecks:\n  - check: entity_clear\n    at: spawn\n  - check: warp_safe\n    at: void\n"
+    monkeypatch.setattr("designer.checks.DEFAULT_PATH", tmp_path / "checks.yaml")
+    (tmp_path / "checks.yaml").write_text(text, encoding="utf-8")
+
+    result = call("run_checks")
+    assert result["ok"] and (result["passed"], result["failed"], result["total"]) == (1, 1, 2)
+    assert len(result["table"]) == 2 and Path(result["report"]).is_file()
+    assert call("run_checks", only=["entity_clear_spawn"])["total"] == 1
+
+
+def test_spawn_npc_move_and_remove_round_trip(server: FakeBridge) -> None:
+    spawned = call("spawn_npc", name="Sellmaster", at="spawn", kind="villager", yaw=90, meta={"role": "sell"})
+    assert spawned["ok"] and spawned["world"] == "design" and spawned["pos"] == [0, 64, 0]
+    entity_id = spawned["entity_id"]
+    assert spawned["npc_id"] == entity_id
+    assert server.entities[entity_id]["name"] == "Sellmaster" and server.entities[entity_id]["yaw"] == 90
+
+    moved = call("move_entity", id=entity_id, at="4,4")
+    assert moved["ok"] and moved["pos"] == [4, 63, 4] and server.entities[entity_id]["pos"] == [4, 63, 4]
+
+    removed = call("remove_entity", id=entity_id)
+    assert removed == {"ok": True, "id": entity_id}
+    assert entity_id not in server.entities
+    assert call("remove_entity", id=entity_id)["code"] == "ENTITY_NOT_FOUND"
+
+
+def test_set_spawn_reaches_the_named_world(server: FakeBridge) -> None:
+    result = call("set_spawn", world="design", at="spawn")
+    assert result["ok"] and result["pos"] == [0, 64, 0] and server.spawns["design"] == [0, 64, 0]
+    assert call("set_spawn", world="mars", at="spawn")["code"] == "WORLD_NOT_FOUND"
+
+
+def test_set_text_places_and_updates_then_remove_text_clears_it(server: FakeBridge) -> None:
+    placed = call("set_text", at="spawn", text="Sell your ore here")
+    assert placed["ok"] and placed["pos"] == [0, 64, 0] and placed["id"]
+    text_id = placed["id"]
+    assert server.texts[text_id]["text"] == "Sell your ore here"
+
+    updated = call("set_text", at="spawn", text="Sell here", id=text_id)
+    assert updated["ok"] and updated["id"] == text_id and server.texts[text_id]["text"] == "Sell here"
+
+    assert call("remove_text", id=text_id) == {"ok": True, "id": text_id}
+    assert call("remove_text", id=text_id)["code"] == "ENTITY_NOT_FOUND"
+
+
+def test_save_load_and_create_world_gate_on_confirm(server: FakeBridge) -> None:
+    assert call("save_world", world="design") == {"ok": True, "world": "design"}
+
+    refused = call("load_world", name="design")
+    assert refused == {"ok": False, "error": "load_world needs confirm=True", "code": "confirm_required"}
+    loaded = call("load_world", name="design", confirm=True)
+    assert loaded["ok"] and loaded["world"] == "design" and loaded["seed"] == 0
+
+    refused_create = call("create_world", name="quarry", generator="normal", seed=7)
+    assert refused_create["code"] == "confirm_required" and "quarry" not in server.worlds
+    created = call("create_world", name="quarry", generator="normal", seed=7, confirm=True)
+    assert created == {"ok": True, "world": "quarry", "generator": "normal", "seed": 7}
+    assert "quarry" in server.worlds
+    assert call("create_world", name="quarry", generator="normal", seed=7, confirm=True)["code"] == "WORLD_EXISTS"
+
+
+def test_pregen_gates_on_confirm_and_reports_the_chunk_count(server: FakeBridge) -> None:
+    refused = call("pregen", world="design", min=[0, 0], max=[31, 31])
+    assert refused == {"ok": False, "error": "pregen needs confirm=True", "code": "confirm_required"}
+    result = call("pregen", world="design", min=[0, 0], max=[31, 31], confirm=True)
+    assert result["ok"] and result["bounds"] == {"min": [0, 0], "max": [31, 31]} and result["result"] == {"chunks": 4}
+
+
+def test_run_command_gates_on_confirm_and_reaches_the_bridge(server: FakeBridge) -> None:
+    refused = call("run_command", command="say hi")
+    assert refused["code"] == "confirm_required" and "run_command" not in [r["op"] for r in server.requests]
+    result = call("run_command", command="say hi", confirm=True)
+    assert result == {"ok": True, "command": "say hi", "success": True, "output": ["ran say hi"]}
+
+
 def test_every_tool_is_registered() -> None:
     names = {t.name for t in anyio.run(mcp_server.mcp.list_tools)}
     assert names == {
@@ -394,4 +524,7 @@ def test_every_tool_is_registered() -> None:
         "define_region", "define_location", "index_remove", "list_entities", "tail_log",
         "fill", "replace", "set_blocks", "snapshot", "restore", "undo", "list_snapshots", "list_undo",
         "analyze_terrain", "find_flat_site", "terraform", "build",
+        "check_path", "check_warp_safe", "check_entity_clear", "check_mine", "run_checks",
+        "spawn_npc", "move_entity", "remove_entity", "set_spawn", "set_text", "remove_text",
+        "save_world", "load_world", "create_world", "pregen", "run_command",
     }
