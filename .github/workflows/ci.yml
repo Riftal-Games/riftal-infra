@@ -101,9 +101,9 @@ jobs:
         working-directory: designer
         run: |
           set -euo pipefail
-          uv sync --group dev
-          uv run pytest -q
+          uv sync --frozen --group dev
+          uv run --frozen pytest -q
 
       - name: TOOLS.md matches the registered tools
         working-directory: designer
-        run: uv run python -m designer.tools_doc --check
+        run: uv run --frozen python -m designer.tools_doc --check
