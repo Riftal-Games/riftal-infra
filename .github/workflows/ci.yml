@@ -88,6 +88,9 @@ jobs:
       - name: Dev bots admission guard self-test
         run: bash images/plugins/selftest.sh
 
+      - name: Instance-only plugin mount self-test
+        run: bash images/plugins/instance-only/selftest.sh
+
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
 
