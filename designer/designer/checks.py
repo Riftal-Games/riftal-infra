@@ -45,6 +45,7 @@ class CheckSpec:
     id: str
     kind: str
     args: dict[str, Any]
+    zone: str | None = None
 
 
 @dataclass
@@ -85,7 +86,10 @@ def load_checks(path: Path | None = None) -> list[CheckSpec]:
         if kind not in KINDS:
             raise ValueError(f"check {n}: kind must be one of {sorted(KINDS)}, got {kind!r}")
         required, optional = KINDS[kind]
-        args = {k: v for k, v in entry.items() if k not in ("check", "id")}
+        zone = entry.get("zone")
+        if zone is not None and not NAME_RE.fullmatch(str(zone)):
+            raise ValueError(f"check {n} ({kind}): zone must match {NAME_RE.pattern}, got {zone!r}")
+        args = {k: v for k, v in entry.items() if k not in ("check", "id", "zone")}
         if missing := [k for k in required if k not in args]:
             raise ValueError(f"check {n} ({kind}) is missing {missing}")
         for key, source in optional.items():
@@ -94,7 +98,7 @@ def load_checks(path: Path | None = None) -> list[CheckSpec]:
         if check_id in seen:
             raise ValueError(f"check {n} duplicates id {check_id!r}; give one of them an explicit id")
         seen.add(check_id)
-        specs.append(CheckSpec(str(check_id), kind, args))
+        specs.append(CheckSpec(str(check_id), kind, args, None if zone is None else str(zone)))
     return specs
 
 
