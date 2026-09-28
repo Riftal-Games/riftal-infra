@@ -124,10 +124,10 @@ class WorldIndex:
         seen: dict[str, str] = {}
         for entry in (*self.locations, *self.regions):
             what = f"{type(entry).__name__} {entry.name!r}"
-            if not NAME_RE.fullmatch(entry.name):
-                raise ValueError(f"{what} must match {NAME_RE.pattern}")
-            if entry.world not in worlds:
-                raise ValueError(f"{what} is in unlisted world {entry.world!r}")
+            try:
+                self._admissible(entry, what)
+            except KeyError as missing:
+                raise ValueError(f"{what}: {missing.args[0] if missing.args else 'not admissible'}") from None
             if entry.name in seen:
                 raise ValueError(f"{what} duplicates {seen[entry.name]}")
             seen[entry.name] = what
@@ -200,9 +200,10 @@ class WorldIndex:
     def regions_tagged(self, tag: str) -> list[NamedRegion]:
         return [r for r in self.regions if tag in r.tags]
 
-    def _admissible(self, entry: Location | NamedRegion) -> None:
+    def _admissible(self, entry: Location | NamedRegion, what: str | None = None) -> None:
+        """The one rule for an entry's name and world; ``validate`` reports its ``KeyError`` as a ``ValueError``."""
         if not NAME_RE.fullmatch(entry.name):
-            raise ValueError(f"name {entry.name!r} must match {NAME_RE.pattern}")
+            raise ValueError(f"{what or f'name {entry.name!r}'} must match {NAME_RE.pattern}")
         self.world(entry.world)
 
     def _add(self, entry: Any, into: list[Any], replace: bool) -> Any:

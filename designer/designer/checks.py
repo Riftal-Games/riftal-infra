@@ -151,6 +151,15 @@ def _needs(index: WorldIndex, spec: CheckSpec) -> tuple[str, Bounds, bool] | Non
     return named.world, named.bounds if spec.kind == "light_ok" else named.bounds.expand(1), spec.kind == "light_ok"
 
 
+def check_world(index: WorldIndex, spec: CheckSpec) -> str | None:
+    """The world a check reads, or ``None`` when a name it needs does not resolve."""
+    try:
+        need = _needs(index, spec)
+        return need[0] if need is not None else _region(index, spec.args["inner"]).world
+    except (KeyError, ValueError):
+        return None
+
+
 def plan_fetches(checks: Iterable[CheckSpec], index: WorldIndex) -> dict[str, Fetch]:
     """One union per world of everything the checks read; a check that names nothing resolvable is left to fail at run time."""
     plan: dict[str, Fetch] = {}
@@ -235,9 +244,20 @@ def _run_light(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Chec
     return light_ok(light, min_level, mask=view.passable(), kind=str(args.get("kind", "block")))
 
 
+def _inset(named: NamedRegion, args: dict[str, Any]) -> Bounds:
+    """The region shrunk by ``inset`` on each side in x and z, so a room's own walls are not read as its floor."""
+    inset = whole_int(args.get("inset", 0), "inset must be an integer")
+    if inset < 0:
+        raise ValueError(f"inset must be at least 0, got {inset}")
+    box = named.bounds
+    if any(2 * inset >= box.size[a] for a in (0, 2)):
+        raise ValueError(f"inset {inset} leaves nothing of {named.name!r}'s {box.size[0]}x{box.size[2]} footprint")
+    return box.expand(-inset, "xz")
+
+
 def _run_holes(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Check:
     named = _region(index, args["region"])
-    view = ctx.region(named.world, named.bounds.expand(1, "y"))
+    view = ctx.region(named.world, _inset(named, args).expand(1, "y"))
     return no_holes(view, int_coord(args["floor_y"], "floor_y must be an integer"), np.ones(view.bounds.shape[1:], dtype=bool))
 
 

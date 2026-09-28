@@ -75,15 +75,23 @@ CLASS_RULES: list[tuple[str, str, BlockClass]] = [
     *(("exact", n, BlockClass.LIQUID) for n in ("water", "flowing_water", "bubble_column")),
     *(("exact", n, BlockClass.DANGER) for n in (
         "lava", "flowing_lava", "fire", "soul_fire", "magma", "cactus",
-        "sweet_berry_bush", "powder_snow", "campfire", "soul_campfire")),
+        "sweet_berry_bush", "wither_rose", "powder_snow", "campfire", "soul_campfire")),
     *(("exact", n, BlockClass.PASSABLE) for n in (
         "lever", "ladder", "vine", "fern", "large_fern", "dead_bush", "snow_layer",
         "flower_pot", "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
         "sugar_cane", "reeds", "bamboo_sapling", "hanging_roots", "dandelion", "poppy", "blue_orchid",
         "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley",
-        "wither_rose", "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",
-        "double_plant", "red_flower", "yellow_flower")),
+        "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",
+        "double_plant", "red_flower", "yellow_flower",
+        "wheat", "carrots", "potatoes", "beetroot", "pitcher_crop", "melon_stem", "pumpkin_stem",
+        "nether_wart", "web", "cobweb", "trip_wire", "deadbush", "structure_void", "glow_lichen",
+        "resin_clump", "spore_blossom", "red_mushroom", "brown_mushroom", "crimson_roots",
+        "warped_roots", "nether_sprouts", "pink_petals")),
     ("prefix", "tripwire", BlockClass.PASSABLE),
+    ("prefix", "light_block", BlockClass.PASSABLE),
+    ("prefix", "small_dripleaf", BlockClass.PASSABLE),
+    # A full-collision block the "flower" suffix below would otherwise take.
+    ("exact", "chorus_flower", BlockClass.SOLID),
     *(("suffix", s, BlockClass.PASSABLE) for s in (
         "sign", "button", "pressure_plate", "rail", "carpet", "sapling", "flower",
         "tulip", "banner", "fungus", "_vines", "_grass")),

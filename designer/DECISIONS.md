@@ -546,3 +546,54 @@ mine's own region is enough. The hand-defined `lumber_safe_zone` region stays in
 index until a lumber build is registered there, since nothing else makes the lumber world safe
 today. It is named apart from the builder's `lumber` region, so neither overwrites the other
 (#295).
+
+## 2026-09-28 `checks.yaml` covers pvp_boundary and room regions; `no_holes` takes an optional `inset`
+
+Issue #169, the other half of #165. A `pvp_boundary` region is checked with `region_inside`
+against `contested_walkable`, a region authored into the index by hand the way
+`lumber_safe_zone` is, because no builder emits a world's walkable footprint. The boundary's
+bounds include its wall height, so that region spans the headroom above the floor as well as
+the floor itself. A room's region is its outer shell, walls included, so `no_holes` over the
+whole footprint reads every wall cell at walking height as a hole. `inset`, whole and at least
+0, shrinks the checked footprint in x and z by that many blocks on each side; set to the room's
+`wall_thickness`, it checks the floor inside the walls and nothing else. It defaults to 0, so an
+entry without it checks the region's whole footprint. The names are placeholders for the contested
+world the M1 map leaves unbuilt, and the fixture specs in `tests/test_checks_perimeter_room.py`
+are throwaway sizes, not a layout proposal.
+
+## 2026-09-28 Loading the world index applies the same entry rule as adding to it
+
+`WorldIndex.validate`, which `WorldIndex.load` runs, checks each location and region through
+`_admissible`, the rule `add_location`, `add_region` and `preflight` use, so a rule added there
+is enforced on load too (#307). Load raises `ValueError` for every refusal: a `KeyError` from
+`_admissible` is re-raised as a `ValueError` prefixed with the entry, so an unlisted world reads
+`Location 'gate': no such world 'desgin', did you mean 'design'?`, the same hint `add_location`
+gives, and a bad name reads `Location 'Gate' must match ^[a-z0-9_]+$`. A `KeyError` with no
+message reads `Location 'gate': not admissible`.
+
+## 2026-09-28 A build refusal is one error, dry run or not
+
+Supersedes the sentence in the 2026-09-28 preflight entry that has a dry run check nothing.
+Every index refusal a build makes is an error: a bad name, an unlisted world, a name given twice
+in the build, and a name the index already defines. The CLI's `designer build` prints
+`designer: <reason>` on stderr, prints no report and exits 1 for each; the MCP `build` tool raises,
+so it answers `ok: false` with the reason. `WorldIndex.preflight` is read-only, so both run it on a
+dry run too, and a dry run refuses exactly what the build would, before the snapshot and the
+first edit. On the CLI an index refusal exits 1, and so does every error `main` catches: a
+`ConfigError`, a `BridgeError`, and the `KeyError` or `ValueError` of a bad spec. A failed bridge
+write and a failing `mine_valid` exit 0 and are read from the report. Only `--no-index` on the CLI, or
+`register_index=False` on the tool, skips the check, since neither registers anything, and
+`replace_index` lets the tool's taken names through on a dry run as on a build (#308).
+
+## 2026-09-28 `stack.load_service` names volumes the way docker compose 2.40 does
+
+A volume with a `name:` mounts that name; one with `external: true` and no `name:` mounts its
+key; any other mounts `<project>_<key>`. The project is `COMPOSE_PROJECT_NAME` if set and
+non-empty, refused unless it is lowercase letters, digits, `_` and `-` starting with a letter or
+digit, else the interpolated top-level `name:`, else the compose file's directory name; either of
+those two is lowercased, every character other than those dropped, and leading `_` and `-`
+stripped. Only an absent or literal empty top-level `name:` falls back to the directory. One
+that is not a string, or that interpolates or normalizes to empty, raises `StackError`, since
+compose refuses it with `name must be a string` or `project name must not be empty`. A volume `name:` that is null or resolves empty raises
+`StackError`, since compose refuses a null one with `must be a string` and an empty one with
+`invalid volume name or ID: value is empty` (#277).

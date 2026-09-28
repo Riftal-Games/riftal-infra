@@ -22,3 +22,10 @@ checks:
     floor_y: 65
   - check: entity_clear
     at: plots_entrance_sign
+  - check: region_inside
+    inner: contested_boundary
+    outer: contested_walkable
+  - check: no_holes
+    region: contested_room
+    floor_y: 66
+    inset: 1
