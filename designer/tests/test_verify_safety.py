@@ -114,6 +114,11 @@ def test_entity_clear_outside_the_region_fails_instead_of_raising(flat_plane_wit
     assert found.coords == [(100, 4, 100)]
 
 
+def test_a_float_position_is_the_block_it_falls_in(flat_plane_with_hole: Region) -> None:
+    assert entity_clear(flat_plane_with_hole, (39.5, 4.0, 20.0)).ok
+    assert warp_safe(flat_plane_with_hole, (39.5, 4.0, 20.0)).ok
+
+
 def test_region_inside_both_ways() -> None:
     outer = Bounds((0, 0, 0), (39, 7, 39))
     inner = Bounds((10, 1, 10), (20, 6, 20))

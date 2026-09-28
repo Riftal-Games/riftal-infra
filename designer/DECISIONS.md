@@ -382,15 +382,14 @@ of shading agreement with each other.
 
 ## 2026-09-28 `warp_safe` fails a `pos` outside the region instead of raising
 
-`entity_clear` calls `Bounds.local` on the raw `pos` before any of `warp_safe`'s
-own checks run, so a warp target outside the fetched region raised `ValueError`
-out of the check rather than reporting it. `warp_safe` now tests
-`region.bounds.contains` first and returns a failed `Check` naming the position
+A warp target outside the fetched region is a failed `Check` naming the position
 and the region it fell outside of, the same shape every other failure in this
-module returns. The checks runner (#41) already fences its own call to
-`ctx.around` before a check ever sees an unfetched position, so this guard is
-for `warp_safe` called directly, from a test, a script or a future caller that
-skips the runner.
+module returns, not a `ValueError` out of `Bounds.local`. The guard itself lives
+in `entity_clear`, which `warp_safe` calls first; see the `entity_clear` entry
+below (#192). The checks runner (#41) already fences its own call to
+`ctx.around` before a check ever sees an unfetched position, so the guard is for
+a check called directly, from a test, a script or a future caller that skips the
+runner.
 
 ## 2026-09-28 `slice_png` and `slice_ascii` colour a `Region` layer, not a `Heightmap`; `side_by_side` composites two finished PNGs, reshading neither
 
@@ -471,10 +470,11 @@ must never trust blind.
 
 ## 2026-09-28 `entity_clear` fails a `pos` outside the region instead of raising
 
-`entity_clear` carries the `region.bounds.contains` guard that `warp_safe` took for
-#89, with the same failed `Check` and the same detail, so a direct call on a position
-outside the fetched region reports it instead of raising `ValueError` out of
-`Bounds.local`. The guard lives in `entity_clear` alone: `warp_safe` calls it first and
+`entity_clear` fails a `pos` outside the fetched region with a failed `Check` naming
+the position and the region, the same detail `warp_safe` reports, instead of raising
+`ValueError` out of `Bounds.local`. Both checks cast `pos` to whole blocks once and
+test and index with that cast, so a fractional coordinate is the block it falls in
+rather than a pass through the guard and a raise after it. The guard lives in `entity_clear` alone: `warp_safe` calls it first and
 returns its failure unchanged, so one guard covers both and there is one message to keep
 in sync. As with #89, the checks runner (#41) already fences `ctx.around`; this is for a
 direct caller that skips the runner.
