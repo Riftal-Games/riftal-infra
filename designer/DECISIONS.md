@@ -425,3 +425,23 @@ static reset config; it is not re-read per reset, since a changed report means a
 runtime event. `designer build`'s CLI has no `--replace-index` next to `--no-index`: the CLI is
 the reviewed path where re-running under a new name is the expected flow, and the MCP tool's
 `replace_index` exists for an agent iterating in one session without a human between attempts.
+
+## 2026-09-28 `checks.yaml` covers plot and sign regions with `no_holes` and `entity_clear`, no new check kind
+
+Issue #165, the plot/sign half of the follow-up #45's original text asked for; #169 carries the
+pvp_boundary and room half. `no_holes` already checks a flush, walkable footprint over any
+region and `entity_clear` already checks a location for an unobstructed hitbox with real support
+underneath, the same kinds `mine_a`'s own entries use for its NPC location, so neither a plot's
+ring nor a sign's marker needed a new `mine_valid`-style check kind or a change to `checks.py`.
+A plot's floor is `no_holes`'s natural fit: `build_plot_grid` leaves the whole footprint solid at
+its flush `y` with clear air above, exactly the shape `no_holes` was built to confirm. A sign
+carries no block of its own, per `Text`'s own docstring, so the failure `entity_clear` catches is
+a marker placed inside solid terrain, invisible and pointless; `warp_safe`'s stricter landing
+rule does not apply, since nobody warps to a floating label.
+
+`specs/plots.json` and `specs/signage.json` back the two entries with a real, buildable
+`PlotGridSpec` and `SignageSpec`, the same relationship `specs/mine_a.json` has to `mine_valid`,
+so `plots_0_0` and `plots_entrance_sign` are not names invented for the config file alone.
+Building the plots world stays out of scope until the M5 brainstorm decides what a plot holds,
+same as `build_plot_grid` and `build_signage` shipping in #164 without touching the live map;
+these two entries wait alongside `mine_a`'s own for the session that actually builds them.
