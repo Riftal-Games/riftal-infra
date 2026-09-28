@@ -136,6 +136,19 @@ class WorldIndex:
         lists = {kind: [e.to_json() for e in sorted(getattr(self, kind), key=lambda e: e.name)] for kind in KINDS}
         return {"version": self.version, "updated": self.updated, "default_world": self.default_world, **lists}
 
+    def select(self, kind: str | None = None, tag: str | None = None) -> dict[str, list[dict[str, Any]]]:
+        """The name-ordered JSON lists for ``kind``, or for every kind; ``tag`` keeps tagged entries and drops worlds.
+
+        ``designer index list`` and the ``index_list`` tool both answer from here, so they refuse and filter alike.
+        """
+        if kind is not None and kind not in KINDS:
+            raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
+        if kind == "worlds" and tag is not None:
+            raise ValueError("worlds carry no tags; drop the tag or ask for locations or regions")
+        kinds = (kind,) if kind is not None else KINDS[1:] if tag is not None else KINDS
+        data = self.to_json()
+        return {k: [e for e in data[k] if tag is None or tag in e["tags"]] for k in kinds}
+
     def save(self, path: Path | None = None, *, updated: str | None = None) -> Path:
         path = DEFAULT_PATH if path is None else Path(path)
         self.updated = datetime.now(UTC).isoformat(timespec="seconds") if updated is None else updated

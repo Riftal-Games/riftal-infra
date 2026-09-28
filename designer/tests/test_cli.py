@@ -58,6 +58,12 @@ def test_index_commands_need_no_bridge(capsys: pytest.CaptureFixture[str]) -> No
     assert main(["index", "resolve", "spwan"]) == 1 and "did you mean 'spawn'" in capsys.readouterr().err
 
 
+def test_index_list_refuses_a_tag_on_worlds(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["index", "list", "--kind", "worlds", "--tag", "spawn"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err.startswith("designer: worlds carry no tags")
+
+
 def test_index_reports_a_bad_file_without_a_traceback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", tmp_path / "missing.json")
     assert main(["index", "list"]) == 1 and capsys.readouterr().err.startswith("designer: ")
