@@ -51,7 +51,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=17
+EXPECTED_ASSERTIONS=22
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -236,8 +236,58 @@ else
   cat /tmp/out-prov-fresh.log
 fi
 
+section "an empty or missing migrations directory still provisions"
+PW_C=selftestPasswordEmptyDir0003
+PW_D=selftestPasswordNoDir0000004
+run_migrations "$FIXTURES/empty" riftal_selftest "selftest-prov-empty-$SUFFIX" \
+  "${GRANTS_ARGS[@]}" -e RIFTAL_DB_PASSWORD_MINES="$PW_C" >/tmp/out-prov-empty.log 2>&1 || true
+if [ "$(as_login mines 'SELECT COUNT(*) FROM widgets' "$PW_C" 2>&1)" = "1" ]; then
+  pass "an empty directory still provisions mines with its role"
+else
+  fail "an empty directory should still provision mines"; cat /tmp/out-prov-empty.log
+fi
+run_migrations "$FIXTURES/empty" riftal_selftest "selftest-prov-nodir-$SUFFIX" \
+  "${GRANTS_ARGS[@]}" -e MIGRATIONS_DIR=/missing -e RIFTAL_DB_PASSWORD_MINES="$PW_D" \
+  >/tmp/out-prov-nodir.log 2>&1 || true
+if grep -q 'no migrations directory at /missing' /tmp/out-prov-nodir.log \
+   && [ "$(as_login mines 'SELECT COUNT(*) FROM widgets' "$PW_D" 2>&1)" = "1" ]; then
+  pass "a missing directory still provisions mines with its role"
+else
+  fail "a missing directory should still provision mines"; cat /tmp/out-prov-nodir.log
+fi
+
+section "a run needing grants fails when the grants file is not a file"
+if run_migrations "$FIXTURES/good" riftal_selftest "selftest-nogrants-$SUFFIX" \
+     -v "$FIXTURES/empty:/grants.sql:ro" -e GRANTS_FILE=/grants.sql \
+     >/tmp/out-prov-nogrants-dir.log 2>&1; then
+  fail "a GRANTS_FILE that is a directory should fail the run"; cat /tmp/out-prov-nogrants-dir.log
+else
+  pass "a GRANTS_FILE that is a directory fails the run"
+fi
+if run_migrations "$FIXTURES/good" riftal_selftest "selftest-nogrants-$SUFFIX" \
+     -e RIFTAL_DB_PASSWORD_MINES="$PW_A" >/tmp/out-prov-nogrants-pw.log 2>&1 \
+   || [ "$(as_login mines 'SELECT 1' "$PW_D" 2>&1)" != "1" ]; then
+  fail "a login with no grants file should fail and change nothing"; cat /tmp/out-prov-nogrants-pw.log
+else
+  pass "a login with no grants file fails and leaves the password in place"
+fi
+
+section "a plain login named like a role does not pass as the role"
+query riftal_selftest \
+  "CREATE USER 'riftal_role_decoy'@'%' IDENTIFIED BY 'selftestDecoyPassword0000'"
+decoy_rc=0
+provision -e RIFTAL_DB_PASSWORD_DECOY="$PW_A" >/tmp/out-prov-decoy.log 2>&1 || decoy_rc=$?
+decoys="$(query riftal_selftest "SELECT COUNT(*) FROM mysql.user WHERE User='decoy'")"
+if [ "$decoy_rc" -ne 0 ] && [ "$decoys" = "0" ]; then
+  pass "a login whose role name belongs to a plain login is refused"
+else
+  fail "expected decoy refused and not created, got exit $decoy_rc, decoys=$decoys"
+  cat /tmp/out-prov-decoy.log
+fi
+
 section "no provisioning run ever prints a password"
-if grep -l -e "$PW_A" -e "$PW_B" -e 'Quote00001' -e selftestShort1 /tmp/out-prov*.log; then
+if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e 'Quote00001' -e selftestShort1 \
+     /tmp/out-prov*.log; then
   fail "a password appeared in the log files above"
 else
   pass "no password in any provisioning log"

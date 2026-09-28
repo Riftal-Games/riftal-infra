@@ -45,7 +45,9 @@ runs them; it never authors gameplay migrations.
 After the migrations, every run:
 
 1. Applies `GRANTS_FILE`, which creates the `riftal_role_*` roles and their
-   privileges. A missing file is noted and skipped. Grants are never recorded
+   privileges. A missing file is skipped only when neither `GRANTS_FILE` nor
+   any `RIFTAL_DB_PASSWORD_*` is set, and fails the run otherwise, before
+   anything connects. Grants are never recorded
    as applied: a dump restored onto a fresh server carries
    `schema_migrations` but no roles, so they are rebuilt every run.
 2. For each `RIFTAL_DB_PASSWORD_<NAME>`, runs `CREATE USER IF NOT EXISTS` and
@@ -55,7 +57,7 @@ After the migrations, every run:
 
 It fails loudly, before touching anything, on a password under 24 characters
 or with a character outside `[A-Za-z0-9]`, and, before creating any login, on
-a login whose `riftal_role_<name>` does not exist. No password is ever
+a login whose `riftal_role_<name>` does not exist as a role. No password is ever
 printed. It is not a `/docker-entrypoint-initdb.d` script: it runs wherever
 migrations run, including after every `../deploy/restore.sh`.
 
@@ -81,8 +83,12 @@ wslc run --rm --network riftal-dev \
 
 To provision logins in the same run, add
 `-v "$GAME/lib/resources/sql/grants.sql:/grants.sql:ro" -e GRANTS_FILE=/grants.sql`
-and one `-e RIFTAL_DB_PASSWORD_<NAME>` per login. The bind mount fails the run
-until `riftal-game` ships `grants.sql` (riftal-game#259).
+and one name-only `-e RIFTAL_DB_PASSWORD_<NAME>` per login, exported in the
+shell first, so the password stays off the host's command line. Until
+`riftal-game` ships `grants.sql` (riftal-game#259), the bind mount creates an
+empty directory in its place, and the runner refuses it: any run that sets
+`GRANTS_FILE` or a `RIFTAL_DB_PASSWORD_*` exits nonzero unless the grants
+file is a readable regular file. Only a run setting neither skips grants.
 
 Wrap the `wslc run` above in `timeout 120` when running it unattended: if the
 lock cannot be acquired, this hangs for `MIGRATIONS_LOCK_TIMEOUT` seconds

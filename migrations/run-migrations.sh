@@ -31,6 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Real invocations pass MIGRATIONS_DIR explicitly, pointing at whatever this
 # environment actually mounted.
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-$SCRIPT_DIR/../../riftal-game/lib/resources/sql/migrations}"
+grants_explicit="${GRANTS_FILE+set}"
 GRANTS_FILE="${GRANTS_FILE:-$SCRIPT_DIR/../../riftal-game/lib/resources/sql/grants.sql}"
 
 # Every RIFTAL_DB_PASSWORD_<NAME> is a login to provision. The charset rule
@@ -55,6 +56,16 @@ while IFS= read -r var; do
   fi
   logins+=("${name,,}")
 done < <(compgen -e | grep '^RIFTAL_DB_PASSWORD_' || true)
+
+# A run that names a grants file or provisions a login depends on the grants
+# reaching the roles, and a bind mount of a missing host path arrives as an
+# empty directory rather than as nothing. Only a run asking for neither may
+# go without, which keeps the sibling-checkout default optional.
+if { [ -n "$grants_explicit" ] || [ "${#logins[@]}" -gt 0 ]; } \
+   && { [ ! -f "$GRANTS_FILE" ] || [ ! -r "$GRANTS_FILE" ]; }; then
+  echo "grants file $GRANTS_FILE is not a readable regular file, and GRANTS_FILE or a RIFTAL_DB_PASSWORD_* is set" >&2
+  exit 1
+fi
 
 run_sql() {
   MYSQL_PWD="$MYSQL_PASSWORD" mysql --host="$MYSQL_HOST" --port="$MYSQL_PORT" \
@@ -171,7 +182,9 @@ fi
 
 for login in "${logins[@]+"${logins[@]}"}"; do
   role="riftal_role_$login"
-  if [ "$(run_sql -e "SELECT COUNT(*) FROM mysql.user WHERE User='$role' AND Host='%'")" != "1" ]; then
+  # CREATE ROLE makes a locked account with no password, which is what tells
+  # a role apart from a login that merely carries the role's name.
+  if [ "$(run_sql -e "SELECT COUNT(*) FROM mysql.user WHERE User='$role' AND Host='%' AND account_locked='Y' AND authentication_string=''")" != "1" ]; then
     echo "role $role does not exist, so no login was provisioned; grants.sql must create it" >&2
     exit 1
   fi
