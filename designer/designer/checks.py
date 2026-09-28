@@ -16,6 +16,7 @@ import yaml
 from designer.bridge import Bridge
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT, REPORTS_DIR
+from designer.coords import int_coord
 from designer.region import Bounds, LightRegion, Region, fetch_light, fetch_region
 from designer.verify import MARGIN_Y, WALK_SPEED, Check, Pos, entity_clear, light_ok, mine_valid, no_holes, path_exists
 from designer.verify import region_inside, travel_time, warp_safe
@@ -228,7 +229,7 @@ def _run_light(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Chec
 def _run_holes(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Check:
     named = _region(index, args["region"])
     view = ctx.region(named.world, named.bounds.expand(1, "y"))
-    return no_holes(view, int(args["floor_y"]), np.ones(view.bounds.shape[1:], dtype=bool))
+    return no_holes(view, int_coord(args["floor_y"], "floor_y must be an integer"), np.ones(view.bounds.shape[1:], dtype=bool))
 
 
 def _run_mine(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Check:

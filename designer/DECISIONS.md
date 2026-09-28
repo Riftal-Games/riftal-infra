@@ -501,3 +501,7 @@ for a point, a footprint corner or an ore layer's `y_from` and `y_to`, `int_coor
 a single value such as `y` or `floor_y`. Both share one whole-number check, so a digit
 string such as `"4"` is rejected too, and a spec value is a JSON number or it is an
 error (#245, #248).
+
+`checks.yaml`'s one block coordinate, `no_holes`'s `floor_y`, is written by hand like a
+builder spec and never reported by the server, so it follows the spec rule, not
+`verify`'s floor: a fraction fails the check with `floor_y must be an integer` (#251).
