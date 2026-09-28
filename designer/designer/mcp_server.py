@@ -26,16 +26,18 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from designer import checks as checks_mod
 from designer import config
+from designer import persist
 from designer import snapshot as snapshots
 from designer import terrain as terrain_mod
+from designer.blocks import base_name
 from designer.bridge import Bridge, BridgeError
 from designer.builders import BUILDERS
 from designer.builders.base import Palette, opt
 from designer.builders.mine_spec import MineSpec
 from designer.edits import ApplyResult, EditList, Fill, Replace, SetBlock
 from designer.palettes import load_palettes
-from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region
-from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, summary, topdown_png
+from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region, heightmap_from_region
+from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, summary, timelapse_png, topdown_png
 from designer.snapshot import Snapshot, UndoStack
 from designer.verify import mine_valid
 from designer.world_index import KINDS, Location, NamedRegion, WorldIndex, resolve_at
@@ -145,6 +147,17 @@ async def server_status() -> dict[str, Any]:
     """
     return await _run(_status)
 
+METRICS_KEYS = ("tps", "tps_avg", "tick_usage", "tick_usage_avg", "memory_bytes")
+
+@tool
+async def metrics() -> dict[str, Any]:
+    """``server_info``'s TPS, tick usage and memory, refreshed so a caller can sample it before and after a heavy operation.
+
+    RETURNS: tps, tps_avg, tick_usage, tick_usage_avg, memory_bytes.
+    """
+    info = await _run(bridge().server_info, refresh=True)
+    return {key: info.get(key) for key in METRICS_KEYS}
+
 @tool
 async def index_list(kind: str | None = None, tag: str | None = None) -> dict[str, Any]:
     """Entries of ``world_index.json``: ``kind`` is worlds, locations or regions; ``tag`` filters locations and regions.
@@ -193,6 +206,33 @@ async def render(at: str, kind: str = "topdown", size: int = 64, world: str | No
     hm, markers = await _run(_area, at, size, world)
     path = await _run(RENDERS[kind], hm, load_palettes()["colors"], markers)
     return {"path": str(path), "summary": _summary(hm)}
+
+def _timelapse(region: str, out: str | None) -> dict[str, Any]:
+    entry = index().resolve(region)
+    if not isinstance(entry, NamedRegion):
+        raise ValueError(f"{region!r} is a location; timelapse needs a region name")
+    folder = config.SNAPSHOTS_DIR / entry.world
+    frames = []
+    for path in sorted(folder.glob("*.npz")) if folder.is_dir() else []:
+        snap = snapshots.load(path)
+        if snap.bounds == entry.bounds:
+            frames.append((snap.timestamp, heightmap_from_region(snap.region)))
+    if not frames:
+        raise ValueError(f"no snapshot of {region!r} taken at its exact bounds; call snapshot(target={region!r}, ...) first")
+    path = timelapse_png(frames, load_palettes()["colors"], out=out)
+    return {"region": region, "world": entry.world, "frames": len(frames), "path": str(path)}
+
+@tool
+async def timelapse(region: str, out: str | None = None) -> dict[str, Any]:
+    """A top-down PNG strip, one frame per snapshot on disk whose bounds exactly match ``region``, oldest first.
+
+    A frame is either an explicit ``snapshot`` call naming ``region`` or the automatic
+    before-mutation snapshot a mutating tool takes when its own ``target`` was ``region``;
+    a snapshot over any other box, such as a builder's own extras, is not one of its frames.
+
+    RETURNS: region, world, frames, path.
+    """
+    return await _run(_timelapse, region, out)
 
 @tool
 async def inspect(at: str, radius: int = 3, world: str | None = None) -> dict[str, Any]:
@@ -534,6 +574,32 @@ def set_blocks(blocks: list[list[Any]], world: str | None = None, dry_run: bool 
         raise ValueError(f"set_blocks takes 1 to {MAX_BLOCKS_PER_CALL} entries per call, got {len(blocks)}")
     edits = EditList(world or index().default_world, [SetBlock(*entry) for entry in blocks]).coalesce()
     return _apply(edits, "set_blocks", dry_run, ctx)
+
+@mutating
+def persist_mark(marker: str, at: str, block: str = "minecraft:diamond_block", dry_run: bool = False, ctx: Context | None = None) -> dict[str, Any]:
+    """Place ``block`` at ``at`` and record it as ``marker``, so ``persist_verify`` can prove it survived the container underneath being replaced.
+
+    RETURNS: marker, pos, block, world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
+    """
+    world, pos = _full_pos(at, None)
+    out = _apply(EditList(world, [SetBlock(*pos, block)]), "persist_mark", dry_run, ctx)
+    if not dry_run and out.get("ok") is not False:
+        persist.record(marker, world, pos, block)
+    return {"marker": marker, "pos": list(pos), "block": block, **out}
+
+def _persist_verify(marker: str) -> dict[str, Any]:
+    entry = persist.get(marker)
+    world, pos, expected = entry["world"], tuple(entry["pos"]), entry["block"]
+    found = fetch_region(bridge(), world, Bounds(pos, pos)).get(*pos)
+    return {"marker": marker, "world": world, "pos": list(pos), "expected": expected, "found": found, "passed": base_name(found) == base_name(expected)}
+
+@tool
+async def persist_verify(marker: str) -> dict[str, Any]:
+    """Whether the block ``persist_mark`` placed as ``marker`` is still there, fetched straight from the world.
+
+    RETURNS: marker, world, pos, expected, found, passed.
+    """
+    return await _run(_persist_verify, marker)
 
 def _target2d(target: str | dict[str, Any], world: str | None) -> tuple[str, Bounds2D]:
     """A region name from the index, shrunk to its x/z footprint, or a ``{"min", "max"}`` 2D dict."""

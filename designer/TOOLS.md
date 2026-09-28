@@ -196,6 +196,15 @@ Refused unless ``confirm=True``: a load nobody meant is state silently gone.
 ```
 Returns: world, spawn, seed, generator.
 
+## metrics
+
+``server_info``'s TPS, tick usage and memory, refreshed so a caller can sample it before and after a heavy operation.
+
+```json
+{"properties": {}, "title": "metricsArguments", "type": "object"}
+```
+Returns: tps, tps_avg, tick_usage, tick_usage_avg, memory_bytes.
+
 ## move_entity
 
 Move entity or NPC ``id`` to ``at`` (a name, ``x,z`` or ``x,y,z``).
@@ -204,6 +213,24 @@ Move entity or NPC ``id`` to ``at`` (a name, ``x,z`` or ``x,y,z``).
 {"properties": {"at": {"title": "At", "type": "string"}, "id": {"title": "Id", "type": "string"}}, "required": ["id", "at"], "title": "move_entityArguments", "type": "object"}
 ```
 Returns: id, world, pos.
+
+## persist_mark
+
+Place ``block`` at ``at`` and record it as ``marker``, so ``persist_verify`` can prove it survived the container underneath being replaced.
+
+```json
+{"properties": {"at": {"title": "At", "type": "string"}, "block": {"default": "minecraft:diamond_block", "title": "Block", "type": "string"}, "dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "marker": {"title": "Marker", "type": "string"}}, "required": ["marker", "at"], "title": "persist_markArguments", "type": "object"}
+```
+Returns: marker, pos, block, world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
+
+## persist_verify
+
+Whether the block ``persist_mark`` placed as ``marker`` is still there, fetched straight from the world.
+
+```json
+{"properties": {"marker": {"title": "Marker", "type": "string"}}, "required": ["marker"], "title": "persist_verifyArguments", "type": "object"}
+```
+Returns: marker, world, pos, expected, found, passed.
 
 ## pregen
 
@@ -363,6 +390,19 @@ Flatten, raise, lower or smooth every column of ``target`` toward ``level``; sna
 {"properties": {"block": {"default": "minecraft:stone", "title": "Block", "type": "string"}, "dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "feather": {"default": 0, "title": "Feather", "type": "integer"}, "level": {"default": 0, "title": "Level", "type": "integer"}, "mode": {"title": "Mode", "type": "string"}, "smooth_radius": {"default": 2, "title": "Smooth Radius", "type": "integer"}, "target": {"anyOf": [{"type": "string"}, {"additionalProperties": true, "type": "object"}], "title": "Target"}, "world": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "World"}}, "required": ["target", "mode"], "title": "terraformArguments", "type": "object"}
 ```
 Returns: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
+
+## timelapse
+
+A top-down PNG strip, one frame per snapshot on disk whose bounds exactly match ``region``, oldest first.
+
+A frame is either an explicit ``snapshot`` call naming ``region`` or the automatic
+before-mutation snapshot a mutating tool takes when its own ``target`` was ``region``;
+a snapshot over any other box, such as a builder's own extras, is not one of its frames.
+
+```json
+{"properties": {"out": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "Out"}, "region": {"title": "Region", "type": "string"}}, "required": ["region"], "title": "timelapseArguments", "type": "object"}
+```
+Returns: region, world, frames, path.
 
 ## undo
 
