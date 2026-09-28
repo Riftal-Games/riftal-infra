@@ -59,6 +59,10 @@ services:
       # fromEnvironment() in riftal-game's shared lib throws on a missing or
       # empty value rather than guess an identity.
       INSTANCE_ID: ${INSTANCE_ID}
+      # start-instance.sh renders RiftalMines' database password from this on
+      # every boot, so it can never disagree with the one mysql runs with.
+      # instance-b loads no plugin that connects, so it is not given it.
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       # Flags beat server.properties in ServerConfigGroup, so the instance
       # needs no config file mounted in and the world volume stays the only
       # durable state.
