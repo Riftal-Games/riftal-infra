@@ -1,8 +1,10 @@
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
+from designer import config
 from designer.blocks import AIR
 from designer.bridge import Bridge
 from designer.builders import BUILDERS, HeightmapFetch, Palette
@@ -41,6 +43,51 @@ REFUSED_BUILDS = [
     pytest.param("mine", {"world": "quarry"}, "no such world 'quarry'", id="unlisted-world"),
     pytest.param("twice", {}, "is given twice in one build", id="in-build-duplicate"),
 ]
+
+# Read at import, before any fixture redirects them, so the session check below watches the working tree's own dirs.
+TREE_OUTPUT_DIRS = (config.REPORTS_DIR, config.SNAPSHOTS_DIR)
+BEFORE = pytest.StashKey[dict[Path, tuple[int, int]]]()
+TOUCHED = pytest.StashKey[list[Path]]()
+
+
+def _tree_output() -> dict[Path, tuple[int, int]]:
+    found = {}
+    for root in TREE_OUTPUT_DIRS:
+        if root.is_dir():
+            for path in (root, *root.rglob("*")):
+                stat = path.stat()
+                found[path] = (stat.st_mtime_ns, stat.st_size)
+    return found
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    session.config.stash[BEFORE] = _tree_output()
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Fails the run when anything under the working tree's reports/ or snapshots/ appeared, changed or vanished."""
+    before, after = session.config.stash[BEFORE], _tree_output()
+    touched = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+    session.config.stash[TOUCHED] = touched
+    if touched:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
+    touched = terminalreporter.config.stash.get(TOUCHED, [])
+    if touched:
+        terminalreporter.section("tests wrote into the working tree", sep="=", red=True, bold=True)
+        for path in touched:
+            terminalreporter.write_line(str(path), red=True)
+
+
+@pytest.fixture(autouse=True)
+def _runtime_output_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Points every snapshot and report writer at ``tmp_path``; render and checks bind ``REPORTS_DIR`` at import."""
+    monkeypatch.setattr(config, "SNAPSHOTS_DIR", tmp_path / "snapshots")
+    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr("designer.checks.REPORTS_DIR", tmp_path / "reports")
 
 
 @pytest.fixture

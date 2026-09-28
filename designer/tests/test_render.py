@@ -6,7 +6,6 @@ import pytest
 from PIL import Image
 
 from designer.blocks import AIR
-from designer.config import REPORTS_DIR
 from designer.palettes import ROLES, load_palettes
 from designer.region import EMPTY_Y, Bounds, Bounds2D, Heightmap, Region
 from designer.render import (
@@ -85,7 +84,7 @@ def test_summary_counts_water_and_flat_columns() -> None:
     assert summary(Heightmap(WORLD, Bounds2D((0, 0), (0, 0)), np.full((1, 1), EMPTY_Y, dtype=np.int16)))["min"] is None
 
 
-def test_markers_from_index_and_report_path() -> None:
+def test_markers_from_index_and_report_path(tmp_path: Path) -> None:
     index = WorldIndex(
         worlds=[WorldEntry(WORLD, "normal", 0, "design"), WorldEntry("farm", "normal", 0, "farm")],
         locations=[Location("spawn", WORLD, (0, 64, 0)), Location("far", WORLD, (99, 64, 0)), Location("barn", "farm", (0, 64, 0))],
@@ -94,7 +93,7 @@ def test_markers_from_index_and_report_path() -> None:
     markers = markers_from_index(index, WORLD, Bounds2D((-8, -8), (7, 7)))
     assert markers == [Marker("spawn", 0, 0, 64), Marker("yard", -4, -4, 60, "corner")]
     path = report_path("heightmap", WORLD, Bounds2D((-8, -8), (7, 7)), "txt", datetime(2026, 9, 7, 13, 5, 9))
-    assert path == REPORTS_DIR / "heightmap-design--8_-8-16x16-20260907-130509.txt"
+    assert path == tmp_path / "reports" / "heightmap-design--8_-8-16x16-20260907-130509.txt"
     assert len(RAMP) == 10
 
 
