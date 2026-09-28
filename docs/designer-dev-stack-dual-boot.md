@@ -66,6 +66,8 @@ translation that has never been folded into `.claude/skills/dev-stack/SKILL.md`
 because no agent in this environment can edit that file). Run by hand, same shape as
 that doc, adapted to the Docker fallback engine instead of `wslc`:
 
+A copy of this command must append `--auto-report.enabled=0` to `POCKETMINE_ARGS`, or a crash uploads its dump; only `0` disables it, since `(bool) "false"` is `true` (riftal-infra#232).
+
 ```
 $ docker volume create riftal-world-b
 $ docker run -d -i --name riftal-instance-b --network riftal-dev \
@@ -84,6 +86,8 @@ $ docker run -d -i --name riftal-instance-b --network riftal-dev \
 ```
 
 ## 3. Designer stack, alongside both
+
+A copy of this command must append `--auto-report.enabled=0` to `POCKETMINE_ARGS`, or a crash uploads its dump; only `0` disables it, since `(bool) "false"` is `true` (riftal-infra#232).
 
 ```
 $ docker volume create designer-world
