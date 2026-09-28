@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Self-test for the RiftalMines mount in images/compose.yaml (riftal-infra#213).
+# Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213).
 #
 # Static on purpose: it reads the compose model docker compose resolves and a
 # config rendered into a scratch directory, and starts no container, so it
@@ -17,42 +17,45 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\n' > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=11
+EXPECTED_ASSERTIONS=13
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
 
 model() { docker compose -f "$1" --env-file "$work/env" config --format json; }
 
-# $1 compose model, $2 service, $3 mount target, $4 host file name
-mounts_ro() {
-  jq -e --arg s "$2" --arg t "$3" --arg f "instance-only/$4" \
-    '[.services[$s].volumes[] | select(.target == $t and .read_only == true
-      and (.source | endswith($f)))] | length == 1' <<<"$1" >/dev/null
+# $1 compose model, $2 edit to the real compose file, as a sed script
+edited() { sed "$1" "$COMPOSE" > "$work/compose.yaml"; model "$work/compose.yaml"; }
+
+# Docker creates a missing mountpoint as root. Inside the ./plugins bind that
+# is a root-owned stray in the host directory instance-b loads from; inside
+# the /data volume it is a plugin_data PocketMine cannot write to.
+nested() {
+  jq -r '.services[] | .volumes[]? | .target
+    | select(test("^/(plugins|data)/"))' <<<"$1"
 }
 
-# Services other than `instance` that mount anything from instance-only/ or
-# onto a RiftalMines path.
+# Services other than `instance` that run its start script or mount anything
+# from instance-only/.
 leaks() {
   jq -r '.services | to_entries[] | select(.key != "instance")
-    | select(any(.value.volumes[]?; (.source // "" | test("instance-only"))
-      or (.target | test("RiftalMines")))) | .key' <<<"$1"
+    | select((.value.command // [] | tostring | test("start-instance"))
+      or any(.value.volumes[]?; .source // "" | test("instance-only")))
+    | .key' <<<"$1"
 }
 
-printf '\n== the mount lands on `instance` and nowhere else\n'
+printf '\n== RiftalMines loads on `instance` and nowhere else\n'
 real="$(model "$COMPOSE")"
-check "instance mounts the phar read-only" \
-  'mounts_ro "$real" instance /plugins/RiftalMines.phar RiftalMines.phar'
-check "instance mounts the rendered config read-only over the bundled default" \
-  'mounts_ro "$real" instance /data/plugin_data/RiftalMines/config.yml RiftalMines.config.yml'
-check "no other service mounts RiftalMines" '[ -z "$(leaks "$real")" ]'
-
-# The same compose file with the phar line copied onto instance-b, so the
-# check above is known to catch the leak it exists for.
-sed '/- riftal-world-b:\/data/a\      - ./plugins/instance-only/RiftalMines.phar:/plugins/RiftalMines.phar:ro' \
-  "$COMPOSE" > "$work/compose.yaml"
-check "a copy mounting it on instance-b is caught" \
-  '[ "$(leaks "$(model "$work/compose.yaml")")" = "instance-b" ]'
+check "instance runs start-instance.sh from its ./plugins bind" \
+  'jq -e ".services.instance | .command == [\"bash\", \"/plugins/instance-only/start-instance.sh\"]
+    and any(.volumes[]; .target == \"/plugins\" and (.source | endswith(\"images/plugins\")))" \
+    <<<"$real" >/dev/null'
+check "no service mounts anything inside /plugins or /data" '[ -z "$(nested "$real")" ]'
+check "a file mounted inside /data is caught" \
+  '[ "$(nested "$(edited "/- riftal-world:\/data/a\      - ./x.yml:/data/plugin_data/x.yml:ro")")" = /data/plugin_data/x.yml ]'
+check "no other service loads RiftalMines" '[ -z "$(leaks "$real")" ]'
+check "a copy mounting instance-only on instance-b is caught" \
+  '[ "$(leaks "$(edited "/- riftal-world-b:\/data/a\      - ./plugins/instance-only:/i:ro")")" = instance-b ]'
 
 printf '\n== the rendered config points at this stack\n'
 cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$work/"
@@ -65,6 +68,8 @@ check "a password holding / + & renders" \
   'MYSQL_ROOT_PASSWORD="$password" bash "$work/render-config.sh"'
 check "a password that would break the YAML string is refused" \
   '! MYSQL_ROOT_PASSWORD="a\"b" bash "$work/render-config.sh" 2>/dev/null'
+check "a password holding a backslash is refused" \
+  '! MYSQL_ROOT_PASSWORD="a\\b" bash "$work/render-config.sh" 2>/dev/null'
 rendered="$work/RiftalMines.config.yml"
 db() { sed -n "s/^  $1: \"\(.*\)\"\$/\1/p" "$rendered"; }
 check "the password renders verbatim and no placeholder is left" \

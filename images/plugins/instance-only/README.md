@@ -1,14 +1,21 @@
 # instance-only plugins
 
-Plugins mounted onto the `instance` service alone, not `instance-b`
+Plugins the `instance` service loads and `instance-b` does not
 (`../../compose.yaml`). `RiftalDevBots.php` one level up is a single script
-both instances want; the two files here are not, because `RiftalMines`
-resets the worlds `instance` hosts and no others. `instance-b` never mounts
-this folder, so a per-instance plugin roster stays a compose-level choice
-instead of a shared plugin directory quietly handing every instance the
-same plugin.
+both instances want; `RiftalMines` is not, because it resets the worlds
+`instance` hosts and no others.
 
-Both files below are gitignored: `*.phar` by the repo root's `.gitignore`,
+Both instances see this folder through the shared `./plugins` bind, and
+PocketMine never loads from a subfolder, so `instance-b` ignores it.
+`instance` runs `start-instance.sh` instead of the image's `start-pocketmine`:
+it assembles its plugin roster in the container's own disposable filesystem
+and copies the rendered config onto the volume as uid 1000. Nothing is
+bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
+mountpoint as root: a stray in `./plugins` that `instance-b` then fails to
+load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
+fails on either.
+
+Two files here are gitignored: `*.phar` by the repo root's `.gitignore`,
 `RiftalMines.config.yml` by this folder's own (it carries a real database
 password once rendered). Only `RiftalMines.config.yml.template` is tracked.
 
@@ -43,11 +50,9 @@ docker run --rm \
   '
 ```
 
-Building from a plain copy of `mines/` and `lib/`, not a bind mount of the
-live repo, keeps `composer install`'s `vendor/` out of a working tree another
-lane may have open. `wslc` has no bind-mount-then-copy step of its own,
-so translate the two `-v` and `-w` flags the same way `/dev-stack` translates
-`compose.yaml`'s.
+Building from a copy of `mines/` and `lib/`, not a bind mount, keeps
+`composer install`'s `vendor/` out of a working tree another lane may have
+open. Under `wslc`, translate the `-v` and `-w` flags as `/dev-stack` does.
 
 Confirm the build holds a `plugin.yml`, the same check
 `riftal-game/.github/scripts/packages.sh`'s `phar_one()` runs on every phar it
@@ -63,10 +68,9 @@ docker run --rm -v "$PWD/RiftalMines.phar:/p.phar:ro" local-pocketmine-mp php -r
 '
 ```
 
-A phar that never got built at all mounts as an empty directory (see below)
-and is silently ignored rather than failing loudly, so this check, or reading
-`Loading RiftalMines` in the boot log, is the only way to catch that before it
-becomes a boot that silently never had the plugin at all.
+A phar that was never built is skipped without a word (see below), so this
+check, or reading `Loading RiftalMines` in the boot log, is the only way to
+catch a boot that silently never had the plugin at all.
 
 ## Render the config override
 
@@ -84,33 +88,27 @@ after editing `.env`.
 riftal, username: mines`) matches nothing on this stack: the MySQL service's
 actual resolvable alias is `mysql` under both the compose and wslc forms, the
 database compose creates is `riftal_dev`, and no `mines` MySQL user has ever
-been provisioned here. Mounting the phar without this override does not fail
-the plugin alone — `RiftalGames\Lib\Database\ConnectionProvider::open()` in
+been provisioned here. Loading the phar without this override does not fail
+the plugin alone: `RiftalGames\Lib\Database\ConnectionProvider::open()` in
 `Main::onEnable()` connects synchronously, so a `SqlError` there is uncaught
-and takes the whole server down. Verified 2026-09-28: `RiftalMines.phar`
-mounted with no config override, on a throwaway MySQL and instance pair,
-logs
+and takes the whole server down within 4 seconds of boot (verified
+2026-09-28: `SQL CONNECT error: ... getaddrinfo for riftal-mysql failed`).
+So `start-instance.sh` refuses to start with the phar built and the config
+not rendered, naming `render-config.sh`, rather than let the server crash.
 
-```
-[Server thread/CRITICAL]: ...SqlError: "SQL CONNECT error: php_network_getaddresses:
-getaddrinfo for riftal-mysql failed: Name or service not known"
-[Server thread/EMERGENCY]: An unrecoverable error has occurred and the server has crashed.
-```
-
-within 4 seconds of boot, every time. The render step above is not a nicety.
-
-Both files here are gitignored, so a clone that has built neither yet is the
-default state `compose.yaml` has to tolerate. Verified 2026-09-28: a missing
-bind-mount source becomes an empty directory at the container path, not a
-missing one, and an empty directory named `RiftalMines.phar` is silently
-ignored by the plugin loader; a boot with neither file built reaches `Done`
-exactly as it did before this folder existed. Build and render before
-expecting `RiftalMines` to actually be there.
+Both files here are gitignored, so a clone that has built neither is the
+default state `compose.yaml` has to tolerate. Verified 2026-09-28, each on a
+fresh volume and each stopped with `stop` on stdin: with neither file,
+`instance` reaches `Done` with `RiftalDevBots` alone; with both, it loads
+`RiftalMines` and reaches `Done` with the one `lumber` line below as its only
+error; `instance-b` booted afterwards reaches `Done` without `RiftalMines`;
+`/data/plugin_data` is owned by uid 1000 every time, and nothing new appears
+in `./plugins`.
 
 ## `lumber` and the shared MySQL row
 
 `MineWorldLoader` (riftal-game#49) logs and skips a world with no folder on
-disk instead of crashing, so mounting `RiftalMines.phar` before the `lumber`
+disk instead of crashing, so loading `RiftalMines.phar` before the `lumber`
 world exists in `riftal-world` is safe: the log carries one error line naming
 `lumber`, and the plugin otherwise enables normally. Land the built world
 under `riftal-world`'s `worlds/lumber` once `riftal-game`'s DesignBridge
