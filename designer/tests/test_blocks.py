@@ -160,6 +160,8 @@ def test_alias_and_prefix_names(name: str, cls: BlockClass) -> None:
 def test_bridge_liquid_and_danger_names() -> None:
     assert classify("minecraft:flowing_water[liquid_depth=0]") is BlockClass.LIQUID
     assert classify("minecraft:flowing_lava[liquid_depth=0]") is BlockClass.DANGER
+    # Walkable, but contact applies wither, so a route through it is a hazard.
+    assert classify("minecraft:wither_rose") is BlockClass.DANGER
 
 
 def test_register_rule_front_overrides_and_back_only_fills_gaps(rules: list) -> None:
