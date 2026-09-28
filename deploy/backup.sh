@@ -205,6 +205,20 @@ for stale in "${stale_partials[@]}"; do
   rm -rf "$stale"
 done
 
+# A $LOCK_DIR.discard.* left on disk here is a stale steal's rename target
+# from a run killed between winning that rename and its own follow-up rm -rf
+# (riftal-infra#175, riftal-infra#183). Unlike .partial above, no age check
+# applies: acquire_lock only returns, as it just has for this run, once every
+# discard directory it created has been renamed back or removed, so anything
+# still here cannot belong to a steal race still in flight and is always
+# safe to remove.
+mapfile -t stale_discards < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
+  -name '.lock.discard.*')
+for stale in "${stale_discards[@]}"; do
+  echo "backup $ts: removing orphaned $stale, a discarded lock left behind by a run killed mid-cleanup"
+  rm -rf "$stale"
+done
+
 mkdir -p "$tmp_dir/worlds"
 
 echo "backup $ts: dumping database $MYSQL_DATABASE from $MYSQL_HOST:$MYSQL_PORT"
@@ -254,8 +268,9 @@ echo "backup $ts: applying retention, keeping the last $BACKUP_RETENTION"
 #
 # `.lock.discard.*` is a stale steal's discarded former lock, orphaned only
 # if that run was killed between winning the rename and its own follow-up
-# `rm -rf` (riftal-infra#175). It is never a backup either, and left
-# uncounted here for the same reason `.partial` is.
+# `rm -rf` (riftal-infra#175). It is swept above on the next successful lock
+# acquisition, but until then it is never a backup, and left uncounted here
+# for the same reason `.partial` is.
 mapfile -t existing < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
   -not -name '*.partial' -not -name '.lock' -not -name '.lock.discard.*' | sort)
 excess=$(( ${#existing[@]} - BACKUP_RETENTION ))
