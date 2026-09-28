@@ -132,12 +132,6 @@ hand. Nothing in `compose.yaml` depends on this; production runs standard
 docker. Run from Git Bash with `MSYS_NO_PATHCONV=1` so the `C:/...:/...` mount
 arguments survive.
 
-The translation omits the DesignBridge source mount. `riftal-game/designbridge`
-does not exist yet, and `wslc run` creates a missing bind source, so the flag
-would leave a stray empty directory inside the `riftal-game` checkout and mount
-nothing. Add `-v "$GAME/designbridge:/plugins/DesignBridge:ro"` once the plugin
-exists, and drop it again whenever `DesignBridge.phar` is in `plugins/`.
-
 ```sh
 export MSYS_NO_PATHCONV=1
 STACK=C:/Users/nasir/riftal-games/riftal-infra/designer/stack
@@ -155,6 +149,7 @@ wslc run --rm -v "$CORE/tests/plugins/DevTools:/src:ro" -v "$STACK/plugins:/out"
 wslc run -d -i --name designer \
   -p "127.0.0.1:${DESIGNER_GAME_PORT:-19134}:19132/udp" -p 127.0.0.1:19140:19140/tcp \
   -v designer-world:/data -v "$STACK/plugins:/plugins" \
+  -v "$GAME/designbridge:/plugins/DesignBridge:ro" \
   -e DESIGNBRIDGE_TOKEN=local-dev-only \
   -e "POCKETMINE_ARGS=--level-name=design --level-type=normal --level-seed=20260907 --xbox-auth=false --gamemode=1 --max-players=4 --view-distance=16 --motd=riftal-designer" \
   local-pocketmine-mp
