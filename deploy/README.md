@@ -35,6 +35,11 @@ subdirectories, oldest first, and removes whichever are beyond that count.
 Pruning only happens after a run succeeds, so a failed run never deletes a
 good backup to make room for the one it never produced.
 
+That listing excludes any `*.partial`, `.lock`, and `.lock.discard.*` entry
+outright, so none of the three is ever counted as a backup or pruned as one.
+Each is explained where it is produced: Stale `.partial` sweep, Stale lock
+sweep, and Orphaned lock-discard sweep, below.
+
 ## Stale `.partial` sweep
 
 A `.partial` directory is left behind by a run killed non-gracefully (OOM, a
