@@ -74,12 +74,15 @@ def _expand(value: object, env: Mapping[str, str]) -> str:
 
 
 def _project_name(document: Mapping[str, object], compose_file: Path, env: Mapping[str, str]) -> str:
-    """Compose's project name: ``COMPOSE_PROJECT_NAME`` taken as given, else the
-    top-level ``name:``, else the compose file's directory, both normalized.
+    """Compose's project name: a non-empty ``COMPOSE_PROJECT_NAME`` taken as
+    given and refused unless it is lowercase letters, digits, ``_`` and ``-``
+    starting with a letter or digit, else the interpolated top-level
+    ``name:``, else the compose file's directory name, both normalized.
 
-    Only a literal ``name: ''`` falls back to the directory. Compose refuses a
-    ``name:`` that is not a string, and one that interpolates or normalizes to
-    empty, with ``project name must not be empty``."""
+    Only an absent or literal empty ``name:`` falls back to the directory.
+    Compose refuses a ``name:`` that is not a string with ``name must be a
+    string``, and one that interpolates or normalizes to empty with ``project
+    name must not be empty``."""
     explicit = env.get("COMPOSE_PROJECT_NAME")
     if explicit:
         if not _PROJECT_RE.fullmatch(explicit):
