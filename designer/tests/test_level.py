@@ -101,6 +101,49 @@ def test_step_input_outside_the_root_is_refused(fake: FakeBridge, bridge: Bridge
     assert fake.requests == []
 
 
+def test_unknown_builder_refuses_before_any_call(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    recipe = {**RECIPE, "steps": [{"build": "moat", "spec": "specs/zt.json", "palette": "test_stone"}]}
+    (root / "levels" / "zt.json").write_text(json.dumps(recipe), encoding="utf-8")
+    with pytest.raises(LevelError, match="no builder 'moat'"):
+        _build(bridge, root)
+    assert fake.requests == []
+
+
+def test_step_writing_another_world_refuses(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    fake.worlds["zo"] = FakeWorld()
+    (root / "specs" / "zt.json").write_text(json.dumps({**SMALL_MINE_SPEC, "world": "zo"}), encoding="utf-8")
+    with pytest.raises(LevelError, match="writes world 'zo'"):
+        _build(bridge, root)
+    assert not fake.worlds["zo"].edits and not (root / "levels" / "zt.lock.json").exists()
+
+
+def test_failed_step_refuses(fake: FakeBridge, bridge: Bridge, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pregen = fake.op_pregen
+
+    def pregen_then_fail(args: dict) -> dict:
+        reply = pregen(args)
+        fake.fail_next_job = "disk full"
+        return reply
+
+    monkeypatch.setattr(fake, "op_pregen", pregen_then_fail)
+    with pytest.raises(LevelError, match="step 0 .* failed: .*disk full"):
+        _build(bridge, root)
+    assert not (root / "levels" / "zt.lock.json").exists()
+
+
+@pytest.mark.parametrize(("at", "match"), [
+    pytest.param("zo_spawn", "no check on 'zt'", id="none-on-zone"),
+    pytest.param("zt_spawn\n  - check: warp_safe\n    at: zt_spwan", r"resolves in \['warp_safe_zt_spwan'\]", id="unresolved"),
+])
+def test_zone_checks_must_all_resolve_and_one_must_exist(bridge: Bridge, root: Path, at: str, match: str) -> None:
+    (root / "checks.yaml").write_text(f"version: 1\nchecks:\n  - check: warp_safe\n    at: {at}\n", encoding="utf-8")
+    index = _index()
+    index.locations.append(Location("zo_spawn", "zo", (40, 64, 40)))
+    with pytest.raises(LevelError, match=match):
+        _build(bridge, root, index=index)
+    assert not (root / "levels" / "zt.lock.json").exists()
+
+
 def test_pregen_bounds_add_a_chunk_on_each_side_of_negative_bounds() -> None:
     assert pregen_bounds(Bounds((-10, 38, -10), (10, 52, 10))) == Bounds2D((-32, -32), (31, 31))
 

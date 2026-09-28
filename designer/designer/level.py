@@ -166,7 +166,11 @@ def _run_steps(bridge: Bridge, recipe: Recipe, root: Path) -> None:
 
 
 def _run_checks(bridge: Bridge, recipe: Recipe, index: WorldIndex, checks_path: Path | None) -> None:
-    specs = [s for s in checks_mod.load_checks(checks_path) if checks_mod.check_world(index, s) == recipe.zone]
+    worlds = [(s, checks_mod.check_world(index, s)) for s in checks_mod.load_checks(checks_path)]
+    # A check whose world cannot be told might be this zone's, so it refuses every build rather than drop out.
+    if unresolved := [s.id for s, world in worlds if world is None]:
+        raise LevelError(f"checks.yaml names nothing world_index.json resolves in {unresolved}")
+    specs = [s for s, world in worlds if world == recipe.zone]
     if not specs:
         raise LevelError(f"checks.yaml has no check on {recipe.zone!r}; a zone is not built unchecked")
     if failed := checks_mod.run_checks(bridge, index, specs).failed:
