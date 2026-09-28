@@ -19,9 +19,10 @@ Build ``kind`` (a name in ``designer.builders.BUILDERS``) from ``spec``, a dict 
 
 Checks every location and region it will register before the snapshot, the undo entry and the
 first edit, then answers with the undo id like every mutating tool. Registers the builder's
-locations and regions in the index unless ``register_index`` is false or ``dry_run``, refusing a
-name that breaks the index's naming rules, names an unlisted world or appears twice in the build,
-and a name already taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is
+locations and regions in the index unless ``register_index`` is false or ``dry_run``. Unless
+``register_index`` is false, refuses a name that breaks the index's naming rules, names an
+unlisted world or appears twice in the build, and a name already taken unless ``replace_index``,
+a dry run included, so a dry run answers every refusal the build would; runs ``mine_valid`` when ``kind`` is
 ``mine`` unless ``verify`` is false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
 falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
 

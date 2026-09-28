@@ -507,8 +507,9 @@ def test_build_refuses_to_overwrite_the_index_unless_replace_index(server: FakeB
     assert replaced["ok"] and replaced["undo_id"] == 2
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
 def test_build_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
-    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, dry_run: bool
 ) -> None:
     monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
     seeded = WorldIndex.load(tmp_path / "index.json")
@@ -516,10 +517,11 @@ def test_build_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
     seeded.add_region(NamedRegion("tbox", "design", (0, 60, 0), (1, 61, 1)))
     seeded.save(tmp_path / "index.json")
 
-    refused = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")
+    refused = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone", dry_run=dry_run)
     assert refused == {"ok": False, "error": "['tbox', 'tbox_spawn'] already defined; pass replace_index=True to overwrite", "code": None}
     assert _writes(server) == [] and call("list_undo")["entries"] == []
     assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
+    assert call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone", dry_run=True, replace_index=True)["ok"] is True
 
 
 @pytest.mark.parametrize("replace_index", [False, True])
@@ -529,10 +531,9 @@ def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
 ) -> None:
     spec = {**SMALL_MINE_SPEC, **change}
     before = (tmp_path / "index.json").read_bytes()
-    assert call("build", kind=kind, spec=spec, palette="test_stone", replace_index=replace_index, dry_run=True)["ok"] is True
-
-    refused = call("build", kind=kind, spec=spec, palette="test_stone", replace_index=replace_index)
-    assert refused["ok"] is False and error in refused["error"]
+    for dry_run in (True, False):
+        refused = call("build", kind=kind, spec=spec, palette="test_stone", replace_index=replace_index, dry_run=dry_run)
+        assert refused["ok"] is False and error in refused["error"]
     assert _writes(server) == [] and call("list_undo")["entries"] == []
     assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
     assert (tmp_path / "index.json").read_bytes() == before
