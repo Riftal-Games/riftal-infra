@@ -22,6 +22,10 @@ A fixture that trips several rules at once stays red when the rule it was
 written for is switched off, so it keeps looking like coverage while pinning
 nothing.
 
+`good/Containerfile` and `bad/Containerfile` are `good/Dockerfile` and
+`bad/Dockerfile` again under the OCI-neutral name, so a discovery regression
+that stops matching `Containerfile` goes red here instead of shipping silently.
+
 `good/stack.yaml` and `good/rollout.yml` are a pair, and they point in opposite
 directions. One is compose under a name no convention would match, the other is
 YAML with a `services` key that is nested rather than top level. Filename-based

@@ -19,10 +19,11 @@ check_compose() { docker compose -f "$1" config --quiet; }
 # discovery that dies stops the scan instead of reading as an empty tree.
 # LISTER is how the self-test makes discovery fail on demand.
 case "$kind" in
-  dockerfiles) label='Dockerfile(s)'
+  dockerfiles) label='Dockerfile(s)/Containerfile(s)'
     found="$(find "$root" -path "$root/.git" -prune -o -path "$prune" -prune -o \
       -type f \( -name Dockerfile -o -name 'Dockerfile.*' \
-        -o -name '*.Dockerfile' \) -print)" ;;
+        -o -name '*.Dockerfile' -o -name Containerfile \
+        -o -name 'Containerfile.*' -o -name '*.Containerfile' \) -print)" ;;
   compose) label='compose file(s)'
     found="$(bash "${LISTER:-$scripts/list_compose.sh}" "$root" "$prune")" ;;
   *) printf 'unknown scan: %s\n' "$kind" >&2; exit 2 ;;

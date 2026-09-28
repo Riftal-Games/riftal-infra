@@ -1,0 +1,9 @@
+# Expected: hadolint clean. Same file as good/Dockerfile, under the OCI-neutral
+# name podman and wslc convention favors, to pin that discovery matches on it too.
+FROM ubuntu:24.04
+
+WORKDIR /opt/riftal
+
+USER 10001
+
+CMD ["/bin/bash"]
