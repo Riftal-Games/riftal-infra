@@ -362,3 +362,15 @@ calculation, and its door location sits one step outside the wall so a warp
 there does not land a player wedged in the frame. `checks.yaml` is untouched
 here for the reason the previous entry gives: `pvp_boundary` and room walkway
 coverage waits for a follow-up, since #165 names only plot and sign regions.
+
+## 2026-09-28 `warp_safe` fails a `pos` outside the region instead of raising
+
+`entity_clear` calls `Bounds.local` on the raw `pos` before any of `warp_safe`'s
+own checks run, so a warp target outside the fetched region raised `ValueError`
+out of the check rather than reporting it. `warp_safe` now tests
+`region.bounds.contains` first and returns a failed `Check` naming the position
+and the region it fell outside of, the same shape every other failure in this
+module returns. The checks runner (#41) already fences its own call to
+`ctx.around` before a check ever sees an unfetched position, so this guard is
+for `warp_safe` called directly, from a test, a script or a future caller that
+skips the runner.

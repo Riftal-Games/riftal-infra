@@ -255,8 +255,13 @@ def warp_safe(region: Region, pos: Sequence[int]) -> Check:
     than ``LANDING``, so that step cannot be a fall either.
     ``detail`` names the first rule that fails and ``coords`` the cells that
     break it. Cells outside the region are unknown: they never offend, and
-    they never count as solid.
+    they never count as solid. ``pos`` itself outside the region is a failed
+    check, not a crash: a warp target is often hand-typed, and a fetch that
+    missed it by a block is exactly the case this check exists to catch.
     """
+    at = tuple(int(v) for v in pos)
+    if not region.bounds.contains(at):
+        return Check(False, f"{at} is outside the fetched region {region.bounds.min}..{region.bounds.max}", [at])
     clear = entity_clear(region, pos)
     if not clear.ok:
         return clear
