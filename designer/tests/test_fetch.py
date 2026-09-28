@@ -5,7 +5,7 @@ import pytest
 
 from designer.blocks import AIR
 from designer.bridge import Bridge, BridgeOpError, JobFailed
-from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region, heightmap_from_region
+from designer.region import EMPTY_Y, Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region, heightmap_from_region
 from tests.fake_bridge import FakeBridge, FakeWorld
 
 WORLD = "design"
@@ -26,8 +26,8 @@ def test_heightmap_fetch_makes_nine_calls_over_300_square_and_merges(fake: FakeB
     heightmap = fetch_heightmap(bridge, WORLD, flat, need_top=True)
     assert len(_calls(fake, "get_heightmap")) == 9 and not _calls(fake, "get_region")
     assert heightmap.bounds == flat and heightmap.heights.shape == (300, 300) and heightmap.heights.dtype == np.int16
-    assert (heightmap.heights[:, :200] == 63).all() and (heightmap.heights[:, 200:] == -1).all()
-    assert heightmap.height(199, 299) == 63 and heightmap.height(200, 0) == -1
+    assert (heightmap.heights[:, :200] == 63).all() and (heightmap.heights[:, 200:] == EMPTY_Y).all()
+    assert heightmap.height(199, 299) == 63 and heightmap.height(200, 0) is None
     assert heightmap.top_name(150, 150) == GRASS and heightmap.top_name(250, 250) == AIR
 
 
@@ -115,10 +115,10 @@ def test_heightmap_from_region_canopy_versus_ground() -> None:
     assert (canopy.height(0, 0), canopy.top_name(0, 0)) == (64, "minecraft:torch")
     assert (canopy.height(4, 4), canopy.top_name(4, 4)) == (64, "minecraft:red_flower")
     assert (canopy.height(0, 4), canopy.top_name(0, 4)) == (63, STONE)
-    assert (canopy.height(4, 0), canopy.top_name(4, 0)) == (-1, AIR)
+    assert (canopy.height(4, 0), canopy.top_name(4, 0)) == (None, AIR)
     ground = heightmap_from_region(region, ground=True)
     expected = np.full((5, 5), 63, dtype=np.int16)
-    expected[0, 4] = -1
+    expected[0, 4] = EMPTY_Y
     np.testing.assert_array_equal(ground.heights, expected)
     assert set(_names(ground.palette, ground.top).ravel()) == {STONE, AIR}
     with pytest.raises(ValueError, match="int16"):
