@@ -55,7 +55,8 @@ result="$(gate true false 1)"
 section "the flag and xbox-auth off alone, RIFTAL_DEV_ENV unset, refuses"
 # This is riftal-infra#113 itself: the exact shape a real downstream reaches
 # once every proxied instance runs xbox-auth=false, with the flag left on by
-# a copy-pasted compose file. The old two-signal gate would have admitted it.
+# a copy-pasted compose file. Flag-on and auth-off alone describe production
+# just as well as a dev stack, so the gate needs the explicit env signal too.
 result="$(gate true false "")"
 [ "$result" = "refuse" ] && pass "production-shaped config (auth off, env unset) refuses" \
   || fail "expected refuse, got '$result'"
