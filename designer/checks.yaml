@@ -17,3 +17,8 @@ checks:
   - check: mine_valid
     region: mine_a
     spec: specs/mine_a.json
+  - check: no_holes
+    region: plots_0_0
+    floor_y: 65
+  - check: entity_clear
+    at: plots_entrance_sign

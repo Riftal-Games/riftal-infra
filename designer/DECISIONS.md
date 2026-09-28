@@ -425,3 +425,28 @@ static reset config; it is not re-read per reset, since a changed report means a
 runtime event. `designer build`'s CLI has no `--replace-index` next to `--no-index`: the CLI is
 the reviewed path where re-running under a new name is the expected flow, and the MCP tool's
 `replace_index` exists for an agent iterating in one session without a human between attempts.
+
+## 2026-09-28 `checks.yaml` covers plot and sign regions with `no_holes` and `entity_clear`, no new check kind
+
+Issue #165, the plot/sign half of the follow-up #45's original text asked for; #169 carries the
+pvp_boundary and room half. `no_holes` already checks a flush, walkable footprint over any
+region and `entity_clear` already checks a location for an unobstructed hitbox with real support
+underneath, the same kinds `mine_a`'s own entries use for its NPC location, so neither a plot's
+ring nor a sign's marker needed a new `mine_valid`-style check kind or a change to `checks.py`.
+A plot's floor is `no_holes`'s natural fit: `build_plot_grid` leaves the whole footprint solid at
+its flush `y` with clear air above, exactly the shape `no_holes` was built to confirm. A sign
+carries no block of its own, per `Text`'s own docstring, so the failure `entity_clear` catches is
+a marker placed inside solid terrain, invisible and pointless; `warp_safe`'s stricter landing
+rule does not apply, since nobody warps to a floating label.
+
+Unlike `mine_a`'s entries, this pair does not read a committed `specs/*.json`: `plot_size:
+[7, 7]` and `buffer: 3` are exactly the two values `tuning-numbers.md` lists as open pending
+the M5 plots brainstorm (design plan §10), and neither is Nasir's or the brainstorm's to inherit
+as already decided just because a checks-coverage PR needed some footprint to test against. The
+fixture spec that exercises `no_holes` and `entity_clear` lives inline in
+`tests/test_checks_plot_signage.py`, the same way `test_builders_plot_grid.py`'s own `_spec`
+picks `[4, 4]`/`2`: arbitrary numbers sized only to give a check something to pass or fail, not a
+proposal for what a plot is. Building the plots world stays out of scope until the M5 brainstorm
+decides that, same as `build_plot_grid` and `build_signage` shipping in #164 without touching the
+live map; `mine_a`'s own entries wait alongside these two for the session that actually builds
+them, but only `mine_a`'s spec is real design data.
