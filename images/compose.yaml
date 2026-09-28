@@ -77,12 +77,19 @@ services:
       # plain environment variable, never a PocketMine config value, that no
       # production deploy path has any reason to set.
       RIFTAL_DEV_ENV: "1"
+      # auto-report.enabled keeps crash dumps, which carry config and from M1
+      # alpha player data, off crash.axolotl-pm.org (riftal-infra#232). It has
+      # to be 0: ServerConfigGroup::getPropertyBool() casts the flag's string,
+      # and (bool) "false" is true. As a flag it leaves /data/pocketmine.yml
+      # the full default file, where a hand-written one would drop keys such
+      # as plugins.legacy-data-dir, whose absence reads as true.
       POCKETMINE_ARGS: >-
         --level-name=mine_a
         --level-type=normal
         --xbox-auth=false
         --motd=riftal-dev
         --riftal-dev-bots=on
+        --auto-report.enabled=0
     # Rollout order, the same one /deploy-release uses: database, then
     # instances. With RiftalMines.phar built, the plugin connects to MySQL
     # synchronously on enable, and a database that does not answer yet takes
@@ -117,13 +124,15 @@ services:
       RIFTAL_DEV_ENV: "1"
       # A different level-name and level-type than `instance`, above, so the
       # split is exercised against two genuinely different worlds rather than
-      # one world cloned onto a second port.
+      # one world cloned onto a second port. auto-report.enabled=0 as on
+      # `instance`, above.
       POCKETMINE_ARGS: >-
         --level-name=plots_b
         --level-type=flat
         --xbox-auth=false
         --motd=riftal-dev-b
         --riftal-dev-bots=on
+        --auto-report.enabled=0
     depends_on:
       mysql:
         condition: service_healthy

@@ -164,7 +164,7 @@ wslc run -d -i --name designer \
   -v designer-world:/data -v "$STACK/plugins:/plugins" \
   -v "$GAME/designbridge:/plugins/DesignBridge:ro" \
   -e "DESIGNBRIDGE_TOKEN=$DESIGNBRIDGE_TOKEN" \
-  -e "POCKETMINE_ARGS=--level-name=design --level-type=normal --level-seed=20260907 --xbox-auth=false --gamemode=1 --max-players=4 --view-distance=16 --motd=riftal-designer" \
+  -e "POCKETMINE_ARGS=--level-name=design --level-type=normal --level-seed=20260907 --xbox-auth=false --gamemode=1 --max-players=4 --view-distance=16 --motd=riftal-designer --auto-report.enabled=0" \
   local-pocketmine-mp
 
 wslc logs designer

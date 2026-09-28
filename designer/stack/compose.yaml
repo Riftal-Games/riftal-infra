@@ -27,6 +27,8 @@ services:
       # token, which is the failure we want over a literal every clone of
       # this repo would otherwise carry.
       DESIGNBRIDGE_TOKEN: ${DESIGNBRIDGE_TOKEN}
+      # Keeps crash dumps off crash.axolotl-pm.org. It must be 0, since
+      # (bool) "false" is true; see `instance` in ../../images/compose.yaml.
       POCKETMINE_ARGS: >-
         --level-name=design
         --level-type=normal
@@ -36,6 +38,7 @@ services:
         --max-players=4
         --view-distance=16
         --motd=riftal-designer
+        --auto-report.enabled=0
 
 volumes:
   # Pinned so the volume is the same one whether the container was started by
