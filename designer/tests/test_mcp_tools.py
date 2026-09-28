@@ -6,6 +6,7 @@ from typing import Any
 import anyio
 import numpy as np
 import pytest
+from mcp.shared.memory import create_connected_server_and_client_session
 from PIL import Image
 
 from designer import config, mcp_server
@@ -261,6 +262,36 @@ def test_fill_snapshots_first_and_list_undo_shows_it(server: FakeBridge, tmp_pat
     assert call("fill", target={"min": [0, 70, 0], "max": [3, 70, 3]}, block="stone")["undo_id"] == 2
     assert call("replace", **MUTATING["replace"])["undo_id"] == 3
     assert call("fill", target="spawn", block="stone")["ok"] is False
+
+
+def test_fill_forwards_job_progress_from_the_worker_thread_to_the_client(server: FakeBridge) -> None:
+    """``call()`` above never exercises ``_progress``'s live branch: ``mcp.call_tool`` outside a served
+    request has no ``request_context``, so a real client session is the only way there.
+
+    ``fill``'s own before-mutation snapshot fetches a region first, which is itself a job and would
+    eat a plain ``queue_next`` before ``fill``'s job ever sees it; queuing only for the ``fill`` op
+    keeps the two queued polls on the job this test means to watch.
+    """
+    real_job = server._job
+
+    def queue_fill_only(op: str, result: dict[str, Any], steps: int = 0, total: int | None = None) -> dict[str, Any]:
+        if op == "fill":
+            server.queue_next = 2
+        return real_job(op, result, steps=steps, total=total)
+
+    server._job = queue_fill_only
+    seen: list[tuple[float, float | None]] = []
+
+    async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+        seen.append((progress, total))
+
+    async def go() -> Any:
+        async with create_connected_server_and_client_session(mcp_server.mcp) as session:
+            return await session.call_tool("fill", {"target": "pad", "block": "glass"}, progress_callback=on_progress)
+
+    result = anyio.run(go)
+    assert result.isError is False and result.structuredContent["ok"] is True
+    assert seen == [(0, 192), (96, 192), (192, 192)]
 
 
 def test_undo_restores_the_fake(server: FakeBridge) -> None:
