@@ -75,6 +75,12 @@ class Engine:
         doc = json.loads(self.text("inspect", ref))
         return doc[0] if isinstance(doc, list) else doc
 
+    def field(self, ref: str, key: str) -> Any:
+        info = self.inspect(ref)
+        if key not in info:
+            raise stack.StackError(f"{self.runtime} inspect {ref} has no {key!r} key, which the build reads")
+        return info[key]
+
 
 def fresh_volume(engine: Engine, volume: str) -> None:
     """Create ``volume`` empty, refusing with every container that mounts it before anything is removed."""
@@ -178,7 +184,7 @@ def build(
     state: dict[str, Any] = {"stopped": False}
 
     def after_stop() -> Saved:
-        image = str(engine.inspect(name)["Image"])
+        image = str(engine.field(name, "Image"))
         state["stopped"] = True
         _clean(name, stop(engine, name))
         tar = engine("run", "--rm", "-v", f"{name}:/data:ro", stack.IMAGE, "tar", "-C", f"/data/worlds/{zone}", "-cf", "-", ".", timeout=BOOT_TIMEOUT)
