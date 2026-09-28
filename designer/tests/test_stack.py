@@ -16,7 +16,7 @@ services:
       - designer-world:/data
       - ./plugins:/plugins
     environment:
-      DESIGNBRIDGE_TOKEN: ${DESIGNBRIDGE_TOKEN:-local-dev-only}
+      DESIGNBRIDGE_TOKEN: ${DESIGNBRIDGE_TOKEN}
 """
 
 
@@ -55,7 +55,7 @@ def test_load_service_expands_overrides_and_rejects_a_missing_service(tmp_path: 
     assert default.ports == ("127.0.0.1:19134:19132/udp", "127.0.0.1:19140:19140/tcp")
     assert default.volumes[0] == "designer-world:/data"
     assert default.volumes[1] == str((tmp_path / "plugins").resolve()).replace("\\", "/") + ":/plugins"
-    assert default.environment == {"DESIGNBRIDGE_TOKEN": "local-dev-only"}
+    assert default.environment == {"DESIGNBRIDGE_TOKEN": ""}
 
     overridden = stack.load_service(compose, env={"DESIGNER_GAME_PORT": "19999", "DESIGNBRIDGE_TOKEN": "secret"})
     assert overridden.ports[0] == "127.0.0.1:19999:19132/udp"

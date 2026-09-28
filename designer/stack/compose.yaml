@@ -23,7 +23,10 @@ services:
       - ./plugins:/plugins
       - ${DESIGNBRIDGE_SRC:-../../../riftal-game/designbridge}:/plugins/DesignBridge:ro
     environment:
-      DESIGNBRIDGE_TOKEN: ${DESIGNBRIDGE_TOKEN:-local-dev-only}
+      # No default, on purpose. DesignBridge disables itself on an empty
+      # token, which is the failure we want over a literal every clone of
+      # this repo would otherwise carry.
+      DESIGNBRIDGE_TOKEN: ${DESIGNBRIDGE_TOKEN}
       POCKETMINE_ARGS: >-
         --level-name=design
         --level-type=normal
