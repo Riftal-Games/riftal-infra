@@ -1,13 +1,18 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml
 
+from designer import world_index
 from designer.bridge import Bridge
+from designer.builders import BUILDERS
+from designer.builders.base import Palette
 from designer.level import LevelError, Saved, build_level, content_sha256, pregen_bounds
 from designer.region import Bounds, Bounds2D, Region, fetch_region
-from designer.world_index import Location, WorldEntry, WorldIndex
-from tests.conftest import SMALL_MINE_SPEC, STONE_PALETTES
+from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
+from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge, FakeWorld
 
 RECIPE = {
@@ -31,7 +36,7 @@ def root(tmp_path: Path, fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> P
     (tmp_path / "specs").mkdir()
     (tmp_path / "levels" / "zt.json").write_text(json.dumps(RECIPE), encoding="utf-8")
     (tmp_path / "specs" / "zt.json").write_text(json.dumps({**SMALL_MINE_SPEC, "world": "zt"}), encoding="utf-8")
-    (tmp_path / "checks.yaml").write_text("version: 1\nchecks:\n  - check: warp_safe\n    at: zt_spawn\n", encoding="utf-8")
+    (tmp_path / "checks.yaml").write_text("version: 1\nchecks:\n  - check: warp_safe\n    zone: zt\n    at: zt_spawn\n", encoding="utf-8")
     return tmp_path
 
 
@@ -131,16 +136,76 @@ def test_failed_step_refuses(fake: FakeBridge, bridge: Bridge, root: Path, monke
     assert not (root / "levels" / "zt.lock.json").exists()
 
 
-@pytest.mark.parametrize(("at", "match"), [
-    pytest.param("zo_spawn", "no check on 'zt'", id="none-on-zone"),
-    pytest.param("zt_spawn\n  - check: warp_safe\n    at: zt_spwan", r"resolves in \['warp_safe_zt_spwan'\]", id="unresolved"),
+def _checks(root: Path, *entries: dict) -> None:
+    (root / "checks.yaml").write_text(yaml.safe_dump({"version": 1, "checks": list(entries)}), encoding="utf-8")
+
+
+ZT_SPAWN = {"check": "warp_safe", "zone": "zt", "at": "zt_spawn"}
+
+
+@pytest.mark.parametrize(("entry", "match"), [
+    pytest.param({"check": "warp_safe", "at": "zt_spawn"}, "no check with zone 'zt'", id="none-scoped"),
+    pytest.param({**ZT_SPAWN, "at": "zt_spwan"}, r"resolves: \['warp_safe_zt_spwan'\]", id="unresolved"),
+    pytest.param({**ZT_SPAWN, "at": "zo_spawn"}, "warp_safe_zo_spawn reads 'zo'", id="elsewhere"),
 ])
-def test_zone_checks_must_all_resolve_and_one_must_exist(bridge: Bridge, root: Path, at: str, match: str) -> None:
-    (root / "checks.yaml").write_text(f"version: 1\nchecks:\n  - check: warp_safe\n    at: {at}\n", encoding="utf-8")
+def test_zone_checks_must_exist_resolve_and_read_the_zone(bridge: Bridge, root: Path, entry: dict, match: str) -> None:
+    _checks(root, entry)
     index = _index()
     index.locations.append(Location("zo_spawn", "zo", (40, 64, 40)))
     with pytest.raises(LevelError, match=match):
         _build(bridge, root, index=index)
+    assert not (root / "levels" / "zt.lock.json").exists()
+
+
+def _step_spawn() -> Location:
+    locations = BUILDERS["mine"]({**SMALL_MINE_SPEC, "world": "zt"}, Palette.load("test_stone"), None).extras["locations"]
+    return next(Location.from_json(l) for l in locations if l["name"] == "tbox_spawn")
+
+
+def test_zone_checks_resolve_names_the_steps_made(bridge: Bridge, root: Path) -> None:
+    _checks(root, {"check": "region_inside", "zone": "zt", "inner": "tbox_interior", "outer": "tbox"},
+            {"check": "entity_clear", "zone": "zt", "at": "tbox_spawn"})
+    index = _index()
+    committed = _step_spawn()
+    index.locations.append(committed)
+    assert _build(bridge, root, index=index).exists()
+    assert index.resolve("tbox_spawn") is committed
+    assert not (SMALL_MINE_NAMES - {"tbox_spawn"}) & index.names().keys(), "the build registered into the caller's index"
+
+
+@pytest.mark.parametrize(("change", "match"), [
+    pytest.param(lambda s: Location(s.name, s.world, (40, 10, 40), s.yaw, s.pitch, s.tags), r"pos \[3, 1, -2\] \(world_index.json \[40, 10, 40\]\)", id="pos"),
+    pytest.param(lambda s: Location(s.name, "zo", s.pos, s.yaw, s.pitch, s.tags), "world zt .world_index.json zo.", id="world"),
+    pytest.param(lambda s: NamedRegion(s.name, s.world, s.pos, s.pos), "Location in the step, a NamedRegion", id="kind"),
+])
+def test_a_step_differing_from_a_committed_entry_refuses(fake: FakeBridge, bridge: Bridge, root: Path, change: Any, match: str) -> None:
+    index = _index()
+    index.worlds.append(WorldEntry("zo", "normal", 7, "lumber"))
+    committed = change(_step_spawn())
+    (index.regions if isinstance(committed, NamedRegion) else index.locations).append(committed)
+    with pytest.raises(LevelError, match=rf"step 0 .* differs from world_index.json: 'tbox_spawn' .*{match}"):
+        _build(bridge, root, index=index)
+    assert not fake.worlds["zt"].edits and not (root / "levels" / "zt.lock.json").exists()
+
+
+def test_the_committed_index_file_is_byte_identical_after_a_build(bridge: Bridge, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _index().save(root / "world_index.json", updated="2026-09-29T00:00:00+00:00")
+    before = path.read_bytes()
+    monkeypatch.setattr(world_index, "DEFAULT_PATH", path)
+    assert build_level(bridge, "zt", lambda: SAVED, root=root, checks_path=root / "checks.yaml").exists()
+    assert path.read_bytes() == before
+
+
+def test_other_zones_unresolved_checks_do_not_block(bridge: Bridge, root: Path) -> None:
+    _checks(root, ZT_SPAWN, {"check": "mine_valid", "region": "mine_a", "spec": "specs/mine_a.json"},
+            {"check": "warp_safe", "zone": "zo", "at": "zo_spawn"})
+    assert _build(bridge, root).exists()
+
+
+def test_two_steps_naming_one_entry_refuse(bridge: Bridge, root: Path) -> None:
+    (root / "levels" / "zt.json").write_text(json.dumps({**RECIPE, "steps": RECIPE["steps"] * 2}), encoding="utf-8")
+    with pytest.raises(LevelError, match=r"step 1 .* names \['rankup_npc_tbox'.* which an earlier step made"):
+        _build(bridge, root)
     assert not (root / "levels" / "zt.lock.json").exists()
 
 

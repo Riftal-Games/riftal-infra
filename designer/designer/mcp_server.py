@@ -714,10 +714,7 @@ def build(
     out["mine_valid"] = _mine_valid(edits) if verify and kind == "mine" else None
     if register and out.get("ok") is not False:
         idx = index()
-        for loc in locations:
-            idx.add_location(Location.from_json(loc), replace=replace_index)
-        for reg in regions:
-            idx.add_region(NamedRegion.from_json(reg), replace=replace_index)
+        idx.register(locations, regions, replace=replace_index)
         idx.save()
     out["extras_report"] = None
     if not dry_run:

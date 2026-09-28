@@ -50,6 +50,13 @@ def test_load_rejects_a_missing_parameter(tmp_path: Path) -> None:
         _checks(tmp_path, "version: 1\nchecks:\n  - check: travel_time\n    from: a\n")
 
 
+def test_load_keeps_zone_out_of_args_and_the_id(tmp_path: Path) -> None:
+    (warp,) = _checks(tmp_path, "version: 1\nchecks:\n  - check: warp_safe\n    zone: lumber\n    at: void\n")
+    assert (warp.id, warp.zone, warp.args) == ("warp_safe_void", "lumber", {"at": "void"})
+    with pytest.raises(ValueError, match=r"check 0 \(warp_safe\): zone must match"):
+        _checks(tmp_path, "version: 1\nchecks:\n  - check: warp_safe\n    zone: Lumber\n    at: void\n")
+
+
 def test_plan_unions_a_world_and_separates_another(tmp_path: Path) -> None:
     index = _index(tmp_path)
     plan = plan_fetches([

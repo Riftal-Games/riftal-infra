@@ -23,7 +23,7 @@ from designer.palettes import load_palettes
 from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region
 from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, slice_png, summary, topdown_png
 from designer.verify import mine_valid
-from designer.world_index import KINDS, Location, NamedRegion, WorldIndex, resolve_at
+from designer.world_index import KINDS, WorldIndex, resolve_at
 
 
 def _add_area(parser: argparse.ArgumentParser) -> None:
@@ -236,10 +236,7 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> str:
         if not result.ok:
             report["error"] = str(result.errors[0])
         elif idx is not None:
-            for loc in report["locations"]:
-                idx.add_location(Location.from_json(loc))
-            for reg in report["regions"]:
-                idx.add_region(NamedRegion.from_json(reg))
+            idx.register(report["locations"], report["regions"])
             idx.save()
         config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         report_path = config.REPORTS_DIR / f"{options.kind}-{opt(spec, 'name', options.kind)}-extras.json"
