@@ -4,7 +4,8 @@
 # there.
 #
 # Every value below except the database section and `worlds` is the plugin's
-# own shipped default (riftal-game/mines/resources/config.yml). `worlds` names
+# own shipped default (riftal-game/mines/resources/config.yml), which the
+# plugin throws without and selftest.sh compares to that file. `worlds` names
 # only lumber: the shipped mine_a to mine_c entries have no built mine on this
 # stack, and mine_a here is a plain generated world. The database section
 # differs because that file's defaults name a host, schema and user that
