@@ -81,3 +81,12 @@ def test_no_holes_fails_an_inset_that_is_negative_fractional_or_swallows_the_foo
     index, ctx = _room()
     result = run_one(ctx, index, CheckSpec("h", "no_holes", {"region": "contested_room", "floor_y": 66, "inset": inset}))
     assert not result.ok and match in result.detail
+
+
+def test_no_holes_fails_an_inset_of_exactly_half_the_short_side_when_that_side_runs_along_z() -> None:
+    """A 10x6 footprint with inset 3: the square, odd room cannot tell ``>=`` from ``>`` or see a z-only
+    overrun, and ``Bounds`` sorts its corners, so a missed overrun reads a flipped box instead of raising."""
+    index, ctx = _room()
+    index.add_region(NamedRegion("wide", "contested", (4, 65, 4), (13, 68, 9), []))
+    result = run_one(ctx, index, CheckSpec("h", "no_holes", {"region": "wide", "floor_y": 66, "inset": 3}))
+    assert not result.ok and "inset 3 leaves nothing of 'wide''s 10x6 footprint" in result.detail
