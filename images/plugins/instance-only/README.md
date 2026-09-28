@@ -114,5 +114,5 @@ world exists in `riftal-world` is safe: the log carries one error line naming
 under `riftal-world`'s `worlds/lumber` once `riftal-game`'s DesignBridge
 plugin exposes the write ops `build_mine --apply` needs (`create_world`,
 `pregen`, `set_blocks`/`fill`; tracked under riftal-game's `lane:bridge`
-issues, not yet wired into `Main.php`'s dispatcher as of 2026-09-28) to turn
+issues, riftal-infra#239 and riftal-game#8) to turn
 that log line into a loaded world.

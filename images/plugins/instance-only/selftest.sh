@@ -24,7 +24,7 @@ check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
 
 model() { docker compose -f "$1" --env-file "$work/env" config --format json; }
 
-# $1 compose model, $2 edit to the real compose file, as a sed script
+# $1 sed script applied to the real compose file; prints the resulting compose model
 edited() { sed "$1" "$COMPOSE" > "$work/compose.yaml"; model "$work/compose.yaml"; }
 
 # Docker creates a missing mountpoint as root. Inside the ./plugins bind that

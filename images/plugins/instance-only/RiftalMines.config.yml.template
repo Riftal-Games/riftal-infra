@@ -10,7 +10,7 @@
 # exist nowhere on this stack: MYSQL_DATABASE is riftal_dev (images/compose.yaml),
 # and the dev stack has never provisioned a separate "mines" MySQL user, so
 # this uses the same root credentials the backup service already uses
-# rather than inventing a second, equally dev-only credential.  "mysql" is
+# rather than inventing a second, equally dev-only credential. "mysql" is
 # this stack's actual resolvable network alias for the database container,
 # under both the compose and wslc bring-up forms; "riftal-mysql" (the
 # plugin's shipped default) resolves under neither.
