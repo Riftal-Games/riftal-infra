@@ -73,9 +73,73 @@ def test_classify_defaults(name: str, cls: BlockClass) -> None:
     assert classify(name) is cls
 
 
-def test_only_hanging_roots_are_passable() -> None:
+def test_mangrove_roots_are_solid_and_hanging_roots_passable() -> None:
     assert classify("hanging_roots") is BlockClass.PASSABLE
     assert classify("minecraft:mangrove_roots") is BlockClass.SOLID
+
+
+# Names exactly as DesignBridge's get_region returned them on a v26.50 core
+# (riftal-infra#59). A block with no collision box is walked through and
+# cannot be stood on, so it is PASSABLE; a SOLID answer there would let a
+# floor check pass over a block a player falls through.
+@pytest.mark.parametrize("name", [
+    "minecraft:wheat[growth=0]",
+    "minecraft:carrots[growth=0]",
+    "minecraft:potatoes[growth=0]",
+    "minecraft:beetroot[growth=0]",
+    "minecraft:pitcher_crop[growth=0,upper_block_bit=false]",
+    "minecraft:melon_stem[facing_direction=0,growth=0]",
+    "minecraft:pumpkin_stem[facing_direction=0,growth=0]",
+    "minecraft:nether_wart[age=0]",
+    "minecraft:web",
+    "cobweb",
+    "minecraft:light_block_0",
+    "minecraft:light_block_15",
+    "light_block",
+    "minecraft:trip_wire[attached_bit=false,disarmed_bit=false,powered_bit=false,suspended_bit=false]",
+    "minecraft:deadbush",
+    "minecraft:structure_void",
+    "minecraft:small_dripleaf_block[minecraft:cardinal_direction=north,upper_block_bit=false]",
+    "minecraft:glow_lichen[multi_face_direction_bits=0]",
+    "minecraft:resin_clump[multi_face_direction_bits=0]",
+    "minecraft:spore_blossom",
+    "minecraft:red_mushroom",
+    "minecraft:brown_mushroom",
+    "minecraft:crimson_roots",
+    "minecraft:warped_roots",
+    "minecraft:nether_sprouts",
+    "minecraft:pink_petals[growth=0,minecraft:cardinal_direction=north]",
+    "minecraft:standing_sign[ground_sign_direction=0]",
+    "minecraft:torchflower_crop[growth=0]",
+    "minecraft:short_grass",
+])
+def test_bridge_names_without_collision_are_passable(name: str) -> None:
+    assert classify(name) is BlockClass.PASSABLE
+
+
+@pytest.mark.parametrize("name", [
+    "minecraft:chorus_flower[age=0]",
+    "minecraft:end_rod[facing_direction=0]",
+    "minecraft:iron_chain[pillar_axis=y]",
+    "minecraft:mangrove_roots",
+    "minecraft:muddy_mangrove_roots[pillar_axis=y]",
+    "minecraft:lantern[hanging=false]",
+    "minecraft:barrier",
+    "minecraft:crimson_stem[pillar_axis=y]",
+    "minecraft:cocoa[age=0,direction=0]",
+    "minecraft:azalea",
+    "minecraft:stone_brick_slab[minecraft:vertical_half=bottom]",
+    "minecraft:grass_block",
+    "minecraft:oak_leaves[persistent_bit=false,update_bit=false]",
+    "minecraft:bedrock[infiniburn_bit=false]",
+])
+def test_bridge_names_with_collision_are_solid(name: str) -> None:
+    assert classify(name) is BlockClass.SOLID
+
+
+def test_bridge_liquid_and_danger_names() -> None:
+    assert classify("minecraft:flowing_water[liquid_depth=0]") is BlockClass.LIQUID
+    assert classify("minecraft:flowing_lava[liquid_depth=0]") is BlockClass.DANGER
 
 
 def test_register_rule_front_overrides_and_back_only_fills_gaps(rules: list) -> None:
