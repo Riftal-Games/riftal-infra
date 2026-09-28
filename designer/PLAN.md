@@ -97,7 +97,8 @@ Names `^[a-z0-9_]+$`, unique across locations and regions. Worlds: `mine_a`, `mi
 | riftal-infra#39 | verify part 1 | | open |
 | riftal-infra#40 | verify part 2 | | open |
 | riftal-infra#41 | checks | | open |
-| riftal-infra#42 | terrain | | open |
+| riftal-infra#42 | terrain analysis and flat-site search | | closed |
+| riftal-infra#131 | terraform (flatten/raise/lower/smooth), split from #42 | | closed |
 | riftal-infra#43 | builders base and build_mine | Phase 3 | open |
 | riftal-infra#44 | road, stairs, platform | | open |
 | riftal-infra#45 | perimeter, room, plot_grid, signage | | open |
