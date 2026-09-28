@@ -234,7 +234,7 @@ def entity_clear(region: Region, pos: Sequence[int]) -> Check:
     at = tuple(int(v) for v in pos)
     if not region.bounds.contains(at):
         return Check(False, f"{at} is outside the fetched region {region.bounds.min}..{region.bounds.max}", [at])
-    iy, iz, ix = region.bounds.local(at)
+    iy, iz, ix = region.bounds.local(pos)
     x, y, z = at
     classes, passable = region.classes(), region.passable()
     blocked = [(x, y + d, z) for d in (0, 1) if iy + d < classes.shape[0] and not passable[iy + d, iz, ix]]
@@ -267,9 +267,8 @@ def warp_safe(region: Region, pos: Sequence[int]) -> Check:
     clear = entity_clear(region, pos)
     if not clear.ok:
         return clear
-    at = tuple(int(v) for v in pos)
-    iy, iz, ix = region.bounds.local(at)
-    x, y, z = at
+    iy, iz, ix = region.bounds.local(pos)
+    x, y, z = (int(v) for v in pos)
     classes = region.classes()
     ny, nz, nx = classes.shape
     if not _solid_within(classes, iy - 1, iz, ix, LANDING):

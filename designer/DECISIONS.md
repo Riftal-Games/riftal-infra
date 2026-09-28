@@ -472,9 +472,7 @@ must never trust blind.
 
 `entity_clear` fails a `pos` outside the fetched region with a failed `Check` naming
 the position and the region, the same detail `warp_safe` reports, instead of raising
-`ValueError` out of `Bounds.local`. Both checks cast `pos` to whole blocks once and
-test and index with that cast, so a fractional coordinate is the block it falls in
-rather than a pass through the guard and a raise after it. The guard lives in `entity_clear` alone: `warp_safe` calls it first and
-returns its failure unchanged, so one guard covers both and there is one message to keep
-in sync. As with #89, the checks runner (#41) already fences `ctx.around`; this is for a
-direct caller that skips the runner.
+`ValueError` out of `Bounds.local`. The guard lives in `entity_clear` alone:
+`warp_safe` calls it first and returns its failure unchanged, so one guard covers both
+and there is one message to keep in sync. As with #89, the checks runner (#41) already
+fences `ctx.around`; this is for a direct caller that skips the runner.
