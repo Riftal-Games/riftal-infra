@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from designer.blocks import AIR
-from designer.region import Bounds, Bounds2D, Heightmap, Region, heightmap_from_region
+from designer.region import EMPTY_Y, Bounds, Bounds2D, Heightmap, Region, heightmap_from_region
 from designer.terrain import analyze_terrain, find_flat_site, slope_map, terraform
 
 WORLD = "t"
@@ -10,7 +10,7 @@ STONE = "minecraft:stone"
 
 
 def _heightmap(bounds: Bounds2D, heights: np.ndarray) -> Heightmap:
-    top = np.where(heights >= 0, 1, 0).astype(np.int16)
+    top = np.where(heights != EMPTY_Y, 1, 0).astype(np.int16)
     return Heightmap(WORLD, bounds, heights.astype(np.int16), top, [AIR, STONE])
 
 
@@ -51,7 +51,7 @@ def test_analyze_terrain_stats_on_the_ramp_fixture(ramp_region: Region) -> None:
 
 
 def test_analyze_terrain_on_an_empty_heightmap_is_all_none() -> None:
-    empty = _heightmap(Bounds2D((0, 0), (3, 3)), np.full((4, 4), -1))
+    empty = _heightmap(Bounds2D((0, 0), (3, 3)), np.full((4, 4), EMPTY_Y))
     stats = analyze_terrain(empty)
     assert stats.columns == 0
     assert (stats.min, stats.max, stats.mean, stats.water_fraction, stats.flat_fraction) == (None, None, None, None, None)
@@ -205,7 +205,7 @@ def test_terraform_validates_mode_feather_smooth_radius_and_bounds() -> None:
 
 
 def test_terraform_leaves_an_empty_column_alone() -> None:
-    hm = _heightmap(Bounds2D((0, 0), (1, 0)), np.array([[-1, 3]]))
+    hm = _heightmap(Bounds2D((0, 0), (1, 0)), np.array([[EMPTY_Y, 3]]))
     edits = terraform(hm, hm.bounds, mode="flatten", level=5)
     assert edits.extras["columns"] == 1
     assert [op.bounds.min[0] for op in edits.ops] == [1]

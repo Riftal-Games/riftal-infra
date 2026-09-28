@@ -78,13 +78,13 @@ def _liquid(hm: Heightmap) -> np.ndarray:
 
 def summary(hm: Heightmap) -> dict[str, Any]:
     """Height range and mean over non-empty columns; ``flat`` is the share of them at the modal height."""
-    valid = hm.heights >= 0
+    valid = hm.filled()
     out: dict[str, Any] = {"size": hm.bounds.size, "columns": int(valid.sum())}
     out.update(min=None, max=None, mean=None, water=None, flat=None)
     if valid.any():
         heights = hm.heights[valid]
         out.update(min=int(heights.min()), max=int(heights.max()), mean=float(heights.mean()))
-        out["flat"] = float(np.bincount(heights).max() / heights.size)
+        out["flat"] = float(np.bincount(heights - heights.min()).max() / heights.size)
         if hm.top is not None:
             out["water"] = float(_liquid(hm)[valid].mean())
     return out
@@ -111,7 +111,7 @@ def ascii_heightmap(
         raise ValueError(f"max_width and band must be at least 1, got {max_width} and {band}")
     (xmin, zmin), (xmax, zmax) = hm.bounds.min, hm.bounds.max
     step = max(1, math.ceil(hm.bounds.size[0] / max_width))
-    valid = hm.heights >= 0
+    valid = hm.filled()
     heights, filled = _pool(hm.heights, valid, step)
     liquid, _ = _pool(_liquid(hm), valid, step)
     stats = summary(hm)
@@ -221,7 +221,7 @@ def _palette_colors(palette: list[str], colors: Mapping[str, Any]) -> tuple[np.n
 def _topdown_image(hm: Heightmap, colors: Mapping[str, Any], scale: int) -> tuple[Image.Image, dict[str, tuple[int, int, int]]]:
     """The shaded top-down image alone, no grid, ticks, markers or legend, plus its hashed-colour names."""
     nz, nx = hm.heights.shape
-    valid = hm.heights >= 0
+    valid = hm.filled()
     top, palette = (hm.top, hm.palette) if hm.top is not None else (np.where(valid, 1, 0), [AIR, "unknown"])
     lut, hashed = _palette_colors(palette, colors)
     stats = summary(hm)
@@ -427,7 +427,7 @@ def isometric_png(
     half_w, half_h = 2 * scale, scale
     xmin, zmin = hm.bounds.min
     nz, nx = hm.heights.shape
-    valid = hm.heights >= 0
+    valid = hm.filled()
     top, palette = (hm.top, hm.palette) if hm.top is not None else (np.where(valid, 1, 0), [AIR, "unknown"])
     lut, _ = _palette_colors(palette, colors)
     stats = summary(hm)

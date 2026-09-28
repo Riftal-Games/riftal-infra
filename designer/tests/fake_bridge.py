@@ -86,12 +86,14 @@ class FakeWorld:
         return np.broadcast_to(np.clip(15 - depth, 0, 15) << 4, bounds.shape).astype(np.uint8)
 
     def heightmap(self, bounds: Bounds2D) -> tuple[np.ndarray, np.ndarray]:
+        """DesignBridge's wire form: ``-1`` for an empty column, which a surface at y -1 shares, told apart by an air top."""
         (x0, z0), (x1, z1) = bounds.min, bounds.max
-        blocks = self.blocks(Bounds((x0, 0, z0), (x1, self.HEIGHT - 1, z1)))
+        hi = max([self.HEIGHT - 1, *(y for _, y, _ in self.edits)])
+        blocks = self.blocks(Bounds((x0, self.MIN_Y, z0), (x1, hi, z1)))
         solid = blocks != self.palette.index("minecraft:air")
         iy = solid.shape[0] - 1 - solid[::-1].argmax(axis=0)
         found = solid.any(axis=0)
-        return np.where(found, iy, -1), np.where(found, np.take_along_axis(blocks, iy[None], axis=0)[0], 2)
+        return np.where(found, iy + self.MIN_Y, -1), np.where(found, np.take_along_axis(blocks, iy[None], axis=0)[0], 2)
 
 
 class FakeBridge:

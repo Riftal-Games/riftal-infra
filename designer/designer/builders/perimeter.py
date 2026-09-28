@@ -73,7 +73,10 @@ def build_perimeter(spec: PerimeterSpec, palette: Palette, hm: Heightmap | None 
     boundary, accent = palette.block("boundary"), palette.block("boundary_accent")
     ops: list[Fill] = []
     for i, (x, z) in enumerate(path):
-        base = spec.y if spec.y is not None else hm.height(x, z) + 1
+        ground = spec.y - 1 if spec.y is not None else hm.height(x, z)
+        if ground is None:
+            raise ValueError(f"heightmap has no ground at {(x, z)}")
+        base = ground + 1
         post = (x, z) in corners or i % spec.post_every == 0
         top = base + spec.height - 1 + (1 if post else 0)
         block = accent if post or i % 2 else boundary

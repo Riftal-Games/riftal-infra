@@ -125,7 +125,7 @@ def _full_pos(at: str, world: str | None) -> tuple[str, tuple[int, int, int]]:
     world, (x, y, z) = resolve_at(index(), at, world)
     if y is None:
         y = fetch_heightmap(bridge(), world, Bounds2D((x, z), (x, z))).height(x, z)
-        if y < 0:
+        if y is None:
             raise ValueError(f"column {x},{z} in {world} is empty; give x,y,z")
     return world, (x, y, z)
 
