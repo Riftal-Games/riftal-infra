@@ -361,15 +361,15 @@ fi
 
 section "a discard directory swept while its rename-owner is still alive converges on the same lock-contention failure"
 # riftal-infra#207/#208: the section above covers an orphan nobody is still
-# running; this covers the case its comment (deploy/backup.sh:213-218)
+# running; this covers the case its comment (deploy/backup.sh:221-226)
 # specifically claims is also safe. A backdated .lock puts run A on the same
 # steal path as every section above, so its own rename (deploy/backup.sh:109)
 # produces a discard directory while A is still alive, not crashed.
 # DISCARD_RACE_TEST_STALL_SECONDS holds A there until run B, an entirely
 # ordinary full run needing nothing special of its own, reaches its
-# orphaned-discard sweep (deploy/backup.sh:219-224) and removes it. A must
+# orphaned-discard sweep (deploy/backup.sh:227-232) and removes it. A must
 # then find its own discard directory gone at its staleness check
-# (deploy/backup.sh:121) and hand the lock back rather than proceed as if it
+# (deploy/backup.sh:129) and hand the lock back rather than proceed as if it
 # still owned it.
 backups "mkdir /backups/.lock && echo old-owner > /backups/.lock/owner && touch -d '-2 hours' /backups/.lock"
 
