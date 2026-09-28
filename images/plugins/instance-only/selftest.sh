@@ -22,7 +22,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=37
+EXPECTED_ASSERTIONS=40
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -231,19 +231,35 @@ printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#26
 # token for the private riftal-game, so there the comparison is reported as
 # skipped rather than passed.
 SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/mines/resources/config.yml"
-# Top-level keys holding a scalar, which excludes the database and worlds
-# sections the template overrides on purpose.
-tuning() { grep -E '^[A-Za-z_]+:[[:space:]]*[^[:space:]#]' "$1" | sed 's/[[:space:]]*$//' | sort; }
+TEMPLATE="$DIR/RiftalMines.config.yml.template"
 SKIPPED=0
-if [ -f "$SHIPPED" ]; then
-  check "every scalar key in riftal-game's mines config.yml matches the template" \
-    '[ -n "$(tuning "$SHIPPED")" ] && [ "$(tuning "$SHIPPED")" = "$(tuning "$DIR/RiftalMines.config.yml.template")" ]'
-  sed 's/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/' "$SHIPPED" > "$work/shipped.yml"
-  check "a shipped value the template does not carry is caught" \
-    '[ "$(tuning "$work/shipped.yml")" != "$(tuning "$DIR/RiftalMines.config.yml.template")" ]'
-else
-  SKIPPED=2
-  printf '::warning::2 assertions skipped: no riftal-game mines config at %s; set RIFTAL_GAME_DIR\n' "$SHIPPED"
+# Each assertion here is counted as skipped rather than dropped when the
+# shipped file is absent, so the assertion count still sees one deleted.
+drift() { if [ -f "$SHIPPED" ]; then check "$1" "$2"; else SKIPPED=$((SKIPPED + 1)); fi; }
+# Every top-level key, whether it holds a scalar or opens a section.
+keys() { grep -oE '^[^[:space:]#-][^:]*:' "$1" | sort -u; }
+# Top-level keys holding a scalar. The database and worlds sections hold
+# none, so the values the template overrides on purpose stay out of it.
+tuning() { grep -E '^[^[:space:]#-][^:]*:[[:space:]]*[^[:space:]#]' "$1" | sed 's/[[:space:]]*$//' | sort; }
+# Top-level keys in the shipped file $1 that the template lacks.
+missing() { comm -23 <(keys "$1") <(keys "$TEMPLATE"); }
+mutated="$work/shipped.yml"
+drift "every scalar key in riftal-game's mines config.yml matches the template" \
+  '[ -n "$(tuning "$SHIPPED")" ] && [ "$(tuning "$SHIPPED")" = "$(tuning "$TEMPLATE")" ]'
+drift "every top-level key in riftal-game's mines config.yml, section or scalar, is in the template" \
+  '[ -n "$(keys "$SHIPPED")" ] && [ -z "$(missing "$SHIPPED")" ]'
+drift "a shipped value the template does not carry is caught" \
+  'sed "s/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/" "$SHIPPED" > "$mutated" &&
+    [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'
+drift "a shipped scalar whose key holds a digit or hyphen is caught" \
+  '{ cat "$SHIPPED"; printf "refill_v2-budget: 3\n"; } > "$mutated" &&
+    [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'
+drift "a shipped section the template lacks is caught" \
+  '{ cat "$SHIPPED"; printf "messages:\n  reset: x\n"; } > "$mutated" &&
+    [ "$(missing "$mutated")" = "messages:" ]'
+if [ "$SKIPPED" -ne 0 ]; then
+  printf '::warning::%s assertions skipped: no riftal-game mines config at %s; set RIFTAL_GAME_DIR\n' \
+    "$SKIPPED" "$SHIPPED"
 fi
 
 printf '\n'
