@@ -45,6 +45,13 @@ services:
     volumes:
       - riftal-world:/data
       - ./plugins:/plugins
+    # RiftalMines resets the worlds this instance hosts and no others, so it
+    # loads here alone. The script adds it to this container's own copy of
+    # the plugin roster rather than mounting a file into ./plugins or /data,
+    # where Docker would create the mountpoint as root: in the ./plugins that
+    # instance-b loads from, or as a /data/plugin_data PocketMine then cannot
+    # write to. See plugins/instance-only/README.md.
+    command: ["bash", "/plugins/instance-only/start-instance.sh"]
     environment:
       # Tags every shared-database row this instance writes, so a world
       # split later still shows who wrote what. No default, like
@@ -77,7 +84,9 @@ services:
         --motd=riftal-dev
         --riftal-dev-bots=on
     # Rollout order, the same one /deploy-release uses: database, then
-    # instances. Nothing here reads MySQL yet; the order is what M1 inherits.
+    # instances. With RiftalMines.phar built, the plugin connects to MySQL
+    # synchronously on enable, and a database that does not answer yet takes
+    # the whole server down within seconds of boot.
     depends_on:
       mysql:
         condition: service_healthy
