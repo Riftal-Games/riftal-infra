@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from designer import __version__, config
+from designer import __version__
 from designer.blocks import AIR
 from designer.bridge import Bridge
 from designer.edits import EditList, Fill, SetBlock
@@ -18,9 +18,8 @@ STONE, GLASS = "minecraft:stone", "minecraft:glass"
 BOX = Bounds((0, 60, 0), (15, 66, 15))
 
 
-@pytest.fixture(autouse=True)
-def snapshots_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setattr(config, "SNAPSHOTS_DIR", tmp_path / "snapshots")
+@pytest.fixture
+def snapshots_dir(tmp_path: Path) -> Path:
     return tmp_path / "snapshots"
 
 

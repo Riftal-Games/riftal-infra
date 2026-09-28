@@ -1,10 +1,12 @@
+import os
+import shutil
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
-from designer import config
+from designer import config, world_index
 from designer.blocks import AIR
 from designer.bridge import Bridge
 from designer.builders import BUILDERS, HeightmapFetch, Palette
@@ -44,32 +46,37 @@ REFUSED_BUILDS = [
     pytest.param("twice", {}, "is given twice in one build", id="in-build-duplicate"),
 ]
 
-# Read at import, before any fixture redirects them, so the session check below watches the working tree's own dirs.
-TREE_OUTPUT_DIRS = (config.REPORTS_DIR, config.SNAPSHOTS_DIR)
+# Read at import, before any fixture redirects a path, so the session check watches the working tree itself.
+TREE = config.PROJECT_ROOT
+COMMITTED_INDEX = world_index.DEFAULT_PATH
+# Interpreter and tool caches change under any run, and stack/ is a live server's bind mount; no toolkit writer targets them.
+UNWATCHED = {"__pycache__", "stack"}
 BEFORE = pytest.StashKey[dict[Path, tuple[int, int]]]()
 TOUCHED = pytest.StashKey[list[Path]]()
 
 
-def _tree_output() -> dict[Path, tuple[int, int]]:
+def _tree_state() -> dict[Path, tuple[int, int]]:
     found = {}
-    for root in TREE_OUTPUT_DIRS:
-        if root.is_dir():
-            for path in (root, *root.rglob("*")):
-                stat = path.stat()
-                found[path] = (stat.st_mtime_ns, stat.st_size)
+    for top, dirs, files in os.walk(TREE):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in UNWATCHED]
+        # A directory counts by existence alone: its mtime moves whenever a pruned cache appears inside it.
+        found[Path(top)] = (0, 0)
+        for name in files:
+            stat = Path(top, name).stat()
+            found[Path(top, name)] = (stat.st_mtime_ns, stat.st_size)
     return found
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    session.config.stash[BEFORE] = _tree_output()
+    session.config.stash[BEFORE] = _tree_state()
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
-    """Fails the run when anything under the working tree's reports/ or snapshots/ appeared, changed or vanished."""
-    before, after = session.config.stash[BEFORE], _tree_output()
+    """Fails an otherwise green run when any file under the designer tree appeared, changed or vanished."""
+    before, after = session.config.stash[BEFORE], _tree_state()
     touched = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
     session.config.stash[TOUCHED] = touched
-    if touched:
+    if touched and session.exitstatus == pytest.ExitCode.OK:
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
@@ -82,12 +89,19 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _runtime_output_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Points every snapshot and report writer at ``tmp_path``; render and checks bind ``REPORTS_DIR`` at import."""
+def _runtime_output_in_tmp(tmp_path: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Points every snapshot, report and default index writer outside the tree; render and checks bind ``REPORTS_DIR`` at import.
+
+    The index is a per-test copy of the committed file, so a default load reads the same bytes and a default save lands
+    in the copy. It sits outside ``tmp_path`` because tests assert on what their own ``tmp_path`` holds.
+    """
     monkeypatch.setattr(config, "SNAPSHOTS_DIR", tmp_path / "snapshots")
     monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr("designer.checks.REPORTS_DIR", tmp_path / "reports")
+    index_copy = tmp_path_factory.mktemp("index") / COMMITTED_INDEX.name
+    shutil.copyfile(COMMITTED_INDEX, index_copy)
+    monkeypatch.setattr(world_index, "DEFAULT_PATH", index_copy)
 
 
 @pytest.fixture

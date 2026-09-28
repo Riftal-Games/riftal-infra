@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from designer import config
 from designer import stack as stack_mod
 from designer.cli import main
 from designer.render import LEGEND_LINE
@@ -237,8 +236,6 @@ def test_build_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
     monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
-    monkeypatch.setattr(config, "SNAPSHOTS_DIR", tmp_path / "snapshots")
-    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
     seeded = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
     seeded.add_location(Location("tbox_spawn", "design", (0, 64, 0)))
     seeded.add_region(NamedRegion("tbox", "design", (0, 60, 0), (1, 61, 1)))
@@ -264,8 +261,6 @@ def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", refusable.token)
     monkeypatch.setenv("DESIGNER_PORT", str(refusable.port))
-    monkeypatch.setattr(config, "SNAPSHOTS_DIR", tmp_path / "snapshots")
-    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
     index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     before = index_path.read_bytes()
@@ -286,7 +281,6 @@ def test_build_apply_writes_the_extras_report_matching_the_mcp_build_tool(
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
     monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
-    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
     index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     spec_path = tmp_path / "spec.json"
@@ -365,7 +359,6 @@ def test_checks_run_prints_the_table_and_exits_zero_when_all_pass(
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
-    monkeypatch.setattr("designer.checks.REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", _checks_index(tmp_path))
     checks_path = tmp_path / "checks.yaml"
     checks_path.write_text("version: 1\nchecks:\n  - check: travel_time\n    from: a\n    to: b\n", encoding="utf-8")
@@ -381,7 +374,6 @@ def test_checks_run_exits_one_on_a_failure_and_only_narrows_it(
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
-    monkeypatch.setattr("designer.checks.REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", _checks_index(tmp_path))
     checks_path = tmp_path / "checks.yaml"
     checks_path.write_text(
