@@ -584,3 +584,16 @@ first edit. On the CLI an index refusal exits 1, and so does every error `main` 
 write and a failing `mine_valid` exit 0 and are read from the report. Only `--no-index` on the CLI, or
 `register_index=False` on the tool, skips the check, since neither registers anything, and
 `replace_index` lets the tool's taken names through on a dry run as on a build (#308).
+
+## 2026-09-28 `stack.load_service` names volumes the way docker compose 2.40 does
+
+A volume with a `name:` mounts that name; one with `external: true` and no `name:` mounts its
+key; any other mounts `<project>_<key>`. The project is `COMPOSE_PROJECT_NAME` if set and
+non-empty, refused unless it is lowercase letters, digits, `_` and `-` starting with a letter or
+digit, else the interpolated top-level `name:`, else the compose file's directory name; either of
+those two is lowercased, every character other than those dropped, and leading `_` and `-`
+stripped. Only an absent or literal empty top-level `name:` falls back to the directory. One
+that is not a string, or that interpolates or normalizes to empty, raises `StackError`, since
+compose refuses it with `name must be a string` or `project name must not be empty`. A volume `name:` that is null or resolves empty raises
+`StackError`, since compose refuses a null one with `must be a string` and an empty one with
+`invalid volume name or ID: value is empty` (#277).
