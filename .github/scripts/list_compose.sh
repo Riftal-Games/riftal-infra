@@ -2,9 +2,9 @@
 # Prints every compose file under a root, one per line.
 #
 # Discovery is by content, not by name. A compose file is a YAML document with
-# a `services` key at column zero. riftal-infra's CLAUDE.md predicts a local
-# stack composition under images/, and nothing says it will be called
-# compose.yaml, so a name-based scan would validate nothing and still exit 0.
+# a `services` key at column zero. Stacks live in more than one directory,
+# images/ and designer/stack/ among them, and nothing requires a stack file to
+# be called compose.yaml, so a name-based scan could miss one and still exit 0.
 #
 # One script because the workflow and the self-test must agree. Two finds drift,
 # and the half that drifts is the half nothing looks at.
