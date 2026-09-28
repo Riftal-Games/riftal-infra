@@ -51,7 +51,7 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=36
+EXPECTED_ASSERTIONS=40
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -70,6 +70,7 @@ run_backup() {
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION="$retention" \
     -e PARTIAL_MAX_AGE_MINUTES="$partial_max_age" -e LOCK_MAX_AGE_MINUTES="$lock_max_age" \
     -e STEAL_RACE_TEST_STALL_SECONDS="${STEAL_RACE_TEST_STALL_SECONDS:-0}" \
+    -e DISCARD_RACE_TEST_STALL_SECONDS="${DISCARD_RACE_TEST_STALL_SECONDS:-0}" \
     mysql:8 bash /deploy/backup.sh "$@"
 }
 
@@ -358,6 +359,59 @@ else
   fail "expected the log to name the swept .lock.discard.* directory"; cat /tmp/out-discard-sweep.log
 fi
 
+section "a discard directory swept while its rename-owner is still alive converges on the same lock-contention failure"
+# riftal-infra#207/#208: the section above covers an orphan nobody is still
+# running; this covers the case its comment (deploy/backup.sh:221-226)
+# specifically claims is also safe. A backdated .lock puts run A on the same
+# steal path as every section above, so its own rename (deploy/backup.sh:109)
+# produces a discard directory while A is still alive, not crashed.
+# DISCARD_RACE_TEST_STALL_SECONDS holds A there until run B, an entirely
+# ordinary full run needing nothing special of its own, reaches its
+# orphaned-discard sweep (deploy/backup.sh:227-232) and removes it. A must
+# then find its own discard directory gone at its staleness check
+# (deploy/backup.sh:129) and hand the lock back rather than proceed as if it
+# still owned it.
+backups "mkdir /backups/.lock && echo old-owner > /backups/.lock/owner && touch -d '-2 hours' /backups/.lock"
+
+DISCARD_RACE_TEST_STALL_SECONDS=5 run_backup 3 mysql selftest 360 60 __test_acquire_lock \
+  >/tmp/out-discard-race-a.log 2>/tmp/err-discard-race-a.log &
+discard_race_pid_a=$!
+
+# A's own container start, failed mkdir, staleness check and rename all land
+# well inside this, leaving B the run of its own stall to land its sweep in.
+sleep 2
+discard_race_status_b=0
+run_backup 3 mysql selftest >/tmp/out-discard-race-b.log 2>&1 || discard_race_status_b=$?
+
+discard_race_status_a=0
+wait "$discard_race_pid_a" || discard_race_status_a=$?
+
+if [ "$discard_race_status_b" -eq 0 ]; then
+  pass "the concurrent run that sweeps the still-alive owner's discard directory completes normally"
+else
+  fail "the concurrent sweeping run should exit 0"; cat /tmp/out-discard-race-b.log
+fi
+
+if [ "$discard_race_status_a" -ne 0 ]; then
+  pass "the still-alive owner whose discard directory was swept out from under it fails rather than proceeding as if it still held the lock"
+else
+  fail "expected the still-alive owner to fail once its discard directory vanished, it exited 0 instead"
+fi
+
+if grep -q 'another run already holds the lock' /tmp/err-discard-race-a.log; then
+  pass "the still-alive owner fails with the same lock-contention message every other contention path produces"
+else
+  fail "expected the documented lock-contention message"; cat /tmp/err-discard-race-a.log
+fi
+
+if backups "find /backups -mindepth 1 -maxdepth 1 \( -name '.lock' -o -name '.lock.discard.*' \) | grep -q ."; then
+  fail "expected no leftover lock or discard directory once both runs have exited, a sign of a double lock acquisition or orphaned state"
+else
+  pass "no lock or discard directory is left behind once both runs have exited: exactly one run held the lock, cleanly"
+fi
+
+backups 'rm -rf /backups/.lock /backups/.lock.discard.*'
+
 section "a run against a BACKUP_ROOT another run already holds the lock on fails fast"
 # Stands in for a manual out-of-band run overlapping the scheduled loop
 # (riftal-infra#166): holds backup.sh's own lock directory directly, without
@@ -433,4 +487,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, orphaned lock-discard sweep, loud failure.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure.\n' "$PASSES"

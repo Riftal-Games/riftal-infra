@@ -35,6 +35,11 @@ subdirectories, oldest first, and removes whichever are beyond that count.
 Pruning only happens after a run succeeds, so a failed run never deletes a
 good backup to make room for the one it never produced.
 
+That listing excludes any `*.partial`, `.lock`, and `.lock.discard.*` entry
+outright, so none of the three is ever counted as a backup or pruned as one.
+Each is explained where it is produced: Stale `.partial` sweep, Stale lock
+sweep, and Orphaned lock-discard sweep, below.
+
 ## Stale `.partial` sweep
 
 A `.partial` directory is left behind by a run killed non-gracefully (OOM, a
@@ -103,12 +108,15 @@ behind, orphaned (riftal-infra#175, riftal-infra#183).
 
 Right after a run acquires the lock, after the `.partial` sweep above, it
 sweeps every `$LOCK_DIR.discard.*` directory it finds, logging each one it
-removes. No
-age filter applies here, unlike the `.partial` and stale-lock sweeps above:
-`acquire_lock` only ever returns, as it just has for this run, once every
-discard directory it itself created has already been renamed back or
-removed, so anything still present at this point belongs to some earlier
-run, never this one, and is always safe to remove.
+removes. No age filter applies here, unlike the `.partial` and stale-lock
+sweeps above: `acquire_lock` only ever returns, as it just has for this run,
+once every discard directory it itself created has already been renamed back
+or removed, so this run's own discard directory is never still here to sweep.
+A discard directory left by a different, still-running process is safe to
+sweep too: that process's own staleness check on its own now-missing discard
+directory finds nothing, so it takes the existing "hand it back" branch and
+fails with the same "another run already holds the lock" error every other
+contention path already produces.
 
 ## Schedule
 
