@@ -24,6 +24,12 @@ reading `ProtocolVersion.java` directly. Line 157:
 MINECRAFT_PE_1_26_50(2193, Bedrock_v2193.CODEC, "26.50", "26.51"),
 ```
 
+The same line is read independently, same day, from the other side of the workspace:
+`../../docs/decision-log.md:830-831`, 2026-09-28, "Steward, as Nasir's delegate —
+caveat on the 2193 decision, pmmp-core#15 re-scoped not closed", quotes this exact
+`ProtocolVersion.java` entry while settling whether pmmp-core#15's 2168 divergence
+risk carries over to 2193. Neither record linked the other before this note.
+
 One `Bedrock_v2193` codec, no second `Bedrock_v2193_*` import, no second enum entry
 at 2193. That is the opposite shape from 2168, which needed
 `Bedrock_v2168` **and** `Bedrock_v2168_hotfix4` at lines 154-155 of the same file
