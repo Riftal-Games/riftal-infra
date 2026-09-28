@@ -3,7 +3,7 @@ import pytest
 
 from designer.blocks import AIR
 from designer.region import Bounds, Region
-from designer.verify import SPRINT_SPEED, WALK_SPEED, path_exists, stand_mask, travel_time
+from designer.verify import SPRINT_SPEED, WALK_SPEED, _snap, path_exists, stand_mask, travel_time
 
 # Feet on the plane's floor, either side of the hole along z=20.
 A, B = (2, 4, 20), (37, 4, 20)
@@ -104,6 +104,14 @@ def test_endpoints_snap_to_the_nearest_standable_cell(flat_plane_with_hole: Regi
     found = path_exists(flat_plane_with_hole, (2, 6, 20), (37, 3, 20))
     assert found.ok and found.path[0] == A and found.path[-1] == B
     assert found.data["start"] == A and found.data["goal"] == B
+
+
+def test_snap_floors_negative_coordinates() -> None:
+    region = Region.empty("negative", Bounds((-10, 0, -10), (-1, 7, -1)))
+    region.fill(Bounds((-10, 3, -10), (-1, 3, -1)), "minecraft:stone")
+    mask = stand_mask(region)
+    assert _snap(mask, region.bounds, (-0.5, 4.0, -0.5), 0) == (4, 9, 9)
+    assert _snap(mask, region.bounds, (-9.5, 4.9, -1.2), 0) == (4, 8, 0)
 
 
 def test_step_up_needs_head_room_over_the_jump(ramp_with_ceiling: Region) -> None:

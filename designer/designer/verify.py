@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import heapq
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -82,9 +83,20 @@ def stand_mask(region: Region) -> np.ndarray:
     return region.stand_mask()
 
 
-def _snap(mask: np.ndarray, bounds: Bounds, pos: Sequence[int], radius: int) -> tuple[int, int, int] | None:
-    """Local ``(iy, iz, ix)`` of the nearest standable cell within Chebyshev ``radius`` of ``pos``."""
-    ix, iy, iz = (int(p) - lo for p, lo in zip(pos, bounds.min, strict=True))
+def _block(pos: Sequence[float]) -> Pos:
+    """World ``(x, y, z)`` of the block ``pos`` falls in.
+
+    Each coordinate is floored, because block ``n`` spans ``[n, n + 1)``, so
+    ``-0.5`` is in block ``-1``. ``int()`` truncates toward zero, which is the
+    wrong block for every negative fraction.
+    """
+    x, y, z = (math.floor(v) for v in pos)
+    return x, y, z
+
+
+def _snap(mask: np.ndarray, bounds: Bounds, pos: Sequence[float], radius: int) -> tuple[int, int, int] | None:
+    """Local ``(iy, iz, ix)`` of the nearest standable cell within Chebyshev ``radius`` of the block ``pos`` is in."""
+    ix, iy, iz = (p - lo for p, lo in zip(_block(pos), bounds.min, strict=True))
     lo = tuple(max(i - radius, 0) for i in (iy, iz, ix))
     hi = tuple(min(i + radius, n - 1) for i, n in zip((iy, iz, ix), mask.shape))
     if any(a > b for a, b in zip(lo, hi)):
@@ -102,7 +114,7 @@ def _world(box: Bounds, local: Sequence[int]) -> Pos:
 
 
 def path_exists(
-    region: Region, a: Sequence[int], b: Sequence[int], *,
+    region: Region, a: Sequence[float], b: Sequence[float], *,
     max_nodes: int = 200_000, corridor: Bounds | None = None, margin: int = 16,
     max_drop: int = 1, snap_radius: int = 2,
 ) -> PathResult:
@@ -117,10 +129,10 @@ def path_exists(
     mask = stand_mask(region)
     start = _snap(mask, region.bounds, a, snap_radius)
     if start is None:
-        return PathResult(False, "start not standable", [tuple(int(v) for v in a)])
+        return PathResult(False, "start not standable", [_block(a)])
     goal = _snap(mask, region.bounds, b, snap_radius)
     if goal is None:
-        return PathResult(False, "goal not standable", [tuple(int(v) for v in b)])
+        return PathResult(False, "goal not standable", [_block(b)])
     start_w, goal_w = _world(region.bounds, start), _world(region.bounds, goal)
     if corridor is None:
         corridor = Bounds(start_w, goal_w).expand(margin, "xz").expand(MARGIN_Y, "y")
@@ -200,7 +212,7 @@ def path_exists(
 
 
 def travel_time(
-    region: Region, a: Sequence[int], b: Sequence[int], *, speed: float = WALK_SPEED, **path_kwargs: Any
+    region: Region, a: Sequence[float], b: Sequence[float], *, speed: float = WALK_SPEED, **path_kwargs: Any
 ) -> TravelResult:
     """Seconds to walk the cheapest path from ``a`` to ``b`` at ``speed`` blocks per second."""
     if speed <= 0:
@@ -220,21 +232,22 @@ def _solid_within(classes: np.ndarray, iy: int, iz: int, ix: int, n: int) -> boo
     return bool((classes[max(iy - n + 1, 0):iy + 1, iz, ix] == BlockClass.SOLID).any())
 
 
-def entity_clear(region: Region, pos: Sequence[int]) -> Check:
+def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     """A 1x2 hitbox with its feet at ``pos`` is free and whatever it rests on is walkable.
 
     Feet and head must be passable. The support is the first block below the
     feet that is neither air nor passable, and it must be solid, because a
     player over liquid sinks and over danger burns. A column with no support
     inside the region obstructs nothing here; ``warp_safe`` is the check that
-    demands a landing. ``coords`` names the offending cells. ``pos`` outside
-    the region is a failed check, not a crash, for a caller that did not fetch
-    around it first.
+    demands a landing. ``coords`` names the offending cells. A fractional
+    ``pos`` means the block it falls in, each coordinate floored. ``pos``
+    outside the region is a failed check, not a crash, for a caller that did
+    not fetch around it first.
     """
-    at = tuple(int(v) for v in pos)
+    at = _block(pos)
     if not region.bounds.contains(at):
         return Check(False, f"{at} is outside the fetched region {region.bounds.min}..{region.bounds.max}", [at])
-    iy, iz, ix = region.bounds.local(pos)
+    iy, iz, ix = region.bounds.local(at)
     x, y, z = at
     classes, passable = region.classes(), region.passable()
     blocked = [(x, y + d, z) for d in (0, 1) if iy + d < classes.shape[0] and not passable[iy + d, iz, ix]]
@@ -249,7 +262,7 @@ def entity_clear(region: Region, pos: Sequence[int]) -> Check:
     return Check(True, "clear")
 
 
-def warp_safe(region: Region, pos: Sequence[int]) -> Check:
+def warp_safe(region: Region, pos: Sequence[float]) -> Check:
     """``entity_clear`` at ``pos``, plus a landing a warp can drop a player onto.
 
     In order: the hitbox check; a solid block within ``LANDING`` blocks below
@@ -267,8 +280,8 @@ def warp_safe(region: Region, pos: Sequence[int]) -> Check:
     clear = entity_clear(region, pos)
     if not clear.ok:
         return clear
-    iy, iz, ix = region.bounds.local(pos)
-    x, y, z = (int(v) for v in pos)
+    x, y, z = at = _block(pos)
+    iy, iz, ix = region.bounds.local(at)
     classes = region.classes()
     ny, nz, nx = classes.shape
     if not _solid_within(classes, iy - 1, iz, ix, LANDING):
