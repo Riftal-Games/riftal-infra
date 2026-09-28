@@ -108,8 +108,22 @@ def test_cancelled_job_raises(fake: FakeBridge, bridge: Bridge) -> None:
 def test_timeout_cancels_the_job_and_keeps_the_last_status(fake: FakeBridge, bridge: Bridge) -> None:
     with pytest.raises(JobTimeout, match="still 'running'") as excinfo:
         bridge.call_job("slow_op", poll=0.01, timeout=0.1, steps=1000)
-    assert fake.cancelled == [excinfo.value.job] and excinfo.value.last_status["state"] == "running"
-    assert _ops(fake)[-1] == "cancel_job" and 2 < _ops(fake).count("get_job") < 20
+    assert fake.cancelled == [excinfo.value.job]
+    assert excinfo.value.last_status["state"] == "running"
+    assert _ops(fake)[-1] == "cancel_job"
+    assert 2 < _ops(fake).count("get_job") < 20
+
+
+def test_poll_schedule_grows_1_5x_from_a_quarter_second_to_a_one_second_cap(bridge: Bridge) -> None:
+    recorded: list[float] = []
+    bridge._sleep = recorded.append
+    bridge.call_job("slow_op", timeout=10.0, steps=6)
+    assert recorded == [0.25, 0.375, 0.5625, 0.84375, 1.0, 1.0]
+
+
+def test_call_job_on_a_non_job_op_names_the_op(bridge: Bridge) -> None:
+    with pytest.raises(BridgeProtocolError, match="'ping' is not a job op"):
+        bridge.call_job("ping")
 
 
 def test_is_designer_follows_server_info_and_caches(fake: FakeBridge, bridge: Bridge) -> None:
