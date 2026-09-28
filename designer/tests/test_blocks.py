@@ -79,9 +79,9 @@ def test_mangrove_roots_are_solid_and_hanging_roots_passable() -> None:
 
 
 # Names exactly as DesignBridge's get_region returned them on a v26.50 core
-# (riftal-infra#59). A block with no collision box is walked through and
-# cannot be stood on, so it is PASSABLE; a SOLID answer there would let a
-# floor check pass over a block a player falls through.
+# (riftal-infra#59), states included. A block with no collision box is walked
+# through and cannot be stood on, so it is PASSABLE; a SOLID answer there
+# would let a floor check pass over a block a player falls through.
 @pytest.mark.parametrize("name", [
     "minecraft:wheat[growth=0]",
     "minecraft:carrots[growth=0]",
@@ -92,11 +92,14 @@ def test_mangrove_roots_are_solid_and_hanging_roots_passable() -> None:
     "minecraft:pumpkin_stem[facing_direction=0,growth=0]",
     "minecraft:nether_wart[age=0]",
     "minecraft:web",
-    "cobweb",
     "minecraft:light_block_0",
     "minecraft:light_block_15",
-    "light_block",
-    "minecraft:trip_wire[attached_bit=false,disarmed_bit=false,powered_bit=false,suspended_bit=false]",
+    (
+        "minecraft:trip_wire[attached_bit=false,disarmed_bit=false,"
+        "minecraft:connection_east=false,minecraft:connection_north=false,"
+        "minecraft:connection_south=false,minecraft:connection_west=false,"
+        "powered_bit=false,suspended_bit=false]"
+    ),
     "minecraft:deadbush",
     "minecraft:structure_void",
     "minecraft:small_dripleaf_block[minecraft:cardinal_direction=north,upper_block_bit=false]",
@@ -125,7 +128,6 @@ def test_bridge_names_without_collision_are_passable(name: str) -> None:
     "minecraft:muddy_mangrove_roots[pillar_axis=y]",
     "minecraft:lantern[hanging=false]",
     "minecraft:barrier",
-    "minecraft:crimson_stem[pillar_axis=y]",
     "minecraft:cocoa[age=0,direction=0]",
     "minecraft:azalea",
     "minecraft:stone_brick_slab[minecraft:vertical_half=bottom]",
@@ -135,6 +137,24 @@ def test_bridge_names_without_collision_are_passable(name: str) -> None:
 ])
 def test_bridge_names_with_collision_are_solid(name: str) -> None:
     assert classify(name) is BlockClass.SOLID
+
+
+# Not bridge output. Write names the bridge reads back under another name,
+# which a spec may still carry, and names that pin how far each prefix rule
+# and the melon_stem and pumpkin_stem exact rules reach.
+@pytest.mark.parametrize("name, cls", [
+    ("cobweb", BlockClass.PASSABLE),
+    ("dead_bush", BlockClass.PASSABLE),
+    ("light_block", BlockClass.PASSABLE),
+    ("light_block_7", BlockClass.PASSABLE),
+    ("tripwire_hook", BlockClass.PASSABLE),
+    ("small_dripleaf", BlockClass.PASSABLE),
+    ("crimson_stem", BlockClass.SOLID),
+    ("light_blue_wool", BlockClass.SOLID),
+    ("light_gray_concrete", BlockClass.SOLID),
+])
+def test_alias_and_prefix_names(name: str, cls: BlockClass) -> None:
+    assert classify(name) is cls
 
 
 def test_bridge_liquid_and_danger_names() -> None:
