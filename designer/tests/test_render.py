@@ -10,8 +10,8 @@ from designer.config import REPORTS_DIR
 from designer.palettes import ROLES, load_palettes
 from designer.region import Bounds, Bounds2D, Heightmap, Region
 from designer.render import (
-    LEGEND_LINE, MARKER_FILL, RAMP, SIDE_BY_SIDE_GAP, Marker, ascii_heightmap, fallback_color, isometric_png, markers_from_index,
-    report_path, side_by_side, slice_ascii, slice_png, summary, timelapse_png, topdown_png,
+    LEGEND_LINE, MARKER_FILL, RAMP, SIDE_BY_SIDE_GAP, SLICE_FLOOR_SHADE, WATER_TINT, Marker, ascii_heightmap, fallback_color,
+    isometric_png, markers_from_index, report_path, side_by_side, slice_ascii, slice_png, summary, timelapse_png, topdown_png,
 )
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
@@ -226,13 +226,19 @@ def test_slice_png_size_and_air_over_floor_is_darker_than_the_floor(tmp_path: Pa
     assert above_air.sum() < floor_stone.sum()
     assert tuple(above_air) == tuple(int(c * 0.6) for c in COLORS[STONE])
 
-    # (2,1) is water underfoot: the air cell above it is darkened, tinted water, not plain darkened stone.
+    tinted_water = np.array(COLORS[WATER], dtype=float) * 0.5 + WATER_TINT * 0.5
+
+    # (2,1) is water underfoot: the air cell above it is the tinted water colour darkened by the floor
+    # shade, an exact value a disabled tint blend would miss since it would darken water's raw colour instead.
     above_over_water = _pixels(above)[2, 1 * 4 + 2].astype(int)
     assert above_over_water.tolist() != above_air.tolist()
+    assert tuple(above_over_water) == tuple(int(c) for c in tinted_water * SLICE_FLOOR_SHADE)
 
-    # (3,1) is a direct, non-air water block at the sliced layer, tinted the same way a top-down render tints it.
+    # (3,1) is a direct, non-air water block at the sliced layer: the exact 0.5/0.5 blend with WATER_TINT,
+    # not water's raw palette colour, the same blend a top-down render applies to its top block.
     direct_water = _pixels(above)[2, 2 * 4 + 2].astype(int)
     assert direct_water[2] > direct_water[0]
+    assert tuple(direct_water) == tuple(int(c) for c in tinted_water)
 
 
 def test_slice_png_refuses_a_y_outside_the_region_and_a_bad_scale() -> None:

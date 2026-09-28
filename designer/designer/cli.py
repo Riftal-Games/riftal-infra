@@ -295,7 +295,8 @@ def main(argv: list[str] | None = None) -> int:
             elif options.command == "info":
                 print(json.dumps(bridge.server_info(), indent=2, sort_keys=True))
             elif options.command == "render":
-                print(_render_slice(bridge, options) if options.render == "slice" else _render(bridge, options))
+                handler = {"topdown": _render, "isometric": _render, "slice": _render_slice}[options.render]
+                print(handler(bridge, options))
             elif options.command == "terrain":
                 handler = {"analyze": _terrain_analyze, "find-site": _terrain_find_site, "terraform": _terrain_terraform}[options.terrain]
                 print(handler(bridge, options))
