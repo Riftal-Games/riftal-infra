@@ -16,8 +16,28 @@
       "yaw": 0
     }
   ],
-  "regions": [],
-  "updated": "2026-09-07T00:00:00+00:00",
+  "regions": [
+    {
+      "max": [
+        31,
+        63,
+        31
+      ],
+      "meta": {},
+      "min": [
+        -32,
+        40,
+        -32
+      ],
+      "name": "lumber_safe_zone",
+      "tags": [
+        "mine",
+        "safe_zone"
+      ],
+      "world": "lumber"
+    }
+  ],
+  "updated": "2026-09-28T12:57:10+00:00",
   "version": 1,
   "worlds": [
     {
