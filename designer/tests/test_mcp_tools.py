@@ -19,6 +19,7 @@ PAD = Bounds((0, 63, 0), (7, 65, 7))
 MUTATING = {
     "fill": {"target": "pad", "block": "glass"}, "replace": {"target": "pad", "from_block": "grass_block", "to_block": "dirt"},
     "set_blocks": {"blocks": [[0, 70, 0, "stone"]]}, "snapshot": {"target": "pad", "label": "x"}, "restore": {"snapshot": 1},
+    "persist_mark": {"marker": "m", "at": "spawn"},
     "undo": {}, "list_snapshots": {}, "list_undo": {}, "terraform": {"target": "pad", "mode": "flatten", "level": 70},
     "build": {"kind": "mine", "spec": SMALL_MINE_SPEC, "palette": "mine_stone"},
     "spawn_npc": {"name": "n", "at": "spawn"}, "move_entity": {"id": "e1", "at": "spawn"}, "remove_entity": {"id": "e1"},
@@ -76,6 +77,11 @@ def test_status_without_a_bridge_is_not_an_error(server: FakeBridge, monkeypatch
     assert status["ok"] and status["connected"] is False and "cannot connect" in status["error"]
 
 
+def test_metrics_reads_tps_tick_usage_and_memory_off_server_info(server: FakeBridge) -> None:
+    result = call("metrics")
+    assert result == {"ok": True, "tps": 20.0, "tps_avg": 19.8, "tick_usage": 0.12, "tick_usage_avg": 0.15, "memory_bytes": 123456789}
+
+
 def test_heightmap_ascii_returns_the_map_with_its_header(server: FakeBridge) -> None:
     result = call("heightmap_ascii", at="spawn", size=32)
     assert result["ok"]
@@ -103,6 +109,30 @@ def test_render_isometric_reaches_isometric_png_and_writes_a_taller_image(server
     assert path != Path(topdown["path"])
     # isometric_png's canvas is nz+nx blocks wide and tall, distinct from topdown_png's flat size*scale grid.
     assert Image.open(path).size != Image.open(Path(topdown["path"])).size
+
+
+def test_timelapse_renders_one_frame_per_snapshot_taken_of_the_region(server: FakeBridge, tmp_path: Path) -> None:
+    first = call("snapshot", target="pad", label="before")
+    # fill's own target is "pad", so its automatic before-mutation snapshot is a third frame here.
+    assert first["ok"] and call("fill", target="pad", block="glass")["ok"]
+    second = call("snapshot", target="pad", label="after")
+    assert second["ok"] and second["path"] != first["path"]
+
+    result = call("timelapse", region="pad")
+    assert result["ok"] and result["region"] == "pad" and result["world"] == "design" and result["frames"] == 3
+    path = Path(result["path"])
+    assert path.parent == tmp_path / "reports" and path.is_file() and path.name.startswith("timelapse-design-")
+
+
+def test_timelapse_ignores_a_snapshot_taken_over_a_different_box(server: FakeBridge) -> None:
+    assert call("snapshot", target={"min": [0, 70, 0], "max": [3, 70, 3]}, label="not_pad")["ok"]
+    result = call("timelapse", region="pad")
+    assert result["ok"] is False and "no snapshot of 'pad'" in result["error"]
+
+
+def test_timelapse_refuses_a_location_name(server: FakeBridge) -> None:
+    result = call("timelapse", region="spawn")
+    assert result["ok"] is False and "is a location" in result["error"]
 
 
 def test_inspect_caps_the_radius_and_slices_by_class(server: FakeBridge) -> None:
@@ -186,7 +216,7 @@ def _pristine(fake: FakeBridge) -> bool:
 @pytest.mark.parametrize("name", [
     "fill", "replace", "set_blocks", "snapshot", "restore", "undo", "terraform", "build",
     "spawn_npc", "move_entity", "remove_entity", "set_spawn", "set_text", "remove_text",
-    "save_world", "load_world", "create_world", "pregen", "run_command",
+    "save_world", "load_world", "create_world", "pregen", "run_command", "persist_mark",
 ])
 def test_every_mutating_tool_is_refused_when_the_bridge_is_not_a_designer(server: FakeBridge, name: str) -> None:
     server.designer = False
@@ -277,6 +307,38 @@ def test_set_blocks_over_the_cap_is_refused_and_a_run_becomes_a_fill(server: Fak
     assert result["ok"] and (result["blocks"], result["requests"], result["undo_id"]) == (9, 2, 1)
     assert _writes(server) == ["fill", "set_blocks"] and result["bounds"] == {"min": [0, 70, 0], "max": [7, 71, 0]}
     assert call("set_blocks", blocks=[])["ok"] is False
+
+
+def test_persist_mark_writes_the_block_and_persist_verify_confirms_it(server: FakeBridge, tmp_path: Path) -> None:
+    marked = call("persist_mark", marker="checkpoint", at="spawn")
+    assert marked["ok"] and marked["block"] == "minecraft:diamond_block" and marked["pos"] == [0, 64, 0]
+    assert marked["undo_id"] == 1 and Path(marked["snapshot"]).is_file()
+    point = Bounds((0, 64, 0), (0, 64, 0))
+    assert server.worlds["design"].blocks(point).item() == server.worlds["design"].palette.index("minecraft:diamond_block")
+
+    manifest = tmp_path / "reports" / "persist-markers.json"
+    assert json.loads(manifest.read_text())["checkpoint"] == {"world": "design", "pos": [0, 64, 0], "block": "minecraft:diamond_block"}
+
+    verified = call("persist_verify", marker="checkpoint")
+    assert verified == {
+        "ok": True, "marker": "checkpoint", "world": "design", "pos": [0, 64, 0],
+        "expected": "minecraft:diamond_block", "found": "minecraft:diamond_block", "passed": True,
+    }
+    missing = call("persist_verify", marker="ghost")
+    assert missing["ok"] is False and "no persist_mark recorded" in missing["error"]
+
+
+def test_persist_mark_dry_run_writes_nothing_and_records_no_marker(server: FakeBridge, tmp_path: Path) -> None:
+    result = call("persist_mark", marker="m", at="spawn", dry_run=True)
+    assert result["ok"] and result["dry_run"] is True and _writes(server) == []
+    assert not (tmp_path / "reports" / "persist-markers.json").exists()
+
+
+def test_persist_verify_fails_when_the_block_at_the_marker_has_changed(server: FakeBridge) -> None:
+    call("persist_mark", marker="checkpoint", at="spawn")
+    call("fill", target={"min": [0, 64, 0], "max": [0, 64, 0]}, block="stone")
+    result = call("persist_verify", marker="checkpoint")
+    assert result["ok"] and result["passed"] is False and result["found"] == "minecraft:stone"
 
 
 def test_analyze_terrain_reads_the_flat_pad(server: FakeBridge) -> None:
@@ -520,9 +582,9 @@ def test_run_command_gates_on_confirm_and_reaches_the_bridge(server: FakeBridge)
 def test_every_tool_is_registered() -> None:
     names = {t.name for t in anyio.run(mcp_server.mcp.list_tools)}
     assert names == {
-        "server_status", "index_list", "index_resolve", "heightmap_ascii", "render", "inspect",
+        "server_status", "metrics", "index_list", "index_resolve", "heightmap_ascii", "render", "timelapse", "inspect",
         "define_region", "define_location", "index_remove", "list_entities", "tail_log",
-        "fill", "replace", "set_blocks", "snapshot", "restore", "undo", "list_snapshots", "list_undo",
+        "fill", "replace", "set_blocks", "persist_mark", "persist_verify", "snapshot", "restore", "undo", "list_snapshots", "list_undo",
         "analyze_terrain", "find_flat_site", "terraform", "build",
         "check_path", "check_warp_safe", "check_entity_clear", "check_mine", "run_checks",
         "spawn_npc", "move_entity", "remove_entity", "set_spawn", "set_text", "remove_text",

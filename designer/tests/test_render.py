@@ -11,7 +11,7 @@ from designer.palettes import ROLES, load_palettes
 from designer.region import Bounds2D, Heightmap
 from designer.render import (
     LEGEND_LINE, MARKER_FILL, RAMP, Marker, ascii_heightmap, fallback_color, isometric_png, markers_from_index, report_path,
-    summary, topdown_png,
+    summary, timelapse_png, topdown_png,
 )
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
@@ -134,6 +134,32 @@ def test_topdown_marker_pixel_and_default_report_path(tmp_path: Path, monkeypatc
     path = topdown_png(hm, COLORS, [Marker("home", 3, 5, 64), Marker("far", 40, 40, 1)])
     assert path.parent == tmp_path / "reports" and path.name.startswith("topdown-design-1_1-8x8-") and path.suffix == ".png"
     assert tuple(_pixels(path)[(5 - 1) * 4 + 2, (3 - 1) * 4 + 2]) == MARKER_FILL["location"]
+
+
+def test_timelapse_png_stacks_frames_with_a_gap_and_a_label_row(tmp_path: Path) -> None:
+    bounds = Bounds2D((0, 0), (3, 3))
+    stone_frame = _heightmap(bounds, np.full((4, 4), 64))
+    water_frame = _heightmap(bounds, np.full((4, 4), 64), np.full((4, 4), 2, dtype=np.int16))
+    path = timelapse_png([("t0", stone_frame), ("t1", water_frame)], COLORS, scale=2, out=tmp_path / "strip.png")
+    assert path.is_file() and Image.open(path).size == (2 * (4 * 2) + 4, 4 * 2 + LEGEND_LINE)
+    px = _pixels(path)
+    first_tile, second_tile = px[LEGEND_LINE + 2, 2].astype(int), px[LEGEND_LINE + 2, 14].astype(int)
+    assert second_tile[2] > first_tile[2] + 10
+
+
+def test_timelapse_png_refuses_no_frames_and_a_bad_scale() -> None:
+    hm = _heightmap(Bounds2D((0, 0), (1, 1)), np.full((2, 2), 64))
+    with pytest.raises(ValueError, match="at least one frame"):
+        timelapse_png([], COLORS)
+    with pytest.raises(ValueError, match="scale must be at least 1"):
+        timelapse_png([("t0", hm)], COLORS, scale=0)
+
+
+def test_timelapse_png_default_report_path_names_the_first_frames_world_and_bounds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+    hm = _heightmap(Bounds2D((0, 0), (1, 1)), np.full((2, 2), 64))
+    path = timelapse_png([("t0", hm)], COLORS)
+    assert path.parent == tmp_path / "reports" and path.name.startswith("timelapse-design-0_0-2x2-")
 
 
 def test_isometric_png_canvas_size_matches_the_projection_formula(tmp_path: Path) -> None:
