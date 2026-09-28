@@ -15,3 +15,6 @@ only real source of those; these exist only so `selftest.sh` can prove
   concurrent `run-migrations.sh` invocations racing the same lock name both
   land inside the window where the file still looks pending, so the
   self-test's lock-contention assertion has something to actually contend.
+- `grants/` holds a `grants.sql` standing in for `riftal-game`'s, creating
+  `riftal_role_mines` with `SELECT` on the `good/` fixtures' `widgets`, so
+  the self-test can provision a login against a real role.
