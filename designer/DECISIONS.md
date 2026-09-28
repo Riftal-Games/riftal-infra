@@ -391,3 +391,20 @@ module returns. The checks runner (#41) already fences its own call to
 `ctx.around` before a check ever sees an unfetched position, so this guard is
 for `warp_safe` called directly, from a test, a script or a future caller that
 skips the runner.
+
+## 2026-09-28 `slice_png` and `slice_ascii` colour a `Region` layer, not a `Heightmap`; `side_by_side` composites two finished PNGs, reshading neither
+
+A slice needs the block classes at a fixed `y` and the layer beneath it, neither of which a
+`Heightmap` carries, so both new renders take the `Region` a `get_region` job already returns
+rather than adding a second fetch shape. An air cell shows the block one layer down scaled by
+`SLICE_FLOOR_SHADE = 0.6`, so an open room still reads as a floor plan instead of a flat void;
+a liquid cell, air's floor or not, gets the same `WATER_TINT` mix `topdown_png` uses on its top
+block, so the two renders never disagree about what water looks like. `slice_png` duplicates
+`topdown_png`'s grid, tick and legend drawing rather than sharing it, the same choice already
+made between `topdown_png` and `isometric_png`: each PNG render owns its own draw loop, and the
+duplication is smaller than the coupling a shared one would add. `slice_ascii` duplicates
+`ascii_heightmap`'s marker, tick and gutter layout for the same reason, downsampling by stride
+instead of `ascii_heightmap`'s pooled average, because a `BlockClass` is categorical and a mean
+of enum values is not a class. `side_by_side` takes two already-rendered PNG paths rather than
+two `Heightmap`s or `Region`s: it exists to compare a render someone already made against
+another one, typically the same bounds before and after an edit, not to render anything itself.

@@ -19,8 +19,8 @@ from designer.builders.base import Palette
 from designer.builders.mine_spec import MineSpec
 from designer.config import ConfigError, load_settings
 from designer.palettes import load_palettes
-from designer.region import Bounds2D, Heightmap, Region, fetch_heightmap
-from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, summary, topdown_png
+from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region
+from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, slice_png, summary, topdown_png
 from designer.verify import mine_valid
 from designer.world_index import Location, NamedRegion, WorldIndex, resolve_at
 
@@ -61,6 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_area(isometric)
     isometric.add_argument("--scale", type=int, default=2, metavar="S", help="Pixels per block edge.")
     isometric.add_argument("--out", metavar="PATH", help="Output file, default a timestamped name in reports/.")
+    slice_cmd = renders.add_parser("slice", help="Map of a square at a fixed height, coloured by the block at that y.")
+    _add_area(slice_cmd)
+    slice_cmd.add_argument("--y", type=int, required=True, metavar="Y", help="Height to slice at.")
+    slice_cmd.add_argument("--scale", type=int, default=4, metavar="S", help="Pixels per block.")
+    slice_cmd.add_argument("--out", metavar="PATH", help="Output file, default a timestamped name in reports/.")
 
     terrain = commands.add_parser("terrain", help="Terrain analysis, flat-site search and terraform.")
     terrains = terrain.add_subparsers(dest="terrain")
@@ -135,6 +140,17 @@ def _render(bridge: Bridge, options: argparse.Namespace) -> str:
     stats = summary(hm)
     stats["size"] = "x".join(map(str, stats["size"]))
     return f"{path}\n" + " ".join(f"{k}={v}" for k, v in stats.items())
+
+
+def _render_slice(bridge: Bridge, options: argparse.Namespace) -> str:
+    index = WorldIndex.load()
+    world, (x, _, z) = resolve_at(index, options.at, options.world)
+    bounds2d = Bounds2D.from_center((x, z), (options.size, options.size))
+    markers = markers_from_index(index, world, bounds2d)
+    (x0, z0), (x1, z1) = bounds2d.min, bounds2d.max
+    region = fetch_region(bridge, world, Bounds((x0, options.y - 1, z0), (x1, options.y, z1)))
+    path = slice_png(region, options.y, load_palettes()["colors"], markers, scale=options.scale, out=options.out)
+    return f"{path}\n" + " ".join(f"{k}={v}" for k, v in region.counts().items())
 
 
 def _area_bounds(options: argparse.Namespace) -> tuple[str, Bounds2D]:
@@ -279,7 +295,8 @@ def main(argv: list[str] | None = None) -> int:
             elif options.command == "info":
                 print(json.dumps(bridge.server_info(), indent=2, sort_keys=True))
             elif options.command == "render":
-                print(_render(bridge, options))
+                handler = {"topdown": _render, "isometric": _render, "slice": _render_slice}[options.render]
+                print(handler(bridge, options))
             elif options.command == "terrain":
                 handler = {"analyze": _terrain_analyze, "find-site": _terrain_find_site, "terraform": _terrain_terraform}[options.terrain]
                 print(handler(bridge, options))

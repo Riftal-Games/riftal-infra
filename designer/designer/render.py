@@ -16,12 +16,14 @@ from PIL import Image, ImageDraw, ImageFont
 
 from designer.blocks import AIR, NAMESPACE, BlockClass, base_name, class_lut
 from designer.config import REPORTS_DIR
-from designer.region import Bounds2D, Heightmap
+from designer.region import Bounds2D, Heightmap, Region
 from designer.world_index import WorldIndex
 
 # Low to high. Space is reserved for an empty column and ``~`` for liquid.
 RAMP = ".,:-=+*#%@"
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+# One glyph per ``BlockClass`` value, in its declared order: air, solid, liquid, passable, danger.
+CLASS_GLYPHS = ".#~,!"
 # Chunk edges, so a tick on the map is a boundary a player can also see.
 TICK = 16
 # The bridge's largest region edge, so a heavy gridline is also a tile edge.
@@ -31,6 +33,11 @@ LEGEND_LINE = 12
 GRID_COLOR, TEXT_COLOR = (200, 200, 200), (255, 255, 255)
 MARKER_FILL = {"location": (255, 40, 40), "corner": (255, 220, 0)}
 WATER_TINT = np.array([40, 90, 220], dtype=float)
+# Air over a floor renders that floor's colour scaled by this factor, so a slice reads its
+# open space as a shadow cast by the block one layer below rather than as a flat void.
+SLICE_FLOOR_SHADE = 0.6
+# Gap between the two panels of a ``side_by_side`` composite, wide enough to read as a seam.
+SIDE_BY_SIDE_GAP = 8
 
 
 @dataclass(frozen=True)
@@ -149,6 +156,50 @@ def ascii_heightmap(
     return "\n".join(lines)
 
 
+def slice_ascii(region: Region, y: int, markers: Iterable[Marker] = (), *, max_width: int = 128, legend: bool = True) -> str:
+    """A horizontal slice of ``region`` at ``y`` as one glyph per ``BlockClass``, with the heightmap's tick and marker layout."""
+    if max_width < 1:
+        raise ValueError(f"max_width must be at least 1, got {max_width}")
+    (xmin, ymin, zmin), (xmax, ymax, zmax) = region.bounds.min, region.bounds.max
+    if not ymin <= y <= ymax:
+        raise ValueError(f"y={y} is outside {ymin}..{ymax}")
+    step = max(1, math.ceil(region.bounds.size[0] / max_width))
+    grid = np.array(list(CLASS_GLYPHS))[region.classes()[y - ymin, ::step, ::step]]
+
+    lettered: list[tuple[str, Marker]] = []
+    corners: dict[str, list[tuple[int, int]]] = {}
+    for marker in markers:
+        if not (xmin <= marker.x <= xmax and zmin <= marker.z <= zmax):
+            continue
+        if marker.kind == "corner":
+            glyph = "+"
+            corners.setdefault(marker.label, []).append((marker.x, marker.z))
+        else:
+            glyph = LETTERS[len(lettered)] if len(lettered) < len(LETTERS) else "?"
+            lettered.append((glyph, marker))
+        grid[(marker.z - zmin) // step, (marker.x - xmin) // step] = glyph
+
+    z_ticks, x_ticks = _ticks(zmin, zmax, step), _ticks(xmin, xmax, step)
+    gutter = max((len(s) for s in z_ticks.values()), default=0) + 1
+    top = [" "] * (gutter + grid.shape[1])
+    for ix, label in x_ticks.items():
+        at, end = gutter + ix, gutter + ix + len(label)
+        if end <= len(top) and all(c == " " for c in top[at - 1 : end]):
+            top[at:end] = label
+    lines = [
+        f"world={region.world} x={xmin}..{xmax} z={zmin}..{zmax} y={y} step={step}",
+        "".join(top).rstrip(),
+    ]
+    lines += [z_ticks.get(iz, "").rjust(gutter - 1) + " " + "".join(row) for iz, row in enumerate(grid)]
+    if legend:
+        lines += [f"{glyph} {m.label} ({m.x},{m.y},{m.z})" for glyph, m in lettered]
+        for name, points in corners.items():
+            xs, zs = [p[0] for p in points], [p[1] for p in points]
+            lines.append(f"+ {name} ({min(xs)},{min(zs)})..({max(xs)},{max(zs)})")
+        lines.append(f"{CLASS_GLYPHS[0]} air, {CLASS_GLYPHS[1]} solid, {CLASS_GLYPHS[2]} liquid, {CLASS_GLYPHS[3]} passable, {CLASS_GLYPHS[4]} danger")
+    return "\n".join(lines)
+
+
 def fallback_color(base: str) -> tuple[int, int, int]:
     """A stable colour for a block with no entry in ``colors``: the hue is a crc32 of its base name."""
     hue = (zlib.crc32(base.encode()) & 0xFFFF) / 0x10000
@@ -225,6 +276,99 @@ def topdown_png(
         draw.text((2 if swatch is None else LEGEND_LINE + 2, y), text, fill=TEXT_COLOR, font=font)
 
     path = report_path("topdown", hm.world, hm.bounds, "png") if out is None else Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+    return path
+
+
+def _slice_layer_rgb(blocks: np.ndarray, classes: np.ndarray, lut: np.ndarray) -> np.ndarray:
+    """RGB per cell of one ``y`` layer, liquid tinted the same way a top-down render tints its top block."""
+    rgb = lut[blocks].copy()
+    liquid = classes == BlockClass.LIQUID
+    rgb[liquid] = rgb[liquid] * 0.5 + WATER_TINT * 0.5
+    return rgb
+
+
+def _slice_image(region: Region, y: int, colors: Mapping[str, Any], scale: int) -> tuple[Image.Image, dict[str, tuple[int, int, int]]]:
+    """The shaded slice image alone, no grid, ticks, markers or legend, plus its hashed-colour names."""
+    ymin, ymax = region.bounds.min[1], region.bounds.max[1]
+    if not ymin <= y <= ymax:
+        raise ValueError(f"y={y} is outside {ymin}..{ymax}")
+    iy = y - ymin
+    classes = region.classes()
+    lut, hashed = _palette_colors(region.palette, colors)
+    rgb = _slice_layer_rgb(region.blocks[iy], classes[iy], lut)
+    air = classes[iy] == BlockClass.AIR
+    if iy > 0 and air.any():
+        under = _slice_layer_rgb(region.blocks[iy - 1], classes[iy - 1], lut)
+        rgb[air] = under[air] * SLICE_FLOOR_SHADE
+    nz, nx = rgb.shape[:2]
+    img = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8)).resize((nx * scale, nz * scale), Image.Resampling.NEAREST)
+    return img, hashed
+
+
+def slice_png(
+    region: Region, y: int, colors: Mapping[str, Any], markers: Iterable[Marker] = (), *, scale: int = 4, out: Path | str | None = None,
+) -> Path:
+    """Write a PNG of the blocks at ``y``, one ``scale`` pixel square per column, and return its path.
+
+    An air cell shows the block one layer below, darkened by ``SLICE_FLOOR_SHADE``, so a slice at
+    head height still reads the floor beneath an open room instead of a flat void.
+    """
+    if scale < 1:
+        raise ValueError(f"scale must be at least 1, got {scale}")
+    (xmin, _, zmin), (xmax, _, zmax) = region.bounds.min, region.bounds.max
+    bounds2d = Bounds2D((xmin, zmin), (xmax, zmax))
+    img, hashed = _slice_image(region, y, colors, scale)
+
+    legend = [(None, f"world={region.world} x={xmin}..{xmax} z={zmin}..{zmax} y={y} scale={scale}")]
+    legend += sorted(((swatch, base) for base, swatch in hashed.items()), key=lambda e: e[1])
+    canvas = Image.new("RGB", (img.width, img.height + LEGEND_LINE * len(legend)), (20, 20, 20))
+    canvas.paste(img, (0, 0))
+    draw, font = ImageDraw.Draw(canvas), ImageFont.load_default()
+    for ix, label in _ticks(xmin, xmax, 1, TICK).items():
+        draw.line([(ix * scale, 0), (ix * scale, img.height - 1)], fill=GRID_COLOR, width=2 if (xmin + ix) % HEAVY == 0 else 1)
+        draw.text((ix * scale + 2, 0), label, fill=TEXT_COLOR, font=font)
+    for iz, label in _ticks(zmin, zmax, 1, TICK).items():
+        draw.line([(0, iz * scale), (img.width - 1, iz * scale)], fill=GRID_COLOR, width=2 if (zmin + iz) % HEAVY == 0 else 1)
+        draw.text((1, iz * scale + 1), label, fill=TEXT_COLOR, font=font)
+    radius = max(3, scale)
+    for m in markers:
+        if bounds2d.contains((m.x, m.z)):
+            px, pz = (m.x - xmin) * scale + scale // 2, (m.z - zmin) * scale + scale // 2
+            fill = MARKER_FILL.get(m.kind, MARKER_FILL["location"])
+            draw.ellipse([px - radius, pz - radius, px + radius, pz + radius], fill=fill, outline=(0, 0, 0))
+            draw.text((px + radius + 2, pz - 5), m.label, fill=TEXT_COLOR, font=font)
+    for i, (swatch, text) in enumerate(legend):
+        ly = img.height + i * LEGEND_LINE
+        if swatch is not None:
+            draw.rectangle([2, ly + 1, LEGEND_LINE - 2, ly + LEGEND_LINE - 2], fill=swatch)
+        draw.text((2 if swatch is None else LEGEND_LINE + 2, ly), text, fill=TEXT_COLOR, font=font)
+
+    path = report_path("slice", region.world, bounds2d, "png") if out is None else Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+    return path
+
+
+def side_by_side(
+    before: Path | str, after: Path | str, labels: tuple[str, str] = ("before", "after"), *, out: Path | str | None = None,
+) -> Path:
+    """Composite two PNGs side by side with a gutter and a label bar over each at a common height.
+
+    Neither panel is reshaded or recoloured: this stacks two renders someone already made,
+    typically the same bounds before and after an edit, so what changed is a single glance.
+    """
+    tiles = [Image.open(p).convert("RGB") for p in (before, after)]
+    tile_height = max(img.height for img in tiles)
+    width = sum(img.width for img in tiles) + SIDE_BY_SIDE_GAP
+    canvas = Image.new("RGB", (width, tile_height + LEGEND_LINE), (20, 20, 20))
+    draw, font, x = ImageDraw.Draw(canvas), ImageFont.load_default(), 0
+    for img, label in zip(tiles, labels, strict=True):
+        canvas.paste(img, (x, LEGEND_LINE))
+        draw.text((x + 2, 0), label, fill=TEXT_COLOR, font=font)
+        x += img.width + SIDE_BY_SIDE_GAP
+    path = REPORTS_DIR / f"side_by_side-{datetime.now():%Y%m%d-%H%M%S}.png" if out is None else Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(path)
     return path
