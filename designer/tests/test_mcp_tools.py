@@ -13,7 +13,7 @@ from designer import config, mcp_server
 from designer.blocks import BlockClass
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
+from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge, FakeWorld
 
 PAD = Bounds((0, 63, 0), (7, 65, 7))
@@ -508,6 +508,22 @@ def test_build_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
     assert refused == {"ok": False, "error": "['tbox', 'tbox_spawn'] already defined; pass replace_index=True to overwrite", "code": None}
     assert _writes(server) == [] and call("list_undo")["entries"] == []
     assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
+
+
+@pytest.mark.parametrize("replace_index", [False, True])
+@pytest.mark.parametrize(("kind", "change", "error"), REFUSED_BUILDS)
+def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
+    server: FakeBridge, refusable: FakeBridge, tmp_path: Path, kind: str, change: dict[str, Any], error: str, replace_index: bool,
+) -> None:
+    spec = {**SMALL_MINE_SPEC, **change}
+    before = (tmp_path / "index.json").read_bytes()
+    assert call("build", kind=kind, spec=spec, palette="test_stone", replace_index=replace_index, dry_run=True)["ok"] is True
+
+    refused = call("build", kind=kind, spec=spec, palette="test_stone", replace_index=replace_index)
+    assert refused["ok"] is False and error in refused["error"]
+    assert _writes(server) == [] and call("list_undo")["entries"] == []
+    assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
+    assert (tmp_path / "index.json").read_bytes() == before
 
 
 def test_build_unknown_kind_and_a_spec_path_outside_specs_are_refused(server: FakeBridge) -> None:

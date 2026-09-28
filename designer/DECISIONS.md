@@ -515,3 +515,18 @@ one too: the `mines` plugin's `MineDefinition` refuses a non-integer percent, so
 fraction the builder let through would stop the mine loading rather than tune it. The
 counts in `checks.yaml`, `margin`, `max_drop` and `min_level`, fail their check the same
 way, `<field> must be an integer, got <value>` (#250).
+
+## 2026-09-28 A build validates every index entry before any snapshot, undo entry or edit
+
+Supersedes the sentence in the 2026-09-28 extras report entry that has index registration
+refuse an already-taken name after blocks are sent. Both the CLI's `_build` and the MCP `build`
+tool call `WorldIndex.preflight` on the builder's locations and regions before the snapshot, the
+undo entry and the first edit. It applies the same `_admissible` rule `add_location` and
+`add_region` use, a name matching `NAME_RE` in a listed world, refuses a name given twice within
+the one build, and returns the names the index already defines, which each caller refuses unless
+the MCP tool's `replace_index` is set. QA on #300 saw a spec named `TBox` send 11 writes and push
+an undo entry before `_add` refused `TBox_exit`, leaving blocks in the world that no index entry
+described (#302). A name given twice is refused even under `replace_index`, since `_add` would
+otherwise let the second silently overwrite the first. Validation runs only when the build will
+register: a dry run, `register_index=False` or `--no-index` registers nothing, so it checks
+nothing. The extras report is still written whenever blocks were sent.

@@ -1,11 +1,15 @@
+from typing import Any
+
 import numpy as np
 import pytest
 
 from designer.blocks import AIR
 from designer.bridge import Bridge
+from designer.builders import BUILDERS, HeightmapFetch, Palette
 from designer.builders.mine_spec import MineSpec
+from designer.edits import EditList
 from designer.region import Bounds, Region
-from tests.fake_bridge import FakeBridge
+from tests.fake_bridge import FakeBridge, FakeWorld
 
 MINE_SPEC = {
     "name": "box", "world": "design", "origin": [0, 0, 0], "size": [20, 10, 20], "wall_thickness": 2, "floor_y": 2,
@@ -31,6 +35,12 @@ STONE_PALETTES = {
     "colors": {},
     "palettes": {"test_stone": dict.fromkeys(("wall", "wall_trim", "floor", "ceiling", "light", "sign", "road", "road_edge", "stairs"), "minecraft:stone")},
 }
+# Each is a kind and a change to SMALL_MINE_SPEC that the index refuses once the `refusable` fixture is up.
+REFUSED_BUILDS = [
+    pytest.param("mine", {"name": "TBox"}, "must match ^[a-z0-9_]+$", id="bad-name"),
+    pytest.param("mine", {"world": "quarry"}, "no such world 'quarry'", id="unlisted-world"),
+    pytest.param("twice", {}, "is given twice in one build", id="in-build-duplicate"),
+]
 
 
 @pytest.fixture
@@ -39,6 +49,22 @@ def fake():
     server.start()
     yield server
     server.stop()
+
+
+@pytest.fixture
+def refusable(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> FakeBridge:
+    """The bridge serves ``quarry``, which no test index lists, and ``twice`` is a mine that emits its first location twice."""
+    build_mine = BUILDERS["mine"]
+
+    def twice(spec: dict[str, Any], palette: Palette, fetch: HeightmapFetch) -> EditList:
+        edits = build_mine(spec, palette, fetch)
+        edits.extras["locations"].append(edits.extras["locations"][0])
+        return edits
+
+    monkeypatch.setitem(BUILDERS, "twice", twice)
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    fake.worlds["quarry"] = FakeWorld()
+    return fake
 
 
 @pytest.fixture

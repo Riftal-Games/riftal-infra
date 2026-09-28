@@ -145,10 +145,19 @@ class WorldIndex:
     def names(self) -> dict[str, Location | NamedRegion]:
         return {e.name: e for e in (*self.locations, *self.regions)}
 
-    def taken(self, entries: Iterable[Mapping[str, Any]]) -> list[str]:
-        """The names among ``entries``, a builder's location and region JSON, that this index already defines, sorted."""
-        defined = self.names()
-        return sorted(e["name"] for e in entries if e["name"] in defined)
+    def preflight(self, locations: Iterable[Mapping[str, Any]], regions: Iterable[Mapping[str, Any]]) -> list[str]:
+        """The names among a builder's ``locations`` and ``regions`` JSON that this index already defines, sorted.
+
+        Raises instead on the first entry ``add_location`` or ``add_region`` would refuse for any other
+        reason, or on a name given twice, so a build can refuse it before sending a single edit.
+        """
+        seen: set[str] = set()
+        for entry in (*map(Location.from_json, locations), *map(NamedRegion.from_json, regions)):
+            self._admissible(entry)
+            if entry.name in seen:
+                raise ValueError(f"name {entry.name!r} is given twice in one build")
+            seen.add(entry.name)
+        return sorted(seen & self.names().keys())
 
     def world(self, name: str) -> WorldEntry:
         for entry in self.worlds:
@@ -178,10 +187,13 @@ class WorldIndex:
     def regions_tagged(self, tag: str) -> list[NamedRegion]:
         return [r for r in self.regions if tag in r.tags]
 
-    def _add(self, entry: Any, into: list[Any], replace: bool) -> Any:
+    def _admissible(self, entry: Location | NamedRegion) -> None:
         if not NAME_RE.fullmatch(entry.name):
             raise ValueError(f"name {entry.name!r} must match {NAME_RE.pattern}")
         self.world(entry.world)
+
+    def _add(self, entry: Any, into: list[Any], replace: bool) -> Any:
+        self._admissible(entry)
         if entry.name in self.names():
             if not replace:
                 raise ValueError(f"{entry.name!r} is already defined; pass replace=True to overwrite it")

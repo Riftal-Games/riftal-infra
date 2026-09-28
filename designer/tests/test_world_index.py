@@ -103,6 +103,20 @@ def test_names_are_unique_across_kinds(index: WorldIndex) -> None:
         index.remove("gate")
 
 
+def test_preflight_returns_the_taken_names_and_raises_on_what_add_would_refuse(index: WorldIndex) -> None:
+    gate = Location("gate", "design", (1, 2, 3)).to_json()
+    spawn = Location("spawn", "design", (0, 64, 0)).to_json()
+    yard = NamedRegion("lumber_safe_zone", "lumber", (0, 0, 0), (1, 1, 1)).to_json()
+    assert index.preflight([gate, spawn], [yard]) == ["lumber_safe_zone", "spawn"]
+    assert index.preflight([gate], []) == []
+    with pytest.raises(ValueError, match="name 'Gate' must match"):
+        index.preflight([gate, {**gate, "name": "Gate"}], [])
+    with pytest.raises(KeyError, match="did you mean 'design'"):
+        index.preflight([], [{**yard, "name": "far", "world": "desgin"}])
+    with pytest.raises(ValueError, match="name 'gate' is given twice in one build"):
+        index.preflight([gate], [{**yard, "name": "gate"}])
+
+
 def test_load_enforces_the_add_invariants(index: WorldIndex, tmp_path: Path) -> None:
     gate = Location("gate", "design", (1, 2, 3)).to_json()
     for changes, message in (
