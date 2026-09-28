@@ -73,3 +73,9 @@ def test_door_is_the_only_opening(palette: Palette) -> None:
 def test_build_room_is_deterministic(palette: Palette) -> None:
     spec = _spec()
     assert build_room(spec, palette).to_json() == build_room(spec, palette).to_json()
+
+
+@pytest.mark.parametrize("field", ["origin", "size"])
+def test_from_dict_rejects_a_fractional_coordinate(field: str) -> None:
+    with pytest.raises(ValueError, match="origin and size must be three integers"):
+        _spec(**{field: [-0.5, 4, 7]})

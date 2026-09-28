@@ -95,3 +95,9 @@ def test_perimeter_follows_the_terrain_when_y_is_unset(palette: Palette) -> None
 def test_build_perimeter_is_deterministic(palette: Palette) -> None:
     spec = _spec()
     assert build_perimeter(spec, palette).to_json() == build_perimeter(spec, palette).to_json()
+
+
+@pytest.mark.parametrize("field", ["min", "max"])
+def test_from_dict_rejects_a_fractional_coordinate(field: str) -> None:
+    with pytest.raises(ValueError, match="min and max must be integers"):
+        _spec(**{field: [-0.5, 6]})

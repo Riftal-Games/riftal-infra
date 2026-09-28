@@ -105,3 +105,8 @@ def test_path_exists_climbs_from_the_base_to_the_top(palette: Palette) -> None:
 
     found = path_exists(region, bottom, top)
     assert found.ok, found.detail
+
+
+def test_from_dict_rejects_a_fractional_coordinate() -> None:
+    with pytest.raises(ValueError, match="from must be three integers"):
+        _spec(**{"from": [-0.5, 0, 0]})

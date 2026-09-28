@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import difflib
 import json
-import numbers
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -11,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from designer.config import PROJECT_ROOT
+from designer.coords import int_coords
 from designer.region import Bounds
 
 VERSION = 1
@@ -19,17 +19,10 @@ DEFAULT_PATH = PROJECT_ROOT / "world_index.json"
 KINDS = ("worlds", "locations", "regions")
 Pos = tuple[int, int, int]
 
-def _coord(value: Any, whole: Any) -> int:
-    """An index position is a block, so a fraction is a mistake to report, not a value to round."""
-    whole_number = isinstance(value, numbers.Integral) or (isinstance(value, numbers.Real) and float(value).is_integer())
-    if isinstance(value, bool) or not whole_number:
-        raise ValueError(f"a position is three integers, got {whole!r}")
-    return int(value)
-
 def _pos(value: Sequence[int]) -> Pos:
     if len(value) != 3:
         raise ValueError(f"a position is three integers, got {tuple(value)!r}")
-    x, y, z = (_coord(v, tuple(value)) for v in value)
+    x, y, z = int_coords(value, "a position is three integers")
     return x, y, z
 
 def _parts(ref: str) -> list[int]:

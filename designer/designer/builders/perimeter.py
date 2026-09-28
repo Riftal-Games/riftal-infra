@@ -8,6 +8,7 @@ from functools import reduce
 from typing import Any
 
 from designer.builders.base import Palette
+from designer.coords import int_coords
 from designer.edits import EditList, Fill
 from designer.region import Bounds, Bounds2D, Heightmap
 from designer.world_index import NamedRegion
@@ -32,7 +33,7 @@ class PerimeterSpec:
         if missing:
             raise ValueError(f"perimeter spec is missing {missing}")
         try:
-            footprint = Bounds2D(tuple(int(v) for v in data["min"]), tuple(int(v) for v in data["max"]))
+            footprint = Bounds2D(*(int_coords(data[k], "min and max must be integers") for k in ("min", "max")))
             y = data.get("y")
             spec = cls(
                 str(data["name"]), str(data["world"]), footprint, int(data["height"]),
