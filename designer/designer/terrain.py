@@ -38,7 +38,7 @@ def _shift(a: np.ndarray, dz: int, dx: int, fill: Any) -> np.ndarray:
 
 def slope_map(hm: Heightmap) -> np.ndarray:
     """Per column, the largest absolute height step to a four-neighbour also inside the map; ``-1`` where none is."""
-    heights, valid = hm.heights, hm.heights >= 0
+    heights, valid = hm.heights, hm.filled()
     slope = np.full(heights.shape, -1, dtype=np.int32)
     for dz, dx in NEIGHBORS4:
         neighbour, there = _shift(heights, dz, dx, 0), _shift(valid, dz, dx, False)
@@ -75,7 +75,7 @@ def analyze_terrain(hm: Heightmap, *, flat_slope: int = 1) -> TerrainStats:
     """
     if flat_slope < 0:
         raise ValueError(f"flat_slope must be at least 0, got {flat_slope}")
-    valid = hm.heights >= 0
+    valid = hm.filled()
     stats = TerrainStats(hm.world, hm.bounds, int(valid.sum()))
     if not valid.any():
         return stats
@@ -134,7 +134,7 @@ def find_flat_site(
     if max_range < 0 or max_water < 0 or limit < 1 or suppress < 0:
         raise ValueError("max_range and max_water must be at least 0, limit at least 1, suppress at least 0")
 
-    valid = hm.heights >= 0
+    valid = hm.filled()
     heights = np.where(valid, hm.heights, 0).astype(np.int64)
     slope = np.where(valid, slope_map(hm), 0)
     liquid = _liquid(hm)
@@ -261,7 +261,7 @@ def terraform(
     if hm.bounds.intersect(bounds) != bounds:
         raise ValueError(f"terraform bounds {bounds.min}..{bounds.max} are not covered by the fetched heightmap {hm.bounds.min}..{hm.bounds.max}")
 
-    valid = hm.heights >= 0
+    valid = hm.filled()
     smoothed = _smoothed_heights(hm.heights.astype(float), valid, smooth_radius) if mode == "smooth" else None
 
     spans: dict[tuple[int, int], tuple[int, int, str]] = {}

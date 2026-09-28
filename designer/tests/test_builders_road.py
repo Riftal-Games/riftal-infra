@@ -5,7 +5,7 @@ from designer.builders.base import Palette
 from designer.builders.road import EDGE_EVERY, build_road, road_profile
 from designer.builders.road_spec import RoadSpec
 from designer.edits import Fill, SetBlock
-from designer.region import Bounds2D, Heightmap, Region, heightmap_from_region
+from designer.region import EMPTY_Y, Bounds2D, Heightmap, Region, heightmap_from_region
 from designer.verify import path_exists
 
 
@@ -27,7 +27,7 @@ def test_road_profile_never_steps_more_than_one() -> None:
 
 
 def test_road_profile_rejects_an_empty_column() -> None:
-    hm = _hm("t", [0, -1, 2])
+    hm = _hm("t", [0, EMPTY_Y, 2])
     with pytest.raises(ValueError, match=r"no ground at \(1, 0\)"):
         road_profile(hm, [(x, 0) for x in range(3)])
 
