@@ -1,16 +1,20 @@
 """A surface anywhere in y -64..-1 is a surface, never an empty column."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
+from PIL import Image
 
 from designer.blocks import AIR
 from designer.bridge import Bridge
 from designer.builders.base import Palette
 from designer.builders.perimeter import PerimeterSpec, build_perimeter
 from designer.builders.road import road_profile
+from designer.palettes import load_palettes
 from designer.region import Bounds, Bounds2D, Region, fetch_heightmap, heightmap_from_region
-from designer.render import ascii_heightmap, summary
-from designer.terrain import analyze_terrain, find_flat_site, terraform
+from designer.render import _palette_colors, _topdown_image, ascii_heightmap, isometric_png, summary
+from designer.terrain import analyze_terrain, find_flat_site, slope_map, terraform
 from tests.fake_bridge import FakeBridge
 
 WORLD = "design"
@@ -50,6 +54,29 @@ def test_summary_and_ascii_count_surfaces_below_zero() -> None:
     stats = summary(hm)
     assert (stats["columns"], stats["min"], stats["max"], stats["flat"]) == (3, -64, -1, 1 / 3)
     assert "y=-64..-1" in ascii_heightmap(hm).splitlines()[0]
+
+
+def test_ascii_body_draws_surfaces_below_zero_and_blanks_only_the_empty_column() -> None:
+    lines = ascii_heightmap(heightmap_from_region(_region()), legend=False).splitlines()
+    # Band 7 over y -64..-1 puts -10 on level 7, -64 on level 0 and -1 on level 9.
+    assert lines[2:] == ["0 #.@ "]
+
+
+def test_topdown_colours_surfaces_below_zero_and_leaves_only_the_empty_column_black() -> None:
+    img, _ = _topdown_image(heightmap_from_region(_region()), load_palettes()["colors"], 1)
+    assert [bool(px.any()) for px in np.asarray(img)[0]] == [True, True, True, False]
+
+
+def test_isometric_paints_the_top_faces_of_surfaces_below_zero(tmp_path: Path) -> None:
+    colors = load_palettes()["colors"]
+    stone = tuple(int(c) for c in _palette_colors([STONE], colors)[0][0])
+    image = np.asarray(Image.open(isometric_png(heightmap_from_region(_region()), colors, scale=2, out=tmp_path / "iso.png")).convert("RGB"))
+    # At scale 2 the top face of column x 2, the highest at y -1, centres on pixel x 12, y 6.
+    assert tuple(image[6, 12]) == stone
+
+
+def test_slope_map_measures_steps_between_surfaces_below_zero_and_skips_the_empty_column() -> None:
+    assert slope_map(heightmap_from_region(_region())).tolist() == [[54, 63, 63, -1]]
 
 
 def test_terrain_treats_surfaces_below_zero_as_ground() -> None:

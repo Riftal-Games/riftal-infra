@@ -156,6 +156,14 @@ def test_inspect_at_a_column_whose_surface_is_below_zero_fills_its_y(server: Fak
     assert call("inspect", at="300,300", radius=1)["center"] == [300, y, 300]
 
 
+def test_inspect_at_an_empty_column_beside_a_surface_below_zero_says_it_is_empty(server: FakeBridge) -> None:
+    world = server.worlds["design"]
+    world.edits[(300, -1, 300)] = world.index_of("minecraft:stone")
+    assert call("inspect", at="300,300", radius=1)["center"] == [300, -1, 300]
+    result = call("inspect", at="301,300", radius=1)
+    assert result["ok"] is False and "column 301,300 in design is empty; give x,y,z" in result["error"]
+
+
 def test_the_fake_bridge_refuses_an_inspect_box_that_leaves_the_build_range(server: FakeBridge) -> None:
     floor, ceiling = FakeWorld.MIN_Y, FakeWorld.MAX_Y
     for lo, hi in ((floor - 2, floor + 2), (ceiling - 2, ceiling + 2)):
