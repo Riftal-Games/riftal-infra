@@ -12,7 +12,7 @@ def test_render_is_deterministic_lists_every_tool_once_and_uses_lf() -> None:
     first, second = tools_doc.render_tools_md(mcp_server.mcp), tools_doc.render_tools_md(mcp_server.mcp)
     assert first == second and "\r" not in first and first.endswith("\n")
     names = sorted(t.name for t in anyio.run(mcp_server.mcp.list_tools))
-    assert [line[3:] for line in first.splitlines() if line.startswith("## ")] == names and len(names) == 23
+    assert [line[3:] for line in first.splitlines() if line.startswith("## ")] == names and len(names) == 28
     assert "RETURNS:" not in first and first.count("\nReturns: ") == len(names) and first.count("```json\n") == len(names)
 
 

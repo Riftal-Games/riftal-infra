@@ -27,6 +27,44 @@ falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` an
 ```
 Returns: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
 
+## check_entity_clear
+
+Whether the 1x2 hitbox at ``at`` is free.
+
+```json
+{"properties": {"at": {"title": "At", "type": "string"}}, "required": ["at"], "title": "check_entity_clearArguments", "type": "object"}
+```
+Returns: passed, detail, coords, seconds.
+
+## check_mine
+
+Whether the named ``region`` matches the mine ``spec`` (a path under ``specs/``): enclosure, entrances, ore mix, floor.
+
+```json
+{"properties": {"region": {"title": "Region", "type": "string"}, "spec": {"title": "Spec", "type": "string"}}, "required": ["region", "spec"], "title": "check_mineArguments", "type": "object"}
+```
+Returns: passed, detail, coords, seconds.
+
+## check_path
+
+Whether a walkable path from ``start`` to ``end`` exists and its travel time is under ``max_seconds``.
+
+``start`` and ``end`` are ``from``/``to`` in ``checks.yaml``, renamed here since ``from`` is a Python keyword.
+
+```json
+{"properties": {"end": {"title": "End", "type": "string"}, "max_seconds": {"default": 10, "title": "Max Seconds", "type": "integer"}, "start": {"title": "Start", "type": "string"}}, "required": ["start", "end"], "title": "check_pathArguments", "type": "object"}
+```
+Returns: passed, detail, coords, seconds.
+
+## check_warp_safe
+
+Whether a warp landing at ``at`` is clear, grounded, free of liquid or danger, with no deep hole underfoot.
+
+```json
+{"properties": {"at": {"title": "At", "type": "string"}}, "required": ["at"], "title": "check_warp_safeArguments", "type": "object"}
+```
+Returns: passed, detail, coords, seconds.
+
 ## define_location
 
 Add a named location to the index and save it; ``pos`` is the feet block.
@@ -161,6 +199,15 @@ Put a snapshot back by path or undo id, sending only the cells that differ; what
 {"properties": {"dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "snapshot": {"anyOf": [{"type": "string"}, {"type": "integer"}], "title": "Snapshot"}}, "required": ["snapshot"], "title": "restoreArguments", "type": "object"}
 ```
 Returns: world, bounds, restored, dry_run, blocks, snapshot, undo_id, jobs.
+
+## run_checks
+
+Run every check in ``checks.yaml``, or only the ids in ``only``, and write the markdown report.
+
+```json
+{"properties": {"only": {"anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}], "default": null, "title": "Only"}}, "title": "run_checksArguments", "type": "object"}
+```
+Returns: report, passed, failed, total, table (at most sixty rows) of id, check, ok, seconds, detail.
 
 ## server_status
 
