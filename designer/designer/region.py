@@ -16,6 +16,10 @@ from designer.bridge import Bridge
 # The bridge's ``max_region_edge``; any request with a longer edge is refused.
 MAX_EDGE = 128
 
+# The inclusive y range of a PocketMine LevelDB world; the bridge refuses a box that leaves it.
+# The bridge does not report a world's range, so a world with another one is not covered.
+WORLD_MIN_Y, WORLD_MAX_Y = -64, 319
+
 # Blocks a ground heightmap looks through, so a tree is not a surface.
 CANOPY_SUFFIXES = ("_leaves", "_log", "_wood")
 

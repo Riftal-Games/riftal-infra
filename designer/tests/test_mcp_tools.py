@@ -149,6 +149,29 @@ def test_inspect_caps_the_radius_and_slices_by_class(server: FakeBridge) -> None
     assert call("inspect", at="300,300", radius=1)["ok"] is False
 
 
+def test_the_fake_bridge_refuses_an_inspect_box_that_leaves_the_build_range(server: FakeBridge) -> None:
+    floor, ceiling = FakeWorld.MIN_Y, FakeWorld.MAX_Y
+    for lo, hi in ((floor - 2, floor + 2), (ceiling - 2, ceiling + 2)):
+        bounds = {"min": [14, lo, 14], "max": [18, hi, 18]}
+        refused = server._dispatch({"op": "get_region", "args": {"world": "design", "bounds": bounds}})
+        assert refused["ok"] is False and refused["code"] == "OUT_OF_WORLD"
+
+
+@pytest.mark.parametrize(
+    ("y", "lo", "hi"), [(FakeWorld.MIN_Y, FakeWorld.MIN_Y, FakeWorld.MIN_Y + 2), (FakeWorld.MAX_Y, FakeWorld.MAX_Y - 2, FakeWorld.MAX_Y)]
+)
+def test_inspect_at_the_build_floor_or_ceiling_stops_at_it(server: FakeBridge, y: int, lo: int, hi: int) -> None:
+    result = call("inspect", at=f"16,{y},16", radius=2)
+    assert result["ok"] is True and result["center"] == [16, y, 16]
+    assert result["bounds"] == {"min": [14, lo, 14], "max": [18, hi, 18]}
+    assert [s["y"] for s in result["slices"]] == list(range(lo, hi + 1))
+
+
+def test_inspect_centred_outside_the_build_range_is_refused(server: FakeBridge) -> None:
+    result = call("inspect", at=f"16,{FakeWorld.MIN_Y - 1},16", radius=2)
+    assert result["ok"] is False and "outside the build range" in result["error"]
+
+
 def test_inspect_resolves_a_spawn_that_is_only_a_tag(server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     index = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
     index.add_location(Location("design_spawn", "design", (8, 64, 8), tags=["spawn"]))
