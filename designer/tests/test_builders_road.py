@@ -134,3 +134,10 @@ def test_from_dict_rejects_a_fractional_coordinate(field: str) -> None:
     data = {"name": "r", "world": "road", "start": [0, 0], "end": [6, 0], field: [-0.5, 3]}
     with pytest.raises(ValueError, match="start and end must be integers"):
         RoadSpec.from_dict(data)
+
+
+@pytest.mark.parametrize("field", ["width", "clear_height"])
+def test_from_dict_rejects_a_fractional_size(field: str) -> None:
+    data = {"name": "r", "world": "road", "start": [0, 0], "end": [6, 0], field: 2.5}
+    with pytest.raises(ValueError, match=rf"^{field} must be an integer, got 2\.5$"):
+        RoadSpec.from_dict(data)

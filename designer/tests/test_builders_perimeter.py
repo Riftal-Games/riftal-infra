@@ -106,3 +106,9 @@ def test_from_dict_rejects_a_fractional_coordinate(field: str) -> None:
 def test_from_dict_rejects_a_fractional_y() -> None:
     with pytest.raises(ValueError, match="y must be an integer"):
         _spec(y=-0.5)
+
+
+@pytest.mark.parametrize("field", ["height", "post_every"])
+def test_from_dict_rejects_a_fractional_size_or_count(field: str) -> None:
+    with pytest.raises(ValueError, match=rf"^{field} must be an integer, got 2\.5$"):
+        _spec(**{field: 2.5})
