@@ -237,7 +237,7 @@ wslc run -d -i --name designer \
   -v "$GAME/designbridge:/plugins/DesignBridge:ro" \
   -v "$INFRA/images/plugins/RiftalDevBots.php:/plugins/RiftalDevBots.php:ro" \
   -e "DESIGNBRIDGE_TOKEN=$DESIGNBRIDGE_TOKEN" -e RIFTAL_DEV_ENV=1 \
-  -e "POCKETMINE_ARGS=--level-name=design --level-type=normal --level-seed=20260907 --xbox-auth=false --gamemode=1 --max-players=4 --view-distance=16 --motd=riftal-designer --riftal-dev-bots=${DESIGNER_DEV_BOTS:-off}" \
+  -e "POCKETMINE_ARGS=--level-name=design --level-type=normal --level-seed=20260907 --xbox-auth=false --gamemode=1 --max-players=4 --view-distance=16 --motd=riftal-designer --auto-report.enabled=0 --riftal-dev-bots=${DESIGNER_DEV_BOTS:-off}" \
   local-pocketmine-mp
 
 wslc logs designer
