@@ -180,12 +180,21 @@ How a scenario reaches the stack, from `riftal-pm/devtools`:
   ```
 
 Under the WSL docker engine (`wsl -d Ubuntu-26.04 -u runner -- docker ...`),
-the distro runs bridged and a `127.0.0.1` publish there is not reachable from
-Windows. Set `DESIGNER_BIND` to the distro's own address, the first one
-`wsl -d Ubuntu-26.04 -- hostname -I` prints, and give the relay and the ops
-client that address (`RELAY_UPSTREAM_HOST` for the relay), the same thing
-`dev-stack.ps1` does for the dev stack. Never set it to `0.0.0.0` or a LAN
-address: `19140` edits the world for anyone holding the token.
+the distro's `127.0.0.1` is its own loopback, not Windows'.
+
+- **`19140` stays on the distro's loopback.** It has no bind override, because
+  it edits the world for anyone holding the token. Run the op client inside
+  the distro against `127.0.0.1:19140`: a shell from
+  `wsl -d Ubuntu-26.04 -u runner`, or a container started with
+  `--network host`.
+- **The game port has no private route to Windows. This is a known
+  limitation.** The distro is bridged onto the LAN, so every address in it
+  that Windows can reach is a LAN address. `hostname -I` prints the LAN
+  address first. Setting `DESIGNER_GAME_BIND` to that address lets the relay
+  reach the stack (`RELAY_UPSTREAM_HOST`, the address `dev-stack.ps1` gives
+  its own relay), and it also exposes the offline-mode game port to every
+  machine on the LAN. Where that is not acceptable, run bot scenarios under
+  `wslc`.
 
 Stop cleanly as above, then `docker volume rm riftal_smoke_designbridge`.
 

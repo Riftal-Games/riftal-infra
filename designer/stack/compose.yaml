@@ -1,7 +1,7 @@
 # One core container and nothing else. This stack builds worlds, it does not
 # serve players: there is no proxy because only a builder and dev bots join,
 # and no database because the design world holds no player state. The server
-# runs in offline mode, so both publishes stay on 127.0.0.1.
+# runs in offline mode, so both publishes default to 127.0.0.1.
 #
 # Every server setting travels as a command-line flag, because flags beat
 # server.properties in ServerConfigGroup. That leaves the world volume as the
@@ -17,12 +17,14 @@ services:
       # still listens on 19132 internally; DESIGNER_GAME_PORT is only where
       # the host maps it, same pattern as INSTANCE_BIND there.
       #
-      # DESIGNER_BIND exists for an engine inside a bridged WSL distro, where
-      # 127.0.0.1 is the distro's own loopback and unreachable from Windows:
-      # it takes that distro's NAT address, never a LAN or public one, since
-      # the bridge port edits the world for anyone holding the token.
-      - "${DESIGNER_BIND:-127.0.0.1}:${DESIGNER_GAME_PORT:-19134}:19132/udp"
-      - "${DESIGNER_BIND:-127.0.0.1}:19140:19140/tcp"
+      # DESIGNER_GAME_BIND exists for an engine inside a bridged WSL distro,
+      # whose 127.0.0.1 Windows cannot reach. Every address such a distro has
+      # that Windows can reach is on the LAN, so setting it exposes the
+      # offline-mode game port to the LAN; see README.md.
+      - "${DESIGNER_GAME_BIND:-127.0.0.1}:${DESIGNER_GAME_PORT:-19134}:19132/udp"
+      # Loopback with no override: this port edits the world for anyone
+      # holding the token, so an op client runs where the engine runs.
+      - "127.0.0.1:19140:19140/tcp"
     volumes:
       - designer-world:/data
       - ./plugins:/plugins
