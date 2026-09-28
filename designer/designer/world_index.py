@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import numbers
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -18,11 +19,24 @@ DEFAULT_PATH = PROJECT_ROOT / "world_index.json"
 KINDS = ("worlds", "locations", "regions")
 Pos = tuple[int, int, int]
 
+def _coord(value: Any, whole: Any) -> int:
+    """An index position is a block, so a fraction is a mistake to report, not a value to round."""
+    whole_number = isinstance(value, numbers.Integral) or (isinstance(value, numbers.Real) and float(value).is_integer())
+    if isinstance(value, bool) or not whole_number:
+        raise ValueError(f"a position is three integers, got {whole!r}")
+    return int(value)
+
 def _pos(value: Sequence[int]) -> Pos:
     if len(value) != 3:
         raise ValueError(f"a position is three integers, got {tuple(value)!r}")
-    x, y, z = (int(v) for v in value)
+    x, y, z = (_coord(v, tuple(value)) for v in value)
     return x, y, z
+
+def _parts(ref: str) -> list[int]:
+    try:
+        return [int(p) for p in ref.split(",")]
+    except ValueError:
+        raise ValueError(f"a position is integers, got {ref!r}") from None
 
 @dataclass
 class Location:
@@ -157,7 +171,7 @@ class WorldIndex:
         if "," not in ref:
             entry = self.resolve(ref)
             return entry.pos if isinstance(entry, Location) else _pos([lo + (hi - lo + 1) // 2 for lo, hi in zip(entry.min, entry.max)])
-        parts = [int(p) for p in ref.split(",")]
+        parts = _parts(ref)
         return (parts[0], None, parts[1]) if len(parts) == 2 else _pos(parts)
 
     def locations_tagged(self, tag: str) -> list[Location]:
