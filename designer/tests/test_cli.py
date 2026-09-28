@@ -225,13 +225,14 @@ def test_build_apply_registers_the_index_then_refuses_the_second_apply(
     assert report["ok"] is True and Path(report["snapshot"]).is_file()
     assert {e.name for e in (*WorldIndex.load(index_path).locations, *WorldIndex.load(index_path).regions)} == SMALL_MINE_NAMES
 
-    assert main(args) == 0
-    again = json.loads(capsys.readouterr().out)
-    assert again["ok"] is False and "already defined" in again["error"] and "snapshot" not in again
+    assert main(args) == 1
+    again = capsys.readouterr()
+    assert again.out == "" and "already defined" in again.err
 
 
-def test_build_apply_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
-    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+@pytest.mark.parametrize("apply", [[], ["--apply"]], ids=["dry-run", "apply"])
+def test_build_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path, apply: list[str]
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
@@ -246,19 +247,20 @@ def test_build_apply_refuses_a_taken_name_before_any_edit_reaches_the_bridge(
     spec_path = tmp_path / "spec.json"
     spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
 
-    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--apply"]) == 0
-    refused = json.loads(capsys.readouterr().out)
-    assert refused["ok"] is False and refused["error"].startswith("['tbox', 'tbox_spawn'] already defined")
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", *apply]) == 1
+    refused = capsys.readouterr()
+    assert refused.out == "" and refused.err.startswith("designer: ['tbox', 'tbox_spawn'] already defined")
     assert [r["op"] for r in fake.requests if r["op"] in ("set_blocks", "fill", "replace")] == []
-    assert "snapshot" not in refused and refused["extras_report"] is None
     assert not (tmp_path / "snapshots").exists() and not (tmp_path / "reports").exists()
     assert WorldIndex.load(index_path).to_json() == seeded.to_json()
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--no-index"]) == 0
 
 
+@pytest.mark.parametrize("apply", [[], ["--apply"]], ids=["dry-run", "apply"])
 @pytest.mark.parametrize(("kind", "change", "error"), REFUSED_BUILDS)
-def test_build_apply_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
+def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
     refusable: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path,
-    kind: str, change: dict[str, Any], error: str,
+    kind: str, change: dict[str, Any], error: str, apply: list[str],
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", refusable.token)
     monkeypatch.setenv("DESIGNER_PORT", str(refusable.port))
@@ -270,8 +272,9 @@ def test_build_apply_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
     spec_path = tmp_path / "spec.json"
     spec_path.write_text(json.dumps({**SMALL_MINE_SPEC, **change}), encoding="utf-8")
 
-    assert main(["build", kind, "--spec", str(spec_path), "--palette", "test_stone", "--apply"]) == 1
-    assert error in capsys.readouterr().err
+    assert main(["build", kind, "--spec", str(spec_path), "--palette", "test_stone", *apply]) == 1
+    refused = capsys.readouterr()
+    assert refused.out == "" and error in refused.err
     assert [r["op"] for r in refusable.requests if r["op"] in ("set_blocks", "fill", "replace")] == []
     assert not (tmp_path / "snapshots").exists() and not (tmp_path / "reports").exists()
     assert index_path.read_bytes() == before

@@ -570,3 +570,17 @@ is enforced on load too (#307). Load raises `ValueError` for every refusal: a `K
 `Location 'gate': no such world 'desgin', did you mean 'design'?`, the same hint `add_location`
 gives, and a bad name reads `Location 'Gate' must match ^[a-z0-9_]+$`. A `KeyError` with no
 message reads `Location 'gate': not admissible`.
+
+## 2026-09-28 A build refusal is one error, dry run or not
+
+Supersedes the sentence in the 2026-09-28 preflight entry that has a dry run check nothing.
+Every index refusal a build makes is an error: a bad name, an unlisted world, a name given twice
+in the build, and a name the index already defines. The CLI's `designer build` prints
+`designer: <reason>` on stderr, prints no report and exits 1 for each; the MCP `build` tool raises,
+so it answers `ok: false` with the reason. `WorldIndex.preflight` is read-only, so both run it on a
+dry run too, and a dry run refuses exactly what the build would, before the snapshot and the
+first edit. On the CLI an index refusal exits 1, and so does every error `main` catches: a
+`ConfigError`, a `BridgeError`, and the `KeyError` or `ValueError` of a bad spec. A failed bridge
+write and a failing `mine_valid` exit 0 and are read from the report. Only `--no-index` on the CLI, or
+`register_index=False` on the tool, skips the check, since neither registers anything, and
+`replace_index` lets the tool's taken names through on a dry run as on a build (#308).

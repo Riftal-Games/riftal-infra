@@ -100,13 +100,13 @@ def build_parser() -> argparse.ArgumentParser:
     terraform.add_argument("--smooth-radius", type=int, default=2, metavar="N")
     terraform.add_argument("--apply", action="store_true", help="Send the edits; default is a dry run that only reports them.")
 
-    build = commands.add_parser("build", help="Build KIND from a spec and palette. Dry run by default; --apply sends it.")
+    build = commands.add_parser("build", help="Build KIND from a spec and palette. Dry run by default; --apply sends it. Exits 1, dry run or not, on an index entry the build would refuse.")
     build.add_argument("kind", choices=sorted(BUILDERS), metavar="KIND", help="A builder registered in designer.builders.BUILDERS.")
     build.add_argument("--spec", required=True, metavar="PATH", help="Path to a JSON spec file.")
     build.add_argument("--palette", required=True, metavar="NAME", help="A palette name from palettes.json.")
     build.add_argument("--apply", action="store_true", help="Send the edits and register the index; default is a dry run that only reports them.")
     build.add_argument("--no-verify", action="store_true", help="Skip mine_valid on the built region.")
-    build.add_argument("--no-index", action="store_true", help="Skip registering the builder's locations and regions.")
+    build.add_argument("--no-index", action="store_true", help="Skip checking and registering the builder's locations and regions.")
 
     checks = commands.add_parser("checks", help="Run checks.yaml against the running server.")
     checks_sub = checks.add_subparsers(dest="checks")
@@ -225,11 +225,11 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> str:
         region = edits.to_region(Region.empty(mine_spec.world, geo.padding.union(geo.exit_platform)))
         found = mine_valid(region, mine_spec)
         report["mine_valid"] = {"ok": found.ok, "detail": found.detail}
-    idx = WorldIndex.load() if options.apply and not options.no_index else None
+    idx = None if options.no_index else WorldIndex.load()
     taken = idx.preflight(report["locations"], report["regions"]) if idx is not None else []
     if taken:
-        report["ok"], report["error"] = False, f"{taken} already defined; rerun without --apply to inspect, then build a differently named spec"
-    elif options.apply and edits.bounds is not None:
+        raise ValueError(f"{taken} already defined; build a differently named spec, or pass --no-index to build without registering")
+    if options.apply and edits.bounds is not None:
         report["snapshot"] = str(snapshots.take(bridge, edits.world, edits.bounds, f"build_{options.kind}").path)
         result = edits.apply(bridge)
         report["ok"] = result.ok
