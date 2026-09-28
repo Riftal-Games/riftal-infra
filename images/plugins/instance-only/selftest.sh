@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
 # and for start-instance.sh, the script that loads it. Also pins crash
-# auto-report off on every PocketMine service, designer/stack's included.
+# auto-report off on every PocketMine service, designer/stack's included, and
+# covers deliver-world-index.sh and the index mount both instances boot with
+# (riftal-infra#293).
 #
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
