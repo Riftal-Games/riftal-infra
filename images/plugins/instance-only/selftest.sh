@@ -22,7 +22,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=40
+EXPECTED_ASSERTIONS=42
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -228,10 +228,10 @@ check "a missing index stops the boot before the start command, naming the path"
     grep -q "etc/world_index.json" "$work/deliver/out"'
 
 printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#262)\n'
-# The plugin throws on enable when any of these keys is missing, so the
-# template has to carry them. CI checks out this repository alone and holds no
-# token for the private riftal-game, so there the comparison is reported as
-# skipped rather than passed.
+# The plugin throws on enable without a scalar key and reads a missing
+# join_teleport as off, so the template has to carry them. CI checks out this
+# repository alone and holds no token for the private riftal-game, so there
+# the comparison is reported as skipped rather than passed.
 SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/mines/resources/config.yml"
 TEMPLATE="$DIR/RiftalMines.config.yml.template"
 SKIPPED=0
@@ -243,6 +243,12 @@ keys() { grep -oE '^[^[:space:]#-][^:]*:' "$1" | sort -u; }
 # Top-level keys holding a scalar. The database and worlds sections hold
 # none, so the values the template overrides on purpose stay out of it.
 tuning() { grep -E '^[^[:space:]#-][^:]*:[[:space:]]*[^[:space:]#]' "$1" | sed 's/[[:space:]]*$//' | sort; }
+# Every section's header and entries, comments and blank lines dropped,
+# except database and worlds, which the template overrides on purpose.
+sections() {
+  awk '/^[^[:space:]#]/ { keep = /^[^:]*:[[:space:]]*$/ && !/^(database|worlds):/ }
+    keep && /[^[:space:]]/ && !/^[[:space:]]*#/' "$1" | sed 's/[[:space:]]*$//'
+}
 # Top-level keys in the shipped file $1 that the template lacks.
 missing() { comm -23 <(keys "$1") <(keys "$TEMPLATE"); }
 mutated="$work/shipped.yml"
@@ -250,6 +256,11 @@ drift "every scalar key in riftal-game's mines config.yml matches the template" 
   '[ -n "$(tuning "$SHIPPED")" ] && [ "$(tuning "$SHIPPED")" = "$(tuning "$TEMPLATE")" ]'
 drift "every top-level key in riftal-game's mines config.yml, section or scalar, is in the template" \
   '[ -n "$(keys "$SHIPPED")" ] && [ -z "$(missing "$SHIPPED")" ]'
+drift "every section in riftal-game's mines config.yml but database and worlds matches the template" \
+  '[ -n "$(sections "$SHIPPED")" ] && [ "$(sections "$SHIPPED")" = "$(sections "$TEMPLATE")" ]'
+drift "a shipped join_teleport value the template does not carry is caught" \
+  'sed "s/^  location: .*/  location: \"elsewhere\"/" "$SHIPPED" > "$mutated" &&
+    ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" != "$(sections "$TEMPLATE")" ]'
 drift "a shipped value the template does not carry is caught" \
   'sed "s/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/" "$SHIPPED" > "$mutated" &&
     [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'

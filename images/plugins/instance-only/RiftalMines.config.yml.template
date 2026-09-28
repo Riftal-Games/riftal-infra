@@ -4,8 +4,10 @@
 # there.
 #
 # Every value below except the database section and `worlds` is the plugin's
-# own shipped default (riftal-game/mines/resources/config.yml), which the
-# plugin throws without and selftest.sh compares to that file. `worlds` names
+# own shipped default (riftal-game/mines/resources/config.yml), which
+# selftest.sh compares to that file. The plugin throws without any of the
+# scalars, and reads a missing join_teleport section as switched off, so that
+# one would drift in silence were it not carried here. `worlds` names
 # only lumber: the shipped mine_a to mine_c entries have no built mine on this
 # stack, and mine_a here is a plain generated world. The database section
 # differs because that file's defaults name a host, schema and user that
@@ -32,3 +34,10 @@ default_reset_percent: 60
 refill_blocks_per_tick: 4096
 
 refill_tick_budget_ms: 15
+
+# Switching it on here is riftal-infra#319: with it on, a location missing from
+# the delivered world_index.json, or its world not loaded, rejects every join.
+join_teleport:
+  enabled: false
+  location: "mine_a_spawn"
+  world_index: "world_index.json"
