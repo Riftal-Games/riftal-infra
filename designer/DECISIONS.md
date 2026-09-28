@@ -486,3 +486,12 @@ and `39.5` is block `39`; truncation toward zero would put `-0.5` in block `0`. 
 region guard and `Bounds.local` both read the floored position, so a position is either
 inside the region and indexed, or outside it and a failed check, never one and then the
 other. `coords` and `detail` name the floored block, not the raw position (#233).
+
+## 2026-09-28 A position in the world index is a block, and a fraction is rejected
+
+`world_index` rejects a non-integral coordinate with `ValueError` rather than flooring it
+the way `verify` does. Every writer of an index position hands it a block: the
+`define_location` and `define_region` tools take `list[int]`, the builders compute
+blocks, `world_index.json` holds none, and an `x,y,z` string parses as integers. A
+fraction there is a mistake, and flooring it would store a block nobody chose. A whole
+float such as `4.0` is accepted, a `bool` is not (#241).

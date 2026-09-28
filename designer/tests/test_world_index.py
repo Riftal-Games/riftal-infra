@@ -61,6 +61,19 @@ def test_resolve_pos_accepts_every_form(index: WorldIndex) -> None:
             index.resolve_pos(bad)
 
 
+def test_a_fractional_position_is_rejected_not_truncated(index: WorldIndex) -> None:
+    assert index.resolve_pos([4.0, 5, -6.0]) == (4, 5, -6)
+    for bad in ([-0.5, 64, 0], [1, 64.9, 2], [1, 2, float("nan")], [True, 2, 3], ["1", 2, 3]):
+        with pytest.raises(ValueError, match="a position is three integers"):
+            index.resolve_pos(bad)
+    with pytest.raises(ValueError, match="a position is three integers"):
+        Location("gate", "design", (-0.5, 64, 2))
+    with pytest.raises(ValueError, match="a position is three integers"):
+        NamedRegion("yard", "design", (0, 60, 0), (9, 70, -2.5))
+    with pytest.raises(ValueError, match="a position is integers, got '-0.5,64,0'"):
+        index.resolve_pos("-0.5,64,0")
+
+
 def test_unknown_name_hints_the_nearest(index: WorldIndex) -> None:
     with pytest.raises(KeyError, match="no such name 'spwan', did you mean 'spawn'"):
         index.resolve("spwan")
