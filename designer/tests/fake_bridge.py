@@ -40,8 +40,9 @@ class FakeWorld:
 
     Air is last in the palette on purpose, so the toolkit's remap to index 0 is exercised.
     Writes land in ``edits`` on top of the terrain, and the heightmap is read from the same ``blocks``.
-    A box reaching past ``MIN_Y..MAX_Y``, a PocketMine world's height range, is refused with
-    ``OUT_OF_WORLD`` the way DesignBridge refuses it.
+    A box reaching past ``MIN_Y..MAX_Y``, a PocketMine world's block range, is refused with
+    ``OUT_OF_WORLD``. DesignBridge refuses the same box below the floor, but accepts one
+    reaching y 320 (riftal-game#209), so the fake is one block stricter at the ceiling.
     """
 
     PALETTE = ["minecraft:stone", "minecraft:grass_block", "minecraft:air"]

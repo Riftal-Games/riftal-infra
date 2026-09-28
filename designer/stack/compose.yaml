@@ -1,7 +1,8 @@
 # One core container and nothing else. This stack builds worlds, it does not
-# serve players: there is no proxy because nobody logs in through it, and no
-# database because the design world holds no player state. The server runs in
-# offline mode, so both publishes stay on 127.0.0.1.
+# serve players: there is no proxy because only a builder and dev bots join,
+# and no database because the design world holds no player state. The server
+# runs in offline mode, so the game port defaults to 127.0.0.1 and the bridge
+# port is fixed there.
 #
 # Every server setting travels as a command-line flag, because flags beat
 # server.properties in ServerConfigGroup. That leaves the world volume as the
@@ -16,17 +17,31 @@ services:
       # stack needs its own host port to run alongside either. The container
       # still listens on 19132 internally; DESIGNER_GAME_PORT is only where
       # the host maps it, same pattern as INSTANCE_BIND there.
-      - "127.0.0.1:${DESIGNER_GAME_PORT:-19134}:19132/udp"
+      #
+      # DESIGNER_GAME_BIND exists for an engine inside a bridged WSL distro,
+      # whose 127.0.0.1 Windows cannot reach. Every address such a distro has
+      # that Windows can reach is on the LAN, so setting it exposes the
+      # offline-mode game port to the LAN; see README.md.
+      - "${DESIGNER_GAME_BIND:-127.0.0.1}:${DESIGNER_GAME_PORT:-19134}:19132/udp"
+      # Loopback with no override: this port edits the world for anyone
+      # holding the token, so an op client runs where the engine runs.
       - "127.0.0.1:19140:19140/tcp"
     volumes:
       - designer-world:/data
       - ./plugins:/plugins
       - ${DESIGNBRIDGE_SRC:-../../../riftal-game/designbridge}:/plugins/DesignBridge:ro
+      # The one copy the dev stack loads too, so the two stacks can never
+      # admit bots under different rules.
+      - ../../images/plugins/RiftalDevBots.php:/plugins/RiftalDevBots.php:ro
     environment:
       # No default, on purpose. DesignBridge disables itself on an empty
       # token, which is the failure we want over a literal every clone of
       # this repo would otherwise carry.
       DESIGNBRIDGE_TOKEN: ${DESIGNBRIDGE_TOKEN}
+      # One of RiftalDevBots' three signals, with xbox-auth=false and the
+      # riftal-dev-bots flag; see README.md. Whether bots are admitted is
+      # DESIGNER_DEV_BOTS alone, off unless a bot scenario asks for it.
+      RIFTAL_DEV_ENV: "1"
       POCKETMINE_ARGS: >-
         --level-name=design
         --level-type=normal
@@ -36,10 +51,13 @@ services:
         --max-players=4
         --view-distance=16
         --motd=riftal-designer
+        --riftal-dev-bots=${DESIGNER_DEV_BOTS:-off}
 
 volumes:
   # Pinned so the volume is the same one whether the container was started by
   # compose or by hand from this file. Not a riftal_smoke_ name on purpose: the
   # guard refuses to remove it, and that is what protects a hand-built world.
+  # A bot scenario points DESIGNER_VOLUME at a riftal_smoke_ volume instead,
+  # so its fills and breaks never land in that world.
   designer-world:
-    name: designer-world
+    name: ${DESIGNER_VOLUME:-designer-world}

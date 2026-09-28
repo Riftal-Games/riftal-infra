@@ -36,7 +36,9 @@ from designer.builders.base import Palette, opt
 from designer.builders.mine_spec import MineSpec
 from designer.edits import ApplyResult, EditList, Fill, Replace, SetBlock
 from designer.palettes import load_palettes
-from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region, heightmap_from_region
+from designer.region import (
+    WORLD_MAX_Y, WORLD_MIN_Y, Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region, heightmap_from_region,
+)
 from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, summary, timelapse_png, topdown_png
 from designer.snapshot import Snapshot, UndoStack
 from designer.verify import mine_valid
@@ -130,7 +132,11 @@ def _full_pos(at: str, world: str | None) -> tuple[str, tuple[int, int, int]]:
 def _inspect(at: str, radius: int, world: str | None) -> dict[str, Any]:
     radius = max(0, min(int(radius), MAX_RADIUS))
     world, (x, y, z) = _full_pos(at, world)
-    region = fetch_region(bridge(), world, Bounds.from_center((x, y, z), (2 * radius + 1,) * 3))
+    if not WORLD_MIN_Y <= y <= WORLD_MAX_Y:
+        raise ValueError(f"y {y} is outside the build range {WORLD_MIN_Y}..{WORLD_MAX_Y}")
+    box = Bounds.from_center((x, y, z), (2 * radius + 1,) * 3)
+    (x0, _, z0), (x1, _, z1) = box.min, box.max
+    region = fetch_region(bridge(), world, box.intersect(Bounds((x0, WORLD_MIN_Y, z0), (x1, WORLD_MAX_Y, z1))))
     glyphs = CLASS_GLYPHS[region.classes()]
     slices = [{"y": region.bounds.min[1] + iy, "rows": ["".join(row) for row in layer]} for iy, layer in enumerate(glyphs)]
     return {"world": world, "center": [x, y, z], "bounds": region.bounds.to_json(), "counts": region.counts(), "slices": slices}
@@ -237,6 +243,9 @@ async def timelapse(region: str, out: str | None = None) -> dict[str, Any]:
 @tool
 async def inspect(at: str, radius: int = 3, world: str | None = None) -> dict[str, Any]:
     """Block counts and one ASCII slice per y around ``at``, ``radius`` at most 8; glyphs ``. # ~ , !`` by class.
+
+    The box stops at the build range, y -64..319, so ``bounds`` is shorter than ``2*radius+1`` near either end;
+    an ``at`` outside that range is refused.
 
     RETURNS: world, center, bounds, counts, slices as [{y, rows}] from the lowest y up.
     """

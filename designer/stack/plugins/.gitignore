@@ -1,1 +1,3 @@
 *.phar
+# The empty mountpoint the engine creates for compose.yaml's file mount.
+RiftalDevBots.php
