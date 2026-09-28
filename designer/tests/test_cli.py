@@ -10,7 +10,7 @@ from designer.cli import main
 from designer.render import LEGEND_LINE
 from designer.world_index import Location, WorldEntry, WorldIndex
 from tests.conftest import SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
-from tests.fake_bridge import FakeBridge
+from tests.fake_bridge import FakeBridge, FakeWorld
 
 
 def _checks_index(tmp_path: Path) -> Path:
@@ -132,6 +132,31 @@ def test_render_slice_writes_the_png_and_prints_its_path_and_block_counts(
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == str(out) and Image.open(out).size == (4 * 4, 4 * 4 + LEGEND_LINE)
     assert fake.requests[-1]["args"]["bounds"] == {"min": [-2, 63, -2], "max": [1, 64, 1]}
+
+
+def test_render_slice_at_the_world_floor_fetches_only_the_floor_layer(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    out = tmp_path / "floor-slice.png"
+    floor = FakeWorld.MIN_Y
+
+    assert main(["render", "slice", "--at", "spawn", "--size", "4", "--y", str(floor), "--out", str(out)]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == str(out) and Image.open(out).size == (4 * 4, 4 * 4 + LEGEND_LINE)
+    assert fake.requests[-1]["args"]["bounds"] == {"min": [-2, floor, -2], "max": [1, floor, 1]}
+
+
+def test_render_slice_below_the_world_floor_exits_one(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+
+    below = str(FakeWorld.MIN_Y - 1)
+    assert main(["render", "slice", "--at", "spawn", "--size", "4", "--y", below, "--out", str(tmp_path / "x.png")]) == 1
+    assert "OUT_OF_WORLD" in capsys.readouterr().err
 
 
 def test_terrain_analyze_prints_stats_for_the_flat_area(

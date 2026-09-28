@@ -40,10 +40,13 @@ class FakeWorld:
 
     Air is last in the palette on purpose, so the toolkit's remap to index 0 is exercised.
     Writes land in ``edits`` on top of the terrain, and the heightmap is read from the same ``blocks``.
+    A box reaching past ``MIN_Y..MAX_Y``, a PocketMine world's height range, is refused with
+    ``OUT_OF_WORLD`` the way DesignBridge refuses it.
     """
 
     PALETTE = ["minecraft:stone", "minecraft:grass_block", "minecraft:air"]
     SURFACE, HEIGHT = 63, 128
+    MIN_Y, MAX_Y = -64, 319
 
     def __init__(self, extent: tuple[tuple[int, int], tuple[int, int]] = ((0, 0), (255, 255))) -> None:
         self.extent = Bounds2D(*extent)
@@ -188,6 +191,8 @@ class FakeBridge:
         box = cls.from_json(args["bounds"])
         if max(box.size) > MAX_EDGE:
             raise FakeOpError("BOUNDS_TOO_LARGE", f"edge {max(box.size)} over {MAX_EDGE}")
+        if cls is Bounds and (box.min[1] < FakeWorld.MIN_Y or box.max[1] > FakeWorld.MAX_Y):
+            raise FakeOpError("OUT_OF_WORLD", f"y {box.min[1]}..{box.max[1]} outside {FakeWorld.MIN_Y}..{FakeWorld.MAX_Y}")
         return box
 
     def _job(self, op: str, result: dict[str, Any], steps: int = 0, total: int | None = None) -> dict[str, Any]:

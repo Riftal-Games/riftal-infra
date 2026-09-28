@@ -14,7 +14,7 @@ from designer import config
 from designer import snapshot as snapshots
 from designer import stack as stack_mod
 from designer import terrain as terrain_mod
-from designer.bridge import Bridge, BridgeError
+from designer.bridge import Bridge, BridgeError, BridgeOpError
 from designer.builders import BUILDERS
 from designer.builders.base import Palette, opt
 from designer.builders.mine_spec import MineSpec
@@ -149,13 +149,28 @@ def _render(bridge: Bridge, options: argparse.Namespace) -> str:
     return f"{path}\n" + " ".join(f"{k}={v}" for k, v in stats.items())
 
 
+def _fetch_slice(bridge: Bridge, world: str, bounds: Bounds) -> Region:
+    """``bounds`` is the slice layer and the one beneath it; at the world's floor, only the slice layer.
+
+    The toolkit holds no world height range, so the bridge's ``OUT_OF_WORLD`` is what marks the
+    floor. A slice layer that is itself outside the world is refused by the second fetch.
+    """
+    try:
+        return fetch_region(bridge, world, bounds)
+    except BridgeOpError as exc:
+        if exc.code != "OUT_OF_WORLD":
+            raise
+    (x0, _, z0), (x1, y, z1) = bounds.min, bounds.max
+    return fetch_region(bridge, world, Bounds((x0, y, z0), (x1, y, z1)))
+
+
 def _render_slice(bridge: Bridge, options: argparse.Namespace) -> str:
     index = WorldIndex.load()
     world, (x, _, z) = resolve_at(index, options.at, options.world)
     bounds2d = Bounds2D.from_center((x, z), (options.size, options.size))
     markers = markers_from_index(index, world, bounds2d)
     (x0, z0), (x1, z1) = bounds2d.min, bounds2d.max
-    region = fetch_region(bridge, world, Bounds((x0, options.y - 1, z0), (x1, options.y, z1)))
+    region = _fetch_slice(bridge, world, Bounds((x0, options.y - 1, z0), (x1, options.y, z1)))
     path = slice_png(region, options.y, load_palettes()["colors"], markers, scale=options.scale, out=options.out)
     return f"{path}\n" + " ".join(f"{k}={v}" for k, v in region.counts().items())
 
