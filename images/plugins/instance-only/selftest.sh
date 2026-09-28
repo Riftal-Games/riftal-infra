@@ -17,7 +17,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\n' > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=13
+EXPECTED_ASSERTIONS=19
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -80,6 +80,52 @@ check "the schema is the one compose creates" \
   '[ "$(db schema)" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ]'
 check "the registered world is the lumber spec's world" \
   'grep -q "^  $(jq -r .world "$SPEC"): \"worlds/$(jq -r .world "$SPEC").json\"\$" "$rendered"'
+
+printf '\n== start-instance.sh keeps what start-pocketmine does for instance-b\n'
+# Runs a copy of start-instance.sh with its absolute paths moved under a
+# scratch root and php and wget stubbed, so nothing boots and nothing is
+# fetched. $1 is the uid the ownership check treats as pocketmine; the rest
+# are environment assignments. The shared /plugins starts with Cached.phar.
+boot() {
+  local owner="$1" root="$work/boot"
+  shift
+  rm -rf "$root"
+  mkdir -p "$root/plugins" "$root/data" "$root/pm" "$root/bin"
+  : > "$root/plugins/Cached.phar"
+  sed -e "s#/plugins#$root/plugins#g; s#/data#$root/data#g" \
+    -e "s#/opt/pocketmine#$root/pm#g; s#-user pocketmine#-user $owner#g" \
+    "$DIR/start-instance.sh" > "$root/start-instance.sh"
+  cat > "$root/bin/php" <<EOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$root/args"
+for a; do case "\$a" in --plugins=*) ls "\${a#--plugins=}" > "$root/roster" ;; esac; done
+EOF
+  cat > "$root/bin/wget" <<EOF
+#!/bin/bash
+printf '%s\n' "\$3" >> "$root/fetched"
+: > "\$2"
+EOF
+  chmod +x "$root/bin/php" "$root/bin/wget"
+  env -i HOME="$work" PATH="$root/bin:$PATH" POCKETMINE_ARGS= "$@" \
+    bash "$root/start-instance.sh" > "$root/out" 2>&1 < /dev/null \
+    && [ -s "$root/args" ]
+}
+me="$(id -u)"
+b="$work/boot"
+check "POCKETMINE_ANSI=1 passes --enable-ansi" \
+  'boot "$me" POCKETMINE_ANSI=1 && grep -qx -- --enable-ansi "$b/args"'
+check "POCKETMINE_ANSI=0, and auto off a TTY, leave ANSI off" \
+  'boot "$me" POCKETMINE_ANSI=0 && ! grep -q ansi "$b/args" && boot "$me" && ! grep -q ansi "$b/args"'
+check "POCKETMINE_PLUGINS fetches each missing plugin at its version into the roster" \
+  'boot "$me" POCKETMINE_PLUGINS="Foo:1.2 Bar Cached" &&
+    [ "$(cat "$b/fetched")" = "$(printf "%s\n" https://poggit.pmmp.io/get/Foo/1.2 https://poggit.pmmp.io/get/Bar/)" ] &&
+    [ "$(cat "$b/roster")" = "$(printf "%s\n" Bar.phar Cached.phar Foo.phar)" ]'
+check "POCKETMINE_PLUGINS writes nothing into the shared /plugins" \
+  'boot "$me" POCKETMINE_PLUGINS="Foo Bar" && [ "$(ls "$b/plugins")" = Cached.phar ]'
+check "a file in /plugins not owned by pocketmine is warned about" \
+  'boot "$((me + 1))" && grep -q "=== WARNING ===" "$b/out" && grep -q "Cached.phar" "$b/out"'
+check "no ownership warning when pocketmine owns everything" \
+  'boot "$me" && ! grep -q WARNING "$b/out"'
 
 printf '\n'
 ran=$((PASSES + FAILURES))
