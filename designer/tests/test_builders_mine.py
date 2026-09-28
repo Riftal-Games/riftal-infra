@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -135,4 +136,35 @@ def test_from_dict_rejects_a_fractional_size_or_count(path: tuple[str, ...], val
         target = target[p]
     target[key] = value
     with pytest.raises(ValueError, match=f"^{message}$"):
+        MineSpec.from_dict(data)
+
+
+def _outer_tags(spec: MineSpec, palette: Palette) -> list[str]:
+    return next(r for r in build_mine(spec, palette).extras["regions"] if r["name"] == spec.name)["tags"]
+
+
+def test_a_spec_without_safe_zone_builds_a_safe_mine(palette: Palette) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    del data["safe_zone"]
+    assert _outer_tags(MineSpec.from_dict(data), palette) == ["mine", "safe_zone"]
+
+
+@pytest.mark.parametrize("name", ["mine_a", "lumber"])
+def test_committed_specs_build_safe_mines(name: str, palette: Palette) -> None:
+    spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / f"{name}.json").read_text(encoding="utf-8")))
+    assert _outer_tags(spec, palette) == ["mine", "safe_zone"]
+
+
+def test_safe_zone_false_leaves_only_the_mine_tag(palette: Palette) -> None:
+    contested = MineSpec.from_dict({**json.loads(SPEC_PATH.read_text(encoding="utf-8")), "safe_zone": False})
+    edits = build_mine(contested, palette)
+    assert _outer_tags(contested, palette) == ["mine"]
+    assert MineSpec.from_dict(edits.extras["mine_spec"]).safe_zone is False
+    assert all("safe_zone" not in r["tags"] for r in edits.extras["regions"])
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1, None, ["safe_zone"]])
+def test_from_dict_rejects_a_safe_zone_that_is_not_a_boolean(value: object) -> None:
+    data = {**json.loads(SPEC_PATH.read_text(encoding="utf-8")), "safe_zone": value}
+    with pytest.raises(ValueError, match=f"^safe_zone must be true or false, got {re.escape(repr(value))}$"):
         MineSpec.from_dict(data)
