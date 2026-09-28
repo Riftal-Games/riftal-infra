@@ -10,7 +10,7 @@ from designer.blocks import AIR
 from designer.bridge import Bridge
 from designer.edits import EditList, Fill, SetBlock
 from designer.region import Bounds, Bounds2D, Region, fetch_heightmap, fetch_region
-from designer.snapshot import Snapshot, UndoStack, diff, load, restore, save, take
+from designer.snapshot import TS_FORMAT, Snapshot, UndoStack, diff, load, restore, save, take
 from tests.fake_bridge import FakeBridge
 
 WORLD = "design"
@@ -65,13 +65,39 @@ def test_restore_only_changed_sends_the_changed_cells_and_the_fake_matches_the_s
     fake.requests.clear()
     assert restore(bridge, snap, dry_run=True).blocks == 0 and _writes(fake) == []
     result = restore(bridge, snap)
-    assert (result.ok, result.blocks, [r["op"] for r in _writes(fake)]) == (True, 14, ["set_blocks", "fill", "set_blocks"])
-    assert [r["args"]["blocks"] for r in _writes(fake) if r["op"] == "set_blocks"] == [[[3, 63, 3, "minecraft:grass_block"]], [[5, 65, 5, AIR]]]
-    assert [r["args"]["bounds"] for r in _writes(fake) if r["op"] == "fill"] == [Bounds((0, 64, 0), (11, 64, 0)).to_json()]
+    # Every run here is shorter than the default batch, so all 14 cells fit one shared
+    # set_blocks request, in mask order: y ascending, then z, then x.
+    expected = [[3, 63, 3, "minecraft:grass_block"]] + [[x, 64, 0, AIR] for x in range(12)] + [[5, 65, 5, AIR]]
+    assert (result.ok, result.blocks, [r["op"] for r in _writes(fake)]) == (True, 14, ["set_blocks"])
+    assert _writes(fake)[0]["args"]["blocks"] == expected
     assert diff(snap, fetch_region(bridge, WORLD, BOX)).changed == 0
     assert isinstance(result.before_result, Snapshot) and result.before_result.label == "restore" and result.before_result.path.is_file()
     assert result.before_result.bounds == Bounds((0, 63, 0), (11, 65, 5))
     assert diff(result.before_result, snap.region.sub(result.before_result.bounds)).changed == 14
+
+
+def test_restore_uses_a_fill_only_when_a_run_would_not_fit_one_batch_request(fake: FakeBridge, bridge: Bridge) -> None:
+    def _edit_then_restore(label: str, batch: int) -> tuple[Snapshot, list[dict]]:
+        snap = take(bridge, WORLD, BOX, label)
+        EditList(WORLD, [Fill(Bounds((0, 64, 0), (11, 64, 0)), GLASS), SetBlock(5, 65, 5, STONE)]).apply(bridge)
+        fake.requests.clear()
+        result = restore(bridge, snap, batch=batch)
+        assert result.ok and result.blocks == 13
+        assert diff(snap, fetch_region(bridge, WORLD, BOX)).changed == 0
+        return snap, _writes(fake)
+
+    # A batch of 20 covers the 12-cell row for free, so both runs ride one shared
+    # set_blocks request, unlike the length-8-or-more rule a plain coalesce would apply.
+    _, writes = _edit_then_restore("pre_wide_batch", batch=20)
+    assert [w["op"] for w in writes] == ["set_blocks"]
+    assert writes[0]["args"]["blocks"] == [[x, 64, 0, AIR] for x in range(12)] + [[5, 65, 5, AIR]]
+
+    # An 8-entry batch cannot hold the 12-cell row on its own, so it goes as a Fill;
+    # the lone single cell still fits a set_blocks request by itself.
+    _, writes = _edit_then_restore("pre_narrow_batch", batch=8)
+    assert [w["op"] for w in writes] == ["fill", "set_blocks"]
+    assert writes[0]["args"]["bounds"] == Bounds((0, 64, 0), (11, 64, 0)).to_json()
+    assert writes[1]["args"]["blocks"] == [[5, 65, 5, AIR]]
 
 
 def test_undo_manifest_survives_a_new_stack_and_undo_restores_the_fake(fake: FakeBridge, bridge: Bridge, snapshots_dir: Path) -> None:
@@ -136,3 +162,18 @@ def test_prune_with_dry_run_deletes_nothing(fake: FakeBridge, bridge: Bridge) ->
     assert stack.prune(keep_days=30) == []
     assert stack.prune(dry_run=False) == [old.path] and not old.path.exists() and new.path.is_file()
     assert [e["id"] for e in stack.entries()] == [2]
+
+
+def test_prune_refuses_a_manifest_entry_whose_path_resolves_outside_snapshots_dir(tmp_path: Path) -> None:
+    outside = tmp_path / "outside" / "evil.npz"
+    outside.parent.mkdir()
+    outside.write_bytes(b"not a real snapshot")
+    stack = UndoStack()
+    entries = [{
+        "id": 1, "session": None, "op": "fill", "world": WORLD, "bounds": BOX.to_json(), "label": "evil",
+        "timestamp": (datetime.now(UTC) - timedelta(days=30)).strftime(TS_FORMAT), "path": str(outside), "restored": False,
+    }]
+    stack._write(entries)
+    with pytest.raises(ValueError, match="outside the snapshots directory"):
+        stack.prune(dry_run=False)
+    assert outside.is_file() and [e["id"] for e in stack.entries()] == [1]

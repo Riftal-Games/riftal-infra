@@ -450,3 +450,21 @@ proposal for what a plot is. Building the plots world stays out of scope until t
 decides that, same as `build_plot_grid` and `build_signage` shipping in #164 without touching the
 live map; `mine_a`'s own entries wait alongside these two for the session that actually builds
 them, but only `mine_a`'s spec is real design data.
+
+## 2026-09-28 `restore`'s run detection is vectorised in numpy; a run becomes a `Fill` only past `batch`; `prune` refuses a manifest path outside `SNAPSHOTS_DIR`
+
+Building one `SetBlock` per changed cell in a Python loop before `coalesce` ever ran was
+two million iterations for a fully changed 128^3 region. `_restore_ops` finds x-runs
+in numpy instead: a sentinel marks the cells `mask` excludes, a boolean diff over the
+reshaped array finds where each run starts, and the gaps between starts give every run's
+length in one pass, so the Python loop that follows walks runs, not cells. A run becomes
+a `Fill` only once its length exceeds `batch`, not at the fixed `COALESCE_RUN` the rest
+of the toolkit uses for a typed edit list: a `Fill` always costs one request whatever its
+length, while anything up to `batch` rides the same shared `set_blocks` request as every
+other row's cells, for free. Under the default `batch` of 4096 and a row capped by
+`MAX_EDGE` at 128, that is nearly every restore, which is the fix for QA's measured
+16^3 case: 208 per-row fills for 3328 cells that fit one batched request. `prune`
+resolves every path it is about to unlink against `SNAPSHOTS_DIR` and refuses the whole
+batch, before any file is touched, if one lands outside it, because the manifest is
+read back off disk and a hand edit or a bad write is exactly the kind of input `unlink`
+must never trust blind.
