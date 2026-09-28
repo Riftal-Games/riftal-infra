@@ -72,12 +72,15 @@ def _expand(value: object, env: Mapping[str, str]) -> str:
     return _VAR_RE.sub(repl, str(value))
 
 
-def _resolve_volume(spec: str, base: Path) -> str:
-    """A bare name (``designer-world``) is a named volume, left alone; a ``./``
-    or ``../`` host resolves relative to the compose file, same as compose."""
+def _resolve_volume(spec: str, base: Path, names: Mapping[str, str]) -> str:
+    """A bare name (``designer-world``) is a named volume, mapped through the
+    top-level ``name:`` the way compose maps it; a ``./`` or ``../`` host
+    resolves relative to the compose file, same as compose."""
     host, _, remainder = spec.partition(":")
     if host.startswith("./") or host.startswith("../"):
         host = str((base / host).resolve()).replace("\\", "/")
+    else:
+        host = names.get(host, host)
     return f"{host}:{remainder}"
 
 
@@ -88,11 +91,13 @@ def load_service(compose_file: Path = COMPOSE_FILE, env: Mapping[str, str] | Non
     try:
         document = yaml.safe_load(compose_file.read_text(encoding="utf-8"))
         service = document["services"][SERVICE]
-    except (OSError, yaml.YAMLError, KeyError, TypeError) as exc:
+        declared = document.get("volumes") or {}
+        names = {key: _expand(value["name"], env) for key, value in declared.items() if value and "name" in value}
+    except (OSError, yaml.YAMLError, KeyError, TypeError, AttributeError) as exc:
         raise StackError(f"cannot read the {SERVICE!r} service from {compose_file}: {exc}") from exc
     base = compose_file.parent
     ports = tuple(_expand(p, env) for p in service.get("ports", []))
-    volumes = tuple(_resolve_volume(_expand(v, env), base) for v in service.get("volumes", []))
+    volumes = tuple(_resolve_volume(_expand(v, env), base, names) for v in service.get("volumes", []))
     environment = {k: _expand(v, env) for k, v in (service.get("environment") or {}).items()}
     return ServiceSpec(image=service["image"], ports=ports, volumes=volumes, environment=environment)
 
