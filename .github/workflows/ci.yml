@@ -100,13 +100,16 @@ jobs:
       - name: Restore drill self-test
         run: bash deploy/restore-selftest.sh
 
+      # --locked fails when uv.lock no longer matches pyproject.toml, where
+      # --frozen would install the stale lock as-is. Once this sync has
+      # validated the lock, the later uv run calls can stay --frozen.
       - name: Designer toolkit tests
         working-directory: designer
         run: |
           set -euo pipefail
-          uv sync --group dev
-          uv run pytest -q
+          uv sync --locked --group dev
+          uv run --frozen pytest -q
 
       - name: TOOLS.md matches the registered tools
         working-directory: designer
-        run: uv run python -m designer.tools_doc --check
+        run: uv run --frozen python -m designer.tools_doc --check
