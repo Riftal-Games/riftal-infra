@@ -29,7 +29,7 @@
         40,
         -32
       ],
-      "name": "lumber",
+      "name": "lumber_safe_zone",
       "tags": [
         "mine",
         "safe_zone"
@@ -37,7 +37,7 @@
       "world": "lumber"
     }
   ],
-  "updated": "2026-09-28T12:39:57+00:00",
+  "updated": "2026-09-28T12:57:10+00:00",
   "version": 1,
   "worlds": [
     {

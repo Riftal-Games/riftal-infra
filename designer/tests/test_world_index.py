@@ -21,7 +21,7 @@ def test_committed_file_names_the_spec_worlds(index: WorldIndex) -> None:
     assert {w.name for w in index.worlds} == SPEC_WORLDS | {"design"}
     assert (index.version, index.default_world, index.world("design").role) == (1, "design", "design")
     # riots makes the lumber world a safe zone through this region's safe_zone tag.
-    assert index.regions == [NamedRegion("lumber", "lumber", (-32, 40, -32), (31, 63, 31), ["mine", "safe_zone"])]
+    assert index.regions == [NamedRegion("lumber_safe_zone", "lumber", (-32, 40, -32), (31, 63, 31), ["mine", "safe_zone"])]
     assert {w.name: w.extra["rank"] for w in index.worlds if w.role == "ore_mine"} == {"mine_a": "A", "mine_b": "B", "mine_c": "C"}
     assert {(w.generator, w.seed) for w in index.worlds} == {("normal", 20260907)}
     assert index.resolve_pos("spawn") == (0, 64, 0) and index.locations_tagged("spawn")[0].world == "design"
@@ -98,7 +98,7 @@ def test_names_are_unique_across_kinds(index: WorldIndex) -> None:
             index.add_location(Location(bad, "design", (0, 0, 0)))
     with pytest.raises(KeyError, match="did you mean 'design'"):
         index.add_location(Location("far", "desgin", (0, 0, 0)))
-    assert index.remove("gate").name == "gate" and index.names() == {"spawn": index.locations[0], "lumber": index.regions[0]}
+    assert index.remove("gate").name == "gate" and index.names() == {"spawn": index.locations[0], "lumber_safe_zone": index.regions[0]}
     with pytest.raises(KeyError):
         index.remove("gate")
 
@@ -119,6 +119,6 @@ def test_load_enforces_the_add_invariants(index: WorldIndex, tmp_path: Path) -> 
 def test_tag_queries(index: WorldIndex) -> None:
     index.add_region(NamedRegion("pit", "mine_a", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
     index.add_location(Location("seller", "mine_a", (1, 1, 1), tags=["npc", "sell"]))
-    assert [r.name for r in index.regions_tagged("safe_zone")] == ["lumber", "pit"] and index.regions_tagged("spawn") == []
+    assert [r.name for r in index.regions_tagged("safe_zone")] == ["lumber_safe_zone", "pit"] and index.regions_tagged("spawn") == []
     assert [l.name for l in index.locations_tagged("npc")] == ["seller"] and index.locations_tagged("mine") == []
     assert [l.name for l in index.locations_tagged("spawn")] == ["spawn"]
