@@ -22,7 +22,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=35
+EXPECTED_ASSERTIONS=40
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -225,8 +225,45 @@ check "a missing index stops the boot before the start command, naming the path"
   '! deliver "" printf started && ! grep -q started "$work/deliver/out" &&
     grep -q "etc/world_index.json" "$work/deliver/out"'
 
+printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#262)\n'
+# The plugin throws on enable when any of these keys is missing, so the
+# template has to carry them. CI checks out this repository alone and holds no
+# token for the private riftal-game, so there the comparison is reported as
+# skipped rather than passed.
+SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/mines/resources/config.yml"
+TEMPLATE="$DIR/RiftalMines.config.yml.template"
+SKIPPED=0
+# Each assertion here is counted as skipped rather than dropped when the
+# shipped file is absent, so the assertion count still sees one deleted.
+drift() { if [ -f "$SHIPPED" ]; then check "$1" "$2"; else SKIPPED=$((SKIPPED + 1)); fi; }
+# Every top-level key, whether it holds a scalar or opens a section.
+keys() { grep -oE '^[^[:space:]#-][^:]*:' "$1" | sort -u; }
+# Top-level keys holding a scalar. The database and worlds sections hold
+# none, so the values the template overrides on purpose stay out of it.
+tuning() { grep -E '^[^[:space:]#-][^:]*:[[:space:]]*[^[:space:]#]' "$1" | sed 's/[[:space:]]*$//' | sort; }
+# Top-level keys in the shipped file $1 that the template lacks.
+missing() { comm -23 <(keys "$1") <(keys "$TEMPLATE"); }
+mutated="$work/shipped.yml"
+drift "every scalar key in riftal-game's mines config.yml matches the template" \
+  '[ -n "$(tuning "$SHIPPED")" ] && [ "$(tuning "$SHIPPED")" = "$(tuning "$TEMPLATE")" ]'
+drift "every top-level key in riftal-game's mines config.yml, section or scalar, is in the template" \
+  '[ -n "$(keys "$SHIPPED")" ] && [ -z "$(missing "$SHIPPED")" ]'
+drift "a shipped value the template does not carry is caught" \
+  'sed "s/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/" "$SHIPPED" > "$mutated" &&
+    [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'
+drift "a shipped scalar whose key holds a digit or hyphen is caught" \
+  '{ cat "$SHIPPED"; printf "refill_v2-budget: 3\n"; } > "$mutated" &&
+    [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'
+drift "a shipped section the template lacks is caught" \
+  '{ cat "$SHIPPED"; printf "messages:\n  reset: x\n"; } > "$mutated" &&
+    [ "$(missing "$mutated")" = "messages:" ]'
+if [ "$SKIPPED" -ne 0 ]; then
+  printf '::warning::%s assertions skipped: no riftal-game mines config at %s; set RIFTAL_GAME_DIR\n' \
+    "$SKIPPED" "$SHIPPED"
+fi
+
 printf '\n'
-ran=$((PASSES + FAILURES))
+ran=$((PASSES + FAILURES + SKIPPED))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
   printf '%s of %s assertions ran, so one did not run and cannot have passed\n' \
     "$ran" "$EXPECTED_ASSERTIONS"
@@ -235,5 +272,9 @@ fi
 if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
+fi
+if [ "$SKIPPED" -ne 0 ]; then
+  printf '%s assertions passed, %s skipped\n' "$PASSES" "$SKIPPED"
+  exit 0
 fi
 printf 'all %s assertions passed\n' "$PASSES"
