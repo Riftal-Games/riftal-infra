@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
-# and for start-instance.sh, the script that loads it.
+# and for start-instance.sh, the script that loads it. Also pins crash
+# auto-report off on every PocketMine service, designer/stack's included.
 #
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
@@ -15,11 +16,11 @@ command -v jq >/dev/null || { printf '::error::jq is required\n'; exit 1; }
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\n' > "$work/env"
+printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\n' > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=21
+EXPECTED_ASSERTIONS=26
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -58,6 +59,28 @@ check "a file mounted inside /data is caught" \
 check "no other service loads RiftalMines" '[ -z "$(leaks "$real")" ]'
 check "a copy mounting instance-only on instance-b is caught" \
   '[ "$(leaks "$(edited "/- riftal-world-b:\/data/a\      - ./plugins/instance-only:/i:ro")")" = instance-b ]'
+
+printf '\n== no PocketMine service uploads a crash dump (riftal-infra#232)\n'
+DESIGNER="$DIR/../../../designer/stack/compose.yaml"
+# Services running a PocketMine image whose POCKETMINE_ARGS does not set
+# auto-report.enabled to exactly one 0. ServerConfigGroup::getPropertyBool()
+# casts the flag's string, so "false", "no" or a repeat all read as true.
+uploaders() {
+  jq -r '.services | to_entries[] | select(.value.image | test("pocketmine"))
+    | select([.value.environment.POCKETMINE_ARGS // "" | splits("\\s+")
+      | select(startswith("--auto-report.enabled"))] != ["--auto-report.enabled=0"])
+    | .key' <<<"$1"
+}
+designer="$(model "$DESIGNER")"
+check "instance, instance-b and designer are the PocketMine services checked" \
+  '[ "$(jq -r ".services | to_entries[] | select(.value.image | test(\"pocketmine\")) | .key" \
+    <<<"$real$designer" | sort | tr "\n" " ")" = "designer instance instance-b " ]'
+check "every PocketMine service passes --auto-report.enabled=0" \
+  '[ -z "$(uploaders "$real")" ] && [ -z "$(uploaders "$designer")" ]'
+check "--auto-report.enabled=false, which PocketMine reads as true, is caught" \
+  '[ "$(uploaders "$(edited "/instance-b:/,\$s/--auto-report.enabled=0/--auto-report.enabled=false/")")" = instance-b ]'
+check "a service without the flag is caught" \
+  '[ "$(uploaders "$(edited "0,/--auto-report.enabled=0/{/--auto-report.enabled=0/d}")")" = instance ]'
 
 printf '\n== the rendered config points at this stack\n'
 cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$work/"
@@ -125,6 +148,9 @@ check "POCKETMINE_PLUGINS fetches each missing plugin at its version into the ro
 check "a POCKETMINE_PLUGINS spread over two lines fetches from both" \
   'boot "$me" POCKETMINE_PLUGINS="$(printf "Foo\nBar")" &&
     [ "$(cat "$b/roster")" = "$(printf "%s\n" Bar.phar Cached.phar Foo.phar)" ]'
+check "instance's POCKETMINE_ARGS reaches php with auto-report off" \
+  'boot "$me" POCKETMINE_ARGS="$(jq -r .services.instance.environment.POCKETMINE_ARGS <<<"$real")" &&
+    grep -qx -- --auto-report.enabled=0 "$b/args"'
 check "an unset POCKETMINE_ARGS boots, as it does under start-pocketmine" \
   'boot "$me" && ! grep -q unbound "$b/out"'
 check "POCKETMINE_PLUGINS writes nothing into the shared /plugins" \
