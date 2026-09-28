@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from designer.blocks import format_name, parse_name
-from designer.coords import int_coord, int_coords
+from designer.coords import int_coord, int_coords, whole_int
 from designer.region import Bounds
 
 # Side name to the axis it faces along and the direction along it.
@@ -85,14 +85,25 @@ class MineSpec:
             door, path = data["entrance"], data["exit_path"]
             spec = cls(
                 str(data["name"]), str(data["world"]), origin, size,
-                int(data.get("wall_thickness", 2)), int_coord(data["floor_y"], "floor_y must be an integer"),
-                Entrance(str(door["side"]), int(door["width"]), int(door["height"]), int(door.get("offset", 0))),
-                ExitPath(int(path["length"]), int(path["width"])), _weights(data["ores"], "ores"),
+                whole_int(data.get("wall_thickness", 2), "wall_thickness must be an integer"),
+                int_coord(data["floor_y"], "floor_y must be an integer"),
+                Entrance(
+                    str(door["side"]), whole_int(door["width"], "entrance width must be an integer"),
+                    whole_int(door["height"], "entrance height must be an integer"),
+                    whole_int(door.get("offset", 0), "entrance offset must be an integer"),
+                ),
+                ExitPath(
+                    whole_int(path["length"], "exit_path length must be an integer"),
+                    whole_int(path["width"], "exit_path width must be an integer"),
+                ),
+                _weights(data["ores"], "ores"),
                 tuple(
                     OreLayer(*int_coords((l["y_from"], l["y_to"]), "y_from and y_to must be integers"), _weights(l["ores"], "ore_layers"))
                     for l in data.get("ore_layers") or ()
                 ),
-                str(data.get("fill", "solid")), int(data.get("seed", 0)), int(data.get("lights_every", 4)), int(data.get("reset_percent", 60)),
+                str(data.get("fill", "solid")), whole_int(data.get("seed", 0), "seed must be an integer"),
+                whole_int(data.get("lights_every", 4), "lights_every must be an integer"),
+                whole_int(data.get("reset_percent", 60), "reset_percent must be an integer"),
             )
         except (TypeError, KeyError) as e:
             raise ValueError(f"mine spec is malformed: {e!r}") from e

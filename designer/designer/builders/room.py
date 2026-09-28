@@ -9,7 +9,7 @@ from typing import Any
 from designer.blocks import AIR, format_name, parse_name
 from designer.builders.base import Palette
 from designer.builders.mine_spec import SIDES
-from designer.coords import int_coords
+from designer.coords import int_coords, whole_int
 from designer.edits import EditList, Fill, SetBlock
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion
@@ -66,9 +66,13 @@ class RoomSpec:
             door = data["door"]
             spec = cls(
                 str(data["name"]), str(data["world"]), origin, size,
-                int(data.get("wall_thickness", 1)),
-                Door(str(door["side"]), int(door["width"]), int(door["height"]), int(door.get("offset", 0))),
-                int(data.get("lights_every", 4)),
+                whole_int(data.get("wall_thickness", 1), "wall_thickness must be an integer"),
+                Door(
+                    str(door["side"]), whole_int(door["width"], "door width must be an integer"),
+                    whole_int(door["height"], "door height must be an integer"),
+                    whole_int(door.get("offset", 0), "door offset must be an integer"),
+                ),
+                whole_int(data.get("lights_every", 4), "lights_every must be an integer"),
             )
         except (TypeError, KeyError, IndexError) as e:
             raise ValueError(f"room spec is malformed: {e!r}") from e

@@ -91,3 +91,19 @@ def test_no_holes_fails_a_fractional_floor_y_instead_of_truncating_it(fake: Fake
     ctx = RunContext.fetch(bridge, {"mine_a": Fetch(Bounds((0, 59, 0), (9, 70, 9)))})
     result = run_one(ctx, _index(tmp_path), CheckSpec("h", "no_holes", {"region": "box", "floor_y": -0.5}))
     assert not result.ok and result.detail == "floor_y must be an integer, got -0.5"
+
+
+@pytest.mark.parametrize("kind, args, field", [
+    ("path_exists", {"from": "c", "to": "c", "margin": 1.5}, "margin"),
+    ("path_exists", {"from": "c", "to": "c", "margin": 1, "max_drop": 1.5}, "max_drop"),
+    ("travel_time", {"from": "c", "to": "c", "margin": 1.5, "speed": 4.3, "max_seconds": 10}, "margin"),
+    ("travel_time", {"from": "c", "to": "c", "margin": 1, "max_drop": 1.5, "speed": 4.3, "max_seconds": 10}, "max_drop"),
+    ("light_ok", {"region": "box", "min_level": 1.5}, "min_level"),
+])
+def test_a_fractional_count_fails_the_check_instead_of_truncating_it(
+    fake: FakeBridge, bridge: Bridge, tmp_path: Path, kind: str, args: dict, field: str,
+) -> None:
+    fake.worlds["mine_a"] = FakeWorld()
+    ctx = RunContext.fetch(bridge, {"mine_a": Fetch(Bounds((0, 50, 0), (9, 75, 9)), light=True)})
+    result = run_one(ctx, _index(tmp_path), CheckSpec("n", kind, args))
+    assert not result.ok and result.detail == f"{field} must be an integer, got 1.5"

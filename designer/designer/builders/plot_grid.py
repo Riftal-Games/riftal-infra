@@ -9,7 +9,7 @@ from typing import Any
 
 from designer.blocks import AIR
 from designer.builders.base import Palette
-from designer.coords import int_coord, int_coords
+from designer.coords import int_coord, int_coords, whole_int
 from designer.edits import EditList, Fill
 from designer.region import Bounds
 from designer.world_index import NamedRegion
@@ -43,8 +43,10 @@ class PlotGridSpec:
             spec = cls(
                 str(data["name"]), str(data["world"]),
                 int_coords((data["origin"][0], data["origin"][1]), "origin must be integers"),
-                int_coord(data["y"], "y must be an integer"), int(data["rows"]), int(data["cols"]),
-                (int(data["plot_size"][0]), int(data["plot_size"][1])), int(data.get("buffer", 3)),
+                int_coord(data["y"], "y must be an integer"),
+                whole_int(data["rows"], "rows must be an integer"), whole_int(data["cols"], "cols must be an integer"),
+                int_coords((data["plot_size"][0], data["plot_size"][1]), "plot_size must be integers"),
+                whole_int(data.get("buffer", 3), "buffer must be an integer"),
             )
         except (TypeError, KeyError, IndexError) as e:
             raise ValueError(f"plot grid spec is malformed: {e!r}") from e

@@ -79,3 +79,15 @@ def test_build_room_is_deterministic(palette: Palette) -> None:
 def test_from_dict_rejects_a_fractional_coordinate(field: str) -> None:
     with pytest.raises(ValueError, match="origin and size must be three integers"):
         _spec(**{field: [-0.5, 4, 7]})
+
+
+@pytest.mark.parametrize("over, message", [
+    ({"wall_thickness": 1.5}, r"wall_thickness must be an integer, got 1\.5"),
+    ({"door": {"side": "south", "width": 2.5, "height": 2}}, r"door width must be an integer, got 2\.5"),
+    ({"door": {"side": "south", "width": 2, "height": 2.5}}, r"door height must be an integer, got 2\.5"),
+    ({"door": {"side": "south", "width": 2, "height": 2, "offset": 0.5}}, r"door offset must be an integer, got 0\.5"),
+    ({"lights_every": 2.5}, r"lights_every must be an integer, got 2\.5"),
+])
+def test_from_dict_rejects_a_fractional_size_or_count(over: dict, message: str) -> None:
+    with pytest.raises(ValueError, match=f"^{message}$"):
+        _spec(**over)

@@ -8,7 +8,7 @@ from typing import Any
 
 from designer.blocks import AIR
 from designer.builders.base import DIRS, Palette, facing_state, perpendicular
-from designer.coords import int_coords
+from designer.coords import int_coords, whole_int
 from designer.edits import EditList, Fill
 from designer.region import Bounds
 
@@ -40,7 +40,7 @@ class StairsSpec:
                 raise ValueError("from must be three integers")
             spec = cls(
                 str(data["world"]), int_coords(data["from"], "from must be three integers"), str(data["direction"]),
-                int(data["rise"]), int(data.get("width", 1)),
+                whole_int(data["rise"], "rise must be an integer"), whole_int(data.get("width", 1), "width must be an integer"),
             )
         except (TypeError, KeyError, IndexError) as e:
             raise ValueError(f"stairs spec is malformed: {e!r}") from e

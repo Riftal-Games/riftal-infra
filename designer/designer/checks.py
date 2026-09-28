@@ -16,7 +16,7 @@ import yaml
 from designer.bridge import Bridge
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT, REPORTS_DIR
-from designer.coords import int_coord
+from designer.coords import int_coord, whole_int
 from designer.region import Bounds, LightRegion, Region, fetch_light, fetch_region
 from designer.verify import MARGIN_Y, WALK_SPEED, Check, Pos, entity_clear, light_ok, mine_valid, no_holes, path_exists
 from designer.verify import region_inside, travel_time, warp_safe
@@ -116,7 +116,15 @@ def _ends(index: WorldIndex, args: dict[str, Any]) -> tuple[str, Pos, Pos, Bound
     (world, a), (other, b) = _at(index, args["from"]), _at(index, args["to"])
     if world != other:
         raise ValueError(f"{args['from']!r} is in {world!r} but {args['to']!r} is in {other!r}")
-    return world, a, b, Bounds(a, b).expand(int(args["margin"]), "xz").expand(MARGIN_Y, "y")
+    return world, a, b, Bounds(a, b).expand(_margin(args), "xz").expand(MARGIN_Y, "y")
+
+
+def _margin(args: dict[str, Any]) -> int:
+    return whole_int(args["margin"], "margin must be an integer")
+
+
+def _max_drop(args: dict[str, Any]) -> int:
+    return whole_int(args.get("max_drop", 1), "max_drop must be an integer")
 
 
 def _mine_spec(args: dict[str, Any]) -> MineSpec:
@@ -196,13 +204,13 @@ class RunContext:
 
 def _run_path(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Check:
     world, a, b, box = _ends(index, args)
-    return path_exists(ctx.region(world, box), a, b, margin=int(args["margin"]), max_drop=int(args.get("max_drop", 1)))
+    return path_exists(ctx.region(world, box), a, b, margin=_margin(args), max_drop=_max_drop(args))
 
 
 def _run_travel(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Check:
     world, a, b, box = _ends(index, args)
     speed, limit = float(args["speed"]), float(args["max_seconds"])
-    found = travel_time(ctx.region(world, box), a, b, speed=speed, margin=int(args["margin"]), max_drop=int(args.get("max_drop", 1)))
+    found = travel_time(ctx.region(world, box), a, b, speed=speed, margin=_margin(args), max_drop=_max_drop(args))
     if found.ok and found.seconds > limit:
         found.ok, found.detail, found.coords = False, f"{found.detail}, over {limit:g} s", found.path[-1:]
     return found
@@ -223,7 +231,8 @@ def _run_light(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Chec
     named = _region(index, args["region"])
     view = ctx.region(named.world, named.bounds)
     light = ctx.light(named.world, view.bounds)
-    return light_ok(light, int(args["min_level"]), mask=view.passable(), kind=str(args.get("kind", "block")))
+    min_level = whole_int(args["min_level"], "min_level must be an integer")
+    return light_ok(light, min_level, mask=view.passable(), kind=str(args.get("kind", "block")))
 
 
 def _run_holes(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Check:

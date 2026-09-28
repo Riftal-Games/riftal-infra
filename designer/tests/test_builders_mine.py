@@ -114,3 +114,25 @@ def test_from_dict_rejects_a_fractional_ore_layer_bound(field: str) -> None:
     data["ore_layers"][0][field] = -0.5
     with pytest.raises(ValueError, match="y_from and y_to must be integers"):
         MineSpec.from_dict(data)
+
+
+@pytest.mark.parametrize("path, value, message", [
+    (("wall_thickness",), 2.5, r"wall_thickness must be an integer, got 2\.5"),
+    (("entrance", "width"), 2.5, r"entrance width must be an integer, got 2\.5"),
+    (("entrance", "height"), 2.5, r"entrance height must be an integer, got 2\.5"),
+    (("entrance", "offset"), 0.5, r"entrance offset must be an integer, got 0\.5"),
+    (("exit_path", "length"), 2.5, r"exit_path length must be an integer, got 2\.5"),
+    (("exit_path", "width"), 2.5, r"exit_path width must be an integer, got 2\.5"),
+    (("seed",), 2.5, r"seed must be an integer, got 2\.5"),
+    (("lights_every",), 2.5, r"lights_every must be an integer, got 2\.5"),
+    (("reset_percent",), 60.5, r"reset_percent must be an integer, got 60\.5"),
+])
+def test_from_dict_rejects_a_fractional_size_or_count(path: tuple[str, ...], value: float, message: str) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    *parents, key = path
+    target = data
+    for p in parents:
+        target = target[p]
+    target[key] = value
+    with pytest.raises(ValueError, match=f"^{message}$"):
+        MineSpec.from_dict(data)

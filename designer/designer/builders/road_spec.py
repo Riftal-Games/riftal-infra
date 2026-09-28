@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from designer.coords import int_coords
+from designer.coords import int_coords, whole_int
 
 STYLES = ("straight", "manhattan")
 Point = tuple[int, int]
@@ -38,7 +38,8 @@ class RoadSpec:
             spec = cls(
                 str(data["name"]), str(data["world"]),
                 *(int_coords((data[k][0], data[k][1]), "start and end must be integers") for k in ("start", "end")),
-                int(data.get("width", 3)), int(data.get("clear_height", 4)),
+                whole_int(data.get("width", 3), "width must be an integer"),
+                whole_int(data.get("clear_height", 4), "clear_height must be an integer"),
                 bool(data.get("edge", False)), str(data.get("style", "manhattan")),
             )
         except (TypeError, KeyError, IndexError) as e:
