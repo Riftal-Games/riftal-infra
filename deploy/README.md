@@ -90,6 +90,25 @@ it wrote. A run that finds someone else's token there logs that it no longer
 owns the lock and leaves it alone, instead of deleting whoever swept and
 reacquired it out from under them.
 
+## Orphaned lock-discard sweep
+
+`$LOCK_DIR.discard.*` is the rename target a stale-lock steal (Stale lock
+sweep, above) moves the abandoned lock to, on its way to deciding whether
+that lock is genuinely abandoned or was recreated by a competing sweeper.
+Either way the steal itself resolves the directory before moving on: it is
+renamed back if it turns out to hold someone else's live lock, or removed
+with `rm -rf` once the steal is confirmed clean. A run killed between
+winning that rename and reaching its own `rm -rf` leaves the directory
+behind, orphaned (riftal-infra#175, riftal-infra#183).
+
+Right after a run acquires the lock, before anything else, it sweeps every
+`$LOCK_DIR.discard.*` directory it finds, logging each one it removes. No
+age filter applies here, unlike the `.partial` and stale-lock sweeps above:
+`acquire_lock` only ever returns, as it just has for this run, once every
+discard directory it itself created has already been renamed back or
+removed, so anything still present at this point belongs to some earlier
+run, never this one, and is always safe to remove.
+
 ## Schedule
 
 `backup-loop.sh` runs `backup.sh` once, then every `BACKUP_INTERVAL_SECONDS`
