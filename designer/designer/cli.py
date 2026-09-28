@@ -10,12 +10,13 @@ from typing import Any
 
 from designer import __version__
 from designer import checks as checks_mod
+from designer import config
 from designer import snapshot as snapshots
 from designer import stack as stack_mod
 from designer import terrain as terrain_mod
 from designer.bridge import Bridge, BridgeError
 from designer.builders import BUILDERS
-from designer.builders.base import Palette
+from designer.builders.base import Palette, opt
 from designer.builders.mine_spec import MineSpec
 from designer.config import ConfigError, load_settings
 from designer.palettes import load_palettes
@@ -210,6 +211,7 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> str:
         "kind": options.kind, "world": edits.world, "bounds": edits.bounds.to_json() if edits.bounds else None,
         "blocks": edits.count_blocks(), "requests": len(edits.requests()), "apply": options.apply,
         "locations": edits.extras.get("locations", []), "regions": edits.extras.get("regions", []),
+        "extras_report": None,
     }
     if not options.no_verify and options.kind == "mine":
         mine_spec = MineSpec.from_dict(edits.extras["mine_spec"])
@@ -235,6 +237,10 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> str:
                 for reg in report["regions"]:
                     idx.add_region(NamedRegion.from_json(reg))
                 idx.save()
+        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        report_path = config.REPORTS_DIR / f"{options.kind}-{opt(spec, 'name', options.kind)}-extras.json"
+        report_path.write_text(json.dumps(edits.extras, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+        report["extras_report"] = str(report_path)
     return json.dumps(report, indent=2, sort_keys=True)
 
 
