@@ -51,7 +51,7 @@ jobs:
       # same script, discovery, dispatch, both check_ functions and the loop,
       # so a scan finding nothing here reflects an empty tree, not a check
       # nothing has ever run.
-      - name: Lint Dockerfiles
+      - name: Lint Dockerfiles and Containerfiles
         run: bash .github/scripts/scan.sh dockerfiles
 
       - name: Validate compose files
