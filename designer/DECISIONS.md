@@ -590,6 +590,9 @@ write and a failing `mine_valid` exit 0 and are read from the report. Only `--no
 A volume with a `name:` mounts that name; one with `external: true` and no `name:` mounts its
 key; any other mounts `<project>_<key>`. The project is `COMPOSE_PROJECT_NAME` if set, refused
 unless it is lowercase letters, digits, `_` and `-` starting with a letter or digit, else the
-top-level `name:`, else the compose file's directory, lowercased with every other character
-dropped. A `name:` that resolves empty raises `StackError`, since compose refuses it with
-`invalid volume name or ID: value is empty` (#277).
+top-level `name:`, else the compose file's directory, lowercased, every character other than
+those dropped, and leading `_` and `-` stripped. Only an absent or literal empty top-level
+`name:` falls back to the directory. One that is not a string, or that interpolates or
+normalizes to empty, raises `StackError`, since compose refuses it with `name must be a string`
+or `project name must not be empty`. A volume `name:` that resolves empty raises `StackError`,
+since compose refuses it with `invalid volume name or ID: value is empty` (#277).

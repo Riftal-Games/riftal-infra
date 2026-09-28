@@ -118,6 +118,37 @@ def test_volume_names_follow_compose_project_prefixing(tmp_path: Path) -> None:
         stack.load_service(write_volumes_compose(tmp_path, "fourth"), env={"COMPOSE_PROJECT_NAME": "Upper"})
 
 
+@pytest.mark.parametrize(
+    ("directory", "top", "env", "expected"),
+    [
+        ("-Lead-Dir", "", {}, "lead-dir"),
+        ("_x", "name: '__Top-Name'\n", {}, "top-name"),
+        ("literal", "name: ''\n", {}, "literal"),
+        ("dflt", "name: '${TOPV:-Via_Default}'\n", {}, "via_default"),
+        ("set", "name: '${TOPV}'\n", {"TOPV": "Set_Me"}, "set_me"),
+    ],
+)
+def test_project_name_normalizes_and_interpolates_like_compose(tmp_path: Path, directory: str, top: str, env: dict[str, str], expected: str) -> None:
+    service = stack.load_service(write_volumes_compose(tmp_path, directory, top), env=env)
+    assert service.volumes[0] == f"{expected}_unnamed:/a"
+
+
+@pytest.mark.parametrize(
+    ("top", "env", "match"),
+    [
+        ("name: '!!!'\n", {}, "cannot derive a compose project name"),
+        ("name: '__'\n", {}, "cannot derive a compose project name"),
+        ("name: '${TOPV}'\n", {}, "cannot derive a compose project name"),
+        ("name: '${TOPV}'\n", {"TOPV": ""}, "cannot derive a compose project name"),
+        ("name:\n", {}, "not a string"),
+        ("name: 123\n", {}, "not a string"),
+    ],
+)
+def test_a_top_level_name_compose_refuses_is_refused(tmp_path: Path, top: str, env: dict[str, str], match: str) -> None:
+    with pytest.raises(stack.StackError, match=match):
+        stack.load_service(write_volumes_compose(tmp_path, "fallback", top), env=env)
+
+
 @pytest.mark.parametrize("name", ["${PINNED}", '""', ""])
 def test_a_volume_name_that_resolves_empty_is_refused(tmp_path: Path, name: str) -> None:
     compose = write_volumes_compose(tmp_path)

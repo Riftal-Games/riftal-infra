@@ -75,13 +75,20 @@ def _expand(value: object, env: Mapping[str, str]) -> str:
 
 def _project_name(document: Mapping[str, object], compose_file: Path, env: Mapping[str, str]) -> str:
     """Compose's project name: ``COMPOSE_PROJECT_NAME`` taken as given, else the
-    top-level ``name:``, else the compose file's directory, both normalized."""
+    top-level ``name:``, else the compose file's directory, both normalized.
+
+    Only a literal ``name: ''`` falls back to the directory. Compose refuses a
+    ``name:`` that is not a string, and one that interpolates or normalizes to
+    empty, with ``project name must not be empty``."""
     explicit = env.get("COMPOSE_PROJECT_NAME")
     if explicit:
         if not _PROJECT_RE.fullmatch(explicit):
             raise StackError(f"COMPOSE_PROJECT_NAME {explicit!r} is not a valid compose project name.")
         return explicit
-    raw = _expand(document.get("name") or "", env) or compose_file.resolve().parent.name
+    top = document.get("name", "")
+    if not isinstance(top, str):
+        raise StackError(f"the top-level name {top!r} is not a string; docker compose refuses it too.")
+    raw = _expand(top, env) if top else compose_file.resolve().parent.name
     project = re.sub(r"[^a-z0-9_-]", "", raw.lower()).lstrip("_-")
     if not project:
         raise StackError(f"cannot derive a compose project name from {raw!r}.")
