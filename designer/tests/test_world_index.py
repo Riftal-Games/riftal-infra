@@ -122,12 +122,37 @@ def test_load_enforces_the_add_invariants(index: WorldIndex, tmp_path: Path) -> 
     for changes, message in (
         ({"regions": [NamedRegion("spawn", "design", (0, 0, 0), (1, 1, 1)).to_json()]}, "NamedRegion 'spawn' duplicates Location 'spawn'"),
         ({"locations": [{**gate, "name": "Gate"}]}, "Location 'Gate' must match"),
-        ({"locations": [{**gate, "world": "desgin"}]}, "Location 'gate' is in unlisted world 'desgin'"),
+        ({"locations": [{**gate, "world": "desgin"}]}, "Location 'gate': no such world 'desgin', did you mean 'design'"),
         ({"default_world": "hub"}, "default_world 'hub' is not a listed world"),
     ):
         (tmp_path / "bad.json").write_text(json.dumps({**index.to_json(), **changes}), encoding="utf-8")
         with pytest.raises(ValueError, match=message):
             WorldIndex.load(tmp_path / "bad.json")
+
+
+@pytest.mark.parametrize("refusal", [ValueError("rule_only_add_knows"), KeyError("rule_only_add_knows")], ids=["value", "key"])
+def test_load_applies_every_rule_add_applies(index: WorldIndex, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, refusal: Exception) -> None:
+    path = index.save(tmp_path / "index.json")
+
+    def refuse(self: WorldIndex, entry: Location | NamedRegion, what: str | None = None) -> None:
+        raise refusal
+
+    monkeypatch.setattr(WorldIndex, "_admissible", refuse)
+    with pytest.raises(ValueError, match="rule_only_add_knows"):
+        WorldIndex.load(path)
+    with pytest.raises(type(refusal), match="rule_only_add_knows"):
+        index.add_location(Location("gate", "design", (0, 0, 0)))
+
+
+def test_load_reports_a_bare_key_error_as_a_value_error(index: WorldIndex, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = index.save(tmp_path / "index.json")
+
+    def refuse(self: WorldIndex, entry: Location | NamedRegion, what: str | None = None) -> None:
+        raise KeyError()
+
+    monkeypatch.setattr(WorldIndex, "_admissible", refuse)
+    with pytest.raises(ValueError, match=r"^Location 'spawn': not admissible$"):
+        WorldIndex.load(path)
 
 
 def test_tag_queries(index: WorldIndex) -> None:
