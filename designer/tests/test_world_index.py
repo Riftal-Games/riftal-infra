@@ -117,6 +117,15 @@ def test_preflight_returns_the_taken_names_and_raises_on_what_add_would_refuse(i
         index.preflight([gate], [{**yard, "name": "gate"}])
 
 
+def test_register_refuses_a_taken_name_unless_replace(index: WorldIndex) -> None:
+    moved = Location("spawn", "design", (5, 64, 5)).to_json()
+    with pytest.raises(ValueError, match="'spawn' is already defined"):
+        index.register([moved], [])
+    assert index.resolve("spawn").pos == (0, 64, 0)
+    index.register([moved], [], replace=True)
+    assert index.resolve("spawn").pos == (5, 64, 5)
+
+
 def test_load_enforces_the_add_invariants(index: WorldIndex, tmp_path: Path) -> None:
     gate = Location("gate", "design", (1, 2, 3)).to_json()
     for changes, message in (

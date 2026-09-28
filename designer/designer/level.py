@@ -28,7 +28,7 @@ from designer.builders.base import Palette
 from designer.config import PROJECT_ROOT
 from designer.palettes import load_palettes
 from designer.region import Bounds, Bounds2D, Region, fetch_heightmap, fetch_region
-from designer.world_index import WorldIndex
+from designer.world_index import Location, NamedRegion, WorldIndex
 
 ZONE_RE = re.compile(r"^[a-z0-9_]+$")
 # The guard protects paths holding these words, and a build volume is named after
@@ -152,11 +152,30 @@ def scan(bridge: Bridge, zone: str) -> int:
     return int(result["chunks"])
 
 
+def _differences(index: WorldIndex, locations: list[Any], regions: list[Any]) -> list[str]:
+    """Each entry ``index`` already holds that the step names but does not reproduce exactly, and how it differs."""
+    held = index.names()
+    out = []
+    for entry in (*map(Location.from_json, locations), *map(NamedRegion.from_json, regions)):
+        theirs = held.get(entry.name)
+        if theirs is None or theirs == entry:
+            continue
+        if type(theirs) is not type(entry):
+            out.append(f"{entry.name!r} is a {type(entry).__name__} in the step, a {type(theirs).__name__} in world_index.json")
+            continue
+        ours_j, theirs_j = entry.to_json(), theirs.to_json()
+        fields = [f"{k} {ours_j[k]} (world_index.json {theirs_j[k]})" for k in ours_j if ours_j[k] != theirs_j[k]]
+        out.append(f"{entry.name!r} has {', '.join(fields)}")
+    return out
+
+
 def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex) -> None:
     """Apply each step and register what it names in ``index``, so the zone's checks resolve against what was built.
 
-    A name the loaded index already holds is replaced, since the step is what ships; a name an
-    earlier step of this build made is refused, since one of the two entries would silently vanish.
+    Instances are delivered the committed ``world_index.json``, not the build's copy, so a step may
+    name a committed entry only by reproducing it exactly; anything else would let the checks and
+    the lock pass on geometry the delivered index does not carry. A name an earlier step of this
+    build made is refused, since one of the two entries would silently vanish.
     """
     def fetch(world: str, bounds: Bounds2D) -> Any:
         return fetch_heightmap(bridge, world, bounds)
@@ -174,6 +193,8 @@ def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex) ->
             raise LevelError(f"step {n} ({step.build} {step.spec}) names an entry the index refuses: {exc}") from exc
         if again:
             raise LevelError(f"step {n} ({step.build} {step.spec}) names {again}, which an earlier step made")
+        if differ := _differences(index, locations, regions):
+            raise LevelError(f"step {n} ({step.build} {step.spec}) differs from world_index.json: {'; '.join(differ)}")
         result = edits.apply(bridge)
         if not result.ok:
             raise LevelError(f"step {n} ({step.build} {step.spec}) failed: {result.errors[0]}")
