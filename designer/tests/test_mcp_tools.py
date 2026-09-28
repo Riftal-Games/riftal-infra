@@ -11,6 +11,7 @@ from PIL import Image
 
 from designer import config, mcp_server
 from designer.blocks import BlockClass
+from designer.cli import main
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
@@ -231,6 +232,17 @@ def test_unknown_name_is_an_error_dict_and_never_raises(server: FakeBridge) -> N
     assert [w["name"] for w in call("index_list", kind="worlds")["worlds"]] == ["design"]
     failed = call("list_entities", world="mars")
     assert failed["ok"] is False and failed["code"] == "WORLD_NOT_FOUND"
+
+
+def test_index_list_answers_as_the_cli_does(server: FakeBridge, capsys: pytest.CaptureFixture[str]) -> None:
+    assert call("define_location", name="gate", pos=[1, 64, 1], world="design", tags=["spawn"])["ok"]
+    for kind, tag in ((None, None), (None, "spawn"), ("locations", "spawn"), ("regions", None), ("worlds", None)):
+        assert main(["index", "list", *(["--kind", kind] if kind else []), *(["--tag", tag] if tag else [])]) == 0
+        listed = call("index_list", kind=kind, tag=tag)
+        assert listed.pop("ok") is True and listed.pop("default_world") == "design"
+        assert listed == json.loads(capsys.readouterr().out)
+    assert main(["index", "list", "--kind", "worlds", "--tag", "spawn"]) == 1
+    assert capsys.readouterr().err == f"designer: {call('index_list', kind='worlds', tag='spawn')['error']}\n"
 
 
 def test_list_entities_and_tail_log_cap(server: FakeBridge) -> None:

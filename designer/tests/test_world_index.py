@@ -136,3 +136,16 @@ def test_tag_queries(index: WorldIndex) -> None:
     assert [r.name for r in index.regions_tagged("safe_zone")] == ["lumber_safe_zone", "pit"] and index.regions_tagged("spawn") == []
     assert [l.name for l in index.locations_tagged("npc")] == ["seller"] and index.locations_tagged("mine") == []
     assert [l.name for l in index.locations_tagged("spawn")] == ["spawn"]
+
+
+def test_select_filters_by_kind_and_tag_in_name_order(index: WorldIndex) -> None:
+    index.add_location(Location("a_gate", "mine_a", (1, 1, 1), tags=["spawn"]))
+    assert list(index.select()) == ["worlds", "locations", "regions"]
+    assert [l["name"] for l in index.select(tag="spawn")["locations"]] == ["a_gate", "spawn"]
+    assert set(index.select(tag="spawn")) == {"locations", "regions"}
+    assert list(index.select("regions", "safe_zone")) == ["regions"]
+    assert [w["name"] for w in index.select("worlds")["worlds"]] == sorted(w.name for w in index.worlds)
+    with pytest.raises(ValueError, match="^worlds carry no tags"):
+        index.select("worlds", "spawn")
+    with pytest.raises(ValueError, match="^kind must be one of worlds, locations, regions, not 'save'$"):
+        index.select("save")

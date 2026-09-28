@@ -42,7 +42,7 @@ from designer.region import (
 from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, summary, timelapse_png, topdown_png
 from designer.snapshot import Snapshot, UndoStack
 from designer.verify import mine_valid
-from designer.world_index import KINDS, Location, NamedRegion, WorldIndex, resolve_at
+from designer.world_index import Location, NamedRegion, WorldIndex, resolve_at
 
 MAX_AREA, MAX_RADIUS, MAX_LOG_LINES, MAX_BLOCKS_PER_CALL, MAX_CHECK_ROWS = 256, 8, 200, 4096, 60
 # One glyph per ``BlockClass`` value: air, solid, liquid, passable, danger.
@@ -170,16 +170,8 @@ async def index_list(kind: str | None = None, tag: str | None = None) -> dict[st
 
     RETURNS: default_world, then a list per kind asked for: worlds, locations, regions; a tag drops worlds.
     """
-    if kind is not None and kind not in KINDS:
-        raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
-    if kind == "worlds" and tag is not None:
-        raise ValueError("worlds carry no tags; drop the tag or ask for locations or regions")
     idx = index()
-    kinds = KINDS if kind is None else (kind,)
-    out = {k: [e.to_json() for e in getattr(idx, k)] for k in kinds}
-    if tag is not None:
-        out = {k: [e for e in v if tag in e.get("tags", ())] for k, v in out.items() if k != "worlds"}
-    return {"default_world": idx.default_world, **out}
+    return {"default_world": idx.default_world, **idx.select(kind, tag)}
 
 @tool
 async def index_resolve(name: str) -> dict[str, Any]:

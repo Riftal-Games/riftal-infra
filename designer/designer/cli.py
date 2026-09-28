@@ -270,12 +270,11 @@ def _run_index(options: argparse.Namespace) -> int:
         if options.index_command == "resolve":
             print(json.dumps(index.resolve(options.name).to_json(), sort_keys=True))
             return 0
+        listing = index.select(options.kind, options.tag)
     except (OSError, ValueError, KeyError) as exc:
         print(f"designer: {exc.args[0] if isinstance(exc, KeyError) else exc}", file=sys.stderr)
         return 1
-    kinds = (options.kind,) if options.kind else KINDS[1:] if options.tag else KINDS
-    data = index.to_json()
-    print(json.dumps({k: [e for e in data[k] if not options.tag or options.tag in e.get("tags", [])] for k in kinds}, indent=2, sort_keys=True))
+    print(json.dumps(listing, indent=2, sort_keys=True))
     return 0
 
 
