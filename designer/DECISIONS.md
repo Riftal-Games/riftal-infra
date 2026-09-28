@@ -332,6 +332,24 @@ different fixed factors, not a computed light angle, so a block reads as
 three-dimensional from one flat top colour with no per-column shading pass
 to keep in sync with `topdown_png`'s.
 
+## 2026-09-28 The remaining bridge passthroughs skip the snapshot; `load_world`, `create_world`, `pregen` and `run_command` gate on `confirm=True`; entity calls always send `entity_id`
+
+`spawn_npc`, `move_entity`, `remove_entity`, `set_spawn`, `set_text` and `remove_text`
+go through `mutating`'s designer gate and read-only switch like every other write, but
+call the bridge directly instead of `_apply`: none of them touches a block, so there is
+nothing for a snapshot to cover and nothing for `undo` to reverse. The bridge names an
+entity by `entity_id` or `npc_id` interchangeably; the toolkit always sends `entity_id`,
+since a caller only ever has the `entity_id` `spawn_npc` handed back to give to
+`move_entity` or `remove_entity`. `load_world` drops an unsaved change silently,
+`create_world` leaves a stray world on disk on a name typo, `pregen` can run for minutes
+and write real chunks, and `run_command` is scoped to nothing but itself; each refuses
+without `confirm=True`, checked inside the tool after the designer gate rather than in a
+second decorator, so `confirm` stays a plain parameter FastMCP can put in the schema.
+`save_world` carries no such gate: it only writes back state a player or a prior tool
+call already produced. The generated `TOOLS.md` header said a tool answers either the
+`Returns` keys or the `ok: false` envelope; `_finish` and `undo` already merge both when
+a run stops after the snapshot is pushed, so the header in `tools_doc.py` now says so.
+
 ## 2026-09-28 `build_perimeter` walks the rectangle's edge as one ordered path; `build_room` shells and hollows like `build_mine`
 
 Tracing the wall once around the edge, corners visited exactly once, makes

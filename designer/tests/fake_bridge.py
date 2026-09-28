@@ -101,6 +101,8 @@ class FakeBridge:
         self.stale_chunks: list[tuple[int, int]] = []
         self.worlds: dict[str, FakeWorld] = {"design": FakeWorld()}
         self.texts: dict[str, dict[str, Any]] = {}
+        self.entities: dict[str, dict[str, Any]] = {}
+        self.spawns: dict[str, list[int]] = {}
         self.requests: list[dict[str, Any]] = []
         self.jobs: dict[str, dict[str, Any]] = {}
         self.cancelled: list[str] = []
@@ -320,3 +322,43 @@ class FakeBridge:
         if self.texts.pop(args["id"], None) is None:
             raise FakeOpError("ENTITY_NOT_FOUND", f"no text {args['id']!r}")
         return {}
+
+    def op_set_spawn(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._world(args["world"])
+        self.spawns[args["world"]] = list(args["pos"])
+        return {}
+
+    def op_spawn_npc(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._world(args["world"])
+        entity_id = f"e{len(self.entities) + 1}"
+        self.entities[entity_id] = {
+            "world": args["world"], "pos": list(args["pos"]), "yaw": args.get("yaw", 0.0),
+            "kind": args["kind"], "name": args["name"], "meta": args.get("meta") or {},
+        }
+        return {"npc_id": entity_id, "entity_id": entity_id}
+
+    def op_move_entity(self, args: dict[str, Any]) -> dict[str, Any]:
+        entity = self.entities.get(args["entity_id"])
+        if entity is None:
+            raise FakeOpError("ENTITY_NOT_FOUND", f"no entity {args['entity_id']!r}")
+        entity["pos"] = list(args["pos"])
+        if "world" in args:
+            entity["world"] = args["world"]
+        if "yaw" in args:
+            entity["yaw"] = args["yaw"]
+        return {}
+
+    def op_remove_entity(self, args: dict[str, Any]) -> dict[str, Any]:
+        if self.entities.pop(args["entity_id"], None) is None:
+            raise FakeOpError("ENTITY_NOT_FOUND", f"no entity {args['entity_id']!r}")
+        return {}
+
+    def op_pregen(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._world(args["world"])
+        box = self._bounds(args, Bounds2D)
+        (x0, z0), (x1, z1) = box.min, box.max
+        chunks = ((x1 >> 4) - (x0 >> 4) + 1) * ((z1 >> 4) - (z0 >> 4) + 1)
+        return self._job("pregen", {"chunks": chunks}, total=chunks)
+
+    def op_run_command(self, args: dict[str, Any]) -> dict[str, Any]:
+        return {"success": True, "output": [f"ran {args['cmd']}"]}

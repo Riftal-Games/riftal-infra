@@ -21,6 +21,12 @@ MUTATING = {
     "set_blocks": {"blocks": [[0, 70, 0, "stone"]]}, "snapshot": {"target": "pad", "label": "x"}, "restore": {"snapshot": 1},
     "undo": {}, "list_snapshots": {}, "list_undo": {}, "terraform": {"target": "pad", "mode": "flatten", "level": 70},
     "build": {"kind": "mine", "spec": SMALL_MINE_SPEC, "palette": "mine_stone"},
+    "spawn_npc": {"name": "n", "at": "spawn"}, "move_entity": {"id": "e1", "at": "spawn"}, "remove_entity": {"id": "e1"},
+    "set_spawn": {"world": "design", "at": "spawn"}, "set_text": {"at": "spawn", "text": "hi"}, "remove_text": {"id": "t1"},
+    "save_world": {"world": "design"}, "load_world": {"name": "design", "confirm": True},
+    "create_world": {"name": "quarry", "generator": "normal", "seed": 1, "confirm": True},
+    "pregen": {"world": "design", "min": [0, 0], "max": [15, 15], "confirm": True},
+    "run_command": {"command": "say hi", "confirm": True},
 }
 
 
@@ -177,7 +183,11 @@ def _pristine(fake: FakeBridge) -> bool:
     return bool(np.array_equal(fake.worlds["design"].blocks(PAD), FakeWorld().blocks(PAD)))
 
 
-@pytest.mark.parametrize("name", ["fill", "replace", "set_blocks", "snapshot", "restore", "undo", "terraform", "build"])
+@pytest.mark.parametrize("name", [
+    "fill", "replace", "set_blocks", "snapshot", "restore", "undo", "terraform", "build",
+    "spawn_npc", "move_entity", "remove_entity", "set_spawn", "set_text", "remove_text",
+    "save_world", "load_world", "create_world", "pregen", "run_command",
+])
 def test_every_mutating_tool_is_refused_when_the_bridge_is_not_a_designer(server: FakeBridge, name: str) -> None:
     server.designer = False
     assert call(name, **MUTATING[name]) == {"ok": False, "error": mcp_server.NOT_DESIGNER, "code": "not_designer"}
@@ -442,6 +452,71 @@ def test_run_checks_writes_the_report_and_counts_both_outcomes(server: FakeBridg
     assert call("run_checks", only=["entity_clear_spawn"])["total"] == 1
 
 
+def test_spawn_npc_move_and_remove_round_trip(server: FakeBridge) -> None:
+    spawned = call("spawn_npc", name="Sellmaster", at="spawn", kind="villager", yaw=90, meta={"role": "sell"})
+    assert spawned["ok"] and spawned["world"] == "design" and spawned["pos"] == [0, 64, 0]
+    entity_id = spawned["entity_id"]
+    assert spawned["npc_id"] == entity_id
+    assert server.entities[entity_id]["name"] == "Sellmaster" and server.entities[entity_id]["yaw"] == 90
+
+    moved = call("move_entity", id=entity_id, at="4,4")
+    assert moved["ok"] and moved["pos"] == [4, 63, 4] and server.entities[entity_id]["pos"] == [4, 63, 4]
+
+    removed = call("remove_entity", id=entity_id)
+    assert removed == {"ok": True, "id": entity_id}
+    assert entity_id not in server.entities
+    assert call("remove_entity", id=entity_id)["code"] == "ENTITY_NOT_FOUND"
+
+
+def test_set_spawn_reaches_the_named_world(server: FakeBridge) -> None:
+    result = call("set_spawn", world="design", at="spawn")
+    assert result["ok"] and result["pos"] == [0, 64, 0] and server.spawns["design"] == [0, 64, 0]
+    assert call("set_spawn", world="mars", at="spawn")["code"] == "WORLD_NOT_FOUND"
+
+
+def test_set_text_places_and_updates_then_remove_text_clears_it(server: FakeBridge) -> None:
+    placed = call("set_text", at="spawn", text="Sell your ore here")
+    assert placed["ok"] and placed["pos"] == [0, 64, 0] and placed["id"]
+    text_id = placed["id"]
+    assert server.texts[text_id]["text"] == "Sell your ore here"
+
+    updated = call("set_text", at="spawn", text="Sell here", id=text_id)
+    assert updated["ok"] and updated["id"] == text_id and server.texts[text_id]["text"] == "Sell here"
+
+    assert call("remove_text", id=text_id) == {"ok": True, "id": text_id}
+    assert call("remove_text", id=text_id)["code"] == "ENTITY_NOT_FOUND"
+
+
+def test_save_load_and_create_world_gate_on_confirm(server: FakeBridge) -> None:
+    assert call("save_world", world="design") == {"ok": True, "world": "design"}
+
+    refused = call("load_world", name="design")
+    assert refused == {"ok": False, "error": "load_world needs confirm=True", "code": "confirm_required"}
+    loaded = call("load_world", name="design", confirm=True)
+    assert loaded["ok"] and loaded["world"] == "design" and loaded["seed"] == 0
+
+    refused_create = call("create_world", name="quarry", generator="normal", seed=7)
+    assert refused_create["code"] == "confirm_required" and "quarry" not in server.worlds
+    created = call("create_world", name="quarry", generator="normal", seed=7, confirm=True)
+    assert created == {"ok": True, "world": "quarry", "generator": "normal", "seed": 7}
+    assert "quarry" in server.worlds
+    assert call("create_world", name="quarry", generator="normal", seed=7, confirm=True)["code"] == "WORLD_EXISTS"
+
+
+def test_pregen_gates_on_confirm_and_reports_the_chunk_count(server: FakeBridge) -> None:
+    refused = call("pregen", world="design", min=[0, 0], max=[31, 31])
+    assert refused == {"ok": False, "error": "pregen needs confirm=True", "code": "confirm_required"}
+    result = call("pregen", world="design", min=[0, 0], max=[31, 31], confirm=True)
+    assert result["ok"] and result["bounds"] == {"min": [0, 0], "max": [31, 31]} and result["result"] == {"chunks": 4}
+
+
+def test_run_command_gates_on_confirm_and_reaches_the_bridge(server: FakeBridge) -> None:
+    refused = call("run_command", command="say hi")
+    assert refused["code"] == "confirm_required" and "run_command" not in [r["op"] for r in server.requests]
+    result = call("run_command", command="say hi", confirm=True)
+    assert result == {"ok": True, "command": "say hi", "success": True, "output": ["ran say hi"]}
+
+
 def test_every_tool_is_registered() -> None:
     names = {t.name for t in anyio.run(mcp_server.mcp.list_tools)}
     assert names == {
@@ -450,4 +525,6 @@ def test_every_tool_is_registered() -> None:
         "fill", "replace", "set_blocks", "snapshot", "restore", "undo", "list_snapshots", "list_undo",
         "analyze_terrain", "find_flat_site", "terraform", "build",
         "check_path", "check_warp_safe", "check_entity_clear", "check_mine", "run_checks",
+        "spawn_npc", "move_entity", "remove_entity", "set_spawn", "set_text", "remove_text",
+        "save_world", "load_world", "create_world", "pregen", "run_command",
     }

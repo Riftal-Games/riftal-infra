@@ -116,13 +116,18 @@ def _status() -> dict[str, Any]:
     info = b.server_info(refresh=True)
     return {"connected": True, "rtt_ms": round(rtt * 1000, 1), "server_info": info, "designer": info.get("designer") is True, "worlds": b.call("list_worlds")}
 
-def _inspect(at: str, radius: int, world: str | None) -> dict[str, Any]:
-    radius = max(0, min(int(radius), MAX_RADIUS))
+def _full_pos(at: str, world: str | None) -> tuple[str, tuple[int, int, int]]:
+    """``resolve_at``, filled to a concrete ``y`` from the heightmap when ``at`` names only a column."""
     world, (x, y, z) = resolve_at(index(), at, world)
     if y is None:
         y = fetch_heightmap(bridge(), world, Bounds2D((x, z), (x, z))).height(x, z)
         if y < 0:
             raise ValueError(f"column {x},{z} in {world} is empty; give x,y,z")
+    return world, (x, y, z)
+
+def _inspect(at: str, radius: int, world: str | None) -> dict[str, Any]:
+    radius = max(0, min(int(radius), MAX_RADIUS))
+    world, (x, y, z) = _full_pos(at, world)
     region = fetch_region(bridge(), world, Bounds.from_center((x, y, z), (2 * radius + 1,) * 3))
     glyphs = CLASS_GLYPHS[region.classes()]
     slices = [{"y": region.bounds.min[1] + iy, "rows": ["".join(row) for row in layer]} for iy, layer in enumerate(glyphs)]
@@ -313,6 +318,131 @@ def mutating(fn: Callable[..., dict[str, Any]]) -> Callable[..., Any]:
         return refused if refused is not None else await _run(fn, *args, **kwargs)
 
     return tool(wrapper)
+
+def _confirm_required(action: str) -> dict[str, Any]:
+    return {"ok": False, "error": f"{action} needs confirm=True", "code": "confirm_required"}
+
+@mutating
+def spawn_npc(name: str, at: str, kind: str = "human", yaw: float | None = None, meta: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Spawn an NPC called ``name`` at ``at`` (a name, ``x,z`` or ``x,y,z``); ``kind`` defaults to ``human``.
+
+    Registers no location: a caller that wants ``at`` to persist calls ``define_location`` itself.
+
+    RETURNS: world, pos, npc_id, entity_id.
+    """
+    world, pos = _full_pos(at, None)
+    result = bridge().call("spawn_npc", world=world, pos=list(pos), yaw=0.0 if yaw is None else yaw, kind=kind, name=name, meta=meta or {})
+    return {"world": world, "pos": list(pos), **result}
+
+@mutating
+def move_entity(id: str, at: str) -> dict[str, Any]:
+    """Move entity or NPC ``id`` to ``at`` (a name, ``x,z`` or ``x,y,z``).
+
+    RETURNS: id, world, pos.
+    """
+    world, pos = _full_pos(at, None)
+    bridge().call("move_entity", entity_id=id, world=world, pos=list(pos))
+    return {"id": id, "world": world, "pos": list(pos)}
+
+@mutating
+def remove_entity(id: str) -> dict[str, Any]:
+    """Remove entity or NPC ``id``.
+
+    RETURNS: id.
+    """
+    bridge().call("remove_entity", entity_id=id)
+    return {"id": id}
+
+@mutating
+def set_spawn(world: str, at: str) -> dict[str, Any]:
+    """Set ``world``'s spawn to ``at`` (a name, ``x,z`` or ``x,y,z``).
+
+    RETURNS: world, pos.
+    """
+    world, pos = _full_pos(at, world)
+    bridge().call("set_spawn", world=world, pos=list(pos))
+    return {"world": world, "pos": list(pos)}
+
+@mutating
+def set_text(at: str, text: str, id: str | None = None) -> dict[str, Any]:
+    """Place floating text ``text`` at ``at`` (a name, ``x,z`` or ``x,y,z``); passing a prior ``id`` updates it in place.
+
+    RETURNS: world, pos, text, id.
+    """
+    world, pos = _full_pos(at, None)
+    result = bridge().call("set_text", world=world, pos=list(pos), text=text, id=id)
+    return {"world": world, "pos": list(pos), "text": text, **result}
+
+@mutating
+def remove_text(id: str) -> dict[str, Any]:
+    """Remove the floating text ``id``.
+
+    RETURNS: id.
+    """
+    bridge().call("remove_text", id=id)
+    return {"id": id}
+
+@mutating
+def save_world(world: str) -> dict[str, Any]:
+    """Flush ``world`` to disk along with its NPC and text registries.
+
+    RETURNS: world.
+    """
+    bridge().call("save_world", name=world)
+    return {"world": world}
+
+@mutating
+def load_world(name: str, confirm: bool = False) -> dict[str, Any]:
+    """Load world ``name`` from the worlds folder, discarding any unsaved change already loaded under that name.
+
+    Refused unless ``confirm=True``: a load nobody meant is state silently gone.
+
+    RETURNS: world, spawn, seed, generator.
+    """
+    if not confirm:
+        return _confirm_required("load_world")
+    result = bridge().call("load_world", name=name)
+    return {"world": name, **result}
+
+@mutating
+def create_world(name: str, generator: str, seed: int, confirm: bool = False) -> dict[str, Any]:
+    """Create world ``name`` with ``generator`` (``flat``, ``normal`` or ``hell``) and ``seed``; spawn chunks generate in the background.
+
+    Refused unless ``confirm=True``: a name typo would otherwise leave a stray world on disk.
+
+    RETURNS: world, generator, seed.
+    """
+    if not confirm:
+        return _confirm_required("create_world")
+    bridge().call("create_world", name=name, generator=generator, seed=seed)
+    return {"world": name, "generator": generator, "seed": seed}
+
+@mutating
+def pregen(world: str, min: list[int], max: list[int], confirm: bool = False, ctx: Context | None = None) -> dict[str, Any]:
+    """Generate every chunk in the ``x,z`` box ``min``..``max`` of ``world`` ahead of a build that needs it loaded.
+
+    A wide box can run for minutes and cost real disk, so it is refused unless ``confirm=True``.
+
+    RETURNS: world, bounds, job, result.
+    """
+    if not confirm:
+        return _confirm_required("pregen")
+    bounds = Bounds2D(tuple(min), tuple(max))
+    status = bridge().call_job("pregen", world=world, bounds=bounds.to_json(), on_progress=_progress(ctx))
+    return {"world": world, "bounds": bounds.to_json(), "job": status["job"], "result": status.get("result")}
+
+@mutating
+def run_command(command: str, confirm: bool = False) -> dict[str, Any]:
+    """Run ``command`` as the console; the plugin's own denylist still applies underneath.
+
+    Refused unless ``confirm=True``: a command is the one tool here scoped to nothing but itself.
+
+    RETURNS: command, success, output.
+    """
+    if not confirm:
+        return _confirm_required("run_command")
+    result = bridge().call("run_command", cmd=command)
+    return {"command": command, **result}
 
 def _target(target: str | dict[str, Any], world: str | None) -> tuple[str, Bounds]:
     """A region name from the index or a ``{"min", "max"}`` dict; ``world`` defaults to the region's, else the index default."""

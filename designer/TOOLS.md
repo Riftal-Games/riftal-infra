@@ -1,7 +1,8 @@
 # Designer MCP tools
 
 Rendered by `python -m designer.tools_doc`; edit the docstrings in designer/designer/mcp_server.py, not this file.
-Every tool answers `{"ok": true, ...}` with the keys on its `Returns` line, or `{"ok": false, "error": ..., "code": ...}`.
+Every tool answers `{"ok": true, ...}` with the keys on its `Returns` line; a call that stops partway merges those
+same keys with `{"ok": false, "error": ..., "code": ...}` rather than replacing them.
 
 ## analyze_terrain
 
@@ -64,6 +65,17 @@ Whether a warp landing at ``at`` is clear, grounded, free of liquid or danger, w
 {"properties": {"at": {"title": "At", "type": "string"}}, "required": ["at"], "title": "check_warp_safeArguments", "type": "object"}
 ```
 Returns: passed, detail, coords, seconds.
+
+## create_world
+
+Create world ``name`` with ``generator`` (``flat``, ``normal`` or ``hell``) and ``seed``; spawn chunks generate in the background.
+
+Refused unless ``confirm=True``: a name typo would otherwise leave a stray world on disk.
+
+```json
+{"properties": {"confirm": {"default": false, "title": "Confirm", "type": "boolean"}, "generator": {"title": "Generator", "type": "string"}, "name": {"title": "Name", "type": "string"}, "seed": {"title": "Seed", "type": "integer"}}, "required": ["name", "generator", "seed"], "title": "create_worldArguments", "type": "object"}
+```
+Returns: world, generator, seed.
 
 ## define_location
 
@@ -173,6 +185,55 @@ Undo manifest entries newest first: id, session, op, world, bounds, label, times
 ```
 Returns: manifest, total, entries.
 
+## load_world
+
+Load world ``name`` from the worlds folder, discarding any unsaved change already loaded under that name.
+
+Refused unless ``confirm=True``: a load nobody meant is state silently gone.
+
+```json
+{"properties": {"confirm": {"default": false, "title": "Confirm", "type": "boolean"}, "name": {"title": "Name", "type": "string"}}, "required": ["name"], "title": "load_worldArguments", "type": "object"}
+```
+Returns: world, spawn, seed, generator.
+
+## move_entity
+
+Move entity or NPC ``id`` to ``at`` (a name, ``x,z`` or ``x,y,z``).
+
+```json
+{"properties": {"at": {"title": "At", "type": "string"}, "id": {"title": "Id", "type": "string"}}, "required": ["id", "at"], "title": "move_entityArguments", "type": "object"}
+```
+Returns: id, world, pos.
+
+## pregen
+
+Generate every chunk in the ``x,z`` box ``min``..``max`` of ``world`` ahead of a build that needs it loaded.
+
+A wide box can run for minutes and cost real disk, so it is refused unless ``confirm=True``.
+
+```json
+{"properties": {"confirm": {"default": false, "title": "Confirm", "type": "boolean"}, "max": {"items": {"type": "integer"}, "title": "Max", "type": "array"}, "min": {"items": {"type": "integer"}, "title": "Min", "type": "array"}, "world": {"title": "World", "type": "string"}}, "required": ["world", "min", "max"], "title": "pregenArguments", "type": "object"}
+```
+Returns: world, bounds, job, result.
+
+## remove_entity
+
+Remove entity or NPC ``id``.
+
+```json
+{"properties": {"id": {"title": "Id", "type": "string"}}, "required": ["id"], "title": "remove_entityArguments", "type": "object"}
+```
+Returns: id.
+
+## remove_text
+
+Remove the floating text ``id``.
+
+```json
+{"properties": {"id": {"title": "Id", "type": "string"}}, "required": ["id"], "title": "remove_textArguments", "type": "object"}
+```
+Returns: id.
+
 ## render
 
 Write a PNG under ``reports/`` and return its path with a summary; ``kind`` is ``topdown`` or ``isometric``.
@@ -209,6 +270,26 @@ Run every check in ``checks.yaml``, or only the ids in ``only``, and write the m
 ```
 Returns: report, passed, failed, total, table (at most sixty rows) of id, check, ok, seconds, detail.
 
+## run_command
+
+Run ``command`` as the console; the plugin's own denylist still applies underneath.
+
+Refused unless ``confirm=True``: a command is the one tool here scoped to nothing but itself.
+
+```json
+{"properties": {"command": {"title": "Command", "type": "string"}, "confirm": {"default": false, "title": "Confirm", "type": "boolean"}}, "required": ["command"], "title": "run_commandArguments", "type": "object"}
+```
+Returns: command, success, output.
+
+## save_world
+
+Flush ``world`` to disk along with its NPC and text registries.
+
+```json
+{"properties": {"world": {"title": "World", "type": "string"}}, "required": ["world"], "title": "save_worldArguments", "type": "object"}
+```
+Returns: world.
+
 ## server_status
 
 Whether the bridge answers, its round trip, ``server_info``, the designer flag and the worlds on disk.
@@ -227,6 +308,24 @@ Set up to 4096 ``[x, y, z, block]`` entries; runs of eight or more along x go as
 ```
 Returns: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
 
+## set_spawn
+
+Set ``world``'s spawn to ``at`` (a name, ``x,z`` or ``x,y,z``).
+
+```json
+{"properties": {"at": {"title": "At", "type": "string"}, "world": {"title": "World", "type": "string"}}, "required": ["world", "at"], "title": "set_spawnArguments", "type": "object"}
+```
+Returns: world, pos.
+
+## set_text
+
+Place floating text ``text`` at ``at`` (a name, ``x,z`` or ``x,y,z``); passing a prior ``id`` updates it in place.
+
+```json
+{"properties": {"at": {"title": "At", "type": "string"}, "id": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "Id"}, "text": {"title": "Text", "type": "string"}}, "required": ["at", "text"], "title": "set_textArguments", "type": "object"}
+```
+Returns: world, pos, text, id.
+
 ## snapshot
 
 Save ``target`` to disk as ``label`` without an undo entry; ``restore`` takes the path back.
@@ -235,6 +334,17 @@ Save ``target`` to disk as ``label`` without an undo entry; ``restore`` takes th
 {"properties": {"label": {"title": "Label", "type": "string"}, "target": {"anyOf": [{"type": "string"}, {"additionalProperties": true, "type": "object"}], "title": "Target"}, "world": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "World"}}, "required": ["target", "label"], "title": "snapshotArguments", "type": "object"}
 ```
 Returns: world, bounds, label, timestamp, path.
+
+## spawn_npc
+
+Spawn an NPC called ``name`` at ``at`` (a name, ``x,z`` or ``x,y,z``); ``kind`` defaults to ``human``.
+
+Registers no location: a caller that wants ``at`` to persist calls ``define_location`` itself.
+
+```json
+{"properties": {"at": {"title": "At", "type": "string"}, "kind": {"default": "human", "title": "Kind", "type": "string"}, "meta": {"anyOf": [{"additionalProperties": true, "type": "object"}, {"type": "null"}], "default": null, "title": "Meta"}, "name": {"title": "Name", "type": "string"}, "yaw": {"anyOf": [{"type": "number"}, {"type": "null"}], "default": null, "title": "Yaw"}}, "required": ["name", "at"], "title": "spawn_npcArguments", "type": "object"}
+```
+Returns: world, pos, npc_id, entity_id.
 
 ## tail_log
 
