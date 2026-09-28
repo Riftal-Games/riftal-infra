@@ -101,8 +101,9 @@ with `rm -rf` once the steal is confirmed clean. A run killed between
 winning that rename and reaching its own `rm -rf` leaves the directory
 behind, orphaned (riftal-infra#175, riftal-infra#183).
 
-Right after a run acquires the lock, before anything else, it sweeps every
-`$LOCK_DIR.discard.*` directory it finds, logging each one it removes. No
+Right after a run acquires the lock, after the `.partial` sweep above, it
+sweeps every `$LOCK_DIR.discard.*` directory it finds, logging each one it
+removes. No
 age filter applies here, unlike the `.partial` and stale-lock sweeps above:
 `acquire_lock` only ever returns, as it just has for this run, once every
 discard directory it itself created has already been renamed back or
