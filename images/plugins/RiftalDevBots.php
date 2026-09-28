@@ -21,15 +21,42 @@ use function is_string;
 use function strtolower;
 
 /**
+ * Pure admission logic, kept free of every PocketMine type so it stays
+ * checkable without a running server (riftal-infra#113's selftest.sh does
+ * exactly that against this real file).
+ *
+ * `requiresAuthentication()` alone stopped being a structural gate the day
+ * WaterdogPE ships: every downstream behind the proxy runs xbox-auth=false
+ * (CLAUDE.md hard rule 6), so a production instance would satisfy it too,
+ * leaving only "the flag was never set" between a dev stack and a live one.
+ * The environment variable is the second, independent signal: it is not a
+ * PocketMine config value, nothing in server.properties or a --flag can set
+ * it, and no production deploy path has a reason to ever export it.
+ */
+final class DevEnvGate{
+
+	public const ENV_VAR = "RIFTAL_DEV_ENV";
+
+	public static function isDevEnvironment(?string $envValue) : bool{
+		return $envValue === "1";
+	}
+
+	public static function shouldAdmit(bool $flagRequested, bool $requiresAuth, ?string $envValue) : bool{
+		return $flagRequested && !$requiresAuth && self::isDevEnvironment($envValue);
+	}
+}
+
+/**
  * Bots mark themselves with ClientData DeviceModel "riftal-devbot". Once
  * admitted they are ordinary Player objects, so every gameplay plugin already
  * treats them as players. The one thing done to them is a return to spawn on
  * join, so scenarios are repeatable; see onJoin().
  *
- * Admission needs both the riftal-dev-bots server option (the
- * --riftal-dev-bots=on flag or server.properties) and xbox-auth off. Bots
- * log in self-signed with no XUID, so a server that requires Xbox auth would
- * refuse them anyway, and this plugin refuses them first with a clear reason.
+ * Admission needs the riftal-dev-bots server option (the --riftal-dev-bots=on
+ * flag or server.properties), xbox-auth off, and RIFTAL_DEV_ENV=1; see
+ * DevEnvGate above for why the third signal exists. Bots log in self-signed
+ * with no XUID, so a server that requires Xbox auth would refuse them
+ * anyway, and this plugin refuses them first with a clear reason.
  *
  * This lives here until lib exists; riftal-game tracks moving it into
  * RiftalGames\Lib\Dev so plugins can ask whether a player is a dev bot
@@ -56,10 +83,18 @@ final class Main extends PluginBase{
 	protected function onEnable() : void{
 		$server = $this->getServer();
 		$requested = $server->getConfigGroup()->getConfigBool("riftal-dev-bots", false);
-		$this->admitting = $requested && !$server->requiresAuthentication();
+		$envValue = getenv(DevEnvGate::ENV_VAR);
+		$this->admitting = DevEnvGate::shouldAdmit(
+			$requested,
+			$server->requiresAuthentication(),
+			$envValue === false ? null : $envValue
+		);
 
 		if($requested && !$this->admitting){
-			$this->getLogger()->warning("riftal-dev-bots is on but xbox-auth is too; dev bots will be refused");
+			$this->getLogger()->warning(
+				"riftal-dev-bots is on but xbox-auth is on or " . DevEnvGate::ENV_VAR
+				. "=1 is not set; dev bots will be refused"
+			);
 		}
 		$this->getLogger()->info("dev bots " . ($this->admitting ? "admitted" : "refused"));
 
