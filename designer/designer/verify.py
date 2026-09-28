@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 
 from designer.blocks import BlockClass, format_name, parse_name
-from designer.builders.mine_spec import MineSpec
+from designer.builders.mine_spec import SIDES, MineSpec
 from designer.region import Bounds, LightRegion, Region
 
 # Bedrock player speeds on level ground, blocks per second.
@@ -377,16 +377,22 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
 
     Enclosure floods from the whole interior, passable since all of it gets mined, never through the entrance; a
     padding ring cell it reaches is a leak. The entrance must be passable through the whole wall, and any other
-    passable surface component is undeclared. Composition compares each block's share of the non-air interior to the
-    normalised weights, per ore layer where given and ``ores`` elsewhere; an unnamed block deviates by its whole share
-    and an empty band passes, so does a mined-out mine. The floor is solid under every interior column. ``detail`` names
-    every failing rule; ``coords`` holds leaks, undeclared cells, then missing floor cells, ``LEAKS_REPORTED`` of each.
+    passable surface component is undeclared; a component that also touches the entrance only contributes the
+    cells outside it. Composition compares each block's share of the non-air interior to the normalised weights,
+    per ore layer where given and ``ores`` elsewhere; an unnamed block deviates by its whole share and an empty
+    band passes, so does a mined-out mine. The floor is solid under every interior column, and the exit platform
+    is solid under its whole footprint with a clear cell above its walking lane, the centre line a player
+    actually spawns and exits on, so a hand edit there is caught here rather than as a less specific failure
+    from a check that walks out onto it. Furniture such as the lit posts down either side is outside the lane
+    and never trips this rule. ``detail`` names every failing rule; ``coords`` holds leaks, undeclared cells,
+    missing floor cells, missing platform cells, then blocked lane cells, ``LEAKS_REPORTED`` of each.
     """
     geo = spec.geometry()
     if region.world != spec.world:
         raise ValueError(f"region is from world {region.world!r}, spec names {spec.world!r}")
-    if region.bounds.intersect(geo.padding) != geo.padding:
-        raise ValueError(f"region {region.bounds.min}..{region.bounds.max} does not cover the padding {geo.padding.min}..{geo.padding.max}")
+    covers = geo.padding.union(geo.exit_platform)
+    if region.bounds.intersect(covers) != covers:
+        raise ValueError(f"region {region.bounds.min}..{region.bounds.max} does not cover the padding and exit platform {covers.min}..{covers.max}")
     open_ = region.sub(geo.padding).passable().copy()
     open_[geo.padding.slices(geo.interior)] = True
     open_[geo.padding.slices(geo.entrance)] = False
@@ -407,7 +413,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
         part = _flood(left, tuple(np.argwhere(left)[0]), np.zeros(left.shape, dtype=bool))
         left, components = left & ~part, components + 1
         if (part & ~opening).any():
-            undeclared.extend(_world(geo.outer, at) for at in np.argwhere(part))
+            undeclared.extend(_world(geo.outer, at) for at in np.argwhere(part & ~opening))
 
     inner = region.sub(geo.interior).blocks
     names = [format_name(*parse_name(name)) for name in region.palette]
@@ -423,17 +429,40 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     _, zs, xs = region.bounds.slices(geo.interior)
     missing = region.classes()[spec.floor_y - 1 - region.bounds.min[1], zs, xs] != BlockClass.SOLID
     gaps = [_world(geo.interior, (-1, iz, ix)) for iz, ix in np.argwhere(missing)[:LEAKS_REPORTED]]
+
+    door_axis, _ = SIDES[spec.entrance.side]
+    lateral = 2 if door_axis == "x" else 0
+    centre = (geo.exit_platform.min[lateral] + geo.exit_platform.max[lateral] + 1) // 2
+    lane_min, lane_max = list(geo.exit_platform.min), list(geo.exit_platform.max)
+    lane_min[lateral] = lane_max[lateral] = centre
+    lane = Bounds(tuple(lane_min), tuple(lane_max))
+
+    py = geo.exit_platform.min[1] - region.bounds.min[1]
+    _, pzs, pxs = region.bounds.slices(geo.exit_platform)
+    _, lzs, lxs = region.bounds.slices(lane)
+    classes, passable = region.classes(), region.passable()
+    platform_missing = classes[py, pzs, pxs] != BlockClass.SOLID
+    platform_blocked = ~passable[py + 1, lzs, lxs]
+    platform_gaps = [_world(geo.exit_platform, (0, iz, ix)) for iz, ix in np.argwhere(platform_missing)[:LEAKS_REPORTED]]
+    platform_obstructed = [_world(lane, (1, iz, ix)) for iz, ix in np.argwhere(platform_blocked)[:LEAKS_REPORTED]]
+
     failing = [
         text for text, bad in (
             (f"{int(reach.sum())} leaks", leaks), ("entrance not open", not entrance_ok),
             (f"{len(undeclared)} undeclared opening cells", undeclared),
             ("composition off", any(d > tolerance for d in deviations.values())),
             (f"{int(missing.sum())} floor cells missing", gaps),
+            (f"{int(platform_missing.sum())} exit platform cells missing", platform_gaps),
+            (f"{int(platform_blocked.sum())} exit platform cells blocked above", platform_obstructed),
         ) if bad
     ]
-    data = {"undeclared": undeclared[:LEAKS_REPORTED], "floor_missing": int(missing.sum())}
+    data = {
+        "undeclared": undeclared[:LEAKS_REPORTED], "floor_missing": int(missing.sum()),
+        "platform_missing": int(platform_missing.sum()), "platform_blocked": int(platform_blocked.sum()),
+    }
     return MineResult(
-        not failing, "; ".join(failing) or "mine valid", leaks + data["undeclared"] + gaps, data,
+        not failing, "; ".join(failing) or "mine valid",
+        leaks + data["undeclared"] + gaps + platform_gaps + platform_obstructed, data,
         leaks=leaks, entrances_found=components, composition=_fractions(inner, names), deviations=deviations,
     )
 
