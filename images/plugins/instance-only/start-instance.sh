@@ -8,8 +8,9 @@
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
 # docker/start.sh), which instance-b runs and which cannot be reused here
-# because it hard-codes --plugins=/plugins. Keep the two in step;
-# selftest.sh holds this side to it.
+# because it hard-codes --plugins=/plugins. selftest.sh pins this copy of
+# that behaviour but never reads core's script, so a change to start.sh has
+# to be carried here by hand.
 set -euo pipefail
 shopt -s nullglob
 
@@ -34,7 +35,9 @@ fi
 # POCKETMINE_PLUGINS is "Name[:version] ...", fetched from Poggit when not
 # already in /plugins. The download lands in the roster, not /plugins, so
 # this instance never writes into the directory instance-b loads from.
-read -ra poggit <<<"${POCKETMINE_PLUGINS:-}"
+# Split on every whitespace, newlines included, as core's unquoted expansion
+# does; read -d '' reports failure at end of input, which is expected.
+read -ra poggit -d '' <<<"${POCKETMINE_PLUGINS:-}" || true
 for plugin in "${poggit[@]}"; do
 	IFS=: read -r name version _ <<<"$plugin"
 	if [ ! -f "$roster/$name.phar" ]; then
@@ -56,7 +59,7 @@ if [ -f "$here/RiftalMines.phar" ]; then
 fi
 
 cd /opt/pocketmine
-read -ra pm_args <<<"$POCKETMINE_ARGS"
+read -ra pm_args <<<"${POCKETMINE_ARGS:-}"
 
 # Colour by default only on a real TTY, so a captured log stays greppable.
 ansi_args=()

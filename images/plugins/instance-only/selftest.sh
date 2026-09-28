@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213).
+# Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
+# and for start-instance.sh, the script that loads it.
 #
-# Static on purpose: it reads the compose model docker compose resolves and a
-# config rendered into a scratch directory, and starts no container, so it
-# needs neither the dev stack nor a built RiftalMines.phar.
+# It reads the compose model docker compose resolves, renders the config into
+# a scratch directory, and runs start-instance.sh there with php and wget
+# stubbed. It starts no container, so it needs neither the dev stack nor a
+# built RiftalMines.phar.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +19,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\n' > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=19
+EXPECTED_ASSERTIONS=21
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -106,7 +108,7 @@ printf '%s\n' "\$3" >> "$root/fetched"
 : > "\$2"
 EOF
   chmod +x "$root/bin/php" "$root/bin/wget"
-  env -i HOME="$work" PATH="$root/bin:$PATH" POCKETMINE_ARGS= "$@" \
+  env -i HOME="$work" PATH="$root/bin:$PATH" "$@" \
     bash "$root/start-instance.sh" > "$root/out" 2>&1 < /dev/null \
     && [ -s "$root/args" ]
 }
@@ -120,6 +122,11 @@ check "POCKETMINE_PLUGINS fetches each missing plugin at its version into the ro
   'boot "$me" POCKETMINE_PLUGINS="Foo:1.2 Bar Cached" &&
     [ "$(cat "$b/fetched")" = "$(printf "%s\n" https://poggit.pmmp.io/get/Foo/1.2 https://poggit.pmmp.io/get/Bar/)" ] &&
     [ "$(cat "$b/roster")" = "$(printf "%s\n" Bar.phar Cached.phar Foo.phar)" ]'
+check "a POCKETMINE_PLUGINS spread over two lines fetches from both" \
+  'boot "$me" POCKETMINE_PLUGINS="$(printf "Foo\nBar")" &&
+    [ "$(cat "$b/roster")" = "$(printf "%s\n" Bar.phar Cached.phar Foo.phar)" ]'
+check "an unset POCKETMINE_ARGS boots, as it does under start-pocketmine" \
+  'boot "$me" && ! grep -q unbound "$b/out"'
 check "POCKETMINE_PLUGINS writes nothing into the shared /plugins" \
   'boot "$me" POCKETMINE_PLUGINS="Foo Bar" && [ "$(ls "$b/plugins")" = Cached.phar ]'
 check "a file in /plugins not owned by pocketmine is warned about" \

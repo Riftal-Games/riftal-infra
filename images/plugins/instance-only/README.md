@@ -13,7 +13,9 @@ and copies the rendered config onto the volume as uid 1000. It otherwise
 does what `start-pocketmine` does for `instance-b`: the ownership warning,
 `POCKETMINE_PLUGINS` from Poggit (into the roster, never `./plugins`) and
 `POCKETMINE_ANSI`. `start-pocketmine` hard-codes `--plugins=/plugins`, so
-it cannot be reused; `selftest.sh` fails if the two drift. Nothing is
+it cannot be reused. `selftest.sh` pins this script's copy of that
+behaviour but never reads core's `docker/start.sh`, so a change there has to
+be carried into `start-instance.sh` by hand. Nothing is
 bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
 mountpoint as root: a stray in `./plugins` that `instance-b` then fails to
 load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
