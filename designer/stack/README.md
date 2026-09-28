@@ -23,6 +23,18 @@ also taken:
 DESIGNER_GAME_PORT=19135 docker compose up -d
 ```
 
+## Token
+
+`DESIGNBRIDGE_TOKEN` has no default in `compose.yaml`. DesignBridge disables
+itself on an empty token, so an unset one fails safe instead of falling back
+to a literal every clone of this repo would otherwise carry. Export a value
+before starting the stack, matching `designer/.env.example`'s empty
+`DESIGNER_TOKEN`, which the toolkit reads to talk to the same plugin:
+
+```sh
+export DESIGNBRIDGE_TOKEN=choose-your-own-value
+```
+
 ## Build the core image
 
 The first build compiles PHP and takes 20 to 40 minutes. Later builds reuse
@@ -137,6 +149,7 @@ export MSYS_NO_PATHCONV=1
 STACK=C:/Users/nasir/riftal-games/riftal-infra/designer/stack
 CORE=C:/Users/nasir/riftal-games/pmmp-core
 GAME=C:/Users/nasir/riftal-games/riftal-game
+export DESIGNBRIDGE_TOKEN=choose-your-own-value
 
 wslc build -f "$CORE/docker/Dockerfile" -t local-pocketmine-mp \
   --build-arg GIT_HASH="$(git -C "$CORE" rev-parse HEAD)" "$CORE"
@@ -150,7 +163,7 @@ wslc run -d -i --name designer \
   -p "127.0.0.1:${DESIGNER_GAME_PORT:-19134}:19132/udp" -p 127.0.0.1:19140:19140/tcp \
   -v designer-world:/data -v "$STACK/plugins:/plugins" \
   -v "$GAME/designbridge:/plugins/DesignBridge:ro" \
-  -e DESIGNBRIDGE_TOKEN=local-dev-only \
+  -e "DESIGNBRIDGE_TOKEN=$DESIGNBRIDGE_TOKEN" \
   -e "POCKETMINE_ARGS=--level-name=design --level-type=normal --level-seed=20260907 --xbox-auth=false --gamemode=1 --max-players=4 --view-distance=16 --motd=riftal-designer" \
   local-pocketmine-mp
 
