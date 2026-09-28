@@ -88,6 +88,9 @@ jobs:
       - name: Dev bots admission guard self-test
         run: bash images/plugins/selftest.sh
 
+      - name: Dev bots join order self-test
+        run: bash images/plugins/join-order/selftest.sh
+
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
 
