@@ -10,6 +10,7 @@ so a failure anywhere leaves no lock behind. The recipe and lock formats are in
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -151,28 +152,45 @@ def scan(bridge: Bridge, zone: str) -> int:
     return int(result["chunks"])
 
 
-def _run_steps(bridge: Bridge, recipe: Recipe, root: Path) -> None:
+def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex) -> None:
+    """Apply each step and register what it names in ``index``, so the zone's checks resolve against what was built.
+
+    A name the loaded index already holds is replaced, since the step is what ships; a name an
+    earlier step of this build made is refused, since one of the two entries would silently vanish.
+    """
     def fetch(world: str, bounds: Bounds2D) -> Any:
         return fetch_heightmap(bridge, world, bounds)
 
+    made: set[str] = set()
     for n, step in enumerate(recipe.steps):
         spec = json.loads(_input(root, step.spec).read_text(encoding="utf-8"))
         edits = BUILDERS[step.build](spec, Palette.load(step.palette), fetch)
         if edits.world != recipe.zone:
             raise LevelError(f"step {n} writes world {edits.world!r}, not the zone {recipe.zone!r}")
+        locations, regions = edits.extras.get("locations", []), edits.extras.get("regions", [])
+        try:
+            again = sorted(made & set(index.preflight(locations, regions)))
+        except (KeyError, ValueError) as exc:
+            raise LevelError(f"step {n} ({step.build} {step.spec}) names an entry the index refuses: {exc}") from exc
+        if again:
+            raise LevelError(f"step {n} ({step.build} {step.spec}) names {again}, which an earlier step made")
         result = edits.apply(bridge)
         if not result.ok:
             raise LevelError(f"step {n} ({step.build} {step.spec}) failed: {result.errors[0]}")
+        index.register(locations, regions, replace=True)
+        made.update(e["name"] for e in (*locations, *regions))
 
 
 def _run_checks(bridge: Bridge, recipe: Recipe, index: WorldIndex, checks_path: Path | None) -> None:
-    worlds = [(s, checks_mod.check_world(index, s)) for s in checks_mod.load_checks(checks_path)]
-    # A check whose world cannot be told might be this zone's, so it refuses every build rather than drop out.
-    if unresolved := [s.id for s, world in worlds if world is None]:
-        raise LevelError(f"checks.yaml names nothing world_index.json resolves in {unresolved}")
-    specs = [s for s, world in worlds if world == recipe.zone]
+    specs = [s for s in checks_mod.load_checks(checks_path) if s.zone == recipe.zone]
     if not specs:
-        raise LevelError(f"checks.yaml has no check on {recipe.zone!r}; a zone is not built unchecked")
+        raise LevelError(f"checks.yaml has no check with zone {recipe.zone!r}; a zone is not built unchecked")
+    worlds = [(s.id, checks_mod.check_world(index, s)) for s in specs]
+    # A mistyped name must refuse the build rather than drop the check out of the gate.
+    if unresolved := [i for i, world in worlds if world is None]:
+        raise LevelError(f"checks.yaml has checks on {recipe.zone!r} naming nothing the built index resolves: {unresolved}")
+    if elsewhere := [f"{i} reads {world!r}" for i, world in worlds if world != recipe.zone]:
+        raise LevelError(f"checks.yaml has checks on {recipe.zone!r} that read another world: {elsewhere}")
     if failed := checks_mod.run_checks(bridge, index, specs).failed:
         raise LevelError(f"{recipe.zone!r} failed {[f'{r.id}: {r.detail}' for r in failed]}")
 
@@ -183,12 +201,13 @@ def build_level(
 ) -> Path:
     """Build ``zone`` on the server behind ``bridge`` and write its lock; the name and index are checked before any call."""
     recipe = load_recipe(zone, root)
-    index = WorldIndex.load() if index is None else index
+    # The build registers its steps' names into its own copy, never into the caller's index or the committed file.
+    index = WorldIndex.load() if index is None else copy.deepcopy(index)
     check_index(recipe, index)
     inputs = input_hashes(recipe, root)
     for tile in pregen_bounds(recipe.bounds).tiles():
         bridge.call_job("pregen", world=zone, bounds=tile.to_json())
-    _run_steps(bridge, recipe, root)
+    _run_steps(bridge, recipe, root, index)
     _run_checks(bridge, recipe, index, checks_path)
     chunks = scan(bridge, zone)
     region = fetch_region(bridge, zone, recipe.bounds)

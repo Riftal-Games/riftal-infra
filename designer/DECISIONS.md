@@ -597,3 +597,15 @@ that is not a string, or that interpolates or normalizes to empty, raises `Stack
 compose refuses it with `name must be a string` or `project name must not be empty`. A volume `name:` that is null or resolves empty raises
 `StackError`, since compose refuses a null one with `must be a string` and an empty one with
 `invalid volume name or ID: value is empty` (#277).
+
+## 2026-09-29 A `checks.yaml` entry names its zone with an optional `zone:` key
+
+`build_level` runs only the checks whose entry carries `zone: <zone>`, so a check on a world
+not yet built cannot block another zone's build (#349). A key on the entry is the smallest
+change to the format spec 001 names: `designer checks run` reads every entry as before, the
+id ignores `zone`, and no committed entry changes. Guessing the zone from the world a check
+reads was rejected because a check that does not resolve has no world, so it would block
+every zone or none. Before its checks, the build registers each step's locations and regions
+into its own copy of the index through `WorldIndex.register`, the helper the MCP `build` tool
+and `designer build` use, replacing any committed entry of the same name because the step is
+what ships. The committed `world_index.json` is never written by a level build.

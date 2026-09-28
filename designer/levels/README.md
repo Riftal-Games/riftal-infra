@@ -23,7 +23,12 @@ read and written by `designer/level.py`.
 - `steps` run in order. `build` is a builder in `designer.builders.BUILDERS`, `spec` a
   committed file relative to `designer/`, `palette` a name in `palettes.json`. Every
   step must write the zone's world.
-- `checks.yaml` must hold at least one check on the zone, and every one must pass.
+- Each step's locations and regions are registered into the build's own copy of
+  `world_index.json` before the checks run, replacing a committed entry of the same
+  name. The committed file is never written, and two steps naming one entry refuse.
+- A check belongs to a zone when its `checks.yaml` entry carries `zone: <zone>`. The
+  build runs only those, and needs at least one. Each must resolve against the built
+  index, read the zone's world and pass. A check with no `zone` never gates a build.
 
 ## Lock, `<zone>.lock.json`
 
