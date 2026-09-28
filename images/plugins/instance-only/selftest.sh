@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
 # and for start-instance.sh, the script that loads it. Also pins crash
-# auto-report off on every PocketMine service, designer/stack's included.
+# auto-report off on every PocketMine service, designer/stack's included, and
+# covers deliver-world-index.sh and the index mount both instances boot with
+# (riftal-infra#293).
 #
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
@@ -20,7 +22,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=29
+EXPECTED_ASSERTIONS=35
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -50,7 +52,7 @@ leaks() {
 printf '\n== RiftalMines loads on `instance` and nowhere else\n'
 real="$(model "$COMPOSE")"
 check "instance runs start-instance.sh from its ./plugins bind" \
-  'jq -e ".services.instance | .command == [\"bash\", \"/plugins/instance-only/start-instance.sh\"]
+  'jq -e ".services.instance | .command[-2:] == [\"bash\", \"/plugins/instance-only/start-instance.sh\"]
     and any(.volumes[]; .target == \"/plugins\" and (.source | endswith(\"images/plugins\")))" \
     <<<"$real" >/dev/null'
 check "no service mounts anything inside /plugins or /data" '[ -z "$(nested "$real")" ]'
@@ -178,6 +180,50 @@ check "the config on the volume carries MYSQL_ROOT_PASSWORD, not the stale rende
     [ "$(db password "$mines_config")" = "$password" ] && grep -qx RiftalMines.phar "$b/roster"'
 check "an unset MYSQL_ROOT_PASSWORD stops the boot before php, naming it" \
   '! MINES=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "MYSQL_ROOT_PASSWORD is not set" "$b/out"'
+
+printf '\n== the world index reaches every plugin that reads it (riftal-infra#293)\n'
+INDEX="$DIR/../../../designer/world_index.json"
+# PocketMine services in images/compose.yaml that do not run the delivery
+# script first or do not get the designer index mounted read-only for it.
+undelivered() {
+  jq -r '.services | to_entries[] | select(.value.image | test("pocketmine"))
+    | select((.value.command[0:2] != ["bash", "/plugins/deliver-world-index.sh"])
+      or (any(.value.volumes[]?; .target == "/etc/riftal/world_index.json"
+        and (.source | endswith("designer/world_index.json")) and .read_only) | not))
+    | .key' <<<"$1"
+}
+check "instance and instance-b both run the delivery with the designer index mounted" \
+  '[ -z "$(undelivered "$real")" ] &&
+    [ "$(jq -c ".services.instance.command[2:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-only/start-instance.sh\"]" ] &&
+    [ "$(jq -c ".services[\"instance-b\"].command[2:]" <<<"$real")" = "[\"start-pocketmine\"]" ]'
+check "an instance without the index mounted is caught" \
+  '[ "$(undelivered "$(edited "0,/world_index.json:ro/{/world_index.json:ro/d}")")" = instance ]'
+
+# Runs a copy of deliver-world-index.sh with /etc/riftal and /data moved under
+# a scratch root; $1 is the index to mount ("" for none), the rest the command
+# it hands over to. A stale index already sits in RiftalRanks' folder.
+deliver() {
+  local src="$1" root="$work/deliver"
+  shift
+  rm -rf "$root"
+  mkdir -p "$root/etc" "$root/data/plugin_data/RiftalRanks"
+  printf '{}' > "$root/data/plugin_data/RiftalRanks/world_index.json"
+  if [ -n "$src" ]; then cp "$src" "$root/etc/world_index.json"; fi
+  sed -e "s#/etc/riftal#$root/etc#g; s#/data#$root/data#g" \
+    "$DIR/../deliver-world-index.sh" > "$root/deliver.sh"
+  bash "$root/deliver.sh" "$@" > "$root/out" 2>&1
+}
+d="$work/deliver/data/plugin_data"
+check "RiftalRanks and RiftalRiots each get the designer index byte for byte, stale copy replaced" \
+  'deliver "$INDEX" true && cmp -s "$INDEX" "$d/RiftalRanks/world_index.json" &&
+    cmp -s "$INDEX" "$d/RiftalRiots/world_index.json"'
+check "the copies belong to the uid the script runs as, uid 1000 in the image" \
+  'deliver "$INDEX" true && [ -f "$d/RiftalRiots/world_index.json" ] && [ -z "$(find "$d" ! -user "$me")" ]'
+check "the start command runs after delivery with its arguments intact" \
+  'deliver "$INDEX" printf "%s|" a "b c" && [ "$(cat "$work/deliver/out")" = "a|b c|" ]'
+check "a missing index stops the boot before the start command, naming the path" \
+  '! deliver "" printf started && ! grep -q started "$work/deliver/out" &&
+    grep -q "etc/world_index.json" "$work/deliver/out"'
 
 printf '\n'
 ran=$((PASSES + FAILURES))

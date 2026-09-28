@@ -54,9 +54,10 @@ the top of this runbook if either was just edited.
 wslc run -d -i --name riftal-instance-b --network riftal-dev \
   -p "${INSTANCE_B_BIND:-127.0.0.1}:19133:19132/udp" \
   -v riftal-world-b:/data -v "$INFRA/images/plugins:/plugins" \
+  -v "$INFRA/designer/world_index.json:/etc/riftal/world_index.json:ro" \
   -e "INSTANCE_ID=${INSTANCE_B_ID}" \
   -e "POCKETMINE_ARGS=--level-name=plots_b --level-type=flat --xbox-auth=false --motd=riftal-dev-b --riftal-dev-bots=on --auto-report.enabled=0" \
-  local-pocketmine-mp
+  local-pocketmine-mp bash /plugins/deliver-world-index.sh start-pocketmine
 
 wslc logs riftal-instance-b
 ```
