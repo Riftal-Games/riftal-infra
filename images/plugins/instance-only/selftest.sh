@@ -22,7 +22,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=35
+EXPECTED_ASSERTIONS=37
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -225,8 +225,29 @@ check "a missing index stops the boot before the start command, naming the path"
   '! deliver "" printf started && ! grep -q started "$work/deliver/out" &&
     grep -q "etc/world_index.json" "$work/deliver/out"'
 
+printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#262)\n'
+# The plugin throws on enable when any of these keys is missing, so the
+# template has to carry them. CI checks out this repository alone and holds no
+# token for the private riftal-game, so there the comparison is reported as
+# skipped rather than passed.
+SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/mines/resources/config.yml"
+# Top-level keys holding a scalar, which excludes the database and worlds
+# sections the template overrides on purpose.
+tuning() { grep -E '^[A-Za-z_]+:[[:space:]]*[^[:space:]#]' "$1" | sed 's/[[:space:]]*$//' | sort; }
+SKIPPED=0
+if [ -f "$SHIPPED" ]; then
+  check "every scalar key in riftal-game's mines config.yml matches the template" \
+    '[ -n "$(tuning "$SHIPPED")" ] && [ "$(tuning "$SHIPPED")" = "$(tuning "$DIR/RiftalMines.config.yml.template")" ]'
+  sed 's/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/' "$SHIPPED" > "$work/shipped.yml"
+  check "a shipped value the template does not carry is caught" \
+    '[ "$(tuning "$work/shipped.yml")" != "$(tuning "$DIR/RiftalMines.config.yml.template")" ]'
+else
+  SKIPPED=2
+  printf '::warning::2 assertions skipped: no riftal-game mines config at %s; set RIFTAL_GAME_DIR\n' "$SHIPPED"
+fi
+
 printf '\n'
-ran=$((PASSES + FAILURES))
+ran=$((PASSES + FAILURES + SKIPPED))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
   printf '%s of %s assertions ran, so one did not run and cannot have passed\n' \
     "$ran" "$EXPECTED_ASSERTIONS"
@@ -235,5 +256,9 @@ fi
 if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
+fi
+if [ "$SKIPPED" -ne 0 ]; then
+  printf '%s assertions passed, %s skipped\n' "$PASSES" "$SKIPPED"
+  exit 0
 fi
 printf 'all %s assertions passed\n' "$PASSES"
