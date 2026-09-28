@@ -151,6 +151,15 @@ def _needs(index: WorldIndex, spec: CheckSpec) -> tuple[str, Bounds, bool] | Non
     return named.world, named.bounds if spec.kind == "light_ok" else named.bounds.expand(1), spec.kind == "light_ok"
 
 
+def check_world(index: WorldIndex, spec: CheckSpec) -> str | None:
+    """The world a check reads, or ``None`` when a name it needs does not resolve."""
+    try:
+        need = _needs(index, spec)
+        return need[0] if need is not None else _region(index, spec.args["inner"]).world
+    except (KeyError, ValueError):
+        return None
+
+
 def plan_fetches(checks: Iterable[CheckSpec], index: WorldIndex) -> dict[str, Fetch]:
     """One union per world of everything the checks read; a check that names nothing resolvable is left to fail at run time."""
     plan: dict[str, Fetch] = {}

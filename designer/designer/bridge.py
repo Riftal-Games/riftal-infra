@@ -18,7 +18,7 @@ from typing import Any
 
 IDEMPOTENT_OPS = frozenset({
     "ping", "server_info", "list_worlds", "get_region", "get_heightmap", "get_light",
-    "get_job", "cancel_job", "list_entities", "tail_log",
+    "get_job", "cancel_job", "list_entities", "tail_log", "scan_items",
 })
 RECONNECT_BACKOFF = (0.25, 0.5, 1.0, 2.0, 4.0)
 SERVER_INFO_TTL = 30.0
