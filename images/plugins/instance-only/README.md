@@ -9,7 +9,11 @@ Both instances see this folder through the shared `./plugins` bind, and
 PocketMine never loads from a subfolder, so `instance-b` ignores it.
 `instance` runs `start-instance.sh` instead of the image's `start-pocketmine`:
 it assembles its plugin roster in the container's own disposable filesystem
-and copies the rendered config onto the volume as uid 1000. Nothing is
+and copies the rendered config onto the volume as uid 1000. It otherwise
+does what `start-pocketmine` does for `instance-b`: the ownership warning,
+`POCKETMINE_PLUGINS` from Poggit (into the roster, never `./plugins`) and
+`POCKETMINE_ANSI`. `start-pocketmine` hard-codes `--plugins=/plugins`, so
+it cannot be reused; `selftest.sh` fails if the two drift. Nothing is
 bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
 mountpoint as root: a stray in `./plugins` that `instance-b` then fails to
 load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
