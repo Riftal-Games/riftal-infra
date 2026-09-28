@@ -62,12 +62,23 @@ an operator manually removes it.
 When `mkdir` fails because the lock already exists, `backup.sh` checks its
 age. One older than `LOCK_MAX_AGE_MINUTES` (default 90, see
 `images/.env.example`) cannot belong to a run still working: a real run's own
-mysqldump-plus-tar duration is nowhere near that, so it is presumed abandoned,
-cleared, and logged, and the script retries the `mkdir` once. A lock younger
-than the threshold is left alone and the run fails fast exactly as before. If
-the retry `mkdir` still fails right after clearing a stale lock, something
-else is genuinely wrong and the run fails normally rather than retrying
-further.
+mysqldump-plus-tar duration is nowhere near that, so it is presumed abandoned
+and cleared. A lock younger than the threshold is left alone and the run
+fails fast exactly as before.
+
+Clearing it is a rename, not a delete: the stale `$LOCK_DIR` is moved aside to
+a name unique to this run, since `rename(2)` needs its source to still exist,
+and only one of two runs racing to steal the same abandoned lock can ever
+find it there. The loser's rename fails outright instead of silently
+capturing whatever the winner puts at `$LOCK_DIR` next (riftal-infra#175).
+Because a rename does not touch what it moves, the run that wins re-checks
+its own captured copy's age before trusting it: a directory recreated by
+whoever won a concurrent race for the same lock fails that same staleness
+test, and the loser hands it straight back and fails fast rather than
+deleting a lock someone else legitimately holds. Only once the captured copy
+is confirmed still the original abandoned one does the run discard it and
+retry the `mkdir`. If that retry still fails, something else is genuinely
+wrong and the run fails normally rather than retrying further.
 
 A run whose lock is swept while it is still genuinely working, not crashed,
 is possible once a lock can be swept at all: `LOCK_MAX_AGE_MINUTES` set too
