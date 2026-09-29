@@ -187,6 +187,8 @@ def test_zone_checks_resolve_names_the_steps_made(bridge: Bridge, root: Path) ->
     pytest.param("tbox_spawn", lambda s: replace(s, yaw=s.yaw + 45), r"yaw \S+ \(world_index.json \S+\)", id="yaw"),
     pytest.param("tbox_spawn", lambda s: replace(s, pitch=30), r"pitch 0 \(world_index.json 30\)", id="pitch"),
     pytest.param("sell_npc_tbox", lambda s: replace(s, tags=["npc"]), r"tags \['npc', 'sell'\] \(world_index.json \['npc'\]\)", id="location-tags"),
+    pytest.param("sell_npc_tbox", lambda s: replace(s, tags=[*s.tags, "sell"]), r"tags \['npc', 'sell'\] \(world_index.json \['npc', 'sell', 'sell'\]\)", id="duplicate-tag"),
+    pytest.param("tbox", lambda s: replace(s, world="zo"), "world zt .world_index.json zo.", id="region-world"),
     pytest.param("tbox", lambda s: replace(s, min=(s.min[0] - 1, *s.min[1:])), r"min \[.*\] \(world_index.json \[.*\]\)", id="min"),
     pytest.param("tbox", lambda s: replace(s, max=(*s.max[:2], s.max[2] + 1)), r"max \[.*\] \(world_index.json \[.*\]\)", id="max"),
     pytest.param("tbox_entrance", lambda s: replace(s, tags=["mine", "spawn"]), r"tags \['mine', 'walkway'\] \(world_index.json \['mine', 'spawn'\]\)", id="region-tags"),
@@ -210,6 +212,14 @@ def test_a_committed_entry_matching_in_any_tag_order_builds(bridge: Bridge, root
     index.locations.append(replace(sell, tags=["sell", "npc"]))
     index.regions.append(replace(entrance, tags=["walkway", "mine"]))
     assert _build(bridge, root, index=index).exists()
+
+
+def test_a_committed_entry_with_a_non_string_tag_refuses(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    index = _index()
+    index.locations.append(replace(_step_entry("sell_npc_tbox"), tags=["npc", 1]))
+    with pytest.raises(LevelError, match="'sell_npc_tbox' has a tag that is not a string: 1"):
+        _build(bridge, root, index=index)
+    assert not fake.worlds["zt"].edits
 
 
 def test_the_committed_index_file_is_byte_identical_after_a_build(bridge: Bridge, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

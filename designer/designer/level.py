@@ -153,8 +153,11 @@ def scan(bridge: Bridge, zone: str) -> int:
 
 
 def _comparable(entry: Location | NamedRegion) -> dict[str, Any]:
+    if bad := [t for t in entry.tags if not isinstance(t, str)]:
+        raise LevelError(f"{entry.name!r} has a tag that is not a string: {bad[0]!r}")
     # Tags are only ever tested for membership and are saved in the order given, so their order is no difference.
-    return {**entry.to_json(), "tags": sorted(set(entry.tags))}
+    # A repeated tag still counts, so a committed entry is reproduced tag for tag.
+    return {**entry.to_json(), "tags": sorted(entry.tags)}
 
 
 def _differences(index: WorldIndex, locations: list[Any], regions: list[Any]) -> list[str]:
