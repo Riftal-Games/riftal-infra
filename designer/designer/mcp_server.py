@@ -691,7 +691,8 @@ def build(
     ``register_index`` is false, refuses a name that breaks the index's naming rules, names an
     unlisted world or appears twice in the build, and a name already taken unless ``replace_index``,
     a dry run included, so a dry run answers every refusal the build would; runs ``mine_valid`` when ``kind`` is
-    ``mine`` unless ``verify`` is false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
+    ``mine`` unless ``verify`` is false, and refuses a build that fails it before the snapshot, a dry run
+    reporting the failure instead; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
     falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
 
     RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
@@ -709,9 +710,12 @@ def build(
     taken = index().preflight(locations, regions) if register_index else []
     if taken and not replace_index:
         raise ValueError(f"{taken} already defined; pass replace_index=True to overwrite")
+    found = _mine_valid(edits) if verify and kind == "mine" else None
+    if found is not None and not found["ok"] and not dry_run:
+        raise ValueError(f"mine_valid failed: {found['detail']}; nothing sent, pass verify=False to send it anyway")
     out = _apply(edits, f"build_{kind}", dry_run, ctx)
     out["locations"], out["regions"] = locations, regions
-    out["mine_valid"] = _mine_valid(edits) if verify and kind == "mine" else None
+    out["mine_valid"] = found
     if register and out.get("ok") is not False:
         idx = index()
         idx.register(locations, regions, replace=replace_index)

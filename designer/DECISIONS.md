@@ -650,5 +650,17 @@ list, then print `designer: apply failed: <error>` for `ok: false` and `designer
 failed: <detail>` for a failing check on stderr, one line each, and exit 1. A script reads
 success from the exit code alone, as it does for every error `main` catches and for `designer
 checks run`. A failing `mine_valid` exits 1 on a dry run too, because the dry run exists to say
-whether the build is worth sending. It does not stop `--apply` from sending the edits, and a
-failed apply still registers nothing in the index (#342).
+whether the build is worth sending. A failed apply still registers nothing in the index (#342).
+
+## 2026-09-29 A build that fails `mine_valid` sends nothing
+
+Supersedes the sentence in the entry above that lets `--apply` send the edits of a mine that
+fails `mine_valid`. The check runs before the snapshot, so `designer build --apply` stops there:
+no snapshot, no edit, no index entry and no extras report. It prints the report and exits 1 as a
+dry run does, with `designer: mine_valid failed: <detail>; nothing sent, --no-verify sends it
+anyway` on stderr, since a script that read only the exit code could not tell a refused build
+from a half-sent one. The MCP `build` tool refuses the same way unless `verify=False`, raising so
+it answers `ok: false` with the reason, and its dry run still answers `ok: true` with the failure
+under `mine_valid`, since reporting it is what a dry run is for. Sending first and exiting 1
+after was rejected: the world and `world_index.json` had then already changed, and a mine that
+fails the check is one no alpha player should be able to walk into (#406).
