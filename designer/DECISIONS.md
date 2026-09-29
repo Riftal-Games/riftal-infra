@@ -762,8 +762,15 @@ already refuses them. `checks.yaml` holds each M1 zone, `mine_a` to `mine_c` and
 
 ## 2026-09-30 A container run of the suite goes through `container-test.sh`, which keeps its environment off the checkout
 
-`sh designer/container-test.sh` runs the suite in `python:3.12-alpine` under any engine taking
-docker's run flags, named by `CONTAINER_ENGINE`. The project is mounted read-only and
+`sh designer/container-test.sh` runs the suite in `python:3.12-alpine`, or the image named by
+`DESIGNER_TEST_IMAGE`, which needs python and pip, under any engine taking docker's run flags,
+named by `CONTAINER_ENGINE`. It needs a POSIX `sh` and a path the engine can mount, so from
+Windows it runs under the WSL distro's docker on the checkout's `/mnt/c` path:
+`wsl -d Ubuntu-26.04 -u runner --exec sh /mnt/c/<checkout>/designer/container-test.sh`. `--exec`
+runs no shell, so a variable goes through `env`, as in `--exec env DESIGNER_TEST_IMAGE=<image> sh
+...`, and Git Bash needs `MSYS_NO_PATHCONV=1` or it rewrites `/mnt/c/...` into its own install
+path. `--` in place of `--exec` hands the line to the distro's shell to re-parse
+(riftal-pm#293). The project is mounted read-only and
 `UV_PROJECT_ENVIRONMENT` puts the environment at `/opt/designer-venv` inside the container. A
 container `uv sync` on a writable mount leaves a Linux `.venv` in the checkout, a `lib64` symlink
 and a `pyvenv.cfg` whose home is a container interpreter, and Windows `uv run` then stops on
