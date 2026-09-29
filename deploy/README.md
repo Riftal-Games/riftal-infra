@@ -198,7 +198,9 @@ run to finish and try again, or run it against a separate `BACKUP_ROOT`.
 `selftest.sh` and `restore-selftest.sh` are the real proof and run under
 `docker` on the self-hosted CI runner, the same split as
 `../migrations/selftest.sh`: not runnable on Nasir's Windows machine, which
-has no `docker`, only `wslc`. One backup run by hand, against the dev
+has no `docker`, only `wslc`. Each selftest run writes its logs to its own
+`mktemp -d` directory and removes it on exit, so concurrent runs on one host
+do not clobber each other. One backup run by hand, against the dev
 stack's own throwaway data, after `riftal-mysql` is up:
 
 ```sh
