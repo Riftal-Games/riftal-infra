@@ -14,10 +14,15 @@ BACKUPS_VOL="riftal-backup-selftest-backups-$SUFFIX"
 WORLD_A_VOL="riftal-backup-selftest-world-a-$SUFFIX"
 WORLD_B_VOL="riftal-backup-selftest-world-b-$SUFFIX"
 
+# Per run, so two runs sharing a host, as the self-hosted CI runners do,
+# never read each other's logs.
+LOGS="$(mktemp -d)"
+
 cleanup() {
   docker rm -f "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" >/dev/null 2>&1 || true
+  rm -rf "$LOGS"
 }
 trap cleanup EXIT
 
@@ -79,10 +84,10 @@ backups() {
 }
 
 section "a run captures a restorable, coordinated dump and world snapshots"
-if run_backup 10 mysql selftest >/tmp/out-run1.log 2>&1; then
+if run_backup 10 mysql selftest >"$LOGS"/out-run1.log 2>&1; then
   pass "first run exits 0"
 else
-  fail "first run should exit 0"; cat /tmp/out-run1.log
+  fail "first run should exit 0"; cat "$LOGS"/out-run1.log
 fi
 
 set_count="$(backups 'ls -1 /backups | wc -l')"
@@ -117,9 +122,9 @@ extracted="$(backups "mkdir -p /tmp/x && tar -xzf /backups/$dir1/worlds/world-a.
 section "retention prunes older backups once the configured count is exceeded"
 follow_up_ok=1
 for i in 1 2 3 4; do
-  if ! run_backup 3 mysql selftest >"/tmp/out-more-$i.log" 2>&1; then
+  if ! run_backup 3 mysql selftest >"$LOGS/out-more-$i.log" 2>&1; then
     follow_up_ok=0
-    cat "/tmp/out-more-$i.log"
+    cat "$LOGS/out-more-$i.log"
   fi
 done
 [ "$follow_up_ok" = "1" ] && pass "4 follow-up runs all exit 0" \
@@ -148,10 +153,10 @@ middle_before="${before_stale[1]}"
 partial_name="99999999T999999999999999Z.partial"
 backups "mkdir -p /backups/$partial_name/worlds && echo mid-write > /backups/$partial_name/mysql.sql"
 
-if run_backup 3 mysql selftest >/tmp/out-stale-partial.log 2>&1; then
+if run_backup 3 mysql selftest >"$LOGS"/out-stale-partial.log 2>&1; then
   pass "a run alongside a stale .partial directory still exits 0"
 else
-  fail "a run alongside a stale .partial directory should exit 0"; cat /tmp/out-stale-partial.log
+  fail "a run alongside a stale .partial directory should exit 0"; cat "$LOGS"/out-stale-partial.log
 fi
 
 if backups "test -d /backups/$partial_name"; then
@@ -184,10 +189,10 @@ backups "mkdir -p /backups/$stale_partial_name/worlds && \
 backups "mkdir -p /backups/$fresh_partial_name/worlds && \
   echo mid-write > /backups/$fresh_partial_name/mysql.sql"
 
-if run_backup 3 mysql selftest 60 >/tmp/out-partial-sweep.log 2>&1; then
+if run_backup 3 mysql selftest 60 >"$LOGS"/out-partial-sweep.log 2>&1; then
   pass "a run alongside an old and a fresh .partial still exits 0"
 else
-  fail "a run alongside an old and a fresh .partial should exit 0"; cat /tmp/out-partial-sweep.log
+  fail "a run alongside an old and a fresh .partial should exit 0"; cat "$LOGS"/out-partial-sweep.log
 fi
 
 if backups "test -d /backups/$stale_partial_name"; then
@@ -196,10 +201,10 @@ else
   pass "the .partial older than PARTIAL_MAX_AGE_MINUTES was swept"
 fi
 
-if grep -q "$stale_partial_name" /tmp/out-partial-sweep.log; then
+if grep -q "$stale_partial_name" "$LOGS"/out-partial-sweep.log; then
   pass "the sweep names the removed .partial directory in the log"
 else
-  fail "expected the log to name the swept .partial directory"; cat /tmp/out-partial-sweep.log
+  fail "expected the log to name the swept .partial directory"; cat "$LOGS"/out-partial-sweep.log
 fi
 
 if backups "test -d /backups/$fresh_partial_name"; then
@@ -214,27 +219,27 @@ section "a lock older than LOCK_MAX_AGE_MINUTES is swept and logged, a fresh one
 # case mkdir's lock cannot self-release the way flock would (riftal-infra#171).
 backups "mkdir /backups/.lock && touch -d '-2 hours' /backups/.lock"
 
-if run_backup 3 mysql selftest 360 60 >/tmp/out-lock-stale.log 2>&1; then
+if run_backup 3 mysql selftest 360 60 >"$LOGS"/out-lock-stale.log 2>&1; then
   pass "a run behind a lock older than LOCK_MAX_AGE_MINUTES clears it and still exits 0"
 else
-  fail "a run behind a stale lock should clear it and exit 0"; cat /tmp/out-lock-stale.log
+  fail "a run behind a stale lock should clear it and exit 0"; cat "$LOGS"/out-lock-stale.log
 fi
 
-if grep -qi 'presumed abandoned' /tmp/out-lock-stale.log; then
+if grep -qi 'presumed abandoned' "$LOGS"/out-lock-stale.log; then
   pass "the stale lock sweep is logged, not silent"
 else
-  fail "expected the log to name the stale lock as swept"; cat /tmp/out-lock-stale.log
+  fail "expected the log to name the stale lock as swept"; cat "$LOGS"/out-lock-stale.log
 fi
 
 backups 'mkdir /backups/.lock'
 
-if run_backup 3 mysql selftest 360 60 >/tmp/out-lock-fresh.log 2>&1; then
+if run_backup 3 mysql selftest 360 60 >"$LOGS"/out-lock-fresh.log 2>&1; then
   fail "a run behind a lock within LOCK_MAX_AGE_MINUTES should still fail fast"
 else
   pass "a run behind a fresh lock within LOCK_MAX_AGE_MINUTES still fails fast, unswept"
 fi
 
-if grep -qi 'presumed abandoned' /tmp/out-lock-fresh.log; then
+if grep -qi 'presumed abandoned' "$LOGS"/out-lock-fresh.log; then
   fail "a fresh lock, still within the age threshold, must never be swept"
 else
   pass "a fresh lock is left untouched rather than swept"
@@ -263,7 +268,7 @@ else
 fi
 
 run_backup 3 mysql selftest 360 60 __test_release_lock "$owner_a" \
-  >/tmp/out-stale-cleanup.log 2>&1
+  >"$LOGS"/out-stale-cleanup.log 2>&1
 
 if backups 'test -d /backups/.lock'; then
   pass "B's reacquired lock survives A's own stale cleanup running with A's original token"
@@ -271,10 +276,10 @@ else
   fail "A's cleanup deleted B's lock using a token that no longer matched, the exact use-after-free QA found on #173"
 fi
 
-if grep -qi "no longer this run" /tmp/out-stale-cleanup.log; then
+if grep -qi "no longer this run" "$LOGS"/out-stale-cleanup.log; then
   pass "A's stale cleanup logs that it no longer owns the lock instead of silently deleting it"
 else
-  fail "expected A's cleanup to log that it no longer owns the lock"; cat /tmp/out-stale-cleanup.log
+  fail "expected A's cleanup to log that it no longer owns the lock"; cat "$LOGS"/out-stale-cleanup.log
 fi
 
 backups 'rm -rf /backups/.lock'
@@ -295,10 +300,10 @@ backups "mkdir /backups/.lock && echo old-owner > /backups/.lock/owner && touch 
 # runs both racers backgrounded rather than substituted, so it needs its own
 # split to read back just the echoed owner token below.
 STEAL_RACE_TEST_STALL_SECONDS=2 run_backup 3 mysql selftest 360 60 __test_acquire_lock \
-  >/tmp/out-steal-race-a.log 2>/tmp/err-steal-race-a.log &
+  >"$LOGS"/out-steal-race-a.log 2>"$LOGS"/err-steal-race-a.log &
 steal_race_pid_a=$!
 STEAL_RACE_TEST_STALL_SECONDS=2 run_backup 3 mysql selftest 360 60 __test_acquire_lock \
-  >/tmp/out-steal-race-b.log 2>/tmp/err-steal-race-b.log &
+  >"$LOGS"/out-steal-race-b.log 2>"$LOGS"/err-steal-race-b.log &
 steal_race_pid_b=$!
 
 steal_race_status_a=0; wait "$steal_race_pid_a" || steal_race_status_a=$?
@@ -311,12 +316,12 @@ if [ "$steal_race_wins" -eq 1 ]; then
   pass "exactly one of two simultaneous steal attempts against the same abandoned lock wins"
 else
   fail "expected exactly one winner, got $steal_race_wins (both winning is riftal-infra#175's exact race, both losing strands the lock)"
-  cat /tmp/out-steal-race-a.log /tmp/err-steal-race-a.log /tmp/out-steal-race-b.log /tmp/err-steal-race-b.log
+  cat "$LOGS"/out-steal-race-a.log "$LOGS"/err-steal-race-a.log "$LOGS"/out-steal-race-b.log "$LOGS"/err-steal-race-b.log
 fi
 
 steal_race_winner_owner=""
-[ "$steal_race_status_a" -eq 0 ] && steal_race_winner_owner="$(cat /tmp/out-steal-race-a.log)"
-[ "$steal_race_status_b" -eq 0 ] && steal_race_winner_owner="$(cat /tmp/out-steal-race-b.log)"
+[ "$steal_race_status_a" -eq 0 ] && steal_race_winner_owner="$(cat "$LOGS"/out-steal-race-a.log)"
+[ "$steal_race_status_b" -eq 0 ] && steal_race_winner_owner="$(cat "$LOGS"/out-steal-race-b.log)"
 steal_race_stored_owner="$(backups 'cat /backups/.lock/owner' 2>/dev/null || true)"
 if [ -n "$steal_race_winner_owner" ] && [ "$steal_race_stored_owner" = "$steal_race_winner_owner" ]; then
   pass "the lock on disk is stamped with the winner's own token, not the loser's"
@@ -341,10 +346,10 @@ section "an orphaned .lock.discard.* from a run killed mid-cleanup is swept on t
 orphan_discard_name=".lock.discard.99999-orphaned"
 backups "mkdir -p /backups/$orphan_discard_name && echo 99999-orphaned > /backups/$orphan_discard_name/owner"
 
-if run_backup 3 mysql selftest >/tmp/out-discard-sweep.log 2>&1; then
+if run_backup 3 mysql selftest >"$LOGS"/out-discard-sweep.log 2>&1; then
   pass "a run alongside an orphaned .lock.discard.* still exits 0"
 else
-  fail "a run alongside an orphaned .lock.discard.* should exit 0"; cat /tmp/out-discard-sweep.log
+  fail "a run alongside an orphaned .lock.discard.* should exit 0"; cat "$LOGS"/out-discard-sweep.log
 fi
 
 if backups "test -d /backups/$orphan_discard_name"; then
@@ -353,10 +358,10 @@ else
   pass "the orphaned .lock.discard.* was swept"
 fi
 
-if grep -q "$orphan_discard_name" /tmp/out-discard-sweep.log; then
+if grep -q "$orphan_discard_name" "$LOGS"/out-discard-sweep.log; then
   pass "the sweep names the removed .lock.discard.* directory in the log"
 else
-  fail "expected the log to name the swept .lock.discard.* directory"; cat /tmp/out-discard-sweep.log
+  fail "expected the log to name the swept .lock.discard.* directory"; cat "$LOGS"/out-discard-sweep.log
 fi
 
 section "a discard directory swept while its rename-owner is still alive converges on the same lock-contention failure"
@@ -374,14 +379,14 @@ section "a discard directory swept while its rename-owner is still alive converg
 backups "mkdir /backups/.lock && echo old-owner > /backups/.lock/owner && touch -d '-2 hours' /backups/.lock"
 
 DISCARD_RACE_TEST_STALL_SECONDS=5 run_backup 3 mysql selftest 360 60 __test_acquire_lock \
-  >/tmp/out-discard-race-a.log 2>/tmp/err-discard-race-a.log &
+  >"$LOGS"/out-discard-race-a.log 2>"$LOGS"/err-discard-race-a.log &
 discard_race_pid_a=$!
 
 # A's own container start, failed mkdir, staleness check and rename all land
 # well inside this, leaving B the run of its own stall to land its sweep in.
 sleep 2
 discard_race_status_b=0
-run_backup 3 mysql selftest >/tmp/out-discard-race-b.log 2>&1 || discard_race_status_b=$?
+run_backup 3 mysql selftest >"$LOGS"/out-discard-race-b.log 2>&1 || discard_race_status_b=$?
 
 discard_race_status_a=0
 wait "$discard_race_pid_a" || discard_race_status_a=$?
@@ -389,7 +394,7 @@ wait "$discard_race_pid_a" || discard_race_status_a=$?
 if [ "$discard_race_status_b" -eq 0 ]; then
   pass "the concurrent run that sweeps the still-alive owner's discard directory completes normally"
 else
-  fail "the concurrent sweeping run should exit 0"; cat /tmp/out-discard-race-b.log
+  fail "the concurrent sweeping run should exit 0"; cat "$LOGS"/out-discard-race-b.log
 fi
 
 if [ "$discard_race_status_a" -ne 0 ]; then
@@ -398,10 +403,10 @@ else
   fail "expected the still-alive owner to fail once its discard directory vanished, it exited 0 instead"
 fi
 
-if grep -q 'another run already holds the lock' /tmp/err-discard-race-a.log; then
+if grep -q 'another run already holds the lock' "$LOGS"/err-discard-race-a.log; then
   pass "the still-alive owner fails with the same lock-contention message every other contention path produces"
 else
-  fail "expected the documented lock-contention message"; cat /tmp/err-discard-race-a.log
+  fail "expected the documented lock-contention message"; cat "$LOGS"/err-discard-race-a.log
 fi
 
 if backups "find /backups -mindepth 1 -maxdepth 1 \( -name '.lock' -o -name '.lock.discard.*' \) | grep -q ."; then
@@ -419,24 +424,24 @@ section "a run against a BACKUP_ROOT another run already holds the lock on fails
 # fail against.
 backups 'mkdir /backups/.lock'
 
-if run_backup 3 mysql selftest >/tmp/out-lock-contended.log 2>&1; then
+if run_backup 3 mysql selftest >"$LOGS"/out-lock-contended.log 2>&1; then
   fail "a run against an already-locked BACKUP_ROOT should exit nonzero"
 else
   pass "a run against an already-locked BACKUP_ROOT exits nonzero"
 fi
 
-if grep -qi 'lock' /tmp/out-lock-contended.log; then
+if grep -qi 'lock' "$LOGS"/out-lock-contended.log; then
   pass "the lock contention failure is logged, not silent"
 else
-  fail "expected a logged lock-contention message"; cat /tmp/out-lock-contended.log
+  fail "expected a logged lock-contention message"; cat "$LOGS"/out-lock-contended.log
 fi
 
 backups 'rmdir /backups/.lock'
 
-if run_backup 3 mysql selftest >/tmp/out-lock-released.log 2>&1; then
+if run_backup 3 mysql selftest >"$LOGS"/out-lock-released.log 2>&1; then
   pass "a run succeeds once the earlier run's lock is released"
 else
-  fail "a run should succeed once the lock is released"; cat /tmp/out-lock-released.log
+  fail "a run should succeed once the lock is released"; cat "$LOGS"/out-lock-released.log
 fi
 
 section "retention never treats its own held lock directory as a backup set to prune"
@@ -452,28 +457,28 @@ section "retention never treats its own held lock directory as a backup set to p
 # retention step has something to prune and so actually exercises the
 # excluded-name list.
 retention_lock_count="$(backups "ls -1 /backups | grep -cv '\.partial$'")"
-if run_backup "$retention_lock_count" mysql selftest >/tmp/out-lock-retention.log 2>&1; then
+if run_backup "$retention_lock_count" mysql selftest >"$LOGS"/out-lock-retention.log 2>&1; then
   pass "a run whose own retention step has something to prune still exits 0"
 else
-  fail "a run whose own retention step has something to prune should exit 0"; cat /tmp/out-lock-retention.log
+  fail "a run whose own retention step has something to prune should exit 0"; cat "$LOGS"/out-lock-retention.log
 fi
 
-if grep -q 'pruning .*\.lock' /tmp/out-lock-retention.log; then
+if grep -q 'pruning .*\.lock' "$LOGS"/out-lock-retention.log; then
   fail "retention named the lock directory as a prune candidate, riftal-infra#166's exact regression"
 else
   pass "retention never names the lock directory as a prune candidate"
 fi
 
 section "an unreachable database fails loudly instead of producing nothing"
-if run_backup 10 no-such-mysql-host selftest >/tmp/out-unreachable.log 2>&1; then
+if run_backup 10 no-such-mysql-host selftest >"$LOGS"/out-unreachable.log 2>&1; then
   fail "a run against an unreachable database should exit nonzero"
 else
   pass "a run against an unreachable database exits nonzero"
 fi
-if grep -qi 'backup' /tmp/out-unreachable.log; then
+if grep -qi 'backup' "$LOGS"/out-unreachable.log; then
   pass "the failure is logged, not silent"
 else
-  fail "expected a logged failure message"; cat /tmp/out-unreachable.log
+  fail "expected a logged failure message"; cat "$LOGS"/out-unreachable.log
 fi
 
 printf '\n'
