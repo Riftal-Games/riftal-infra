@@ -211,9 +211,10 @@ class EditList:
         """What ``apply`` sends, in order, as ``(op, args, blocks)``.
 
         ``SetBlock``s pack into ``set_blocks`` of at most ``batch`` and at most
-        ``MAX_LINE_BYTES`` on the wire; a ``Fill`` or ``Replace`` is one request
-        per ``MAX_EDGE`` tile; a ``Text`` is one. Any other request too long
-        for one line is refused here, before ``apply`` sends anything.
+        ``LINE_BUDGET`` bytes of args; a ``Fill`` or ``Replace`` is one request
+        per ``MAX_EDGE`` tile; a ``Text`` is one. A request, or a lone
+        ``SetBlock``, too long for one line is refused here, before ``apply``
+        sends anything.
         """
         if not 1 <= batch <= MAX_SET_BLOCKS:
             raise ValueError(f"batch must be between 1 and {MAX_SET_BLOCKS}, got {batch}")
@@ -226,6 +227,8 @@ class EditList:
                 entry = [op.x, op.y, op.z, op.block]
                 # One more for the comma that separates it from the entry before.
                 cost = _wire_bytes(entry) + 1
+                if empty + cost > LINE_BUDGET:
+                    raise ValueError(f"a set_blocks entry of {cost} bytes does not fit max_line_bytes ({MAX_LINE_BYTES})")
                 if pending and (len(pending) == batch or size + cost > LINE_BUDGET):
                     out.append(("set_blocks", {"world": self.world, "blocks": pending}, len(pending)))
                     pending, size = [], empty

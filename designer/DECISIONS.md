@@ -782,4 +782,6 @@ pass `LINE_BUDGET`, whichever comes first, the way a `Fill` past `MAX_EDGE` is t
 length of a batch turns on its block names, which the caller does not pick per batch, so
 refusing it would make a valid `batch` fail on content. `LINE_BUDGET` keeps 4096 bytes for the
 id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cannot be split and
-is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is (#572).
+is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is. So
+is a `SetBlock` whose entry alone passes it: sent, the bridge would close the connection after
+the batches before it had already landed (#572).

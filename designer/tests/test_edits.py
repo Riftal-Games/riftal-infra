@@ -54,14 +54,19 @@ def test_ten_thousand_set_blocks_take_three_calls(fake: FakeBridge, bridge: Brid
 
 
 def test_a_batch_whose_line_would_pass_max_line_bytes_is_split_under_it(fake: FakeBridge, bridge: Bridge) -> None:
-    # About 35 bytes an entry, so 40000 in one batch is a line of roughly 1.4 MB.
-    edits = EditList(WORLD, [SetBlock(x, -45, z, STONE) for x in range(200) for z in range(200)])
+    # 128 x 2 x 128 fits DesignBridge's max_region_edge. Four-digit x and z make every entry
+    # 34 bytes with its comma, so 32768 in one batch is a line of about 1.11 MB, and 30719
+    # entries fill LINE_BUDGET after the 30 bytes of an empty batch.
+    grid = [SetBlock(x, y, z, STONE) for x in range(1000, 1128) for y in (-45, -44) for z in range(1000, 1128)]
+    edits = EditList(WORLD, grid)
     result = edits.apply(bridge, batch=MAX_SET_BLOCKS)
-    assert (result.ok, result.errors, result.blocks) == (True, [], 40000)
-    lines = [len(json.dumps(r, separators=(",", ":"))) for r in fake.requests]
-    assert len(lines) > 1 and max(lines) <= MAX_LINE_BYTES
+    assert (result.ok, result.errors, result.blocks) == (True, [], 32768)
+    assert [len(r["args"]["blocks"]) for r in fake.requests if r["op"] == "set_blocks"] == [30719, 2049]
+    assert max(len(json.dumps(r, separators=(",", ":"))) for r in fake.requests) <= MAX_LINE_BYTES
     sent = [entry for r in fake.requests for entry in r["args"]["blocks"]]
-    assert sent == [[x, -45, z, STONE] for x in range(200) for z in range(200)]
+    assert sent == [[b.x, b.y, b.z, STONE] for b in grid]
+    mixed = EditList(WORLD, grid + [Fill(Bounds((0, 64, 0), (1, 64, 1)), DIRT)] + grid)
+    assert [n for _, _, n in mixed.requests(batch=MAX_SET_BLOCKS)] == [30719, 2049, 4, 30719, 2049]
     assert [len(args["blocks"]) for _, args, _ in edits.requests(batch=4096)][:1] == [4096]
 
 
@@ -69,6 +74,9 @@ def test_a_single_op_over_max_line_bytes_is_refused_before_anything_is_sent(fake
     edits = EditList(WORLD, [SetBlock(0, 64, 0, STONE), Text(0, 65, 0, "x" * MAX_LINE_BYTES)])
     with pytest.raises(ValueError, match="max_line_bytes"):
         edits.apply(bridge)
+    long_name = EditList(WORLD, [SetBlock(0, 64, 0, STONE), SetBlock(0, 65, 0, "x" * MAX_LINE_BYTES)])
+    with pytest.raises(ValueError, match="set_blocks entry"):
+        long_name.apply(bridge)
     assert fake.requests == []
 
 
