@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from designer.bridge import Bridge
+from designer.bridge import Bridge, BridgeConnectionError
 from designer.checks import check_world, load_checks, run_checks
 from designer.custody import classify, offdisk_clear
 from designer.world_index import WorldEntry, WorldIndex
@@ -83,10 +83,10 @@ def test_an_unindexed_world_fails_without_a_scan(fake: FakeBridge, bridge: Bridg
 
 
 def _full_run(bridge: Bridge) -> tuple[list, dict]:
-    specs = load_checks()
+    specs = [s for s in load_checks() if s.kind == "offdisk_clear"]
     report = run_checks(bridge, WorldIndex.load(), specs)
     assert [r.id for r in report.results] == [s.id for s in specs]
-    return specs, {r.id: r for r in report.results if r.check == "offdisk_clear"}
+    return specs, {r.id: r for r in report.results}
 
 
 def test_a_bridge_without_scan_items_fails_each_offdisk_check_and_still_reports(
@@ -107,6 +107,23 @@ def test_a_zone_world_the_server_lacks_fails_only_its_own_offdisk_check(fake: Fa
     for zone in ("mine_b", "mine_c", "lumber"):
         result = offdisk[f"offdisk_clear_{zone}"]
         assert not result.ok and "WORLD_NOT_FOUND" in result.detail and zone in result.detail
+
+
+def test_a_failed_scan_job_fails_only_its_own_offdisk_check(fake: FakeBridge, bridge: Bridge) -> None:
+    for zone in M1_ZONES:
+        fake.worlds[zone] = FakeWorld()
+    fake.fail_next_job = "chunk 3,4 has no terrain"
+    _, offdisk = _full_run(bridge)
+    assert [r.id for r in offdisk.values() if not r.ok] == ["offdisk_clear_lumber"]
+    assert "chunk 3,4 has no terrain" in offdisk["offdisk_clear_lumber"].detail
+
+
+def test_a_connection_lost_during_a_scan_still_raises(fake: FakeBridge) -> None:
+    for zone in M1_ZONES:
+        fake.worlds[zone] = FakeWorld()
+    fake.drop_next_response = True
+    with Bridge("127.0.0.1", fake.port, fake.token, timeout=2.0, max_retries=0) as client, pytest.raises(BridgeConnectionError):
+        _full_run(client)
 
 
 @pytest.mark.parametrize("zone", M1_ZONES)

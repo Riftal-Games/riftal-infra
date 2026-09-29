@@ -21,7 +21,8 @@ OFF_DISK = frozenset({
 })
 OFF_DISK_LEGACY = frozenset({64, 66, 73, 80, 83})
 
-# Core's classes that ADR 013 item 1 names as yielding no item, so a saved one stays.
+# Every other class core registers (EntityFactory.php:91-210) except Human. None is in ADR 013 item 1's off-disk
+# set, so a saved one stays.
 NO_ITEM = frozenset({
     "AreaEffectCloud", "minecraft:area_effect_cloud", "Egg", "minecraft:egg", "EnderCrystal", "minecraft:ender_crystal",
     "ThrownEnderpearl", "minecraft:ender_pearl", "ThrownExpBottle", "minecraft:xp_bottle", "XPOrb", "minecraft:xp_orb",
