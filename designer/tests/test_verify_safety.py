@@ -39,6 +39,23 @@ def test_entity_clear_names_a_danger_plant_in_the_hitbox(flat_plane_with_hole: R
     assert not found.ok and found.detail == "hitbox in danger" and found.coords == [(10, 5, 10)]
 
 
+def test_entity_clear_names_liquid_in_the_hitbox(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(10, 4, 10, "minecraft:water")
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert not found.ok and found.detail == "hitbox in liquid" and found.coords == [(10, 4, 10)]
+    assert warp_safe(flat_plane_with_hole, OPEN) == found
+    flat_plane_with_hole.set(10, 5, 10, "minecraft:stone")
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert not found.ok and found.detail == "hitbox in liquid" and found.coords == [(10, 4, 10)]
+    flat_plane_with_hole.set(10, 5, 10, "minecraft:sweet_berry_bush")
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert not found.ok and found.detail == "hitbox in danger" and found.coords == [(10, 5, 10)]
+    flat_plane_with_hole.set(10, 4, 10, AIR)
+    flat_plane_with_hole.set(10, 5, 10, "minecraft:flowing_water")
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert not found.ok and found.detail == "hitbox in liquid" and found.coords == [(10, 5, 10)]
+
+
 # Nothing holds a player up over an end portal, and stepping into one leaves
 # the world, so it fails as floor, as hitbox and as a warp's neighbour.
 def test_end_portal_is_never_a_place_to_stand(flat_plane_with_hole: Region) -> None:
