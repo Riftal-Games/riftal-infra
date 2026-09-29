@@ -699,3 +699,14 @@ every consumer only tests a tag for membership and `world_index.json` keeps the 
 given. A repeated tag still counts, so `["mine", "mine"]` does not reproduce `["mine"]`, and a
 tag that is not a string refuses the build naming the entry. Dropping duplicates too was
 rejected because it would let a committed entry pass whose tags are not the step's list (#362).
+
+## 2026-09-29 A mine's exit-platform lights stop short of its last row
+
+`build_mine` lights the platform's near edge every `lights_every` blocks out from the wall, but
+never on its last row, which holds the sell sign on that same edge, the rankup sign and the
+spawn. A light that would fall on the last row moves one block back toward the mine, so a length
+that is a multiple of `lights_every` still lights the platform's end; a one-row platform has no
+row to spare and gets no light. Moving lights to the far edge was rejected because the rankup sign
+sits there on a width-3 path, and refusing a colliding spec was rejected because length 8 with
+`lights_every` 4 is a reasonable mine. Mine A and Lumber, length 6 with `lights_every` 4, keep
+their one light at 4 (#485).
