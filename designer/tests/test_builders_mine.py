@@ -184,6 +184,29 @@ def test_exit_platform_lights_sit_every_lights_every_blocks_along_its_edge(
     assert len(signs) == 1 and signs.pop().startswith("minecraft:standing_sign[")
 
 
+@pytest.mark.parametrize("width", [1, 2])
+def test_from_dict_refuses_an_exit_path_narrower_than_3(width: int) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["exit_path"]["width"] = width
+    with pytest.raises(ValueError, match=f"^exit_path width must be at least 3 to hold both signs beside the walking line, got {width}$"):
+        MineSpec.from_dict(data)
+
+
+@pytest.mark.parametrize("width", [3, 4, 5])
+def test_signs_sit_on_the_platform_and_lights_off_the_walking_line(width: int, palette: Palette) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["exit_path"]["width"] = width
+    wide = MineSpec.from_dict(data)
+    edits, region = _built_region(wide, palette)
+    platform = wide.geometry().exit_platform
+    for name in ("sell_npc_a", "rankup_npc_a"):
+        x, y, z = _location(edits, name)
+        assert platform.min[0] <= x <= platform.max[0] and platform.min[2] <= z <= platform.max[2] and y == platform.min[1] + 1
+    walking_x = _location(edits, "mine_a_spawn")[0]
+    lanterns = _lantern_positions(region)
+    assert lanterns and all(x != walking_x for x, _, _ in lanterns)
+
+
 def _outer_tags(spec: MineSpec, palette: Palette) -> list[str]:
     return next(r for r in build_mine(spec, palette).extras["regions"] if r["name"] == spec.name)["tags"]
 
