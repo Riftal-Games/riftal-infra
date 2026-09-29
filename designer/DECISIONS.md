@@ -621,3 +621,15 @@ and each field with the step's value and the committed one. Carrying the step's 
 lock instead was rejected: the lock would then describe an index no instance receives, and
 moving a committed entry stays a change to `world_index.json` a reviewer sees. This supersedes
 the replacement described in the entry above.
+
+## 2026-09-29 A failed apply and a failing `mine_valid` exit 1 on the CLI
+
+Supersedes the sentence in the 2026-09-28 build refusal entry that has a failed bridge write
+and a failing `mine_valid` exit 0. `designer build` and `designer terrain terraform` still print
+the whole report on stdout, since the snapshot path in it is what undoes a half-applied edit
+list, then print `designer: apply failed: <error>` for `ok: false` and `designer: mine_valid
+failed: <detail>` for a failing check on stderr, one line each, and exit 1. A script reads
+success from the exit code alone, as it does for every error `main` catches and for `designer
+checks run`. A failing `mine_valid` exits 1 on a dry run too, because the dry run exists to say
+whether the build is worth sending. It does not stop `--apply` from sending the edits, and a
+failed apply still registers nothing in the index (#342).
