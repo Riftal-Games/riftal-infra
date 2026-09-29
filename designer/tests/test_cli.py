@@ -6,8 +6,12 @@ import pytest
 from PIL import Image
 
 from designer import stack as stack_mod
+from designer.bridge import Bridge
+from designer.builders import BUILDERS
 from designer.cli import main
+from designer.edits import EditList
 from designer.render import LEGEND_LINE
+from designer.snapshot import UndoStack
 from designer.verify import Check
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
@@ -478,6 +482,47 @@ def test_build_road_apply_sends_the_edits_and_registers_the_region(
     report = json.loads(capsys.readouterr().out)
     assert report["ok"] is True and Path(report["snapshot"]).is_file()
     assert {e.name for e in WorldIndex.load(index_path).regions} == {"test_road"}
+    entries = UndoStack().entries()
+    assert report["undo_id"] == 1 and [(e["id"], e["op"], e["path"]) for e in entries] == [(1, "build_road", report["snapshot"])]
+
+
+def test_build_apply_of_signage_sends_its_text_and_an_undo_removes_it(
+    fake: FakeBridge, bridge: Bridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps({"world": "design", "signs": [{"name": "t_sign", "pos": [0, 64, 0], "text": "hi"}]}), encoding="utf-8")
+
+    assert main(["build", "signage", "--spec", str(spec_path), "--palette", "mine_stone", "--apply"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is True and report["bounds"] is None and report["snapshot"] is None and report["undo_id"] == 1
+    assert fake.texts == {"t_sign": {"world": "design", "pos": [0, 64, 0], "text": "hi"}}
+    assert {e.name for e in WorldIndex.load(index_path).locations} == {"t_sign"}
+    assert Path(report["extras_report"]).is_file()
+    [entry] = UndoStack().entries()
+    assert (entry["id"], entry["op"], entry["path"], entry["texts"]) == (1, "build_signage", None, ["t_sign"])
+
+    assert [r.ok for r in UndoStack().undo(bridge)] == [True]
+    assert fake.texts == {} and [e["restored"] for e in UndoStack().entries()] == [True]
+
+
+def test_build_apply_refuses_an_empty_edit_list_and_sends_nothing(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setitem(BUILDERS, "empty", lambda spec, palette, fetch: EditList("design", []))
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text("{}", encoding="utf-8")
+
+    assert main(["build", "empty", "--spec", str(spec_path), "--palette", "mine_stone", "--no-index", "--apply"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "designer: nothing to do: the edit list is empty\n"
+    assert fake.requests == [] and UndoStack().entries() == []
+    assert not (tmp_path / "snapshots").exists() and not (tmp_path / "reports").exists()
 
 
 def test_checks_run_prints_the_table_and_exits_zero_when_all_pass(

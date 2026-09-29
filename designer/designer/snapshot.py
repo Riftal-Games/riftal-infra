@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -269,3 +270,39 @@ class UndoStack:
                 path.unlink(missing_ok=True)
             self._write([e for e in entries if e not in old])
         return [Path(name) for name in paths]
+
+
+@dataclass
+class Undoable:
+    """What ``apply_undoable`` sent, with the snapshot path and undo id that reverse it, either ``None`` when nothing was pushed."""
+
+    result: ApplyResult
+    snapshot: str | None = None
+    undo_id: int | None = None
+
+
+def apply_undoable(
+    bridge: Bridge, edits: EditList, op: str, session: str, *, dry_run: bool = False,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> Undoable:
+    """Send ``edits`` with an undo entry labelled ``op``, refusing an empty list.
+
+    When a block is touched, the snapshot is taken and its undo entry pushed inside ``before``, ahead of the
+    first request. Floating text alone leaves nothing to snapshot, so its entry is pushed once the texts are
+    set, naming the ids the bridge answered, even when a later text failed.
+    """
+    if not edits.ops:
+        raise ValueError("nothing to do: the edit list is empty")
+    stack = UndoStack(session=session)
+    done = Undoable(ApplyResult(True))
+
+    def before(world: str, bounds: Bounds) -> Snapshot:
+        snap = take(bridge, world, bounds, op)
+        done.snapshot, done.undo_id = str(snap.path), stack.push(snap, op)
+        return snap
+
+    done.result = edits.apply(bridge, dry_run=dry_run, on_progress=on_progress, before=before)
+    texts = [job["result"]["id"] for job in done.result.jobs if job["op"] == "set_text"]
+    if edits.bounds is None and texts:
+        done.undo_id = stack.push_texts(edits.world, texts, op)
+    return done

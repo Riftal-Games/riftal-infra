@@ -679,3 +679,15 @@ build is removed, not put back, because the entry records ids and not what they 
 Leaving text-only builds without undo was rejected, since `undo` is the one promise every mutating
 tool makes. Text in an edit list that also touches blocks is not in that list's undo entry, whose
 snapshot covers blocks only; no builder mixes the two today (#409, #410).
+
+## 2026-09-29 `designer build --apply` sends through the MCP server's apply and pushes the same undo entries
+
+The CLI's `build --apply` and every MCP mutating tool send through one function,
+`snapshot.apply_undoable`, so a text-only build from the CLI sets its text and pushes an undo
+entry that removes it, a block build pushes its snapshot as an undo entry, and an empty edit list
+is refused with `nothing to do` and exit 1 before anything is sent. The `mine_valid` refusal and
+the index preflight still come first. Each CLI invocation labels its entries with its own session,
+`cli-<start time>`, because one command is the whole of a CLI session. The CLI has no `undo`
+command; the MCP `undo` walks every session's entries, so it reverses a CLI build too. Keeping a
+second apply in the CLI was rejected: it is how a signage build came to send nothing from the CLI
+while the MCP path sent it (#438).
