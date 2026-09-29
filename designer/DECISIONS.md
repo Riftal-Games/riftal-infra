@@ -759,3 +759,16 @@ core does not register, which may be a plugin's `Human` subclass. Markers never 
 so they cannot trip it. Tile findings are item 6's, not item 4's, and `build_level`'s own scan
 already refuses them. `checks.yaml` holds each M1 zone, `mine_a` to `mine_c` and `lumber`, to it
 (ADR 013 item 4, #520).
+
+## 2026-09-30 A container run of the suite goes through `container-test.sh`, which keeps its environment off the checkout
+
+`sh designer/container-test.sh` runs the suite in `python:3.12-alpine` under any engine taking
+docker's run flags, named by `CONTAINER_ENGINE`. The project is mounted read-only and
+`UV_PROJECT_ENVIRONMENT` puts the environment at `/opt/designer-venv` inside the container. A
+container `uv sync` on a writable mount leaves a Linux `.venv` in the checkout, a `lib64` symlink
+and a `pyvenv.cfg` whose home is a container interpreter, and Windows `uv run` then stops on
+`failed to remove file ...\.venv\lib64: Access is denied` instead of rebuilding it. The read-only
+mount makes a run that omits the variable fail on `Read-only file system` rather than leave one.
+CI runs the script before its host-side sync. A checkout that already holds such a `.venv` works
+from Windows with `UV_PROJECT_ENVIRONMENT` set to a path outside it, until its owner clears it
+(#583).

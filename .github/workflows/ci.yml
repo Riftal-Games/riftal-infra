@@ -109,6 +109,12 @@ jobs:
       - name: Wipe self-test
         run: bash deploy/wipe-selftest.sh
 
+      # Runs before the host-side sync below, which writes designer/.venv. The
+      # script mounts the project read-only, so a container run that tried to
+      # put its environment in the checkout fails here instead of leaving one.
+      - name: Designer toolkit tests in a container
+        run: sh designer/container-test.sh
+
       # --locked fails when uv.lock no longer matches pyproject.toml, where
       # --frozen would install the stale lock as-is. Once this sync has
       # validated the lock, the later uv run calls can stay --frozen.
