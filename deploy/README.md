@@ -242,14 +242,14 @@ wslc run --rm --network riftal-dev \
 of the run, before it touches anything else under `BACKUP_ROOT` (including
 the stale-`.partial` sweep above). It builds the lock directory, owner file
 included, under its own `$LOCK_DIR.discard.*` name and then renames it to
-`.lock`. `rename(2)` is atomic on any POSIX filesystem and refuses to replace
-a non-empty directory, and needs nothing beyond coreutils, unlike `flock`,
-which is not installed in every image this script runs in. The owner file is
-written before the rename, never after: a lock that existed unstamped, even
-briefly, could be captured by a stale-lock sweeper in that gap, leaving both
-runs failed and an ownerless lock blocking every run until it ages out
-(riftal-infra#491). An empty `.lock` blocks nothing, since `rename(2)`
-replaces an empty directory. A second invocation against
+`.lock`, only if `.lock` does not already exist. `rename(2)` is atomic on any
+POSIX filesystem and refuses to replace a non-empty directory, and needs
+nothing beyond coreutils, unlike `flock`, which is not installed in every
+image this script runs in. The owner file is written before the rename,
+never after: a lock that existed unstamped, even briefly, could be captured
+by a stale-lock sweeper in that gap, leaving both runs failed and an
+ownerless lock blocking every run until it ages out (riftal-infra#491). A
+second invocation against
 the same `BACKUP_ROOT`, such as a manual run below started while the
 `backup` compose service's scheduled loop is also running, fails immediately
 with a loud, logged message rather than waiting or racing, unless the held

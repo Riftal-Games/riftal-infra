@@ -232,9 +232,7 @@ else
   fail "expected the log to name the stale lock as swept"; cat "$LOGS"/out-lock-stale.log
 fi
 
-# A held lock always carries its owner file, and the file matters here:
-# rename(2) replaces an empty directory, so an empty .lock blocks nothing.
-backups 'mkdir /backups/.lock && echo live-owner > /backups/.lock/owner'
+backups 'mkdir /backups/.lock'
 
 if run_backup 3 mysql selftest 360 60 >"$LOGS"/out-lock-fresh.log 2>&1; then
   fail "a run behind a lock within LOCK_MAX_AGE_MINUTES should still fail fast"
@@ -248,7 +246,7 @@ else
   pass "a fresh lock is left untouched rather than swept"
 fi
 
-backups 'rm -rf /backups/.lock'
+backups 'rmdir /backups/.lock'
 
 section "a lock swept while its true owner is still alive is not undone by that owner's own stale cleanup"
 # QA's exact scenario on #171/#173: run A acquires the lock and is still
@@ -424,13 +422,13 @@ fi
 
 section "a discard directory swept while its rename-owner is still alive converges on the same lock-contention failure"
 # riftal-infra#207/#208: the section above covers an orphan nobody is still
-# running; this covers the case its comment (deploy/backup.sh:240-245)
+# running; this covers the case its comment (deploy/backup.sh:244-249)
 # specifically claims is also safe. A backdated .lock puts run A on the same
 # steal path as every section above, so its own rename (deploy/backup.sh:107)
 # produces a discard directory while A is still alive, not crashed.
 # DISCARD_RACE_TEST_STALL_SECONDS holds A there until run B, an entirely
 # ordinary full run needing nothing special of its own, reaches its
-# orphaned-discard sweep (deploy/backup.sh:246-251) and removes it. A must
+# orphaned-discard sweep (deploy/backup.sh:250-255) and removes it. A must
 # then find its own discard directory gone at its staleness check
 # (deploy/backup.sh:127) and hand the lock back rather than proceed as if it
 # still owned it.
@@ -479,9 +477,8 @@ section "a run against a BACKUP_ROOT another run already holds the lock on fails
 # Stands in for a manual out-of-band run overlapping the scheduled loop
 # (riftal-infra#166): holds backup.sh's own lock directory directly, without
 # running backup.sh itself, so the contended run below has something real to
-# fail against, owner file included for the same reason as the fresh lock
-# above.
-backups 'mkdir /backups/.lock && echo live-owner > /backups/.lock/owner'
+# fail against.
+backups 'mkdir /backups/.lock'
 
 if run_backup 3 mysql selftest >"$LOGS"/out-lock-contended.log 2>&1; then
   fail "a run against an already-locked BACKUP_ROOT should exit nonzero"
@@ -495,7 +492,7 @@ else
   fail "expected a logged lock-contention message"; cat "$LOGS"/out-lock-contended.log
 fi
 
-backups 'rm -rf /backups/.lock'
+backups 'rmdir /backups/.lock'
 
 if run_backup 3 mysql selftest >"$LOGS"/out-lock-released.log 2>&1; then
   pass "a run succeeds once the earlier run's lock is released"

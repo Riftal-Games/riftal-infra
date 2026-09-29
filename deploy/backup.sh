@@ -141,7 +141,10 @@ acquire_lock() {
 # run's own discard name, which retention and the orphan sweep already
 # handle, and only then renamed into place. rename(2) onto an existing
 # directory succeeds only if that directory is empty, so a lock that always
-# carries its owner file is one no second claim can replace.
+# carries its owner file is one no second claim can replace. An empty .lock
+# made by hand is the exception, and the existence check keeps the rename
+# from silently replacing it, so acquire_lock judges its age and logs any
+# sweep the same as for any other lock.
 claim_lock() {
   staging_dir="$LOCK_DIR.discard.$lock_owner"
   # No-op outside deploy/selftest.sh's claim-window section, for the same
@@ -150,6 +153,7 @@ claim_lock() {
   if mkdir "$staging_dir" 2>/dev/null \
     && sleep "${CLAIM_RACE_TEST_STALL_SECONDS:-0}" \
     && { echo "$lock_owner" > "$staging_dir/owner"; } 2>/dev/null \
+    && [ ! -e "$LOCK_DIR" ] \
     && mv -T "$staging_dir" "$LOCK_DIR" 2>/dev/null; then
     lock_acquired=1
     return 0
