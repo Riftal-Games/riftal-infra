@@ -228,14 +228,21 @@ class UndoStack:
         return entry_id
 
     def undo(self, bridge: Bridge, n: int = 1, *, dry_run: bool = False, include_undo: bool = False) -> list[ApplyResult]:
-        """Restore the ``n`` newest entries not yet restored, newest first, stopping at the first failure."""
+        """Restore the ``n`` newest entries not yet restored, newest first, stopping at the first failure.
+
+        A ``BridgeError`` while reading the region to restore is that entry's failed result, not an exception,
+        so the entries already restored in this call are still returned.
+        """
         entries, results = self.entries(), []
         pending = [e for e in reversed(entries) if not e["restored"] and (include_undo or e["op"] != "undo")]
         for entry in pending[:n]:
-            if entry["path"] is None:
-                result = remove_texts(bridge, entry["texts"], dry_run=dry_run)
-            else:
-                result = restore(bridge, load(Path(entry["path"])), dry_run=dry_run)
+            try:
+                if entry["path"] is None:
+                    result = remove_texts(bridge, entry["texts"], dry_run=dry_run)
+                else:
+                    result = restore(bridge, load(Path(entry["path"])), dry_run=dry_run)
+            except BridgeError as exc:
+                result = ApplyResult(False, errors=[exc])
             results.append(result)
             if not result.ok:
                 break
