@@ -252,6 +252,24 @@ def test_a_non_integer_state_does_not_fail_the_region_lut() -> None:
     assert lut.tolist() == [BlockClass.AIR, BlockClass.SOLID, BlockClass.PASSABLE]
 
 
+def test_class_lut_warns_once_per_distinct_malformed_entry(caplog: pytest.LogCaptureFixture) -> None:
+    snow = "minecraft:snow_layer[height=abc]"
+    crop = "minecraft:pitcher_crop[growth=x,upper_block_bit=false]"
+    with caplog.at_level("WARNING", logger="designer.blocks"):
+        lut = class_lut([AIR, snow, "minecraft:snow_layer[height=0]", snow, crop])
+    assert lut.tolist() == [BlockClass.AIR, BlockClass.SOLID, BlockClass.PASSABLE, BlockClass.SOLID, BlockClass.SOLID]
+    warned = [r.getMessage() for r in caplog.records if r.name == "designer.blocks"]
+    assert len(warned) == 2
+    assert snow in warned[0] and "height='abc'" in warned[0]
+    assert crop in warned[1] and "growth='x'" in warned[1]
+
+
+def test_class_lut_is_silent_on_well_formed_states(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING", logger="designer.blocks"):
+        class_lut([AIR, "minecraft:snow_layer[height=3]", "minecraft:pitcher_crop[growth=4]"])
+    assert not [r for r in caplog.records if r.name == "designer.blocks"]
+
+
 def test_register_rule_front_beats_the_snow_height_rule(rules: list) -> None:
     register_rule("exact", "snow_layer", BlockClass.DANGER)
     assert classify("snow_layer[height=7]") is BlockClass.DANGER
