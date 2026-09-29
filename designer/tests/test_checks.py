@@ -68,15 +68,21 @@ def test_load_refuses_a_key_its_kind_does_not_read(tmp_path: Path, kind: str, en
         _checks(tmp_path, f"version: 1\nchecks:\n  - check: {kind}\n    {entry}\n")
 
 
-def test_load_accepts_every_key_a_runner_reads(tmp_path: Path) -> None:
-    travel, holes, light = _checks(tmp_path, (
-        "version: 1\nchecks:\n"
-        "  - check: travel_time\n    from: a\n    to: b\n    margin: 2\n    speed: 3\n    max_seconds: 5\n    max_drop: 2\n"
-        "  - check: no_holes\n    region: r\n    floor_y: 65\n    inset: 1\n"
-        "  - check: light_ok\n    region: r\n    min_level: 8\n    kind: sky\n"
-    ))
-    assert travel.args == {"from": "a", "to": "b", "margin": 2, "speed": 3, "max_seconds": 5, "max_drop": 2}
-    assert holes.args["inset"] == 1 and light.args["kind"] == "sky"
+# Written out by hand, not derived from KINDS, so dropping a key from any kind's list refuses its entry here.
+@pytest.mark.parametrize("kind, args", [
+    ("path_exists", {"from": "a", "to": "b", "margin": 2, "max_drop": 2}),
+    ("travel_time", {"from": "a", "to": "b", "margin": 2, "speed": 3, "max_seconds": 5, "max_drop": 2}),
+    ("warp_safe", {"at": "a"}),
+    ("entity_clear", {"at": "a"}),
+    ("region_inside", {"inner": "r", "outer": "s"}),
+    ("light_ok", {"region": "r", "min_level": 8, "kind": "sky"}),
+    ("no_holes", {"region": "r", "floor_y": 65, "inset": 1}),
+    ("mine_valid", {"region": "r", "spec": "m"}),
+])
+def test_load_accepts_every_key_a_runner_reads(tmp_path: Path, kind: str, args: dict[str, object]) -> None:
+    entry = "".join(f"\n    {k}: {v}" for k, v in args.items())
+    (spec,) = _checks(tmp_path, f"version: 1\nchecks:\n  - check: {kind}{entry}\n")
+    assert spec.args == args
 
 
 def test_plan_unions_a_world_and_separates_another(tmp_path: Path) -> None:
