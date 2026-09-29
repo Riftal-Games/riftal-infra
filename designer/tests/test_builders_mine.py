@@ -34,9 +34,24 @@ def _location(edits, name: str) -> tuple[int, int, int]:
     return tuple(next(l for l in edits.extras["locations"] if l["name"] == name)["pos"])
 
 
-def test_committed_spec_loads_and_places_the_ore_layer_override(spec: MineSpec) -> None:
+def _layered() -> dict:
+    """The committed spec with one ore layer over its bottom three rows, which the committed spec has none of."""
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["ore_layers"] = [{"y_from": 40, "y_to": 42, "ores": {"stone": 50, "coal_ore": 30, "iron_ore": 15, "gold_ore": 5}}]
+    return data
+
+
+def test_committed_spec_pins_the_mine_a_fragment(spec: MineSpec) -> None:
     assert spec.name == "mine_a" and spec.world == "mine_a"
-    assert len(spec.ore_layers) == 1 and spec.ore_layers[0].ores["minecraft:gold_ore"] == 5.0
+    assert spec.geometry().interior.to_json() == {"min": [-16, 40, -16], "max": [15, 50, 15]} and spec.floor_y == 40
+    assert spec.ores == {"minecraft:coal_ore": 1.0, "minecraft:iron_ore": 0.5} and spec.ore_layers == ()
+
+
+def test_an_ore_layer_override_loads_and_places_only_inside_its_rows(palette: Palette) -> None:
+    layered = MineSpec.from_dict(_layered())
+    assert len(layered.ore_layers) == 1 and layered.ore_layers[0].ores["minecraft:gold_ore"] == 5.0
+    gold_rows = {op.y for op in build_mine(layered, palette).ops if getattr(op, "block", "") == "minecraft:gold_ore"}
+    assert gold_rows and gold_rows <= {40, 41, 42}
 
 
 def test_to_region_passes_mine_valid(spec: MineSpec, palette: Palette) -> None:
@@ -111,7 +126,7 @@ def test_from_dict_rejects_a_fractional_floor_y() -> None:
 
 @pytest.mark.parametrize("field", ["y_from", "y_to"])
 def test_from_dict_rejects_a_fractional_ore_layer_bound(field: str) -> None:
-    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data = _layered()
     data["ore_layers"][0][field] = -0.5
     with pytest.raises(ValueError, match="y_from and y_to must be integers"):
         MineSpec.from_dict(data)
