@@ -8,6 +8,7 @@ from PIL import Image
 from designer import stack as stack_mod
 from designer.cli import main
 from designer.render import LEGEND_LINE
+from designer.verify import Check
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge
@@ -210,6 +211,23 @@ def test_terrain_terraform_defaults_to_a_dry_run_and_apply_sends_it(
     assert Path(applied["snapshot"]).is_file() and "fill" in [r["op"] for r in fake.requests]
 
 
+def test_terrain_terraform_apply_exits_one_when_the_bridge_refuses_an_edit(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+
+    args = ["terrain", "terraform", "--at", "spawn", "--size", "4", "--mode", "flatten", "--level", "70", "--block", "minecraft:bogus"]
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)["apply"] is False
+
+    assert main([*args, "--apply"]) == 1
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["ok"] is False and "unknown block 'minecraft:bogus'" in report["error"] and Path(report["snapshot"]).is_file()
+    assert captured.err == f"designer: apply failed: {report['error']}\n"
+
+
 def test_terrain_terraform_rejects_an_unknown_mode(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["terrain", "terraform", "--at", "spawn", "--size", "4", "--mode", "dig"])
@@ -340,6 +358,48 @@ def test_build_no_verify_and_no_index_skip_their_steps(
     assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--apply", "--no-index"]) == 0
     applied = json.loads(capsys.readouterr().out)
     assert applied["ok"] is True and WorldIndex.load(index_path).locations == []
+
+
+def test_build_apply_exits_one_and_registers_nothing_when_the_bridge_refuses_an_edit(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    bogus = {"colors": {}, "palettes": {"test_stone": dict.fromkeys(STONE_PALETTES["palettes"]["test_stone"], "minecraft:bogus")}}
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: bogus)
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+    args = ["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--no-verify"]
+
+    assert main(args) == 0
+    capsys.readouterr()
+    assert main([*args, "--apply"]) == 1
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["ok"] is False and "unknown block 'minecraft:bogus'" in report["error"]
+    assert captured.err == f"designer: apply failed: {report['error']}\n"
+    assert WorldIndex.load(index_path).locations == [] and WorldIndex.load(index_path).regions == []
+
+
+@pytest.mark.parametrize("apply", [[], ["--apply"]], ids=["dry-run", "apply"])
+def test_build_exits_one_when_mine_valid_fails(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path, apply: list[str]
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    monkeypatch.setattr("designer.cli.mine_valid", lambda region, spec: Check(False, "interior open to the padding"))
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", *apply]) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["mine_valid"] == {"ok": False, "detail": "interior open to the padding"}
+    assert captured.err == "designer: mine_valid failed: interior open to the padding\n"
 
 
 def test_build_rejects_an_unknown_kind(capsys: pytest.CaptureFixture[str]) -> None:
