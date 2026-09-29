@@ -81,10 +81,21 @@ def _by_box_top(top: float) -> BlockClass:
     return BlockClass.SOLID if top > FEET_CELL_HEADROOM else BlockClass.PASSABLE
 
 
+# A state that is not an integer says nothing about the box, so the block is
+# SOLID, the class ``classify`` gives any block it cannot read, rather than one
+# bad palette entry failing ``class_lut`` for the whole region.
+def _int_state(states: Mapping[str, str], key: str) -> int | None:
+    try:
+        return int(states.get(key, "0"))
+    except ValueError:
+        return None
+
+
 # Bedrock's ``height`` is layers minus one and the collision box is ``height``
 # eighths of a block (SnowLayer.php:69), so from height 2 (0.25) it is SOLID.
 def _snow_layer(states: Mapping[str, str]) -> BlockClass:
-    return _by_box_top(int(states.get("height", "0")) / 8)
+    height = _int_state(states, "height")
+    return BlockClass.SOLID if height is None else _by_box_top(height / 8)
 
 
 # ``growth`` 0-2 is the one-block crop, 3/16 tall at 0 and 5/16 after
@@ -93,7 +104,10 @@ def _snow_layer(states: Mapping[str, str]) -> BlockClass:
 def _pitcher_crop(states: Mapping[str, str]) -> BlockClass:
     if states.get("upper_block_bit") == "true":
         return BlockClass.PASSABLE
-    return _by_box_top((3 if int(states.get("growth", "0")) == 0 else 5) / 16)
+    growth = _int_state(states, "growth")
+    if growth is None:
+        return BlockClass.SOLID
+    return _by_box_top((3 if growth == 0 else 5) / 16)
 
 
 # First match wins, on the base name. A seeded rule whose class is a function

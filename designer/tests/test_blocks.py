@@ -237,6 +237,21 @@ def test_pitcher_crop_class_follows_its_growth_and_half(name: str, cls: BlockCla
     assert classify(name) is cls
 
 
+@pytest.mark.parametrize("name", [
+    "minecraft:snow_layer[covered_bit=false,height=abc]",
+    "minecraft:snow_layer[covered_bit=false,height=2.5]",
+    "minecraft:snow_layer[covered_bit=false,height=]",
+    "minecraft:pitcher_crop[growth=x,upper_block_bit=false]",
+])
+def test_a_non_integer_state_classifies_solid(name: str) -> None:
+    assert classify(name) is BlockClass.SOLID
+
+
+def test_a_non_integer_state_does_not_fail_the_region_lut() -> None:
+    lut = class_lut([AIR, "minecraft:snow_layer[height=abc]", "minecraft:snow_layer[height=0]"])
+    assert lut.tolist() == [BlockClass.AIR, BlockClass.SOLID, BlockClass.PASSABLE]
+
+
 def test_register_rule_front_beats_the_snow_height_rule(rules: list) -> None:
     register_rule("exact", "snow_layer", BlockClass.DANGER)
     assert classify("snow_layer[height=7]") is BlockClass.DANGER
