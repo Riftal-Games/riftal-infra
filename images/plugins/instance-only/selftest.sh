@@ -22,7 +22,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=40
+EXPECTED_ASSERTIONS=42
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -130,6 +130,13 @@ boot() {
     : > "$root/RiftalMines.phar"
     MYSQL_ROOT_PASSWORD=stale bash "$root/render-config.sh" "$root/RiftalMines.config.yml"
   fi
+  # A source folder DevTools would load, and two it would refuse.
+  if [ -n "${FOLDERS:-}" ]; then
+    mkdir -p "$root/plugins/Folder/src" "$root/plugins/NoSrc" "$root/plugins/NoManifest/src"
+    : > "$root/plugins/Folder/plugin.yml"
+    : > "$root/plugins/Folder/src/Main.php"
+    : > "$root/plugins/NoSrc/plugin.yml"
+  fi
   sed -e "s#/plugins#$root/plugins#g; s#/data#$root/data#g" \
     -e "s#/opt/pocketmine#$root/pm#g; s#-user pocketmine#-user $owner#g" \
     "$DIR/start-instance.sh" > "$root/start-instance.sh"
@@ -172,6 +179,11 @@ check "a file in /plugins not owned by pocketmine is warned about" \
   'boot "$((me + 1))" && grep -q "=== WARNING ===" "$b/out" && grep -q "Cached.phar" "$b/out"'
 check "no ownership warning when pocketmine owns everything" \
   'boot "$me" && ! grep -q WARNING "$b/out"'
+check "a source folder instance-b would load joins the roster with its src (riftal-infra#274)" \
+  'FOLDERS=1 boot "$me" && [ "$(cat "$b/roster")" = "$(printf "%s\n" Cached.phar Folder)" ] &&
+    [ -f "$(sed -n "s/^--plugins=//p" "$b/args")/Folder/src/Main.php" ]'
+check "a folder without plugin.yml or src, as instance-only is, stays out of the roster" \
+  'FOLDERS=1 boot "$me" && ! grep -qE "NoSrc|NoManifest" "$b/roster"'
 
 printf '\n== RiftalMines gets the password its container boots with (riftal-infra#266)\n'
 mines_config="$b/data/plugin_data/RiftalMines/config.yml"

@@ -11,8 +11,11 @@ PocketMine never loads from a subfolder, so `instance-b` ignores it.
 it assembles its plugin roster in the container's own disposable filesystem
 and renders the config onto the volume as uid 1000. It otherwise
 does what `start-pocketmine` does for `instance-b`: the ownership warning,
-`POCKETMINE_PLUGINS` from Poggit (into the roster, never `./plugins`) and
-`POCKETMINE_ANSI`. `start-pocketmine` hard-codes `--plugins=/plugins`, so
+every plugin a loader takes from the top of `./plugins`, `POCKETMINE_PLUGINS`
+from Poggit (into the roster, never `./plugins`) and `POCKETMINE_ANSI`. That
+includes a source folder holding `plugin.yml` and `src/`, which only a
+`DevTools.phar` loads (`../../../designer/stack/README.md`); without one, it
+is copied and ignored on both instances alike. `start-pocketmine` hard-codes `--plugins=/plugins`, so
 it cannot be reused. `selftest.sh` pins this script's copy of that
 behaviour but never reads core's `docker/start.sh`, so a change there has to
 be carried into `start-instance.sh` by hand. Nothing is
