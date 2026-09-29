@@ -74,6 +74,8 @@ def test_the_real_compose_file_keeps_its_security_and_bot_defaults() -> None:
     assert default.environment["RIFTAL_DEV_ENV"] == "1"
     args = default.environment["POCKETMINE_ARGS"].split()
     assert "--riftal-dev-bots=off" in args and "--xbox-auth=false" in args
+    # PocketMine casts the value with (bool), so "false" enables crash uploads.
+    assert [a for a in args if a.startswith("--auto-report.enabled")] == ["--auto-report.enabled=0"]
 
     overridden = stack.load_service(env={"DESIGNER_GAME_BIND": "192.168.0.10", "DESIGNER_VOLUME": "riftal_smoke_x"})
     assert [p for p in overridden.ports if "19140" in p] == ["127.0.0.1:19140:19140/tcp"]

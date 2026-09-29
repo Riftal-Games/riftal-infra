@@ -31,6 +31,10 @@ WIRE_EMPTY_Y = -1
 # Blocks a ground heightmap looks through, so a tree is not a surface.
 CANOPY_SUFFIXES = ("_leaves", "_log", "_wood")
 
+# DANGER plants a ground heightmap looks through: they stand on the ground like a
+# flower does. The rest of DANGER (lava, magma, fire, cactus) is the surface a player meets.
+GROUND_DANGER_PLANTS = frozenset({"sweet_berry_bush", "wither_rose"})
+
 
 def _spans(lo: int, hi: int, max_edge: int) -> list[tuple[int, int]]:
     return [(a, min(a + max_edge - 1, hi)) for a in range(lo, hi + 1, max_edge)]
@@ -464,11 +468,12 @@ def fetch_heightmap(bridge: Bridge, world: str, bounds: Bounds2D, *, need_top: b
 
 
 def heightmap_from_region(region: Region, *, ground: bool = False) -> Heightmap:
-    """Highest non-air block per column; ``ground`` also looks through passable blocks and trees."""
+    """Highest non-air block per column; ``ground`` also looks through passable blocks, DANGER plants and trees."""
     skip = region.classes() == BlockClass.AIR
     if ground:
-        canopy = np.array([base_name(name).endswith(CANOPY_SUFFIXES) for name in region.palette])
-        skip |= (region.classes() == BlockClass.PASSABLE) | canopy[region.blocks]
+        bases = [base_name(name) for name in region.palette]
+        through = np.array([b.endswith(CANOPY_SUFFIXES) or b in GROUND_DANGER_PLANTS for b in bases])
+        skip |= (region.classes() == BlockClass.PASSABLE) | through[region.blocks]
     surface = ~skip
     iy = surface.shape[0] - 1 - surface[::-1].argmax(axis=0)
     found = surface.any(axis=0)

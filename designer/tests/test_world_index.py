@@ -181,10 +181,17 @@ def test_tag_queries(index: WorldIndex) -> None:
 
 def test_select_filters_by_kind_and_tag_in_name_order(index: WorldIndex) -> None:
     index.add_location(Location("a_gate", "mine_a", (1, 1, 1), tags=["spawn"]))
+    index.add_location(Location("b_seller", "mine_a", (2, 2, 2), tags=["npc"]))
+    index.add_location(Location("c_post", "mine_a", (3, 3, 3)))
+    index.add_region(NamedRegion("a_pit", "mine_a", (0, 0, 0), (3, 3, 3), ["mine"]))
+    index.add_region(NamedRegion("b_yard", "mine_a", (0, 0, 0), (3, 3, 3)))
     assert list(index.select()) == ["worlds", "locations", "regions"]
-    assert [l["name"] for l in index.select(tag="spawn")["locations"]] == ["a_gate", "spawn"]
-    assert set(index.select(tag="spawn")) == {"locations", "regions"}
+    by_spawn = index.select(tag="spawn")
+    assert list(by_spawn) == ["locations", "regions"]
+    assert [l["name"] for l in by_spawn["locations"]] == ["a_gate", "spawn"] and by_spawn["regions"] == []
     assert list(index.select("regions", "safe_zone")) == ["regions"]
+    assert [r["name"] for r in index.select("regions", "safe_zone")["regions"]] == ["lumber_safe_zone"]
+    assert [r["name"] for r in index.select("regions", "mine")["regions"]] == ["a_pit", "lumber_safe_zone"]
     assert [w["name"] for w in index.select("worlds")["worlds"]] == sorted(w.name for w in index.worlds)
     with pytest.raises(ValueError, match="^worlds carry no tags"):
         index.select("worlds", "spawn")
