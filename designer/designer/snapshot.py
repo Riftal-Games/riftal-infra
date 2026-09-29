@@ -57,6 +57,12 @@ def save(region: Region, label: str, *, ts: datetime | None = None) -> Path:
     return path
 
 
+class SnapshotLoadError(Exception):
+    """An undo entry's snapshot file is missing, unreadable, or not one ``load`` accepts."""
+
+    code = "snapshot_unreadable"
+
+
 def load(path: Path) -> Snapshot:
     with np.load(path) as data:
         meta = json.loads(data["meta"].item())
@@ -171,6 +177,15 @@ def remove_texts(bridge: Bridge, ids: list[str], *, dry_run: bool = False) -> Ap
     return result
 
 
+def _load_entry(entry: dict[str, Any]) -> Snapshot:
+    # numpy reports a damaged file as OSError, ValueError, EOFError, KeyError or zipfile.BadZipFile depending
+    # on where the damage is, so every failure to read this one file is the same refusal.
+    try:
+        return load(Path(entry["path"]))
+    except Exception as exc:
+        raise SnapshotLoadError(f"undo entry {entry['id']}: cannot load snapshot {entry['path']}: {exc}") from exc
+
+
 class UndoStack:
     """Undo entries in a JSON manifest, rewritten whole on every change so a crash leaves the old file or the new one.
 
@@ -230,8 +245,9 @@ class UndoStack:
     def undo(self, bridge: Bridge, n: int = 1, *, dry_run: bool = False, include_undo: bool = False) -> list[ApplyResult]:
         """Restore the ``n`` newest entries not yet restored, newest first, stopping at the first failure.
 
-        A ``BridgeError`` while reading the region to restore is that entry's failed result, not an exception,
-        so the entries already restored in this call are still returned.
+        A ``BridgeError`` while reading the region to restore, or a ``SnapshotLoadError`` for the entry's snapshot
+        file, is that entry's failed result, not an exception, so the entries already restored in this call are
+        still returned.
         """
         entries, results = self.entries(), []
         pending = [e for e in reversed(entries) if not e["restored"] and (include_undo or e["op"] != "undo")]
@@ -240,8 +256,8 @@ class UndoStack:
                 if entry["path"] is None:
                     result = remove_texts(bridge, entry["texts"], dry_run=dry_run)
                 else:
-                    result = restore(bridge, load(Path(entry["path"])), dry_run=dry_run)
-            except BridgeError as exc:
+                    result = restore(bridge, _load_entry(entry), dry_run=dry_run)
+            except (BridgeError, SnapshotLoadError) as exc:
                 result = ApplyResult(False, errors=[exc])
             results.append(result)
             if not result.ok:
