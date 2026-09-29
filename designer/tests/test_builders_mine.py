@@ -1,6 +1,7 @@
 import json
 import re
 
+import numpy as np
 import pytest
 
 from designer.builders.base import Palette
@@ -152,6 +153,29 @@ def test_from_dict_rejects_a_fractional_size_or_count(path: tuple[str, ...], val
     target[key] = value
     with pytest.raises(ValueError, match=f"^{message}$"):
         MineSpec.from_dict(data)
+
+
+def _lantern_positions(region: Region) -> set[tuple[int, int, int]]:
+    lanterns = [i for i, name in enumerate(region.palette) if name.startswith("minecraft:lantern")]
+    ys, zs, xs = np.nonzero(np.isin(region.blocks, lanterns))
+    x0, y0, z0 = region.bounds.min
+    return {(x0 + int(x), y0 + int(y), z0 + int(z)) for x, y, z in zip(xs, ys, zs)}
+
+
+# Lengths that are not a multiple of lights_every, because the sell sign takes the
+# platform's edge block at the far end and would cover a light placed there.
+@pytest.mark.parametrize("length, every, distances", [(6, 4, [4]), (13, 4, [4, 8, 12]), (11, 3, [3, 6, 9])])
+def test_exit_platform_lights_sit_every_lights_every_blocks_along_its_edge(
+    length: int, every: int, distances: list[int], palette: Palette
+) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["exit_path"]["length"], data["lights_every"] = length, every
+    lit = MineSpec.from_dict(data)
+    _, region = _built_region(lit, palette)
+    geo = lit.geometry()
+    x, face = geo.exit_platform.min[0], geo.outer.max[2]
+    assert _lantern_positions(region) == {(x, lit.floor_y, face + d) for d in distances}
+    assert {region.get(x, lit.floor_y, face + d) for d in distances} == {"minecraft:lantern[hanging=false]"}
 
 
 def _outer_tags(spec: MineSpec, palette: Palette) -> list[str]:
