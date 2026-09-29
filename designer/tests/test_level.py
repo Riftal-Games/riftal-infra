@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -157,9 +158,16 @@ def test_zone_checks_must_exist_resolve_and_read_the_zone(bridge: Bridge, root: 
     assert not (root / "levels" / "zt.lock.json").exists()
 
 
+def _step_entry(name: str) -> Location | NamedRegion:
+    extras = BUILDERS["mine"]({**SMALL_MINE_SPEC, "world": "zt"}, Palette.load("test_stone"), None).extras
+    entries = [*map(Location.from_json, extras["locations"]), *map(NamedRegion.from_json, extras["regions"])]
+    return next(e for e in entries if e.name == name)
+
+
 def _step_spawn() -> Location:
-    locations = BUILDERS["mine"]({**SMALL_MINE_SPEC, "world": "zt"}, Palette.load("test_stone"), None).extras["locations"]
-    return next(Location.from_json(l) for l in locations if l["name"] == "tbox_spawn")
+    spawn = _step_entry("tbox_spawn")
+    assert isinstance(spawn, Location)
+    return spawn
 
 
 def test_zone_checks_resolve_names_the_steps_made(bridge: Bridge, root: Path) -> None:
@@ -173,19 +181,35 @@ def test_zone_checks_resolve_names_the_steps_made(bridge: Bridge, root: Path) ->
     assert not (SMALL_MINE_NAMES - {"tbox_spawn"}) & index.names().keys(), "the build registered into the caller's index"
 
 
-@pytest.mark.parametrize(("change", "match"), [
-    pytest.param(lambda s: Location(s.name, s.world, (40, 10, 40), s.yaw, s.pitch, s.tags), r"pos \[3, 1, -2\] \(world_index.json \[40, 10, 40\]\)", id="pos"),
-    pytest.param(lambda s: Location(s.name, "zo", s.pos, s.yaw, s.pitch, s.tags), "world zt .world_index.json zo.", id="world"),
-    pytest.param(lambda s: NamedRegion(s.name, s.world, s.pos, s.pos), "Location in the step, a NamedRegion", id="kind"),
+@pytest.mark.parametrize(("name", "change", "match"), [
+    pytest.param("tbox_spawn", lambda s: replace(s, pos=(40, 10, 40)), r"pos \[3, 1, -2\] \(world_index.json \[40, 10, 40\]\)", id="pos"),
+    pytest.param("tbox_spawn", lambda s: replace(s, world="zo"), "world zt .world_index.json zo.", id="world"),
+    pytest.param("tbox_spawn", lambda s: replace(s, yaw=s.yaw + 45), r"yaw \S+ \(world_index.json \S+\)", id="yaw"),
+    pytest.param("tbox_spawn", lambda s: replace(s, pitch=30), r"pitch 0 \(world_index.json 30\)", id="pitch"),
+    pytest.param("sell_npc_tbox", lambda s: replace(s, tags=["npc"]), r"tags \['npc', 'sell'\] \(world_index.json \['npc'\]\)", id="location-tags"),
+    pytest.param("tbox", lambda s: replace(s, min=(s.min[0] - 1, *s.min[1:])), r"min \[.*\] \(world_index.json \[.*\]\)", id="min"),
+    pytest.param("tbox", lambda s: replace(s, max=(*s.max[:2], s.max[2] + 1)), r"max \[.*\] \(world_index.json \[.*\]\)", id="max"),
+    pytest.param("tbox_entrance", lambda s: replace(s, tags=["mine", "spawn"]), r"tags \['mine', 'walkway'\] \(world_index.json \['mine', 'spawn'\]\)", id="region-tags"),
+    pytest.param("tbox", lambda s: replace(s, meta={**s.meta, "resets": "never"}), r"meta .* \(world_index.json .*'resets': 'never'", id="meta"),
+    pytest.param("tbox_spawn", lambda s: NamedRegion(s.name, s.world, s.pos, s.pos), "Location in the step, a NamedRegion", id="kind"),
 ])
-def test_a_step_differing_from_a_committed_entry_refuses(fake: FakeBridge, bridge: Bridge, root: Path, change: Any, match: str) -> None:
+def test_a_step_differing_from_a_committed_entry_refuses(fake: FakeBridge, bridge: Bridge, root: Path, name: str, change: Any, match: str) -> None:
     index = _index()
     index.worlds.append(WorldEntry("zo", "normal", 7, "lumber"))
-    committed = change(_step_spawn())
+    committed = change(_step_entry(name))
     (index.regions if isinstance(committed, NamedRegion) else index.locations).append(committed)
-    with pytest.raises(LevelError, match=rf"step 0 .* differs from world_index.json: 'tbox_spawn' .*{match}"):
+    with pytest.raises(LevelError, match=rf"step 0 .* differs from world_index.json: '{name}' .*{match}"):
         _build(bridge, root, index=index)
     assert not fake.worlds["zt"].edits and not (root / "levels" / "zt.lock.json").exists()
+
+
+def test_a_committed_entry_matching_in_any_tag_order_builds(bridge: Bridge, root: Path) -> None:
+    index = _index()
+    sell, entrance = _step_entry("sell_npc_tbox"), _step_entry("tbox_entrance")
+    assert sell.tags == ["npc", "sell"] and entrance.tags == ["mine", "walkway"]
+    index.locations.append(replace(sell, tags=["sell", "npc"]))
+    index.regions.append(replace(entrance, tags=["walkway", "mine"]))
+    assert _build(bridge, root, index=index).exists()
 
 
 def test_the_committed_index_file_is_byte_identical_after_a_build(bridge: Bridge, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
