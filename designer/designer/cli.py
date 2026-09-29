@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -242,10 +243,11 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(f"{taken} already defined; build a differently named spec, or pass --no-index to build without registering")
     if report.get("mine_valid", {"ok": True})["ok"] is False:
         return report
-    if options.apply and edits.bounds is not None:
-        report["snapshot"] = str(snapshots.take(bridge, edits.world, edits.bounds, f"build_{options.kind}").path)
-        result = edits.apply(bridge)
-        report["ok"] = result.ok
+    if options.apply:
+        session = datetime.now(UTC).strftime("cli-%Y%m%dT%H%M%SZ")
+        done = snapshots.apply_undoable(bridge, edits, f"build_{options.kind}", session)
+        result = done.result
+        report["snapshot"], report["undo_id"], report["ok"] = done.snapshot, done.undo_id, result.ok
         if not result.ok:
             report["error"] = str(result.errors[0])
         elif idx is not None:
