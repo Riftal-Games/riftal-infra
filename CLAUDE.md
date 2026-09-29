@@ -24,7 +24,7 @@ Concretely:
 | `instances/` | One definition per running instance: which worlds it serves, its `instance_id`, its resources, its `server.properties` and `pocketmine.yml` overrides |
 | `migrations/` | Production migration runner and applied-state records. Migration files themselves are authored in `riftal-game/lib/resources/sql/migrations/`. |
 | `deploy/` | Rollout and rollback scripts, backup jobs, health checks |
-| `images/` | Dockerfiles we own: the WaterdogPE proxy image, and any wrapper around the core image. Plus the local dev stack composition, `images/compose.yaml`. |
+| `images/` | The local dev stack: `compose.yaml` (`mysql`, core instances `instance` and `instance-b` on the `local-pocketmine-mp` image, and `backup`), `.env.example`, and `plugins/`, the dev-only plugins and start scripts bind-mounted into the instances, with their self-tests. No Dockerfile: the core image is built in `pmmp-core`. |
 | `designer/` | The designer toolchain. `designer/stack/` is the single-container designer stack with its own `compose.yaml`; the rest of `designer/` is the Python toolkit and its MCP server. |
 
 ## Platform facts
