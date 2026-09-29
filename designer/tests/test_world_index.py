@@ -6,6 +6,10 @@ from pathlib import Path
 import pytest
 
 from designer import world_index
+from designer.builders.base import Palette
+from designer.builders.mine import build_mine
+from designer.builders.mine_spec import MineSpec
+from designer.config import PROJECT_ROOT
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldIndex
 
@@ -126,6 +130,31 @@ def test_preflight_returns_the_taken_names_and_raises_on_what_add_would_refuse(i
         index.preflight([], [{**yard, "name": "far", "world": "desgin"}])
     with pytest.raises(ValueError, match="name 'gate' is given twice in one build"):
         index.preflight([gate], [{**yard, "name": "gate"}])
+
+
+def _contested_mine_regions(**changes: object) -> list[dict]:
+    data = {**json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8")), "name": "contested_mine", "world": "contested"}
+    data.pop("safe_zone")
+    return build_mine(MineSpec.from_dict({**data, **changes}), Palette.load("mine_stone")).extras["regions"]
+
+
+def test_preflight_refuses_a_contested_mine_spec_that_leaves_safe_zone_at_its_default(index: WorldIndex) -> None:
+    with pytest.raises(ValueError, match=r"^region 'contested_mine' carries safe_zone in 'contested', a contested world that is always PvP;"):
+        index.preflight([], _contested_mine_regions())
+    with pytest.raises(ValueError, match="carries safe_zone"):
+        index.preflight([], _contested_mine_regions(safe_zone=True))
+    assert index.preflight([], _contested_mine_regions(safe_zone=False)) == []
+
+
+def test_a_contested_world_refuses_a_safe_zone_region_on_add_and_load(index: WorldIndex, tmp_path: Path) -> None:
+    pit = NamedRegion("pit", "contested", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"])
+    with pytest.raises(ValueError, match="region 'pit' carries safe_zone in 'contested'"):
+        index.add_region(pit)
+    (tmp_path / "bad.json").write_text(json.dumps({**index.to_json(), "regions": [pit.to_json()]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="^NamedRegion 'pit' carries safe_zone in 'contested'"):
+        WorldIndex.load(tmp_path / "bad.json")
+    index.add_region(NamedRegion("pit", "contested", (0, 0, 0), (3, 3, 3), ["mine"]))
+    index.add_region(NamedRegion("yard", "mine_a", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
 
 
 def test_register_refuses_a_taken_name_unless_replace(index: WorldIndex) -> None:

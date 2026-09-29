@@ -210,10 +210,19 @@ class WorldIndex:
         return [r for r in self.regions if tag in r.tags]
 
     def _admissible(self, entry: Location | NamedRegion, what: str | None = None) -> None:
-        """The one rule for an entry's name and world; ``validate`` reports its ``KeyError`` as a ``ValueError``."""
+        """The one rule for an entry's name and world; ``validate`` reports its ``KeyError`` as a ``ValueError``.
+
+        Riots makes a whole world safe once any region in it carries ``safe_zone``, and design plan 7.2 keeps
+        the contested mine always PvP, so no region in a ``contested`` world may carry the tag.
+        """
         if not NAME_RE.fullmatch(entry.name):
             raise ValueError(f"{what or f'name {entry.name!r}'} must match {NAME_RE.pattern}")
-        self.world(entry.world)
+        world = self.world(entry.world)
+        if isinstance(entry, NamedRegion) and world.role == "contested" and "safe_zone" in entry.tags:
+            raise ValueError(
+                f"{what or f'region {entry.name!r}'} carries safe_zone in {world.name!r}, a contested world that is always PvP;"
+                " a contested mine's spec sets safe_zone: false"
+            )
 
     def _add(self, entry: Any, into: list[Any], replace: bool) -> Any:
         self._admissible(entry)
