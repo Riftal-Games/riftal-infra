@@ -195,6 +195,14 @@ def test_core_names_with_collision_are_solid(name: str) -> None:
     assert classify(name) is BlockClass.SOLID
 
 
+# BlockTypeNames.php:572 names it, but the core implements only the frame. In
+# vanilla Bedrock the portal has no collision box and sends whoever enters it
+# to the End at once.
+@pytest.mark.parametrize("name", ["end_portal", "minecraft:end_portal"])
+def test_end_portal_is_danger(name: str) -> None:
+    assert classify(name) is BlockClass.DANGER
+
+
 # ``height`` is layers minus one (VanillaBlockMappings.php:1502) and the box is
 # ``height`` eighths tall (SnowLayer.php:69). A 1.8-tall hitbox in a two-cell
 # space leaves 0.2 of a block, so from height 2 (0.25) the snow is SOLID.
