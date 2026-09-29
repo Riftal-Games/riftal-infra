@@ -631,13 +631,13 @@ def test_build_specs_name_every_registered_kind() -> None:
 
 # A signage edit list is floating text alone, so it has no bounds, and ``_apply`` refuses any edit list
 # without bounds as "nothing to do" before a dry run or an apply sends anything.
-KINDS = [
-    pytest.param(kind, marks=pytest.mark.xfail(strict=True, reason="build() refuses a text-only edit list")) if kind == "signage" else kind
-    for kind in sorted(BUILD_SPECS)
-]
+TEXT_ONLY_REFUSED = "riftal-infra#409: build() refuses a text-only edit list"
+BLOCK_KINDS = sorted(kind for kind in BUILD_SPECS if kind != "signage")
 
 
-@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize(
+    "kind", [*BLOCK_KINDS, pytest.param("signage", marks=pytest.mark.xfail(strict=True, reason=TEXT_ONLY_REFUSED))],
+)
 def test_build_dry_run_of_every_kind_answers_its_names_and_touches_nothing(every_role: FakeBridge, tmp_path: Path, kind: str) -> None:
     spec, names, _ = BUILD_SPECS[kind]
     before, indexed = (tmp_path / "index.json").read_bytes(), _indexed()
@@ -650,17 +650,34 @@ def test_build_dry_run_of_every_kind_answers_its_names_and_touches_nothing(every
     assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
 
 
-@pytest.mark.parametrize("kind", KINDS)
-def test_build_apply_of_every_kind_registers_its_names_and_writes_its_extras_report(every_role: FakeBridge, kind: str) -> None:
-    spec, names, report_name = BUILD_SPECS[kind]
-    indexed = _indexed()
-    result = call("build", kind=kind, spec=spec, palette="test_every_role")
-    assert result["ok"] is True and result["dry_run"] is False and result["undo_id"] == 1, result
-    assert Path(result["snapshot"]).is_file() and (_writes(every_role) or every_role.texts)
+def _assert_registered_and_reported(result: dict[str, Any], kind: str, indexed: set[str]) -> None:
+    _, names, report_name = BUILD_SPECS[kind]
     assert {e["name"] for e in (*result["locations"], *result["regions"])} == names and _indexed() == indexed | names
     report = Path(result["extras_report"])
     assert report == config.REPORTS_DIR / f"{kind}-{report_name}-extras.json"
     assert {e["name"] for key in ("locations", "regions") for e in json.loads(report.read_text()).get(key, [])} == names
+
+
+@pytest.mark.parametrize("kind", BLOCK_KINDS)
+def test_build_apply_of_every_block_kind_registers_its_names_and_writes_its_extras_report(every_role: FakeBridge, kind: str) -> None:
+    indexed = _indexed()
+    result = call("build", kind=kind, spec=BUILD_SPECS[kind][0], palette="test_every_role")
+    assert result["ok"] is True and result["dry_run"] is False and result["undo_id"] == 1, result
+    assert Path(result["snapshot"]).is_file() and _writes(every_role)
+    _assert_registered_and_reported(result, kind, indexed)
+
+
+# Whether a text-only build should be undoable is riftal-infra#410, so this asserts only what the code
+# promises today: a snapshot and an undo entry come from touched blocks, and floating text touches none.
+@pytest.mark.xfail(strict=True, reason=TEXT_ONLY_REFUSED)
+def test_build_apply_of_signage_places_its_text_and_takes_no_snapshot(every_role: FakeBridge, tmp_path: Path) -> None:
+    indexed = _indexed()
+    result = call("build", kind="signage", spec=BUILD_SPECS["signage"][0], palette="test_every_role")
+    assert result["ok"] is True and result["dry_run"] is False, result
+    assert (result["snapshot"], result["undo_id"]) == (None, None) and call("list_undo")["entries"] == []
+    assert not (tmp_path / "snapshots").exists() and _writes(every_role) == []
+    assert every_role.texts == {"t_sign": {"world": "design", "pos": [0, 64, 0], "text": "hi"}}
+    _assert_registered_and_reported(result, "signage", indexed)
 
 
 def _with_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
