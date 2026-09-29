@@ -217,7 +217,7 @@ def test_a_spec_without_safe_zone_builds_a_safe_mine(palette: Palette) -> None:
     assert _outer_tags(MineSpec.from_dict(data), palette) == ["mine", "safe_zone"]
 
 
-@pytest.mark.parametrize("name", ["mine_a", "lumber"])
+@pytest.mark.parametrize("name", ["mine_a", "mine_b", "mine_c", "lumber"])
 def test_committed_specs_build_safe_mines(name: str, palette: Palette) -> None:
     spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / f"{name}.json").read_text(encoding="utf-8")))
     assert _outer_tags(spec, palette) == ["mine", "safe_zone"]

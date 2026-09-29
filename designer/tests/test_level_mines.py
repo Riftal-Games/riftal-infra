@@ -17,9 +17,12 @@ from tests.conftest import STONE_PALETTES
 from tests.fake_bridge import ALLOWED_BLOCKS, FakeBridge, FakeWorld
 
 BOUNDS = {"min": [-20, 36, -20], "max": [20, 56, 26]}
-MINES = "worlds:\n  lumber: worlds/lumber.json\n  mine_a: worlds/mine_a.json\n  mine_b: worlds/mine_b.json\n"
+MINES = "worlds:\n  lumber: worlds/lumber.json\n  mine_a: worlds/mine_a.json\n  mine_b: worlds/mine_b.json\n  mine_c: worlds/mine_c.json\n"
 MINE_A_INTERIOR_CELL = [0, 45, 0]
 LOG = "minecraft:oak_log[pillar_axis=y]"
+ZONES = ["mine_a", "mine_b", "mine_c", "lumber"]
+# DesignBridge reads a block back by its Bedrock name with its states, whatever alias or states the write named.
+READ_BACK = {"minecraft:oak_log": LOG, "minecraft:lapis_lazuli_ore": "minecraft:lapis_ore"}
 
 
 def _poke(spec: dict, palette: object, fetch: object) -> EditList:
@@ -31,16 +34,16 @@ def root(tmp_path: Path, fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> P
     for target in ("designer.builders.base.load_palettes", "designer.level.load_palettes"):
         monkeypatch.setattr(target, lambda: STONE_PALETTES)
     # The mine builder hangs its lights with a state, and test_stone makes every light stone.
-    extra = {"minecraft:coal_ore", "minecraft:iron_ore", LOG, "minecraft:torch", "minecraft:chorus_flower", "minecraft:stone[hanging=false]"}
+    extra = {"minecraft:coal_ore", "minecraft:iron_ore", "minecraft:copper_ore", "minecraft:lapis_ore"}
+    extra |= {LOG, "minecraft:torch", "minecraft:chorus_flower", "minecraft:stone[hanging=false]"}
     monkeypatch.setattr("tests.fake_bridge.ALLOWED_BLOCKS", ALLOWED_BLOCKS | extra)
-    # DesignBridge reads a log back with its axis, whatever the write named.
     index_of = FakeWorld.index_of
-    monkeypatch.setattr(FakeWorld, "index_of", lambda world, name, where="block": index_of(world, LOG if name == "minecraft:oak_log" else name, where))
+    monkeypatch.setattr(FakeWorld, "index_of", lambda world, name, where="block": index_of(world, READ_BACK.get(name, name), where))
     monkeypatch.setitem(BUILDERS, "poke", _poke)
     monkeypatch.setattr("designer.checks.PROJECT_ROOT", tmp_path)
     shutil.copytree(PROJECT_ROOT / "specs", tmp_path / "specs")
     (tmp_path / "levels").mkdir()
-    for zone in ("mine_a", "lumber"):
+    for zone in ZONES:
         # Terrain away from the build, so the committed specs are read on air and nothing but what they write.
         fake.worlds[zone] = FakeWorld(extent=((100, 100), (101, 101)))
         _recipe(tmp_path, zone)
@@ -68,7 +71,7 @@ def _refused(bridge: Bridge, root: Path, zone: str, match: str, **kwargs: Path) 
     assert not (root / "levels" / f"{zone}.lock.json").exists()
 
 
-@pytest.mark.parametrize("zone", ["mine_a", "lumber"])
+@pytest.mark.parametrize("zone", ZONES)
 def test_one_mine_step_builds_and_writes_a_lock(bridge: Bridge, root: Path, zone: str) -> None:
     assert json.loads(_build(bridge, root, zone).read_text(encoding="utf-8"))["zone"] == zone
 
@@ -83,6 +86,13 @@ def test_a_layer_ore_absent_from_ores_refuses(bridge: Bridge, root: Path) -> Non
     spec["ore_layers"] = [{"y_from": 45, "y_to": 45, "ores": {"minecraft:iron_ore": 1}}]
     (root / "specs" / "mine_a.json").write_text(json.dumps(spec), encoding="utf-8")
     _refused(bridge, root, "mine_a", r"mine_valid_mine_a: 1024 interior cells neither air nor in ores \[\(-16, 45, -16\)")
+
+
+def test_an_ore_named_by_an_alias_refuses_since_it_reads_back_under_another_name(bridge: Bridge, root: Path) -> None:
+    spec = json.loads((root / "specs" / "mine_c.json").read_text(encoding="utf-8"))
+    spec["ores"] = {"minecraft:iron_ore": 1.0, "minecraft:lapis_lazuli_ore": 0.4}
+    (root / "specs" / "mine_c.json").write_text(json.dumps(spec), encoding="utf-8")
+    _refused(bridge, root, "mine_c", r"mine_valid_mine_c: composition off; \d+ interior cells neither air nor in ores")
 
 
 def test_a_chorus_flower_outside_every_interior_refuses(bridge: Bridge, root: Path) -> None:
