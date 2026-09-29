@@ -1,7 +1,11 @@
+import json
+from dataclasses import replace
+
 import pytest
 
 from designer.blocks import AIR
 from designer.builders.mine_spec import MineSpec
+from designer.config import PROJECT_ROOT
 from designer.region import Bounds, Region
 from designer.verify import mine_valid
 from tests.conftest import MINE_SPEC
@@ -85,6 +89,21 @@ def test_one_stray_interior_block_fails_at_any_tolerance(box_mine_region: Fixtur
     found = mine_valid(region, spec, tolerance=1.0)
     assert not found.ok and found.detail == "1 interior cells neither air nor in ores [(5, 3, 6)]"
     assert found.coords == [(5, 3, 6)]
+
+
+def test_a_block_read_back_with_states_counts_as_its_stateless_ores_key() -> None:
+    spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / "lumber.json").read_text(encoding="utf-8")))
+    geo = spec.geometry()
+    region = Region.empty(spec.world, geo.padding.union(geo.exit_platform))
+    region.fill(geo.outer, "minecraft:stone")
+    region.fill(geo.interior, "minecraft:oak_log[pillar_axis=y]")
+    region.fill(geo.entrance, AIR)
+    region.fill(geo.exit_platform, "minecraft:stone")
+    found = mine_valid(region, spec)
+    assert found.ok, found.detail
+    assert found.composition == {"minecraft:oak_log": 1.0} and found.deviations == {"minecraft:oak_log": 0.0}
+    sideways = replace(spec, ores={"minecraft:oak_log[pillar_axis=x]": 1.0})
+    assert "interior cells neither air nor in ores" in mine_valid(region, sideways).detail
 
 
 def test_an_undeclared_opening_is_detected(box_mine_region: Fixture) -> None:

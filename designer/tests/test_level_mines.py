@@ -19,6 +19,7 @@ from tests.fake_bridge import ALLOWED_BLOCKS, FakeBridge, FakeWorld
 BOUNDS = {"min": [-20, 36, -20], "max": [20, 56, 26]}
 MINES = "worlds:\n  lumber: worlds/lumber.json\n  mine_a: worlds/mine_a.json\n  mine_b: worlds/mine_b.json\n"
 MINE_A_INTERIOR_CELL = [0, 45, 0]
+LOG = "minecraft:oak_log[pillar_axis=y]"
 
 
 def _poke(spec: dict, palette: object, fetch: object) -> EditList:
@@ -30,8 +31,11 @@ def root(tmp_path: Path, fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> P
     for target in ("designer.builders.base.load_palettes", "designer.level.load_palettes"):
         monkeypatch.setattr(target, lambda: STONE_PALETTES)
     # The mine builder hangs its lights with a state, and test_stone makes every light stone.
-    extra = {"minecraft:coal_ore", "minecraft:iron_ore", "minecraft:oak_log", "minecraft:torch", "minecraft:chorus_flower", "minecraft:stone[hanging=false]"}
+    extra = {"minecraft:coal_ore", "minecraft:iron_ore", LOG, "minecraft:torch", "minecraft:chorus_flower", "minecraft:stone[hanging=false]"}
     monkeypatch.setattr("tests.fake_bridge.ALLOWED_BLOCKS", ALLOWED_BLOCKS | extra)
+    # DesignBridge reads a log back with its axis, whatever the write named.
+    index_of = FakeWorld.index_of
+    monkeypatch.setattr(FakeWorld, "index_of", lambda world, name, where="block": index_of(world, LOG if name == "minecraft:oak_log" else name, where))
     monkeypatch.setitem(BUILDERS, "poke", _poke)
     monkeypatch.setattr("designer.checks.PROJECT_ROOT", tmp_path)
     shutil.copytree(PROJECT_ROOT / "specs", tmp_path / "specs")

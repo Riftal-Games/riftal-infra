@@ -738,7 +738,10 @@ beside a clear path anyway. Mine A and Lumber use width 3 and are unchanged (#49
 
 `mine_valid` fails any interior cell that is not air or a block named in `ores`, at no
 tolerance whatever `tolerance` is passed, naming up to 20 cells in the detail so
-`build_level`'s refusal names them. A name only in `ore_layers` fails, since the refill never
+`build_level`'s refusal names them. A block counts as an `ores` key when the bases match and
+its states include the key's, since DesignBridge reads a log back as
+`minecraft:oak_log[pillar_axis=y]` while `lumber.json` names `minecraft:oak_log`; the
+composition rule matches the same way. A name only in `ore_layers` fails, since the refill never
 writes it. `build_level` reads `worlds:` from riftal-game's mines `config.yml` before any engine
 call and refuses a listed zone with no `mine_valid` of that `zone` on a spec a `mine` step
 builds, and every zone when the file is missing or unreadable. It then refuses a chorus flower
