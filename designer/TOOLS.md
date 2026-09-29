@@ -27,6 +27,11 @@ a dry run included, so a dry run answers every refusal the build would; runs ``m
 reporting the failure instead; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
 falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
 
+A build of floating text alone, ``signage``, touches no block, so it answers ``bounds`` and ``snapshot`` as null
+and takes no snapshot, and is undoable all the same: its undo entry is pushed once the texts are set, and
+``undo`` removes every text it set with ``remove_text``. An id that already carried text before the build is
+removed too, not put back as it was.
+
 ```json
 {"properties": {"dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "kind": {"title": "Kind", "type": "string"}, "palette": {"default": "mine_stone", "title": "Palette", "type": "string"}, "register_index": {"default": true, "title": "Register Index", "type": "boolean"}, "replace_index": {"default": false, "title": "Replace Index", "type": "boolean"}, "spec": {"anyOf": [{"additionalProperties": true, "type": "object"}, {"type": "string"}], "title": "Spec"}, "verify": {"default": true, "title": "Verify", "type": "boolean"}}, "required": ["kind", "spec"], "title": "buildArguments", "type": "object"}
 ```

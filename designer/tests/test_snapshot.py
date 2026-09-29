@@ -163,6 +163,13 @@ def test_prune_with_dry_run_deletes_nothing(fake: FakeBridge, bridge: Bridge) ->
     assert [e["id"] for e in stack.entries()] == [2]
 
 
+def test_prune_drops_an_old_text_entry_that_has_no_snapshot_file() -> None:
+    stack = UndoStack()
+    stack.push_texts(WORLD, ["sign_1"], "build_signage")
+    assert stack.prune(keep_days=-1) == [] and [e["texts"] for e in stack.entries()] == [["sign_1"]]
+    assert stack.prune(keep_days=-1, dry_run=False) == [] and stack.entries() == []
+
+
 def test_prune_refuses_a_manifest_entry_whose_path_resolves_outside_snapshots_dir(tmp_path: Path) -> None:
     outside = tmp_path / "outside" / "evil.npz"
     outside.parent.mkdir()

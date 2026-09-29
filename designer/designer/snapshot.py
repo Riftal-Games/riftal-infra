@@ -14,7 +14,7 @@ import numpy as np
 
 from designer import __version__, config
 from designer.blocks import RLE_ORDER
-from designer.bridge import Bridge
+from designer.bridge import Bridge, BridgeError
 from designer.edits import DEFAULT_BATCH, ApplyResult, EditList, Fill, Op, SetBlock
 from designer.region import Bounds, Region, fetch_region
 
@@ -150,6 +150,26 @@ def restore(
     return edits.apply(bridge, dry_run=dry_run, batch=batch, before=lambda world, bounds: take(bridge, world, bounds, "restore"))
 
 
+def remove_texts(bridge: Bridge, ids: list[str], *, dry_run: bool = False) -> ApplyResult:
+    """Remove each floating text in ``ids``, stopping at the first failure.
+
+    A text the bridge no longer has counts as removed, so an undo that stopped
+    partway, or one whose text was removed by hand, can still be completed.
+    """
+    result = ApplyResult(True)
+    for text_id in [] if dry_run else ids:
+        try:
+            status = {"op": "remove_text", "state": "done", "result": bridge.call("remove_text", id=text_id)}
+        except BridgeError as exc:
+            if getattr(exc, "code", None) != "ENTITY_NOT_FOUND":
+                result.ok = False
+                result.errors.append(exc)
+                return result
+            status = {"op": "remove_text", "state": "done", "result": None}
+        result.jobs.append(status)
+    return result
+
+
 class UndoStack:
     """Undo entries in a JSON manifest, rewritten whole on every change so a crash leaves the old file or the new one.
 
@@ -159,6 +179,9 @@ class UndoStack:
     entry, which ``undo`` skips unless ``include_undo`` is set, so two undos reverse two edits rather than toggling
     one, and undoing an undo is asked for by name. Push is read-modify-write with ids from ``max + 1``, so the
     manifest assumes one writer at a time.
+
+    An entry from ``push_texts`` has no snapshot: its ``path`` and ``bounds`` are ``None`` and its ``texts`` are
+    the floating text ids it set, which its undo removes. That undo overwrites no block, so it pushes no entry.
     """
 
     def __init__(self, manifest: Path | None = None, session: str | None = None) -> None:
@@ -177,17 +200,29 @@ class UndoStack:
         tmp.write_text(json.dumps({"version": 1, "entries": entries}, indent=1), encoding="utf-8", newline="\n")
         os.replace(tmp, self.manifest)
 
-    def _append(self, entries: list[dict[str, Any]], snap: Snapshot, op: str) -> int:
+    def _add(self, entries: list[dict[str, Any]], fields: dict[str, Any]) -> int:
         entry_id = max((e["id"] for e in entries), default=0) + 1
-        entries.append({
-            "id": entry_id, "session": self.session, "op": op, "world": snap.world, "bounds": snap.bounds.to_json(),
-            "label": snap.label, "timestamp": snap.timestamp, "path": str(snap.path), "restored": False,
-        })
+        entries.append({"id": entry_id, "session": self.session, **fields, "restored": False})
         return entry_id
+
+    def _append(self, entries: list[dict[str, Any]], snap: Snapshot, op: str) -> int:
+        return self._add(entries, {
+            "op": op, "world": snap.world, "bounds": snap.bounds.to_json(),
+            "label": snap.label, "timestamp": snap.timestamp, "path": str(snap.path),
+        })
 
     def push(self, snap: Snapshot, op: str) -> int:
         entries = self.entries()
         entry_id = self._append(entries, snap, op)
+        self._write(entries)
+        return entry_id
+
+    def push_texts(self, world: str, ids: list[str], op: str) -> int:
+        entries = self.entries()
+        entry_id = self._add(entries, {
+            "op": op, "world": world, "bounds": None, "label": op,
+            "timestamp": datetime.now(UTC).strftime(TS_FORMAT), "path": None, "texts": list(ids),
+        })
         self._write(entries)
         return entry_id
 
@@ -196,7 +231,10 @@ class UndoStack:
         entries, results = self.entries(), []
         pending = [e for e in reversed(entries) if not e["restored"] and (include_undo or e["op"] != "undo")]
         for entry in pending[:n]:
-            result = restore(bridge, load(Path(entry["path"])), dry_run=dry_run)
+            if entry["path"] is None:
+                result = remove_texts(bridge, entry["texts"], dry_run=dry_run)
+            else:
+                result = restore(bridge, load(Path(entry["path"])), dry_run=dry_run)
             results.append(result)
             if not result.ok:
                 break
@@ -218,15 +256,16 @@ class UndoStack:
         cutoff = datetime.now(UTC) - timedelta(days=keep_days)
         entries = self.entries()
         old = [e for e in entries if datetime.strptime(e["timestamp"], TS_FORMAT).replace(tzinfo=UTC) < cutoff]
+        paths = [e["path"] for e in old if e["path"] is not None]
         if old and not dry_run:
             root = config.SNAPSHOTS_DIR.resolve()
             resolved = []
-            for entry in old:
-                path = Path(entry["path"]).resolve()
+            for name in paths:
+                path = Path(name).resolve()
                 if not path.is_relative_to(root):
-                    raise ValueError(f"{entry['path']!r} resolves outside the snapshots directory {root}")
+                    raise ValueError(f"{name!r} resolves outside the snapshots directory {root}")
                 resolved.append(path)
             for path in resolved:
                 path.unlink(missing_ok=True)
             self._write([e for e in entries if e not in old])
-        return [Path(e["path"]) for e in old]
+        return [Path(name) for name in paths]

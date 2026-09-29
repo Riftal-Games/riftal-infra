@@ -664,3 +664,18 @@ it answers `ok: false` with the reason, and its dry run still answers `ok: true`
 under `mine_valid`, since reporting it is what a dry run is for. Sending first and exiting 1
 after was rejected: the world and `world_index.json` had then already changed, and a mine that
 fails the check is one no alpha player should be able to walk into (#406).
+
+## 2026-09-29 A text-only build is undoable, and its undo removes the text it set
+
+An MCP edit list of floating text alone, which `build(kind="signage")` makes, is sent like any
+other: a dry run and an apply both answer `ok: true`, with `bounds` and `snapshot` null because no
+block is touched. The apply pushes an undo entry with `path` and `bounds` null and `texts` holding
+the ids the bridge answered for each `set_text`, pushed once the texts are set since there is no
+before state to take ahead of them. `undo` removes each of those ids with `remove_text`, counting
+one the bridge no longer has as removed, so an entry whose text was removed by hand does not block
+every older undo behind it. That undo overwrites no block, so it pushes no `undo` entry of its own,
+and `restore` refuses the entry by id since it has no snapshot. An id that carried text before the
+build is removed, not put back, because the entry records ids and not what they said before.
+Leaving text-only builds without undo was rejected, since `undo` is the one promise every mutating
+tool makes. Text in an edit list that also touches blocks is not in that list's undo entry, whose
+snapshot covers blocks only; no builder mixes the two today (#409, #410).
