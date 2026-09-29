@@ -55,7 +55,8 @@ LOCK_DIR="$BACKUP_ROOT/.lock"
 # (riftal-infra#166). The lock is scoped to BACKUP_ROOT, not to this script
 # globally, so two different instances' backup volumes never contend on it.
 # A directory rename is atomic on any POSIX filesystem and needs nothing
-# beyond coreutils, unlike flock, which is not installed in every image this script runs in.
+# beyond coreutils, unlike flock, which is not installed in every image
+# this script runs in.
 # release_lock below removes the directory on the way out, including on the
 # failure path, but only for the run that still actually owns it.
 acquire_lock() {
@@ -142,18 +143,20 @@ acquire_lock() {
 # handle, and only then renamed into place. rename(2) onto an existing
 # directory succeeds only if that directory is empty, so a lock that always
 # carries its owner file is one no second claim can replace. An empty .lock
-# made by hand is the exception, and the existence check keeps the rename
-# from silently replacing it, so acquire_lock judges its age and logs any
-# sweep the same as for any other lock.
+# made by hand is the exception. The existence check narrows, but does not
+# close, the window in which the rename could silently replace one; outside
+# it, acquire_lock judges its age and logs any sweep as for any other lock.
 claim_lock() {
+  # Equal to acquire_lock's discard name. That is safe only because
+  # acquire_lock removes its discard directory before its second claim.
   staging_dir="$LOCK_DIR.discard.$lock_owner"
   # No-op outside deploy/selftest.sh's claim-window section, for the same
-  # reason as the stalls in acquire_lock: it holds this run between
-  # creating its lock directory and stamping it.
+  # reason as the stalls in acquire_lock: it holds a run that found
+  # $LOCK_DIR free with its stamped lock still invisible to every other run.
   if mkdir "$staging_dir" 2>/dev/null \
-    && sleep "${CLAIM_RACE_TEST_STALL_SECONDS:-0}" \
     && { echo "$lock_owner" > "$staging_dir/owner"; } 2>/dev/null \
     && [ ! -e "$LOCK_DIR" ] \
+    && sleep "${CLAIM_RACE_TEST_STALL_SECONDS:-0}" \
     && mv -T "$staging_dir" "$LOCK_DIR" 2>/dev/null; then
     lock_acquired=1
     return 0

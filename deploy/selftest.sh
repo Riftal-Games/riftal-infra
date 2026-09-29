@@ -339,14 +339,17 @@ fi
 
 backups 'rm -rf /backups/.lock'
 
-section "a sweeper that captures the winner's lock before it is stamped leaves exactly one winner"
+section "a sweeper stealing while the winner claims finds no lock to capture, leaving exactly one winner"
 # riftal-infra#491, CI run 36558596358: both sweepers pass the staleness
 # check, W steals and claims, and L's rename, landing between W creating its
 # lock and stamping it, captures that lock. W's stamp then fails, L hands
-# back a lock nobody owns, and nobody wins. The stalls pin that order: W
-# claims at 2s and stamps at 5s, L renames at 3s and holds the capture until
-# 8s. A skew between the two container starts can only move L's rename out
-# of W's claim window, which ends in one winner either way.
+# back a lock nobody owns, and nobody wins. The stalls land L's steal inside
+# W's claim: W steals at 2s and its lock stays invisible until 5s, L tries
+# its steal at 3s, finds no .lock to rename, and fails at once, so W wins. A
+# lock that exists before it is stamped is instead captured by L at 3s, and
+# both lose. A container start skew of over a second moves L's steal out of
+# W's claim: earlier, L steals the stale lock first and W's steal fails;
+# later, L captures W's stamped lock and hands it back. One winner either way.
 backups "mkdir /backups/.lock && echo old-owner > /backups/.lock/owner && touch -d '-2 hours' /backups/.lock"
 
 STEAL_RACE_TEST_STALL_SECONDS=2 CLAIM_RACE_TEST_STALL_SECONDS=3 \
@@ -372,7 +375,7 @@ if [ "$claim_race_status_l" -eq 0 ]; then
   claim_race_winner_owner="$(cat "$LOGS"/out-claim-race-l.log)"
 fi
 if [ "$claim_race_wins" -eq 1 ]; then
-  pass "a capture landing inside the winner's claim window still leaves exactly one winner"
+  pass "a steal landing inside the winner's claim finds no lock and leaves exactly one winner"
 else
   fail "expected exactly one winner, got $claim_race_wins (zero is riftal-infra#491's stranded lock)"
   cat "$LOGS"/err-claim-race-w.log "$LOGS"/err-claim-race-l.log
@@ -387,7 +390,7 @@ fi
 
 claim_race_leftover="$(backups "find /backups -mindepth 1 -maxdepth 1 -name '.lock.discard.*'")"
 if [ -z "$claim_race_leftover" ]; then
-  pass "neither the winner's staging directory nor the loser's capture is left behind"
+  pass "no .lock.discard.* directory from either run is left behind"
 else
   fail "expected no leftover .lock.discard.* directory, found: $claim_race_leftover"
 fi
@@ -548,4 +551,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, capture inside the claim window, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, no lock visible during a claim, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure.\n' "$PASSES"

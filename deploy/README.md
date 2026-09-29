@@ -249,11 +249,11 @@ image this script runs in. The owner file is written before the rename,
 never after: a lock that existed unstamped, even briefly, could be captured
 by a stale-lock sweeper in that gap, leaving both runs failed and an
 ownerless lock blocking every run until it ages out (riftal-infra#491). A
-second invocation against
-the same `BACKUP_ROOT`, such as a manual run below started while the
-`backup` compose service's scheduled loop is also running, fails immediately
-with a loud, logged message rather than waiting or racing, unless the held
-lock is stale enough to be swept first (see Stale lock sweep, above). Two runs
+second invocation against the same `BACKUP_ROOT`, such as a manual run below
+started while the `backup` compose service's scheduled loop is also running,
+fails immediately with a loud, logged message rather than waiting or racing,
+unless the held lock is stale enough to be swept first (see Stale lock sweep,
+above). Two runs
 against *different* `BACKUP_ROOT` volumes (different instances, or a manual
 run pointed at a scratch directory) never contend, since the lock lives inside
 `BACKUP_ROOT` itself. If a manual run fails this way, wait for the scheduled
