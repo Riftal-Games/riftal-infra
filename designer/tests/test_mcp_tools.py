@@ -11,10 +11,12 @@ from PIL import Image
 
 from designer import config, mcp_server
 from designer.blocks import BlockClass
+from designer.builders import BUILDERS
 from designer.cli import main
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
+from tests import fake_bridge
 from tests.fake_bridge import FakeBridge, FakeWorld
 
 PAD = Bounds((0, 63, 0), (7, 65, 7))
@@ -585,6 +587,97 @@ def test_build_stairs_applies_with_no_name_and_falls_back_to_kind_for_the_report
     assert Path(result["snapshot"]).is_file() and _writes(server) == ["fill"] * 6
     assert result["locations"] == [] and result["regions"] == [] and result["mine_valid"] is None
     assert Path(result["extras_report"]) == config.REPORTS_DIR / "stairs-stairs-extras.json"
+
+
+# Every registered kind with a spec small enough for the fake's flat pad, the names it indexes, and the name
+# its extras report carries: a kind whose spec has no ``name`` reports under the kind itself.
+BUILD_SPECS: dict[str, tuple[dict[str, Any], set[str], str]] = {
+    "mine": (SMALL_MINE_SPEC, SMALL_MINE_NAMES, "tbox"),
+    "road": (SMALL_ROAD_SPEC, {"test_road"}, "test_road"),
+    "stairs": (SMALL_STAIRS_SPEC, set(), "stairs"),
+    "platform": ({"name": "t_platform", "world": "design", "min": [0, 0], "max": [3, 3], "y": 64}, {"t_platform"}, "t_platform"),
+    "plot_grid": (
+        {"name": "t_plots", "world": "design", "origin": [0, 0], "y": 64, "rows": 1, "cols": 2, "plot_size": [3, 3], "buffer": 1},
+        {"t_plots_0_0", "t_plots_0_1"}, "t_plots",
+    ),
+    "signage": ({"world": "design", "signs": [{"name": "t_sign", "pos": [0, 64, 0], "text": "hi"}]}, {"t_sign"}, "signage"),
+    # No ``y``, so the perimeter reads the ground through the bridge's heightmap.
+    "perimeter": ({"name": "t_fence", "world": "design", "min": [0, 0], "max": [4, 4], "height": 2, "post_every": 2}, {"t_fence"}, "t_fence"),
+    "room": (
+        {"name": "t_room", "world": "design", "origin": [0, 64, 0], "size": [5, 4, 5], "wall_thickness": 1,
+         "door": {"side": "south", "width": 1, "height": 2}, "lights_every": 3},
+        {"t_room", "t_room_door"}, "t_room",
+    ),
+}
+ROLES = ("wall", "wall_trim", "floor", "ceiling", "sign", "road", "road_edge", "stairs", "slab", "plot_edge", "boundary", "boundary_accent")
+EVERY_ROLE_PALETTES = {"colors": {}, "palettes": {"test_every_role": {**dict.fromkeys(ROLES, "minecraft:stone"), "light": "minecraft:lantern"}}}
+
+
+@pytest.fixture
+def every_role(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> FakeBridge:
+    """``room`` sets its lights with ``hanging=false``, a state the fake's allowlist otherwise refuses."""
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: EVERY_ROLE_PALETTES)
+    monkeypatch.setattr("tests.fake_bridge.ALLOWED_BLOCKS", fake_bridge.ALLOWED_BLOCKS | {"minecraft:lantern[hanging=false]"})
+    return server
+
+
+def _indexed() -> set[str]:
+    return {e["name"] for kind in ("locations", "regions") for e in call("index_list", kind=kind)[kind]}
+
+
+def test_build_specs_name_every_registered_kind() -> None:
+    assert set(BUILD_SPECS) == set(BUILDERS)
+
+
+# A signage edit list is floating text alone, so it has no bounds, and ``_apply`` refuses any edit list
+# without bounds as "nothing to do" before a dry run or an apply sends anything.
+TEXT_ONLY_REFUSED = "riftal-infra#409: build() refuses a text-only edit list"
+BLOCK_KINDS = sorted(kind for kind in BUILD_SPECS if kind != "signage")
+
+
+@pytest.mark.parametrize(
+    "kind", [*BLOCK_KINDS, pytest.param("signage", marks=pytest.mark.xfail(strict=True, reason=TEXT_ONLY_REFUSED))],
+)
+def test_build_dry_run_of_every_kind_answers_its_names_and_touches_nothing(every_role: FakeBridge, tmp_path: Path, kind: str) -> None:
+    spec, names, _ = BUILD_SPECS[kind]
+    before, indexed = (tmp_path / "index.json").read_bytes(), _indexed()
+    result = call("build", kind=kind, spec=spec, palette="test_every_role", dry_run=True)
+    assert result["ok"] is True and result["dry_run"] is True and result["world"] == "design" and result["requests"] > 0, result
+    assert (result["snapshot"], result["undo_id"], result["extras_report"]) == (None, None, None)
+    assert {e["name"] for e in (*result["locations"], *result["regions"])} == names
+    assert _writes(every_role) == [] and every_role.texts == {} and call("list_undo")["entries"] == []
+    assert (tmp_path / "index.json").read_bytes() == before and _indexed() == indexed
+    assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
+
+
+def _assert_registered_and_reported(result: dict[str, Any], kind: str, indexed: set[str]) -> None:
+    _, names, report_name = BUILD_SPECS[kind]
+    assert {e["name"] for e in (*result["locations"], *result["regions"])} == names and _indexed() == indexed | names
+    report = Path(result["extras_report"])
+    assert report == config.REPORTS_DIR / f"{kind}-{report_name}-extras.json"
+    assert {e["name"] for key in ("locations", "regions") for e in json.loads(report.read_text()).get(key, [])} == names
+
+
+@pytest.mark.parametrize("kind", BLOCK_KINDS)
+def test_build_apply_of_every_block_kind_registers_its_names_and_writes_its_extras_report(every_role: FakeBridge, kind: str) -> None:
+    indexed = _indexed()
+    result = call("build", kind=kind, spec=BUILD_SPECS[kind][0], palette="test_every_role")
+    assert result["ok"] is True and result["dry_run"] is False and result["undo_id"] == 1, result
+    assert Path(result["snapshot"]).is_file() and _writes(every_role)
+    _assert_registered_and_reported(result, kind, indexed)
+
+
+# Whether a text-only build should be undoable is riftal-infra#410, so this asserts only what the code
+# promises today: a snapshot and an undo entry come from touched blocks, and floating text touches none.
+@pytest.mark.xfail(strict=True, reason=TEXT_ONLY_REFUSED)
+def test_build_apply_of_signage_places_its_text_and_takes_no_snapshot(every_role: FakeBridge, tmp_path: Path) -> None:
+    indexed = _indexed()
+    result = call("build", kind="signage", spec=BUILD_SPECS["signage"][0], palette="test_every_role")
+    assert result["ok"] is True and result["dry_run"] is False, result
+    assert (result["snapshot"], result["undo_id"]) == (None, None) and call("list_undo")["entries"] == []
+    assert not (tmp_path / "snapshots").exists() and _writes(every_role) == []
+    assert every_role.texts == {"t_sign": {"world": "design", "pos": [0, 64, 0], "text": "hi"}}
+    _assert_registered_and_reported(result, "signage", indexed)
 
 
 def _with_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
