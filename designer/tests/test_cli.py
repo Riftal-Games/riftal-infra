@@ -226,6 +226,35 @@ def test_terrain_terraform_defaults_to_a_dry_run_and_apply_sends_it(
     assert Path(applied["snapshot"]).is_file() and "fill" in [r["op"] for r in fake.requests]
 
 
+def test_terrain_terraform_apply_pushes_an_undo_entry_that_restores_the_ground(
+    fake: FakeBridge, bridge: Bridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    args = ["terrain", "terraform", "--at", "spawn", "--size", "4", "--mode", "flatten", "--level", "70", "--apply"]
+
+    assert main(args) == 0
+    report = json.loads(capsys.readouterr().out)
+    [entry] = UndoStack().entries()
+    assert report["undo_id"] == 1 and (entry["id"], entry["op"], entry["path"]) == (1, "terraform", report["snapshot"])
+
+    assert [r.ok for r in UndoStack().undo(bridge)] == [True]
+    assert [(e["op"], e["restored"]) for e in UndoStack().entries()] == [("terraform", True), ("undo", False)]
+
+
+def test_terrain_terraform_apply_refuses_an_empty_edit_list_and_sends_nothing(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+
+    assert main(["terrain", "terraform", "--at", "300,300", "--size", "4", "--mode", "flatten", "--level", "70", "--apply"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "designer: nothing to do: the edit list is empty\n"
+    assert [r["op"] for r in fake.requests] == ["get_heightmap"] and UndoStack().entries() == []
+    assert not (tmp_path / "snapshots").exists()
+
+
 def test_terrain_terraform_apply_exits_one_when_the_bridge_refuses_an_edit(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
