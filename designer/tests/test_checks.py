@@ -57,6 +57,28 @@ def test_load_keeps_zone_out_of_args_and_the_id(tmp_path: Path) -> None:
         _checks(tmp_path, "version: 1\nchecks:\n  - check: warp_safe\n    zone: Lumber\n    at: void\n")
 
 
+@pytest.mark.parametrize("kind, entry, unknown", [
+    ("no_holes", "region: r\n    floor_y: 65\n    insett: 1", "insett"),
+    ("path_exists", "from: a\n    to: b\n    max_dorp: 2", "max_dorp"),
+    ("no_holes", "region: r\n    floor_y: 65\n    kind: sky", "kind"),
+    ("warp_safe", "at: void\n    margin: 4", "margin"),
+])
+def test_load_refuses_a_key_its_kind_does_not_read(tmp_path: Path, kind: str, entry: str, unknown: str) -> None:
+    with pytest.raises(ValueError, match=rf"check 0 \({kind}\) has unknown keys \['{unknown}'\]; it reads \["):
+        _checks(tmp_path, f"version: 1\nchecks:\n  - check: {kind}\n    {entry}\n")
+
+
+def test_load_accepts_every_key_a_runner_reads(tmp_path: Path) -> None:
+    travel, holes, light = _checks(tmp_path, (
+        "version: 1\nchecks:\n"
+        "  - check: travel_time\n    from: a\n    to: b\n    margin: 2\n    speed: 3\n    max_seconds: 5\n    max_drop: 2\n"
+        "  - check: no_holes\n    region: r\n    floor_y: 65\n    inset: 1\n"
+        "  - check: light_ok\n    region: r\n    min_level: 8\n    kind: sky\n"
+    ))
+    assert travel.args == {"from": "a", "to": "b", "margin": 2, "speed": 3, "max_seconds": 5, "max_drop": 2}
+    assert holes.args["inset"] == 1 and light.args["kind"] == "sky"
+
+
 def test_plan_unions_a_world_and_separates_another(tmp_path: Path) -> None:
     index = _index(tmp_path)
     plan = plan_fetches([
