@@ -235,7 +235,8 @@ def _solid_within(classes: np.ndarray, iy: int, iz: int, ix: int, n: int) -> boo
 def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     """A 1x2 hitbox with its feet at ``pos`` is free and whatever it rests on is walkable.
 
-    Feet and head must be passable. The support is the first block below the
+    Feet and head must be passable; a danger block there fails as ``hitbox in
+    danger``, any other obstruction as ``hitbox blocked``. The support is the first block below the
     feet that is neither air nor passable, and it must be solid, because a
     player over liquid sinks and over danger burns. A column with no support
     inside the region obstructs nothing here; ``warp_safe`` is the check that
@@ -250,9 +251,14 @@ def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     iy, iz, ix = region.bounds.local(at)
     x, y, z = at
     classes, passable = region.classes(), region.passable()
-    blocked = [(x, y + d, z) for d in (0, 1) if iy + d < classes.shape[0] and not passable[iy + d, iz, ix]]
+    blocked = [d for d in (0, 1) if iy + d < classes.shape[0] and not passable[iy + d, iz, ix]]
+    # A berry bush or wither rose in the hitbox hurts rather than obstructs, so
+    # it is named ahead of any solid cell beside it.
+    danger = [d for d in blocked if classes[iy + d, iz, ix] == BlockClass.DANGER]
+    if danger:
+        return Check(False, "hitbox in danger", [(x, y + d, z) for d in danger])
     if blocked:
-        return Check(False, "hitbox blocked", blocked)
+        return Check(False, "hitbox blocked", [(x, y + d, z) for d in blocked])
     support = np.flatnonzero(~passable[:iy, iz, ix])
     if len(support):
         top = int(support[-1])
