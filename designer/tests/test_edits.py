@@ -7,7 +7,7 @@ import pytest
 
 from designer.blocks import AIR, BlockClass
 from designer.bridge import Bridge, BridgeOpError, JobFailed
-from designer.edits import EditList, Fill, Replace, SetBlock, Text
+from designer.edits import MAX_LINE_BYTES, MAX_SET_BLOCKS, EditList, Fill, Replace, SetBlock, Text
 from designer.region import MAX_EDGE, Bounds, Region, fetch_region
 from tests.fake_bridge import FakeBridge
 
@@ -48,9 +48,28 @@ def test_ten_thousand_set_blocks_take_three_calls(fake: FakeBridge, bridge: Brid
     assert seen == [(4096, 10000), (8192, 10000), (10000, 10000)]
     assert (fake.worlds[WORLD].blocks(Bounds((0, 70, 0), (99, 70, 99))) == 0).all()
     with pytest.raises(BridgeOpError, match="TOO_MANY_BLOCKS"):
-        bridge.call("set_blocks", world=WORLD, blocks=[[0, 0, 0, STONE]] * 65537)
+        bridge.call("set_blocks", world=WORLD, blocks=[[0, 0, 0, "x"]] * 65537)
     with pytest.raises(ValueError, match="batch"):
         edits.apply(bridge, batch=65537)
+
+
+def test_a_batch_whose_line_would_pass_max_line_bytes_is_split_under_it(fake: FakeBridge, bridge: Bridge) -> None:
+    # About 35 bytes an entry, so 40000 in one batch is a line of roughly 1.4 MB.
+    edits = EditList(WORLD, [SetBlock(x, -45, z, STONE) for x in range(200) for z in range(200)])
+    result = edits.apply(bridge, batch=MAX_SET_BLOCKS)
+    assert (result.ok, result.errors, result.blocks) == (True, [], 40000)
+    lines = [len(json.dumps(r, separators=(",", ":"))) for r in fake.requests]
+    assert len(lines) > 1 and max(lines) <= MAX_LINE_BYTES
+    sent = [entry for r in fake.requests for entry in r["args"]["blocks"]]
+    assert sent == [[x, -45, z, STONE] for x in range(200) for z in range(200)]
+    assert [len(args["blocks"]) for _, args, _ in edits.requests(batch=4096)][:1] == [4096]
+
+
+def test_a_single_op_over_max_line_bytes_is_refused_before_anything_is_sent(fake: FakeBridge, bridge: Bridge) -> None:
+    edits = EditList(WORLD, [SetBlock(0, 64, 0, STONE), Text(0, 65, 0, "x" * MAX_LINE_BYTES)])
+    with pytest.raises(ValueError, match="max_line_bytes"):
+        edits.apply(bridge)
+    assert fake.requests == []
 
 
 def test_coalesce_turns_an_eight_run_into_a_fill_and_leaves_seven_alone() -> None:

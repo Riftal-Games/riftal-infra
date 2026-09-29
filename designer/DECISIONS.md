@@ -772,3 +772,14 @@ mount makes a run that omits the variable fail on `Read-only file system` rather
 CI runs the script before its host-side sync. A checkout that already holds such a `.venv` works
 from Windows with `UV_PROJECT_ENVIRONMENT` set to a path outside it, until its owner clears it
 (#583).
+
+## 2026-09-30 `requests` splits a `set_blocks` batch under `max_line_bytes` and refuses any other op too long for one line
+
+DesignBridge answers a line over `max_line_bytes` (1 MiB) with `BAD_REQUEST` and closes it,
+and no op reports its limits, so `MAX_LINE_BYTES` mirrors the default the way `MAX_SET_BLOCKS`
+and `MAX_EDGE` do. A `set_blocks` batch closes at `batch` entries or when the next entry would
+pass `LINE_BUDGET`, whichever comes first, the way a `Fill` past `MAX_EDGE` is tiled: the line
+length of a batch turns on its block names, which the caller does not pick per batch, so
+refusing it would make a valid `batch` fail on content. `LINE_BUDGET` keeps 4096 bytes for the
+id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cannot be split and
+is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is (#572).
