@@ -19,6 +19,14 @@ checks:
     region: mine_a
     spec: specs/mine_a.json
   - check: mine_valid
+    zone: mine_b
+    region: mine_b
+    spec: specs/mine_b.json
+  - check: mine_valid
+    zone: mine_c
+    region: mine_c
+    spec: specs/mine_c.json
+  - check: mine_valid
     zone: lumber
     region: lumber
     spec: specs/lumber.json
