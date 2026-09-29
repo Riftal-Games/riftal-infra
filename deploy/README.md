@@ -57,14 +57,14 @@ always left alone, so a backup genuinely still in progress is never at risk.
 
 ## Stale lock sweep
 
-`mkdir "$BACKUP_ROOT/.lock"` (see Concurrency, below) is released only by the
+The `$BACKUP_ROOT/.lock` directory (see Concurrency, below) is released only by the
 script's own `EXIT` trap, which a hard kill (OOM, a SIGKILL past the grace
 period, a host crash) bypasses entirely, unlike `flock`, which the kernel
 releases automatically on process death with no equivalent here. Without a
 sweep, a lock stranded that way would fail every subsequent run forever, until
 an operator manually removes it.
 
-When `mkdir` fails because the lock already exists, `backup.sh` checks its
+When the claim fails because the lock already exists, `backup.sh` checks its
 age. One older than `LOCK_MAX_AGE_MINUTES` (default 90, see
 `images/.env.example`) cannot belong to a run still working: a real run's own
 mysqldump-plus-tar duration is nowhere near that, so it is presumed abandoned
@@ -82,7 +82,7 @@ whoever won a concurrent race for the same lock fails that same staleness
 test, and the loser hands it straight back and fails fast rather than
 deleting a lock someone else legitimately holds. Only once the captured copy
 is confirmed still the original abandoned one does the run discard it and
-retry the `mkdir`. If that retry still fails, something else is genuinely
+retry the claim. If that retry still fails, something else is genuinely
 wrong and the run fails normally rather than retrying further.
 
 A run whose lock is swept while it is still genuinely working, not crashed,
@@ -102,8 +102,9 @@ sweep, above) moves the abandoned lock to, on its way to deciding whether
 that lock is genuinely abandoned or was recreated by a competing sweeper.
 Either way the steal itself resolves the directory before moving on: it is
 renamed back if it turns out to hold someone else's live lock, or removed
-with `rm -rf` once the steal is confirmed clean. A run killed between
-winning that rename and reaching its own `rm -rf` leaves the directory
+with `rm -rf` once the steal is confirmed clean. The same name is where a
+claim builds its lock before renaming it into place (see Concurrency,
+below). A run killed before renaming or removing the directory leaves it
 behind, orphaned (riftal-infra#175, riftal-infra#183).
 
 Right after a run acquires the lock, after the `.partial` sweep above, it
@@ -237,11 +238,18 @@ wslc run --rm --network riftal-dev \
 
 ## Concurrency
 
-`backup.sh` takes an exclusive lock by `mkdir`ing `$BACKUP_ROOT/.lock` for
-the duration of the run, before it touches anything else under `BACKUP_ROOT`
-(including the stale-`.partial` sweep above). `mkdir` is atomic on any POSIX
-filesystem and needs nothing beyond coreutils, unlike `flock`, which is not
-installed in every image this script runs in. A second invocation against
+`backup.sh` takes an exclusive lock on `$BACKUP_ROOT/.lock` for the duration
+of the run, before it touches anything else under `BACKUP_ROOT` (including
+the stale-`.partial` sweep above). It builds the lock directory, owner file
+included, under its own `$LOCK_DIR.discard.*` name and then renames it to
+`.lock`. `rename(2)` is atomic on any POSIX filesystem and refuses to replace
+a non-empty directory, and needs nothing beyond coreutils, unlike `flock`,
+which is not installed in every image this script runs in. The owner file is
+written before the rename, never after: a lock that existed unstamped, even
+briefly, could be captured by a stale-lock sweeper in that gap, leaving both
+runs failed and an ownerless lock blocking every run until it ages out
+(riftal-infra#491). An empty `.lock` blocks nothing, since `rename(2)`
+replaces an empty directory. A second invocation against
 the same `BACKUP_ROOT`, such as a manual run below started while the
 `backup` compose service's scheduled loop is also running, fails immediately
 with a loud, logged message rather than waiting or racing, unless the held

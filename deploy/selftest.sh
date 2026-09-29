@@ -56,7 +56,7 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=40
+EXPECTED_ASSERTIONS=43
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -76,6 +76,7 @@ run_backup() {
     -e PARTIAL_MAX_AGE_MINUTES="$partial_max_age" -e LOCK_MAX_AGE_MINUTES="$lock_max_age" \
     -e STEAL_RACE_TEST_STALL_SECONDS="${STEAL_RACE_TEST_STALL_SECONDS:-0}" \
     -e DISCARD_RACE_TEST_STALL_SECONDS="${DISCARD_RACE_TEST_STALL_SECONDS:-0}" \
+    -e CLAIM_RACE_TEST_STALL_SECONDS="${CLAIM_RACE_TEST_STALL_SECONDS:-0}" \
     mysql:8 bash /deploy/backup.sh "$@"
 }
 
@@ -231,7 +232,9 @@ else
   fail "expected the log to name the stale lock as swept"; cat "$LOGS"/out-lock-stale.log
 fi
 
-backups 'mkdir /backups/.lock'
+# A held lock always carries its owner file, and the file matters here:
+# rename(2) replaces an empty directory, so an empty .lock blocks nothing.
+backups 'mkdir /backups/.lock && echo live-owner > /backups/.lock/owner'
 
 if run_backup 3 mysql selftest 360 60 >"$LOGS"/out-lock-fresh.log 2>&1; then
   fail "a run behind a lock within LOCK_MAX_AGE_MINUTES should still fail fast"
@@ -245,7 +248,7 @@ else
   pass "a fresh lock is left untouched rather than swept"
 fi
 
-backups 'rmdir /backups/.lock'
+backups 'rm -rf /backups/.lock'
 
 section "a lock swept while its true owner is still alive is not undone by that owner's own stale cleanup"
 # QA's exact scenario on #171/#173: run A acquires the lock and is still
@@ -338,9 +341,64 @@ fi
 
 backups 'rm -rf /backups/.lock'
 
+section "a sweeper that captures the winner's lock before it is stamped leaves exactly one winner"
+# riftal-infra#491, CI run 36558596358: both sweepers pass the staleness
+# check, W steals and claims, and L's rename, landing between W creating its
+# lock and stamping it, captures that lock. W's stamp then fails, L hands
+# back a lock nobody owns, and nobody wins. The stalls pin that order: W
+# claims at 2s and stamps at 5s, L renames at 3s and holds the capture until
+# 8s. A skew between the two container starts can only move L's rename out
+# of W's claim window, which ends in one winner either way.
+backups "mkdir /backups/.lock && echo old-owner > /backups/.lock/owner && touch -d '-2 hours' /backups/.lock"
+
+STEAL_RACE_TEST_STALL_SECONDS=2 CLAIM_RACE_TEST_STALL_SECONDS=3 \
+  run_backup 3 mysql selftest 360 60 __test_acquire_lock \
+  >"$LOGS"/out-claim-race-w.log 2>"$LOGS"/err-claim-race-w.log &
+claim_race_pid_w=$!
+STEAL_RACE_TEST_STALL_SECONDS=3 DISCARD_RACE_TEST_STALL_SECONDS=5 \
+  run_backup 3 mysql selftest 360 60 __test_acquire_lock \
+  >"$LOGS"/out-claim-race-l.log 2>"$LOGS"/err-claim-race-l.log &
+claim_race_pid_l=$!
+
+claim_race_status_w=0; wait "$claim_race_pid_w" || claim_race_status_w=$?
+claim_race_status_l=0; wait "$claim_race_pid_l" || claim_race_status_l=$?
+
+claim_race_winner_owner=""
+claim_race_wins=0
+if [ "$claim_race_status_w" -eq 0 ]; then
+  claim_race_wins=$((claim_race_wins + 1))
+  claim_race_winner_owner="$(cat "$LOGS"/out-claim-race-w.log)"
+fi
+if [ "$claim_race_status_l" -eq 0 ]; then
+  claim_race_wins=$((claim_race_wins + 1))
+  claim_race_winner_owner="$(cat "$LOGS"/out-claim-race-l.log)"
+fi
+if [ "$claim_race_wins" -eq 1 ]; then
+  pass "a capture landing inside the winner's claim window still leaves exactly one winner"
+else
+  fail "expected exactly one winner, got $claim_race_wins (zero is riftal-infra#491's stranded lock)"
+  cat "$LOGS"/err-claim-race-w.log "$LOGS"/err-claim-race-l.log
+fi
+
+claim_race_stored_owner="$(backups 'cat /backups/.lock/owner' 2>/dev/null || true)"
+if [ -n "$claim_race_winner_owner" ] && [ "$claim_race_stored_owner" = "$claim_race_winner_owner" ]; then
+  pass "the lock left on disk carries the winner's token, never an empty owner"
+else
+  fail "expected the stored owner to match the winner's token, got winner='$claim_race_winner_owner' stored='$claim_race_stored_owner'"
+fi
+
+claim_race_leftover="$(backups "find /backups -mindepth 1 -maxdepth 1 -name '.lock.discard.*'")"
+if [ -z "$claim_race_leftover" ]; then
+  pass "neither the winner's staging directory nor the loser's capture is left behind"
+else
+  fail "expected no leftover .lock.discard.* directory, found: $claim_race_leftover"
+fi
+
+backups 'rm -rf /backups/.lock'
+
 section "an orphaned .lock.discard.* from a run killed mid-cleanup is swept on the next lock acquisition"
 # Stands in for a run that won acquire_lock's steal-path rename
-# (deploy/backup.sh:109) and was then killed before reaching its own rm -rf
+# (deploy/backup.sh:107) and was then killed before reaching its own rm -rf
 # a few lines later (riftal-infra#187), rather than waiting out that exact
 # kill timing to reproduce it.
 orphan_discard_name=".lock.discard.99999-orphaned"
@@ -366,15 +424,15 @@ fi
 
 section "a discard directory swept while its rename-owner is still alive converges on the same lock-contention failure"
 # riftal-infra#207/#208: the section above covers an orphan nobody is still
-# running; this covers the case its comment (deploy/backup.sh:221-226)
+# running; this covers the case its comment (deploy/backup.sh:240-245)
 # specifically claims is also safe. A backdated .lock puts run A on the same
-# steal path as every section above, so its own rename (deploy/backup.sh:109)
+# steal path as every section above, so its own rename (deploy/backup.sh:107)
 # produces a discard directory while A is still alive, not crashed.
 # DISCARD_RACE_TEST_STALL_SECONDS holds A there until run B, an entirely
 # ordinary full run needing nothing special of its own, reaches its
-# orphaned-discard sweep (deploy/backup.sh:227-232) and removes it. A must
+# orphaned-discard sweep (deploy/backup.sh:246-251) and removes it. A must
 # then find its own discard directory gone at its staleness check
-# (deploy/backup.sh:129) and hand the lock back rather than proceed as if it
+# (deploy/backup.sh:127) and hand the lock back rather than proceed as if it
 # still owned it.
 backups "mkdir /backups/.lock && echo old-owner > /backups/.lock/owner && touch -d '-2 hours' /backups/.lock"
 
@@ -421,8 +479,9 @@ section "a run against a BACKUP_ROOT another run already holds the lock on fails
 # Stands in for a manual out-of-band run overlapping the scheduled loop
 # (riftal-infra#166): holds backup.sh's own lock directory directly, without
 # running backup.sh itself, so the contended run below has something real to
-# fail against.
-backups 'mkdir /backups/.lock'
+# fail against, owner file included for the same reason as the fresh lock
+# above.
+backups 'mkdir /backups/.lock && echo live-owner > /backups/.lock/owner'
 
 if run_backup 3 mysql selftest >"$LOGS"/out-lock-contended.log 2>&1; then
   fail "a run against an already-locked BACKUP_ROOT should exit nonzero"
@@ -436,7 +495,7 @@ else
   fail "expected a logged lock-contention message"; cat "$LOGS"/out-lock-contended.log
 fi
 
-backups 'rmdir /backups/.lock'
+backups 'rm -rf /backups/.lock'
 
 if run_backup 3 mysql selftest >"$LOGS"/out-lock-released.log 2>&1; then
   pass "a run succeeds once the earlier run's lock is released"
@@ -492,4 +551,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, capture inside the claim window, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure.\n' "$PASSES"
