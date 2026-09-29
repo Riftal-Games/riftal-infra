@@ -26,16 +26,19 @@ VERSION = 1
 DEFAULT_PATH = PROJECT_ROOT / "checks.yaml"
 DEFAULTS = {"max_seconds": 10, "walk_speed": WALK_SPEED, "corridor_margin": 16}
 
-# Per kind: the parameters a check must name, and the optional ones filled from ``defaults``.
-KINDS: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
-    "path_exists": (("from", "to"), {"margin": "corridor_margin"}),
-    "travel_time": (("from", "to"), {"margin": "corridor_margin", "speed": "walk_speed", "max_seconds": "max_seconds"}),
-    "warp_safe": (("at",), {}),
-    "entity_clear": (("at",), {}),
-    "region_inside": (("inner", "outer"), {}),
-    "light_ok": (("region", "min_level"), {}),
-    "no_holes": (("region", "floor_y"), {}),
-    "mine_valid": (("region", "spec"), {}),
+# Per kind: the parameters a check must name, the optional ones filled from ``defaults``, and the optional ones
+# its runner defaults itself. Any other key is refused, so a misspelling cannot run the check on a default.
+KINDS: dict[str, tuple[tuple[str, ...], dict[str, str], tuple[str, ...]]] = {
+    "path_exists": (("from", "to"), {"margin": "corridor_margin"}, ("max_drop",)),
+    "travel_time": (
+        ("from", "to"), {"margin": "corridor_margin", "speed": "walk_speed", "max_seconds": "max_seconds"}, ("max_drop",),
+    ),
+    "warp_safe": (("at",), {}, ()),
+    "entity_clear": (("at",), {}, ()),
+    "region_inside": (("inner", "outer"), {}, ()),
+    "light_ok": (("region", "min_level"), {}, ("kind",)),
+    "no_holes": (("region", "floor_y"), {}, ("inset",)),
+    "mine_valid": (("region", "spec"), {}, ()),
 }
 SAFETY_SIZE = (7, 7, 7)
 
@@ -85,11 +88,14 @@ def load_checks(path: Path | None = None) -> list[CheckSpec]:
         kind = entry.get("check") if isinstance(entry, dict) else None
         if kind not in KINDS:
             raise ValueError(f"check {n}: kind must be one of {sorted(KINDS)}, got {kind!r}")
-        required, optional = KINDS[kind]
+        required, optional, own = KINDS[kind]
         zone = entry.get("zone")
         if zone is not None and not NAME_RE.fullmatch(str(zone)):
             raise ValueError(f"check {n} ({kind}): zone must match {NAME_RE.pattern}, got {zone!r}")
         args = {k: v for k, v in entry.items() if k not in ("check", "id", "zone")}
+        reads = [*required, *optional, *own]
+        if unknown := [k for k in args if k not in reads]:
+            raise ValueError(f"check {n} ({kind}) has unknown keys {unknown}; it reads {reads}")
         if missing := [k for k in required if k not in args]:
             raise ValueError(f"check {n} ({kind}) is missing {missing}")
         for key, source in optional.items():
