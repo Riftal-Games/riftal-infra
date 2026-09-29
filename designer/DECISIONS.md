@@ -703,8 +703,10 @@ rejected because it would let a committed entry pass whose tags are not the step
 ## 2026-09-29 A mine's exit-platform lights stop short of its last row
 
 `build_mine` lights the platform's near edge every `lights_every` blocks out from the wall, but
-never on its last row, which holds the sell sign on that same edge, the rankup sign and the
-spawn. A light that would fall on the last row moves one block back toward the mine, so a length
+never on its last row, which holds the sell and rankup signs and the spawn. On a 3-wide path the
+sell sign sits on the lit edge itself; a wider path has no collision there, and the row is kept
+clear all the same so the signs and spawn stand alone at the platform's end. A light that would
+fall on the last row moves one block back toward the mine, so a length
 that is a multiple of `lights_every` still lights the platform's end; a one-row platform has no
 row to spare and gets no light. Moving lights to the far edge was rejected because the rankup sign
 sits there on a width-3 path, and refusing a colliding spec was rejected because length 8 with
