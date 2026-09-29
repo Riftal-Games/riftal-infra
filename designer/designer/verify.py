@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from designer.blocks import BlockClass, format_name, parse_name
+from designer.blocks import BlockClass, base_name, format_name, parse_name
 from designer.builders.mine_spec import SIDES, MineSpec
 from designer.region import Bounds, LightRegion, Region
 
@@ -26,6 +26,12 @@ MARGIN_Y = 8
 # Move costs in blocks: a step up is a jump, a drop is a short fall.
 STEP_UP = 0.5
 DROP = 0.25
+
+# The client scales horizontal motion by 0.25 while its hitbox touches a web,
+# so a step into one takes four steps' time. The server has no say in it:
+# pmmp-core's Cobweb.php:36 only resets fall distance.
+WEB_COST = 4.0
+WEBS = ("web", "cobweb")
 
 # Blocks below the feet within which a warp must find solid ground.
 LANDING = 3
@@ -113,6 +119,14 @@ def _world(box: Bounds, local: Sequence[int]) -> Pos:
     return ix + box.min[0], iy + box.min[1], iz + box.min[2]
 
 
+def _webbed(region: Region) -> np.ndarray:
+    """Bool ``[y][z][x]``: a player with feet in the cell has a web at the feet or the head."""
+    webs = np.array([base_name(name) in WEBS for name in region.palette], dtype=bool)[region.blocks]
+    out = webs.copy()
+    out[:-1] |= webs[1:]
+    return out
+
+
 def path_exists(
     region: Region, a: Sequence[float], b: Sequence[float], *,
     max_nodes: int = 200_000, corridor: Bounds | None = None, margin: int = 16,
@@ -122,9 +136,11 @@ def path_exists(
 
     Both ends snap to the nearest standable cell within ``snap_radius``. The
     search covers ``corridor``, or the endpoints' box grown by ``margin`` in x
-    and z, clipped to the region. Costs are 1.0 per horizontal move plus
-    ``STEP_UP`` per block climbed and ``DROP`` per block fallen, and the
-    heuristic charges the same per-block rates so it never overestimates.
+    and z, clipped to the region. Costs are 1.0 per horizontal move, or
+    ``WEB_COST`` onto a cell with a web at the feet or head, plus ``STEP_UP``
+    per block climbed and ``DROP`` per block fallen, so ``length`` is in
+    blocks of open walking. The heuristic charges the open-ground rates, so it
+    never overestimates.
     """
     mask = stand_mask(region)
     start = _snap(mask, region.bounds, a, snap_radius)
@@ -146,6 +162,7 @@ def path_exists(
     plane = nz * nx
     stand = mask[at].ravel().tolist()
     passable = region.passable()[at].ravel().tolist()
+    step = np.where(_webbed(region)[at], WEB_COST, 1.0).ravel().tolist()
     g = np.full(ny * plane, np.inf, dtype=np.float32)
     closed = np.zeros(ny * plane, dtype=bool)
     parent = np.full(ny * plane, -1, dtype=np.int32)
@@ -185,19 +202,20 @@ def path_exists(
             if not (0 <= z2 < nz and 0 <= x2 < nx):
                 continue
             col = z2 * nx + x2
-            steps = [(y, base + 1.0)]
+            steps = [(y, base)]
             if y + 2 < ny and passable[(y + 2) * plane + z * nx + x]:
-                steps.append((y + 1, base + 1.0 + STEP_UP))
+                steps.append((y + 1, base + STEP_UP))
             # The head enters the neighbour column before the feet leave the ledge.
             if passable[(y + 1) * plane + col]:
                 for d in range(1, max_drop + 1):
                     if y - d < 1 or not passable[(y - d + 1) * plane + col]:
                         break
-                    steps.append((y - d, base + 1.0 + DROP * d))
+                    steps.append((y - d, base + DROP * d))
                     if stand[(y - d) * plane + col]:
                         break
             for y2, cost in steps:
                 nb = y2 * plane + col
+                cost += step[nb]
                 if stand[nb] and not closed[nb] and cost < g[nb]:
                     g[nb] = cost
                     parent[nb] = cur
