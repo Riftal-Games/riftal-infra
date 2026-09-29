@@ -769,7 +769,7 @@ def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
         "dry_run": dry_run, "count": len(results), "undone": sorted(undone, reverse=True), "blocks": sum(r.blocks for r in results),
         "snapshot": None, "undo_id": None, "jobs": [job for r in results for job in r.jobs],
     }
-    # A text undo overwrites no block and pushes no entry, so the newest pushed entry is the last non-null one.
+    # A text undo takes no snapshot, so the snapshot to report is the last one taken.
     last = next((r.before_result for r in reversed(results) if r.before_result is not None), None)
     if last is not None:
         out["snapshot"], out["undo_id"] = str(last.path), _entry_id(last.path)
