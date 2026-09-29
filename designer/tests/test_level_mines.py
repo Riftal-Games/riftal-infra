@@ -80,7 +80,7 @@ def test_a_torch_in_the_interior_refuses_naming_the_entry_and_cell(bridge: Bridg
 
 def test_a_layer_ore_absent_from_ores_refuses(bridge: Bridge, root: Path) -> None:
     spec = json.loads((root / "specs" / "mine_a.json").read_text(encoding="utf-8"))
-    spec["ore_layers"] = [{"y_from": 45, "y_to": 45, "ores": {"minecraft:stone": 1}}]
+    spec["ore_layers"] = [{"y_from": 45, "y_to": 45, "ores": {"minecraft:iron_ore": 1}}]
     (root / "specs" / "mine_a.json").write_text(json.dumps(spec), encoding="utf-8")
     _refused(bridge, root, "mine_a", r"mine_valid_mine_a: 1024 interior cells neither air nor in ores \[\(-16, 45, -16\)")
 
