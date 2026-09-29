@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN="$SCRIPT_DIR/RiftalCapture.php"
-EXPECTED_ASSERTIONS=19
+EXPECTED_ASSERTIONS=14
 
 output="$(docker run --rm -i -v "$PLUGIN:/plugin.php:ro" php:8.3-cli-alpine php <<'PHP' 2>&1
 <?php
@@ -33,7 +33,6 @@ namespace{
 require "/plugin.php";
 use pocketmine\scheduler\ClosureTask;
 use riftal\capture\CaptureRequest;
-use riftal\capture\Lease;
 use riftal\capture\Main;
 use riftal\capture\Stage;
 
@@ -58,18 +57,6 @@ check($r !== null && $r->id === "20260929T0600-1" && $r->deadline === 1700000900
 $bad = ["../x 1", ".. 1", ". 1", "a/b 1", "x", "x 1 2", "", "x -1", " x 1", "x 1\n\n"];
 $parsed = array_filter($bad, fn(string $s) => CaptureRequest::parse($s) !== null);
 check($parsed === [], "no request naming a path outside .capture, or malformed, parses: " . implode("|", $parsed));
-
-$a = new CaptureRequest("a", 100);
-$lease = new Lease();
-check($lease->mayCapture($a, 50) && !$lease->mustRelease($a, 50), "a new live request is captured, and nothing is released");
-$lease->hold($a);
-check(!$lease->mayCapture($a, 60) && !$lease->mustRelease($a, 60), "a held request before its deadline is neither captured again nor released");
-check($lease->mustRelease(new CaptureRequest("a", 900), 100), "rewriting the held id with a later deadline does not extend the lease");
-check($lease->mustRelease(null, 60), "the request going away releases");
-check($lease->mustRelease(new CaptureRequest("b", 900), 60), "a request naming another id releases");
-check($lease->release() === "a" && $lease->release() === null, "release names the held id once");
-check(!$lease->mayCapture(new CaptureRequest("a", 900), 101), "an id already captured is never captured again");
-check($lease->mayCapture(new CaptureRequest("b", 900), 101) && !$lease->mayCapture(new CaptureRequest("c", 101), 101), "another id is captured, one past its deadline is not");
 
 $root = sys_get_temp_dir() . "/cap-" . getmypid();
 mkdir("$root/players/sub", 0755, true);
@@ -103,7 +90,10 @@ $worlds = new class{
 	public bool $on = true;
 	public function getAutoSave() : bool{ return $this->on; }
 	public function setAutoSave(bool $on) : void{ $this->on = $on; $GLOBALS["events"][] = "autosave " . ($on ? "on" : "off"); }
-	public function getWorlds() : array{ return [new class{ public function save(bool $force) : void{ $GLOBALS["events"][] = "world save"; } }]; }
+	/** Like World::save: nothing when autosave is off and the save is unforced, else its WorldSaveEvent's placer saves write a player file. */
+	public function getWorlds() : array{ return [new class{ public function save(bool $force = false) : void{
+		if($GLOBALS["worlds"]->on || $force){ $GLOBALS["events"][] = "world save"; file_put_contents($GLOBALS["root"] . "/players/w.dat", "placed"); }
+	} }]; }
 };
 $server = new class{
 	public function getWorldManager() : object{ return $GLOBALS["worlds"]; }
@@ -120,8 +110,8 @@ $scheduler = new class{
 	}
 };
 $logger = new class{ public function __call(string $level, array $args) : void{} };
-$tick = function(?string $id) use ($scheduler) : void{
-	$id === null ? unlink("/capture/request") : file_put_contents("/capture/request", "$id " . (time() + 600) . "\n");
+$tick = function(?string $id, int $ttl = 600) use ($scheduler) : void{
+	$id === null ? unlink("/capture/request") : file_put_contents("/capture/request", "$id " . (time() + $ttl) . "\n");
 	$scheduler->tick();
 };
 mkdir("/capture");
@@ -129,12 +119,20 @@ $main = new Main($server, $logger, $scheduler);
 (fn() => $this->onEnable())->call($main);
 check(scandir("$root/.capture") === [".", ".."], "enabling clears the r1 and r2 an earlier run left in .capture");
 $events = [];
+$tick("m0", 0);
+check($events === [] && !file_exists("$root/.capture/m0"), "a request already at its deadline is not captured");
 $tick("m1");
 check($events === ["autosave off", "player save", "world save"]
 	&& @file_get_contents("$root/.capture/m1/players/p.dat") === "saved"
-	&& @file_get_contents("$root/.capture/m1/ack") === "m1\n", "one poll turns autosave off, saves players then worlds, and stages and acks the saved files in that tick");
-$tick(null);
-check($worlds->on && !file_exists("$root/.capture/m1"), "releasing restores autosave on and removes the staged copy");
+	&& @file_get_contents("$root/.capture/m1/players/w.dat") === "placed"
+	&& @file_get_contents("$root/.capture/m1/ack") === "m1\n", "one poll turns autosave off, saves players then worlds, and stages and acks the files both saves wrote in that tick");
+$tick("e1", 3);
+check(!$worlds->on && !file_exists("$root/.capture/m1") && @file_get_contents("$root/.capture/e1/ack") === "e1\n", "a request naming another id releases the held one and is captured in the same poll");
+$tick("e1");
+check(!$worlds->on && is_file("$root/.capture/e1/ack"), "rewriting the held request with a later deadline does not release it");
+sleep(3);
+$tick("e1");
+check($worlds->on && !file_exists("$root/.capture/e1"), "the deadline read at capture ends the hold with the request still in place, restoring autosave on and removing the staged copy, and the id is not captured again");
 $worlds->on = false;
 $tick("m2");
 $tick(null);
