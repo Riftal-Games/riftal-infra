@@ -407,10 +407,38 @@ def test_build_exits_one_when_mine_valid_fails(
     spec_path = tmp_path / "spec.json"
     spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
 
+    before = index_path.read_bytes()
+
     assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", *apply]) == 1
     captured = capsys.readouterr()
-    assert json.loads(captured.out)["mine_valid"] == {"ok": False, "detail": "interior open to the padding"}
-    assert captured.err == "designer: mine_valid failed: interior open to the padding\n"
+    report = json.loads(captured.out)
+    assert report["mine_valid"] == {"ok": False, "detail": "interior open to the padding"}
+    refused = "; nothing sent, --no-verify sends it anyway" if apply else ""
+    assert captured.err == f"designer: mine_valid failed: interior open to the padding{refused}\n"
+    assert "snapshot" not in report and "ok" not in report and report["extras_report"] is None
+    assert [r["op"] for r in fake.requests if r["op"] in ("set_blocks", "fill", "replace")] == []
+    assert not (tmp_path / "snapshots").exists() and not (tmp_path / "reports").exists()
+    assert index_path.read_bytes() == before
+
+
+def test_build_apply_with_no_verify_sends_and_registers_a_mine_mine_valid_would_fail(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    monkeypatch.setattr("designer.cli.mine_valid", lambda region, spec: Check(False, "interior open to the padding"))
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--apply", "--no-verify"]) == 0
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert captured.err == "" and report["ok"] is True and Path(report["snapshot"]).is_file()
+    assert [r for r in fake.requests if r["op"] in ("set_blocks", "fill", "replace")] != []
+    assert {e.name for e in (*WorldIndex.load(index_path).locations, *WorldIndex.load(index_path).regions)} == SMALL_MINE_NAMES
 
 
 def test_build_rejects_an_unknown_kind(capsys: pytest.CaptureFixture[str]) -> None:

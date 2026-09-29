@@ -14,6 +14,7 @@ from designer.blocks import BlockClass
 from designer.builders import BUILDERS
 from designer.cli import main
 from designer.region import Bounds
+from designer.verify import Check
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
 from tests import fake_bridge
@@ -551,6 +552,30 @@ def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
     assert _writes(server) == [] and call("list_undo")["entries"] == []
     assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
     assert (tmp_path / "index.json").read_bytes() == before
+
+
+def test_build_failing_mine_valid_sends_nothing_unless_verify_is_false(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    monkeypatch.setattr("designer.mcp_server.mine_valid", lambda region, spec: Check(False, "interior open to the padding"))
+    before = (tmp_path / "index.json").read_bytes()
+
+    refused = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone")
+    assert refused == {
+        "ok": False, "code": None,
+        "error": "mine_valid failed: interior open to the padding; nothing sent, pass verify=False to send it anyway",
+    }
+    assert _writes(server) == [] and call("list_undo")["entries"] == []
+    assert not (tmp_path / "snapshots").exists() and not config.REPORTS_DIR.exists()
+    assert (tmp_path / "index.json").read_bytes() == before
+
+    dry = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone", dry_run=True)
+    assert dry["ok"] is True and dry["mine_valid"] == {"ok": False, "detail": "interior open to the padding"}
+
+    sent = call("build", kind="mine", spec=SMALL_MINE_SPEC, palette="test_stone", verify=False)
+    assert sent["ok"] is True and sent["undo_id"] == 1 and sent["mine_valid"] is None and _writes(server) != []
+    assert {r["name"] for r in call("index_list", kind="regions")["regions"]} >= {"tbox", "tbox_interior"}
 
 
 def test_build_unknown_kind_and_a_spec_path_outside_specs_are_refused(server: FakeBridge) -> None:

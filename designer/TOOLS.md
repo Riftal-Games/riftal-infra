@@ -23,7 +23,8 @@ locations and regions in the index unless ``register_index`` is false or ``dry_r
 ``register_index`` is false, refuses a name that breaks the index's naming rules, names an
 unlisted world or appears twice in the build, and a name already taken unless ``replace_index``,
 a dry run included, so a dry run answers every refusal the build would; runs ``mine_valid`` when ``kind`` is
-``mine`` unless ``verify`` is false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
+``mine`` unless ``verify`` is false, and refuses a build that fails it before the snapshot, a dry run
+reporting the failure instead; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
 falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
 
 ```json
