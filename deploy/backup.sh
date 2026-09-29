@@ -87,10 +87,7 @@ acquire_lock() {
     fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
   fi
   echo "backup $ts: $LOCK_DIR is older than ${LOCK_MAX_AGE_MINUTES}m, presumed abandoned by a run that never reached its own EXIT trap; clearing it and retrying" >&2
-  # No-op outside deploy/selftest.sh's steal-vs-steal section. The window
-  # this widens is real in every run, just a handful of syscalls wide and
-  # not otherwise landable on demand: two sweepers must both pass the
-  # staleness check above for the same lock before either has moved it.
+  # Defaults to 0, and is set only by deploy/selftest.sh.
   sleep "${STEAL_RACE_TEST_STALL_SECONDS:-0}"
 
   # Two sweepers can both reach this point for the same abandoned lock. A
@@ -109,12 +106,7 @@ acquire_lock() {
     fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
   fi
 
-  # No-op outside deploy/selftest.sh's discard-sweep-vs-still-alive-owner
-  # section. Widens the window between the rename just above and the
-  # staleness check just below, the same way STEAL_RACE_TEST_STALL_SECONDS
-  # widens the window before the rename: a real run crosses this gap in a
-  # handful of syscalls, too narrow to land a concurrent sweep of this run's
-  # own discard directory against on demand otherwise.
+  # Defaults to 0, and is set only by deploy/selftest.sh.
   sleep "${DISCARD_RACE_TEST_STALL_SECONDS:-0}"
 
   # The rename alone is not the whole fix: it is blind to *what* it moved.
@@ -150,9 +142,8 @@ claim_lock() {
   # Equal to acquire_lock's discard name. That is safe only because
   # acquire_lock removes its discard directory before its second claim.
   staging_dir="$LOCK_DIR.discard.$lock_owner"
-  # No-op outside deploy/selftest.sh's claim-window section, for the same
-  # reason as the stalls in acquire_lock: it holds a run that found
-  # $LOCK_DIR free with its stamped lock still invisible to every other run.
+  # CLAIM_RACE_TEST_STALL_SECONDS below defaults to 0, and is set only by
+  # deploy/selftest.sh.
   if mkdir "$staging_dir" 2>/dev/null \
     && { echo "$lock_owner" > "$staging_dir/owner"; } 2>/dev/null \
     && [ ! -e "$LOCK_DIR" ] \
@@ -304,11 +295,11 @@ echo "backup $ts: applying retention, keeping the last $BACKUP_RETENTION"
 # instead of via the EXIT trap and reopening the exact overlap window the
 # lock exists to close (riftal-infra#166).
 #
-# `.lock.discard.*` is a stale steal's discarded former lock, orphaned only
-# if that run was killed between winning the rename and its own follow-up
-# `rm -rf` (riftal-infra#175). It is swept above on the next successful lock
-# acquisition, but until then it is never a backup, and left uncounted here
-# for the same reason `.partial` is.
+# `.lock.discard.*` is a stale steal's rename target or a claim_lock staging
+# directory, orphaned only if its run was killed before it renamed or removed
+# that directory (riftal-infra#175). It is swept above on the next successful
+# lock acquisition, but until then it is never a backup, and left uncounted
+# here for the same reason `.partial` is.
 mapfile -t existing < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
   -not -name '*.partial' -not -name '.lock' -not -name '.lock.discard.*' | sort)
 excess=$(( ${#existing[@]} - BACKUP_RETENTION ))

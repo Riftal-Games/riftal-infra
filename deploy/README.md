@@ -57,12 +57,12 @@ always left alone, so a backup genuinely still in progress is never at risk.
 
 ## Stale lock sweep
 
-The `$BACKUP_ROOT/.lock` directory (see Concurrency, below) is released only by the
-script's own `EXIT` trap, which a hard kill (OOM, a SIGKILL past the grace
-period, a host crash) bypasses entirely, unlike `flock`, which the kernel
-releases automatically on process death with no equivalent here. Without a
-sweep, a lock stranded that way would fail every subsequent run forever, until
-an operator manually removes it.
+The `$BACKUP_ROOT/.lock` directory (see Concurrency, below) is released only
+by the script's own `EXIT` trap, which a hard kill (OOM, a SIGKILL past the
+grace period, a host crash) bypasses entirely, unlike `flock`, which the
+kernel releases automatically on process death with no equivalent here.
+Without a sweep, a lock stranded that way would fail every subsequent run
+forever, until an operator manually removes it.
 
 When the claim fails because the lock already exists, `backup.sh` checks its
 age. One older than `LOCK_MAX_AGE_MINUTES` (default 90, see
@@ -111,13 +111,15 @@ Right after a run acquires the lock, after the `.partial` sweep above, it
 sweeps every `$LOCK_DIR.discard.*` directory it finds, logging each one it
 removes. No age filter applies here, unlike the `.partial` and stale-lock
 sweeps above: `acquire_lock` only ever returns, as it just has for this run,
-once every discard directory it itself created has already been renamed back
+once every discard directory it itself created has already been renamed away
 or removed, so this run's own discard directory is never still here to sweep.
 A discard directory left by a different, still-running process is safe to
-sweep too: that process's own staleness check on its own now-missing discard
-directory finds nothing, so it takes the existing "hand it back" branch and
-fails with the same "another run already holds the lock" error every other
-contention path already produces.
+sweep too. If that process is stealing a stale lock, its staleness check on
+its now-missing discard directory finds nothing, so it takes the existing
+"hand it back" branch. If it is claiming the lock, its stamp or rename finds
+nothing to act on, so the claim fails. Either way it fails with the same
+"another run already holds the lock" error every other contention path
+already produces.
 
 ## Schedule
 
@@ -242,10 +244,10 @@ wslc run --rm --network riftal-dev \
 of the run, before it touches anything else under `BACKUP_ROOT` (including
 the stale-`.partial` sweep above). It builds the lock directory, owner file
 included, under its own `$LOCK_DIR.discard.*` name and then renames it to
-`.lock`, only if `.lock` does not already exist. `rename(2)` is atomic on any
-POSIX filesystem and refuses to replace a non-empty directory, and needs
-nothing beyond coreutils, unlike `flock`, which is not installed in every
-image this script runs in. The owner file is written before the rename,
+`.lock`. `rename(2)` is atomic on any POSIX filesystem and refuses to replace
+a non-empty directory, so the rename fails while a stamped lock holds
+`.lock`. It needs nothing beyond coreutils, unlike `flock`, which is not
+installed in every image this script runs in. The owner file is written before the rename,
 never after: a lock that existed unstamped, even briefly, could be captured
 by a stale-lock sweeper in that gap, leaving both runs failed and an
 ownerless lock blocking every run until it ages out (riftal-infra#491). A
@@ -253,10 +255,9 @@ second invocation against the same `BACKUP_ROOT`, such as a manual run below
 started while the `backup` compose service's scheduled loop is also running,
 fails immediately with a loud, logged message rather than waiting or racing,
 unless the held lock is stale enough to be swept first (see Stale lock sweep,
-above). Two runs
-against *different* `BACKUP_ROOT` volumes (different instances, or a manual
-run pointed at a scratch directory) never contend, since the lock lives inside
-`BACKUP_ROOT` itself. If a manual run fails this way, wait for the scheduled
+above). Two runs against *different* `BACKUP_ROOT` volumes (different
+instances, or a manual run pointed at a scratch directory) never contend,
+since the lock lives inside `BACKUP_ROOT` itself. If a manual run fails this way, wait for the scheduled
 run to finish and try again, or run it against a separate `BACKUP_ROOT`.
 
 ## Running it locally, via `wslc`

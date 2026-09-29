@@ -217,7 +217,8 @@ fi
 section "a lock older than LOCK_MAX_AGE_MINUTES is swept and logged, a fresh one still blocks a run"
 # Backdating the lock stands in for a run that died before its own EXIT trap
 # ever ran (OOM, a SIGKILL past the grace period, a host crash) -- the one
-# case mkdir's lock cannot self-release the way flock would (riftal-infra#171).
+# case a directory lock cannot self-release the way flock would
+# (riftal-infra#171).
 backups "mkdir /backups/.lock && touch -d '-2 hours' /backups/.lock"
 
 if run_backup 3 mysql selftest 360 60 >"$LOGS"/out-lock-stale.log 2>&1; then
@@ -339,17 +340,11 @@ fi
 
 backups 'rm -rf /backups/.lock'
 
-section "a sweeper stealing while the winner claims finds no lock to capture, leaving exactly one winner"
-# riftal-infra#491, CI run 36558596358: both sweepers pass the staleness
-# check, W steals and claims, and L's rename, landing between W creating its
-# lock and stamping it, captures that lock. W's stamp then fails, L hands
-# back a lock nobody owns, and nobody wins. The stalls land L's steal inside
-# W's claim: W steals at 2s and its lock stays invisible until 5s, L tries
-# its steal at 3s, finds no .lock to rename, and fails at once, so W wins. A
-# lock that exists before it is stamped is instead captured by L at 3s, and
-# both lose. A container start skew of over a second moves L's steal out of
-# W's claim: earlier, L steals the stale lock first and W's steal fails;
-# later, L captures W's stamped lock and hands it back. One winner either way.
+section "no .lock is visible before it is stamped, so two racing sweepers leave exactly one winner"
+# riftal-infra#491. No .lock is visible before its owner file is written, so
+# exactly one of two runs racing to steal the same abandoned lock wins.
+# L sets DISCARD_RACE_TEST_STALL_SECONDS because that stall is what makes a
+# claim that creates .lock before stamping it go red here.
 backups "mkdir /backups/.lock && echo old-owner > /backups/.lock/owner && touch -d '-2 hours' /backups/.lock"
 
 STEAL_RACE_TEST_STALL_SECONDS=2 CLAIM_RACE_TEST_STALL_SECONDS=3 \
@@ -375,7 +370,7 @@ if [ "$claim_race_status_l" -eq 0 ]; then
   claim_race_winner_owner="$(cat "$LOGS"/out-claim-race-l.log)"
 fi
 if [ "$claim_race_wins" -eq 1 ]; then
-  pass "a steal landing inside the winner's claim finds no lock and leaves exactly one winner"
+  pass "exactly one of two sweepers racing a claim wins"
 else
   fail "expected exactly one winner, got $claim_race_wins (zero is riftal-infra#491's stranded lock)"
   cat "$LOGS"/err-claim-race-w.log "$LOGS"/err-claim-race-l.log
@@ -399,9 +394,9 @@ backups 'rm -rf /backups/.lock'
 
 section "an orphaned .lock.discard.* from a run killed mid-cleanup is swept on the next lock acquisition"
 # Stands in for a run that won acquire_lock's steal-path rename
-# (deploy/backup.sh:107) and was then killed before reaching its own rm -rf
-# a few lines later (riftal-infra#187), rather than waiting out that exact
-# kill timing to reproduce it.
+# (`mv -T "$LOCK_DIR" "$discard_dir"`) and was then killed before reaching
+# its own `rm -rf "$discard_dir"` (riftal-infra#187), rather than waiting out
+# that exact kill timing to reproduce it.
 orphan_discard_name=".lock.discard.99999-orphaned"
 backups "mkdir -p /backups/$orphan_discard_name && echo 99999-orphaned > /backups/$orphan_discard_name/owner"
 
@@ -425,23 +420,24 @@ fi
 
 section "a discard directory swept while its rename-owner is still alive converges on the same lock-contention failure"
 # riftal-infra#207/#208: the section above covers an orphan nobody is still
-# running; this covers the case its comment (deploy/backup.sh:244-249)
-# specifically claims is also safe. A backdated .lock puts run A on the same
-# steal path as every section above, so its own rename (deploy/backup.sh:107)
-# produces a discard directory while A is still alive, not crashed.
+# running; this covers the case the comment above backup.sh's
+# `stale_discards` sweep specifically claims is also safe. A backdated .lock
+# puts run A on the same steal path as every section above, so its own
+# rename (`mv -T "$LOCK_DIR" "$discard_dir"` in acquire_lock) produces a
+# discard directory while A is still alive, not crashed.
 # DISCARD_RACE_TEST_STALL_SECONDS holds A there until run B, an entirely
 # ordinary full run needing nothing special of its own, reaches its
-# orphaned-discard sweep (deploy/backup.sh:250-255) and removes it. A must
-# then find its own discard directory gone at its staleness check
-# (deploy/backup.sh:127) and hand the lock back rather than proceed as if it
-# still owned it.
+# `stale_discards` sweep and removes it. A must then find its own discard
+# directory gone at its staleness check (`find "$discard_dir" -maxdepth 0
+# -mmin` in acquire_lock) and hand the lock back rather than proceed as if
+# it still owned it.
 backups "mkdir /backups/.lock && echo old-owner > /backups/.lock/owner && touch -d '-2 hours' /backups/.lock"
 
 DISCARD_RACE_TEST_STALL_SECONDS=5 run_backup 3 mysql selftest 360 60 __test_acquire_lock \
   >"$LOGS"/out-discard-race-a.log 2>"$LOGS"/err-discard-race-a.log &
 discard_race_pid_a=$!
 
-# A's own container start, failed mkdir, staleness check and rename all land
+# A's own container start, failed claim, staleness check and rename all land
 # well inside this, leaving B the run of its own stall to land its sweep in.
 sleep 2
 discard_race_status_b=0
