@@ -5,12 +5,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from designer import __version__
+from designer import __version__, snapshot
 from designer.blocks import AIR
 from designer.bridge import Bridge
 from designer.edits import EditList, Fill, SetBlock
 from designer.region import Bounds, Bounds2D, Region, fetch_heightmap, fetch_region
-from designer.snapshot import TS_FORMAT, Snapshot, UndoStack, diff, load, restore, save, take
+from designer.snapshot import TS_FORMAT, Snapshot, SnapshotLoadError, UndoStack, diff, load, restore, save, take
 from tests.fake_bridge import FakeBridge
 
 WORLD = "design"
@@ -120,6 +120,36 @@ def test_undo_manifest_survives_a_new_stack_and_undo_restores_the_fake(fake: Fak
     assert diff(undone, fetch_region(bridge, WORLD, undone.bounds)).changed == 0
     assert [(e["id"], e["op"], e["restored"]) for e in fresh.entries()] == [(1, "fill", True), (2, "undo", True), (3, "undo", False)]
     assert sorted(p.name for p in snapshots_dir.iterdir()) == [WORLD, "undo-manifest.json"]
+
+
+
+@pytest.mark.parametrize("damage", [None, b"PK\x03\x04truncated", b"not a snapshot", b""])
+def test_undo_of_an_unloadable_snapshot_is_a_failed_result_that_keeps_its_cause(
+    bridge: Bridge, snapshots_dir: Path, damage: bytes | None,
+) -> None:
+    snap = take(bridge, WORLD, BOX, "fill")
+    stack = UndoStack(session="s1")
+    stack.push(snap, "fill")
+    if damage is None:
+        snap.path.unlink()
+    else:
+        snap.path.write_bytes(damage)
+    [result] = stack.undo(bridge)
+    assert result.ok is False and isinstance(result.errors[0], SnapshotLoadError)
+    assert result.errors[0].__cause__ is not None
+    assert stack.entries()[0]["restored"] is False
+
+
+def test_undo_lets_a_bug_inside_load_keep_its_identity(bridge: Bridge, snapshots_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stack = UndoStack(session="s1")
+    stack.push(take(bridge, WORLD, BOX, "fill"), "fill")
+
+    def broken(path: Path) -> Snapshot:
+        raise TypeError("a bug, not a damaged file")
+
+    monkeypatch.setattr(snapshot, "load", broken)
+    with pytest.raises(TypeError, match="a bug"):
+        stack.undo(bridge)
 
 
 def test_restore_of_an_unchanged_region_sends_nothing_and_only_changed_off_sends_every_cell(fake: FakeBridge, bridge: Bridge) -> None:

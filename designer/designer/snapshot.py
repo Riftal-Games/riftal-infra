@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -182,7 +183,7 @@ def _load_entry(entry: dict[str, Any]) -> Snapshot:
     # on where the damage is, so every failure to read this one file is the same refusal.
     try:
         return load(Path(entry["path"]))
-    except Exception as exc:
+    except (OSError, ValueError, EOFError, KeyError, zipfile.BadZipFile) as exc:
         raise SnapshotLoadError(f"undo entry {entry['id']}: cannot load snapshot {entry['path']}: {exc}") from exc
 
 
