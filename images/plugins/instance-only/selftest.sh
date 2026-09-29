@@ -236,8 +236,14 @@ SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/mines/resources/config
 TEMPLATE="$DIR/RiftalMines.config.yml.template"
 SKIPPED=0
 # Each assertion here is counted as skipped rather than dropped when the
-# shipped file is absent, so the assertion count still sees one deleted.
-drift() { if [ -f "$SHIPPED" ]; then check "$1" "$2"; else SKIPPED=$((SKIPPED + 1)); fi; }
+# default sibling checkout is absent, so the assertion count still sees one
+# deleted. An explicit RIFTAL_GAME_DIR without the file fails instead: a
+# mistyped path is a broken run, not a missing checkout.
+drift() {
+  if [ -f "$SHIPPED" ]; then check "$1" "$2"
+  elif [ -n "${RIFTAL_GAME_DIR:-}" ]; then fail "$1: RIFTAL_GAME_DIR is set but $SHIPPED does not exist"
+  else SKIPPED=$((SKIPPED + 1)); fi
+}
 # Every top-level key, whether it holds a scalar or opens a section.
 keys() { grep -oE '^[^[:space:]#-][^:]*:' "$1" | sort -u; }
 # Top-level keys holding a scalar. The database and worlds sections hold
