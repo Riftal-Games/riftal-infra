@@ -91,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     find_site.add_argument("--max-water", type=float, default=0.0, metavar="F")
     find_site.add_argument("--limit", type=int, default=5, metavar="N")
 
-    terraform = terrains.add_parser("terraform", help="Flatten, raise, lower or smooth a square. Reports a dry run unless --apply is given.")
+    terraform = terrains.add_parser("terraform", help="Flatten, raise, lower or smooth a square. Reports a dry run unless --apply is given; exits 1 on a failed apply.")
     _add_area(terraform)
     terraform.add_argument("--mode", choices=terrain_mod.MODES, required=True)
     terraform.add_argument("--level", type=int, default=0, metavar="Y", help="Target height for flatten, raise and lower.")
@@ -100,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     terraform.add_argument("--smooth-radius", type=int, default=2, metavar="N")
     terraform.add_argument("--apply", action="store_true", help="Send the edits; default is a dry run that only reports them.")
 
-    build = commands.add_parser("build", help="Build KIND from a spec and palette. Dry run by default; --apply sends it. Exits 1, dry run or not, on an index entry the build would refuse.")
+    build = commands.add_parser("build", help="Build KIND from a spec and palette. Dry run by default; --apply sends it. Exits 1, dry run or not, on an index entry the build would refuse or a failing mine_valid, and on a failed apply.")
     build.add_argument("kind", choices=sorted(BUILDERS), metavar="KIND", help="A builder registered in designer.builders.BUILDERS.")
     build.add_argument("--spec", required=True, metavar="PATH", help="Path to a JSON spec file.")
     build.add_argument("--palette", required=True, metavar="NAME", help="A palette name from palettes.json.")
@@ -186,7 +186,17 @@ def _terrain_find_site(bridge: Bridge, options: argparse.Namespace) -> str:
     return json.dumps([s.to_json() for s in sites], indent=2, sort_keys=True)
 
 
-def _terrain_terraform(bridge: Bridge, options: argparse.Namespace) -> str:
+def _emit(report: dict[str, Any]) -> int:
+    print(json.dumps(report, indent=2, sort_keys=True))
+    failures = [f"apply failed: {report['error']}"] if report.get("ok") is False else []
+    if report.get("mine_valid", {"ok": True})["ok"] is False:
+        failures.append(f"mine_valid failed: {report['mine_valid']['detail']}")
+    for failure in failures:
+        print(f"designer: {failure}", file=sys.stderr)
+    return 1 if failures else 0
+
+
+def _terrain_terraform(bridge: Bridge, options: argparse.Namespace) -> dict[str, Any]:
     world, bounds = _area_bounds(options)
     margin = options.feather + (options.smooth_radius if options.mode == "smooth" else 0)
     hm = fetch_heightmap(bridge, world, bounds.expand(margin) if margin else bounds)
@@ -204,10 +214,10 @@ def _terrain_terraform(bridge: Bridge, options: argparse.Namespace) -> str:
         report["ok"] = result.ok
         if not result.ok:
             report["error"] = str(result.errors[0])
-    return json.dumps(report, indent=2, sort_keys=True)
+    return report
 
 
-def _build(bridge: Bridge, options: argparse.Namespace) -> str:
+def _build(bridge: Bridge, options: argparse.Namespace) -> dict[str, Any]:
     def fetch(world: str, bounds: Bounds2D) -> Heightmap:
         return fetch_heightmap(bridge, world, bounds)
 
@@ -242,7 +252,7 @@ def _build(bridge: Bridge, options: argparse.Namespace) -> str:
         report_path = config.REPORTS_DIR / f"{options.kind}-{opt(spec, 'name', options.kind)}-extras.json"
         report_path.write_text(json.dumps(edits.extras, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
         report["extras_report"] = str(report_path)
-    return json.dumps(report, indent=2, sort_keys=True)
+    return report
 
 
 def _checks_table(report: checks_mod.Report) -> str:
@@ -320,11 +330,13 @@ def main(argv: list[str] | None = None) -> int:
             elif options.command == "render":
                 handler = {"topdown": _render, "isometric": _render, "slice": _render_slice}[options.render]
                 print(handler(bridge, options))
+            elif options.command == "terrain" and options.terrain == "terraform":
+                return _emit(_terrain_terraform(bridge, options))
             elif options.command == "terrain":
-                handler = {"analyze": _terrain_analyze, "find-site": _terrain_find_site, "terraform": _terrain_terraform}[options.terrain]
+                handler = {"analyze": _terrain_analyze, "find-site": _terrain_find_site}[options.terrain]
                 print(handler(bridge, options))
             elif options.command == "build":
-                print(_build(bridge, options))
+                return _emit(_build(bridge, options))
             elif options.command == "checks":
                 return _checks_run(bridge, options)
             else:
