@@ -44,8 +44,17 @@ sql() {
 # drop is about to remove or the migrations are about to recreate. This reads
 # the moment of the check only: stopping every instance first is the runbook's
 # step, and this catches one that was missed.
-sessions="$(sql "SELECT COUNT(*) FROM performance_schema.processlist WHERE DB = '$MYSQL_DATABASE' AND ID <> CONNECTION_ID()")"
-[ "$sessions" = "0" ] || fail "$sessions other session(s) are connected to $MYSQL_DATABASE; stop every instance first"
+#
+# Without PROCESS the processlist shows only this account's own threads, so the
+# count below would read 0 whatever is connected. PROCESS held through a role
+# is not seen here, which refuses rather than guesses.
+[ "$(sql "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE PRIVILEGE_TYPE = 'PROCESS'
+  AND GRANTEE = CONCAT('''', REPLACE(CURRENT_USER(), '@', '''@'''), '''')")" = "1" ] \
+  || fail "$MYSQL_USER lacks a direct PROCESS grant, so it cannot see every session"
+# A session with no default database can still write here by qualified name.
+sessions="$(sql "SELECT COUNT(*) FROM performance_schema.processlist WHERE (DB = '$MYSQL_DATABASE' OR DB IS NULL)
+  AND COMMAND <> 'Daemon' AND ID <> CONNECTION_ID()")"
+[ "$sessions" = "0" ] || fail "$sessions other session(s) are connected to $MYSQL_DATABASE or to no database; stop every instance first"
 
 echo "wipe $MYSQL_DATABASE: dropping and recreating at $MYSQL_HOST:$MYSQL_PORT, backup set $BACKUP_SET"
 sql "DROP DATABASE \`$MYSQL_DATABASE\`; CREATE DATABASE \`$MYSQL_DATABASE\`"

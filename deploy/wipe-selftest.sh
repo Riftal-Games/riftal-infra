@@ -6,7 +6,8 @@
 # The fixture database holds economy_balance_snapshot with ADR 006's DDL, rows
 # in it and in the tables it copies, and a table no migration creates. A wipe
 # that emptied a named list of tables would leave the snapshot or the stray
-# table behind and fail here.
+# table behind and fail here. Each refusal in wipe.sh is driven, and must leave
+# the fixture unchanged.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,7 +70,7 @@ migrate() {
     "$C" bash /migrations-runner/run-migrations.sh
 }
 wipe() {
-  env_run -e MYSQL_DATABASE="$1" -e WIPE_CONFIRM="$2" -e BACKUP_SET="$3" "$C" bash /deploy/wipe.sh
+  env_run -e MYSQL_USER="${WIPE_USER:-root}" -e MYSQL_DATABASE="$1" -e WIPE_CONFIRM="$2" -e BACKUP_SET="$3" "$C" bash /deploy/wipe.sh
 }
 check() {
   env_run -e MYSQL_DATABASE="$DB" "$C" bash /deploy/wipe-check.sh
@@ -92,7 +93,7 @@ sh_in "mkdir -p /tmp/set /tmp/other /tmp/empty /tmp/absent \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=14
+EXPECTED_ASSERTIONS=16
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -124,16 +125,23 @@ refused other-db-backup "does not name database" wipe "$DB" "$DB" /tmp/other
 refused absent-database "no database riftal_smoke_absent" \
   wipe riftal_smoke_absent riftal_smoke_absent /tmp/absent
 
-docker exec -d "$C" mysql -uroot -pselftest "$DB" -e 'SELECT SLEEP(8)'
-for _ in $(seq 1 20); do
-  [ "$(q "SELECT COUNT(*) FROM performance_schema.processlist WHERE DB = '$DB'")" != "0" ] && break
-  sleep 0.5
-done
+sleeping() { q "SELECT COUNT(*) FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP%'"; }
+hold() {
+  docker exec -d "$C" mysql -uroot -pselftest "$@" -e 'SELECT SLEEP(8)'
+  for _ in $(seq 1 20); do [ "$(sleeping)" != "0" ] && return; sleep 0.5; done
+}
+released() { for _ in $(seq 1 30); do [ "$(sleeping)" = "0" ] && return; sleep 0.5; done; }
+
+# An account with every privilege on the schema but no PROCESS sees only its
+# own threads in the processlist, so it would count 0 with a session connected.
+q "CREATE USER 'wiper'@'%' IDENTIFIED BY 'selftest'; GRANT ALL ON $DB.* TO 'wiper'@'%'"
+hold "$DB"
 refused connected-session "other session" wipe "$DB" "$DB" /tmp/set
-for _ in $(seq 1 30); do
-  [ "$(q "SELECT COUNT(*) FROM performance_schema.processlist WHERE DB = '$DB'")" = "0" ] && break
-  sleep 0.5
-done
+WIPE_USER=wiper refused no-process "lacks a direct PROCESS grant" wipe "$DB" "$DB" /tmp/set
+released
+hold
+refused no-default-db-session "other session" wipe "$DB" "$DB" /tmp/set
+released
 
 [ "$(snapshot_rows)" = "2" ] && pass "every refusal left the snapshot rows in place" \
   || fail "a refused wipe changed the database"

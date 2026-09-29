@@ -26,8 +26,7 @@ It is a derived copy of `balances` and `economy_ledger` with no foreign keys,
 so clearing those two leaves it in place, and ADR 006 reads any non-empty
 snapshot table as the valid snapshot. A snapshot surviving a wipe would claim
 balances and ledger rows that no longer exist. After a wipe the table exists
-and is empty, which ADR 006 reads as no valid snapshot. A new take follows ADR
-006's own rules (its When conditions, and Nasir's gate in production).
+and is empty, which ADR 006 reads as no valid snapshot.
 
 Dropping the schema also removes the stored procedures and `schema_migrations`,
 which the migrations recreate. MySQL roles and logins are server-level and
@@ -38,8 +37,9 @@ survive; the migration run reapplies their grants anyway.
 1. **Announce** the window in Discord, per the policy and `../CLAUDE.md`'s
    rollout rules.
 2. **Stop every instance** with `stop` on stdin, waiting for the shutdown line.
-   Never kill one. `wipe.sh` refuses while any session is connected to the
-   database, but that check is a backstop, not a lock.
+   Never kill one. `wipe.sh` refuses while any other session is connected to
+   the database or to no database, but that check is a backstop, not a lock.
+   Sessions on another default database are not counted.
 3. **Back up.** One `backup.sh` run as in `README.md`. Note the set directory
    it prints. It is the rollback, and `wipe.sh` refuses without it. Retention
    prunes it after `BACKUP_RETENTION` more runs (2.5 days at the defaults); if
@@ -66,8 +66,10 @@ and is Nasir's.
 ## Environment
 
 `wipe.sh` and `wipe-check.sh` take `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`,
-`MYSQL_PASSWORD` and `MYSQL_DATABASE` as in `README.md`, as an account that can
-drop and create the database. `wipe.sh` also requires:
+`MYSQL_PASSWORD` and `MYSQL_DATABASE` as in `README.md`. `wipe.sh` needs an
+account that can drop and create the database and holds `PROCESS` granted
+directly, not through a role; without it the session check cannot see other
+accounts' sessions, so `wipe.sh` refuses. It also requires:
 
 | Variable | Meaning |
 |---|---|
@@ -97,14 +99,8 @@ the backups mount. Wrap each in `timeout 120` when running unattended.
 ## Testing
 
 `wipe-selftest.sh` runs in CI against one throwaway `mysql:8` container that
-publishes nothing. Its fixture holds `economy_balance_snapshot` with ADR 006's
-DDL and rows in it and in `balances` and `economy_ledger`, plus a table no
-migration creates. It proves `wipe-check.sh` fails on that database naming the
-snapshot table, that `wipe.sh` refuses each missing or wrong input and a
-connected session with nothing changed, and that a confirmed wipe followed by
-the migrations leaves the snapshot table present and empty and the stray
-table gone. On Nasir's machine, under the Docker in the WSL distro that hosts
-the CI runners:
+publishes nothing; the header of the script says what it proves. Locally, under
+the Docker in the WSL distro that hosts the CI runners:
 
 ```sh
 MSYS_NO_PATHCONV=1 wsl -d Ubuntu-26.04 -u runner --exec bash \
