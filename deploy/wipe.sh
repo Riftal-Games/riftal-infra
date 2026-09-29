@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Drops and recreates the shared database for a wipe between MVPs. It is the
 # database step only: instances are stopped and a backup is taken before it.
+# The whole procedure, with its rollback, is deploy/WIPE.md.
 #
 # The schema is dropped whole rather than truncated table by table, so no list
 # of tables can fall behind the migrations. A list would miss a derived table
