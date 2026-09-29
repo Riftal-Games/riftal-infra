@@ -106,6 +106,9 @@ CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
     *(("exact", n, BlockClass.DANGER) for n in (
         "lava", "flowing_lava", "fire", "soul_fire", "magma", "cactus",
         "sweet_berry_bush", "wither_rose", "powder_snow", "campfire", "soul_campfire")),
+    # No collision box, and a player who enters it leaves the world at once.
+    # The core does not implement it, so this follows vanilla Bedrock.
+    ("exact", "end_portal", BlockClass.DANGER),
     ("exact", "snow_layer", _snow_layer),
     ("exact", "pitcher_crop", _pitcher_crop),
     *(("exact", n, BlockClass.PASSABLE) for n in (
