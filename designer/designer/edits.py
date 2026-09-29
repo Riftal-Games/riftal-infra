@@ -142,7 +142,7 @@ class ApplyResult:
     ok: bool
     jobs: list[dict[str, Any]] = field(default_factory=list)
     blocks: int = 0
-    errors: list[BridgeError] = field(default_factory=list)
+    errors: list[Exception] = field(default_factory=list)
     before_result: Any = None
 
 

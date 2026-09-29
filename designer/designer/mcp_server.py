@@ -760,7 +760,8 @@ def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
     """Reverse the ``n`` newest edits not yet undone, from any session; each pushes an ``undo`` entry that plain ``undo`` skips.
 
     Stops at the first failure with ``ok`` false, and ``undone``, ``snapshot`` and ``undo_id`` still name what was
-    reversed and pushed before it.
+    reversed and pushed before it. An entry whose snapshot file is missing or cannot be read fails with code
+    ``snapshot_unreadable``.
 
     RETURNS: dry_run, count, undone, blocks, snapshot, undo_id, jobs.
     """

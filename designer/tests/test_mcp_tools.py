@@ -369,8 +369,8 @@ def _fail_nth(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, op: str, nth: i
     monkeypatch.setattr(fake, f"op_{op}", failing)
 
 
-def _assert_second_undo_failed(result: dict[str, Any]) -> None:
-    assert result["ok"] is False and result["code"] == "FAKE_DOWN", result
+def _assert_second_undo_failed(result: dict[str, Any], code: str = "FAKE_DOWN") -> None:
+    assert result["ok"] is False and result["code"] == code, result
     assert (result["count"], result["undone"], result["undo_id"]) == (2, [2], 3), result
     [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 3]
     assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and Path(result["snapshot"]).is_file()
@@ -393,6 +393,19 @@ def test_undo_that_fails_reading_the_region_for_its_second_restore_still_reports
     assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
     _fail_nth(server, monkeypatch, "get_region", nth)
     _assert_second_undo_failed(call("undo", n=2))
+
+
+# A truncated zip, bytes that are no archive at all, and an empty file each fail inside numpy differently.
+@pytest.mark.parametrize("damage", [None, b"PK\x03\x04truncated", b"not a snapshot", b""])
+def test_undo_whose_second_snapshot_cannot_be_loaded_still_reports(server: FakeBridge, damage: bytes | None) -> None:
+    first = call("fill", **MUTATING["fill"])
+    assert first["undo_id"] == 1
+    assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
+    if damage is None:
+        Path(first["snapshot"]).unlink()
+    else:
+        Path(first["snapshot"]).write_bytes(damage)
+    _assert_second_undo_failed(call("undo", n=2), code="snapshot_unreadable")
 
 
 def test_restore_by_manifest_id_and_by_path(server: FakeBridge) -> None:
