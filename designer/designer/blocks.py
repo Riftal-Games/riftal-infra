@@ -70,13 +70,17 @@ RULE_KINDS = ("exact", "prefix", "suffix", "contains")
 StateClass = Callable[[Mapping[str, str]], BlockClass]
 
 # Bedrock's ``height`` is layers minus one and the collision box is ``height``
-# eighths of a block (SnowLayer.php:69). A player steps up 0.6 of a block
-# (Player.php:281), so from height 5 snow is climbed like a block.
-SNOW_CLIMB_HEIGHT = 5
+# eighths of a block (SnowLayer.php:69). A PASSABLE feet cell promises a
+# 1.8-tall hitbox (Human.php:121) fits under a ceiling two cells up, which
+# leaves 0.2 of a block for the snow. From height 2 the box is 0.25 and the
+# hitbox clips the ceiling, the same headroom rule that makes a 3/8 flower pot
+# SOLID. That cut is below the 0.6 step-up (Player.php:281), so it holds for
+# climbing too.
+SNOW_BLOCKS_HITBOX_HEIGHT = 2
 
 
 def _snow_layer(states: Mapping[str, str]) -> BlockClass:
-    return BlockClass.SOLID if int(states.get("height", "0")) >= SNOW_CLIMB_HEIGHT else BlockClass.PASSABLE
+    return BlockClass.SOLID if int(states.get("height", "0")) >= SNOW_BLOCKS_HITBOX_HEIGHT else BlockClass.PASSABLE
 
 
 # First match wins, on the base name. A seeded rule whose class is a function

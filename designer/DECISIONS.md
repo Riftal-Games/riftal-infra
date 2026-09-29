@@ -627,8 +627,13 @@ the replacement described in the entry above.
 A block a player can stand on but not share a cell with is SOLID, so `flower_pot` is SOLID:
 its box is 3/8 of a block (`FlowerPot.php:86`), which blocks a hitbox. Blocks with no box are
 PASSABLE: `frame`, `glow_frame`, `portal`, every `cave_vines` id, coral plants and fans, and
-four names the core does not implement, taken as vanilla (#327). `snow_layer` is the one
-block whose collision a state changes, so a seeded rule may return a function of the states:
-from `height=5` the box is 5/8, above the 0.6 step, and the snow is SOLID. `web` stays
-PASSABLE. A class cannot give a cell a travel cost, and DANGER would make `path_exists` deny a
-route a player can take, so pricing a cobweb belongs to the path search, not to its class.
+five names the core does not implement, taken as vanilla (#327). `snow_layer` is the one
+block whose collision a state changes, so a seeded rule may return a function of the states.
+Its box is `height`/8 (`SnowLayer.php:69`), and the flower pot's headroom rule decides it: a
+PASSABLE feet cell promises a 1.8-tall hitbox (`Human.php:121`) fits two cells under a
+ceiling, which leaves 0.2 of a block, so from `height=2` (0.25) the snow is SOLID. A cut at
+the 0.6 step-up (`Player.php:281`), SOLID only from `height=5`, was rejected: it let
+`entity_clear` and `warp_safe` pass a two-high space the hitbox overflows, with the eye inside
+the ceiling at `height=4`. `web` stays PASSABLE. A class cannot give a cell a travel cost, and
+DANGER would make `path_exists` deny a route a player can take, so pricing a cobweb belongs to
+the path search, not to its class, and is riftal-infra#419.

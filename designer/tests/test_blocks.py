@@ -197,12 +197,15 @@ def test_core_names_with_collision_are_solid(name: str) -> None:
 
 
 # ``height`` is layers minus one (VanillaBlockMappings.php:1502) and the box is
-# ``height`` eighths tall (SnowLayer.php:69). A player steps 0.6 of a block
-# (Player.php:281), so from height 5 the snow is climbed, not walked through.
+# ``height`` eighths tall (SnowLayer.php:69). A 1.8-tall hitbox in a two-cell
+# space leaves 0.2 of a block, so from height 2 (0.25) the snow is SOLID.
 @pytest.mark.parametrize("name, cls", [
     ("snow_layer", BlockClass.PASSABLE),
     ("minecraft:snow_layer[covered_bit=false,height=0]", BlockClass.PASSABLE),
-    ("minecraft:snow_layer[covered_bit=false,height=4]", BlockClass.PASSABLE),
+    ("minecraft:snow_layer[covered_bit=false,height=1]", BlockClass.PASSABLE),
+    ("minecraft:snow_layer[covered_bit=false,height=2]", BlockClass.SOLID),
+    ("minecraft:snow_layer[covered_bit=false,height=3]", BlockClass.SOLID),
+    ("minecraft:snow_layer[covered_bit=false,height=4]", BlockClass.SOLID),
     ("minecraft:snow_layer[covered_bit=false,height=5]", BlockClass.SOLID),
     ("minecraft:snow_layer[covered_bit=false,height=7]", BlockClass.SOLID),
 ])
