@@ -709,6 +709,15 @@ def test_undo_of_signage_completes_when_its_text_is_already_gone_and_restore_ref
     assert call("undo")["undone"] == [1] and every_role.texts == {}
 
 
+def test_undo_reports_the_block_undo_entry_when_the_oldest_undone_entry_is_text(every_role: FakeBridge) -> None:
+    assert call("build", kind="signage", spec=BUILD_SPECS["signage"][0], palette="test_every_role")["undo_id"] == 1
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 2
+    result = call("undo", n=2)
+    assert result["ok"] is True and result["undone"] == [2, 1] and result["undo_id"] == 3, result
+    [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 3]
+    assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and _pristine(every_role)
+
+
 def _with_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A fresh index with ``far`` (reachable) and ``void`` (outside the fake terrain's extent), plus ``spawn``."""
     index = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
