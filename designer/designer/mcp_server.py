@@ -326,7 +326,7 @@ async def check_entity_clear(at: str) -> dict[str, Any]:
 
 @tool
 async def check_mine(region: str, spec: str) -> dict[str, Any]:
-    """Whether the named ``region`` matches the mine ``spec`` (a path under ``specs/``): enclosure, entrances, ore mix, floor.
+    """Whether the named ``region`` matches the mine ``spec`` (a path under ``specs/``): enclosure, entrances, ore mix, floor, and an interior of only air and ``ores``.
 
     RETURNS: passed, detail, coords, seconds.
     """

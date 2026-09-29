@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from designer.blocks import BlockClass, base_name, format_name, parse_name
+from designer.blocks import AIR, BlockClass, base_name, format_name, parse_name
 from designer.builders.mine_spec import SIDES, MineSpec
 from designer.region import Bounds, LightRegion, Region
 
@@ -434,8 +434,11 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     is solid under its whole footprint with a clear cell above its walking lane, the centre line a player
     actually spawns and exits on, so a hand edit there is caught here rather than as a less specific failure
     from a check that walks out onto it. Furniture such as the lit posts down either side is outside the lane
-    and never trips this rule. ``detail`` names every failing rule; ``coords`` holds leaks, undeclared cells,
-    missing floor cells, missing platform cells, then blocked lane cells, ``LEAKS_REPORTED`` of each.
+    and never trips this rule. Every interior cell is air or a block named in ``ores``, with no tolerance: a
+    reset refills only from ``ores``, so any other block there would break into an item nobody mined (ADR 014
+    item 7), and a name only in ``ore_layers`` fails for the same reason. ``detail`` names every failing rule
+    and those interior cells; ``coords`` holds leaks, undeclared cells, missing floor cells, missing platform
+    cells, blocked lane cells, then those interior cells, ``LEAKS_REPORTED`` of each.
     """
     geo = spec.geometry()
     if region.world != spec.world:
@@ -476,6 +479,9 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
         for name in (observed.keys() | ores.keys()) if observed else ():
             deviations[name + suffix] = abs(observed.get(name, 0.0) - ores.get(name, 0.0) / total)
 
+    stray = ~np.array([name == AIR or name in spec.ores for name in names])[inner]
+    strays = [_world(geo.interior, at) for at in np.argwhere(stray)[:LEAKS_REPORTED]]
+
     _, zs, xs = region.bounds.slices(geo.interior)
     missing = region.classes()[spec.floor_y - 1 - region.bounds.min[1], zs, xs] != BlockClass.SOLID
     gaps = [_world(geo.interior, (-1, iz, ix)) for iz, ix in np.argwhere(missing)[:LEAKS_REPORTED]]
@@ -501,6 +507,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
             (f"{int(reach.sum())} leaks", leaks), ("entrance not open", not entrance_ok),
             (f"{len(undeclared)} undeclared opening cells", undeclared),
             ("composition off", any(d > tolerance for d in deviations.values())),
+            (f"{int(stray.sum())} interior cells neither air nor in ores {strays}", strays),
             (f"{int(missing.sum())} floor cells missing", gaps),
             (f"{int(platform_missing.sum())} exit platform cells missing", platform_gaps),
             (f"{int(platform_blocked.sum())} exit platform cells blocked above", platform_obstructed),
@@ -512,7 +519,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     }
     return MineResult(
         not failing, "; ".join(failing) or "mine valid",
-        leaks + data["undeclared"] + gaps + platform_gaps + platform_obstructed, data,
+        leaks + data["undeclared"] + gaps + platform_gaps + platform_obstructed + strays, data,
         leaks=leaks, entrances_found=components, composition=_fractions(inner, names), deviations=deviations,
     )
 

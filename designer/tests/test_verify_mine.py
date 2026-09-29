@@ -67,11 +67,24 @@ def test_wrong_weights_fail_with_per_block_deviations(box_mine_region: Fixture) 
     region.fill(Bounds((2, 2, 2), (17, 2, 17)), "minecraft:gravel")
     found = mine_valid(region, spec)
     assert not found.ok and found.deviations["minecraft:gravel"] == pytest.approx(1 / 6)
-    assert mine_valid(region, spec, tolerance=0.2).ok
+    stray = "256 interior cells neither air nor in ores [(2, 2, 2), (3, 2, 2)"
+    assert mine_valid(region, spec, tolerance=0.2).detail.startswith(stray)
     layered = MineSpec.from_dict({**MINE_SPEC, "ore_layers": [{"y_from": 2, "y_to": 2, "ores": {"gravel": 1}}]})
     found = mine_valid(region, layered)
-    assert found.ok and found.deviations["minecraft:gravel@2..2"] == 0.0 and "minecraft:gravel" not in found.deviations
+    assert found.detail.startswith(stray) and found.coords[0] == (2, 2, 2) and len(found.coords) == 20
+    assert found.deviations["minecraft:gravel@2..2"] == 0.0 and "minecraft:gravel" not in found.deviations
+    gravelly = MineSpec.from_dict({**MINE_SPEC, "ores": {**MINE_SPEC["ores"], "gravel": 20}})
+    assert mine_valid(region, gravelly).ok
     assert found.composition["minecraft:gravel"] == pytest.approx(1 / 6)
+
+
+def test_one_stray_interior_block_fails_at_any_tolerance(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(5, 3, 6, "minecraft:torch")
+    region.set(6, 3, 6, AIR)
+    found = mine_valid(region, spec, tolerance=1.0)
+    assert not found.ok and found.detail == "1 interior cells neither air nor in ores [(5, 3, 6)]"
+    assert found.coords == [(5, 3, 6)]
 
 
 def test_an_undeclared_opening_is_detected(box_mine_region: Fixture) -> None:

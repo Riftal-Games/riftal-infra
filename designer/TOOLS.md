@@ -48,7 +48,7 @@ Returns: passed, detail, coords, seconds.
 
 ## check_mine
 
-Whether the named ``region`` matches the mine ``spec`` (a path under ``specs/``): enclosure, entrances, ore mix, floor.
+Whether the named ``region`` matches the mine ``spec`` (a path under ``specs/``): enclosure, entrances, ore mix, floor, and an interior of only air and ``ores``.
 
 ```json
 {"properties": {"region": {"title": "Region", "type": "string"}, "spec": {"title": "Spec", "type": "string"}}, "required": ["region", "spec"], "title": "check_mineArguments", "type": "object"}

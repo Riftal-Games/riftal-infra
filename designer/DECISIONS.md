@@ -733,3 +733,15 @@ near edge. At width 1 every light sits on the walking line and the sell and rank
 both land off the platform; at width 2 the rankup sign does. Placing signs and lights per width was rejected because
 no committed spec is narrower than 3, and a one- or two-wide platform has no room for two signs
 beside a clear path anyway. Mine A and Lumber use width 3 and are unchanged (#495).
+
+## 2026-09-29 A mine interior holds only air and its `ores`; a `mines` zone needs its gate
+
+`mine_valid` fails any interior cell that is not air or a block named in `ores`, at no
+tolerance whatever `tolerance` is passed, naming up to 20 cells in the detail so
+`build_level`'s refusal names them. A name only in `ore_layers` fails, since the refill never
+writes it. `build_level` reads `worlds:` from riftal-game's mines `config.yml` before any engine
+call and refuses a listed zone with no `mine_valid` of that `zone` on a spec a `mine` step
+builds, and every zone when the file is missing or unreadable. It then refuses a chorus flower
+outside every `mine` interior in every zone, plots included: the toolkit builds no plots level
+that needs one, and reading `custody`'s plots-world name would be a second cross-repo read. The
+tests pass the file as `mines_config`, so CI needs no riftal-game checkout (ADR 014 item 7, #550).
