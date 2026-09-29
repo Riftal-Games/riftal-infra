@@ -50,8 +50,10 @@ wait_ready "$C_PSOFF"
 
 q() { docker exec "$C" mysql -uroot -pselftest -N -B -e "$1" 2>/dev/null; }
 sh_in() { docker exec "$C" bash -c "$1"; }
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
 env_run() {
-  docker exec -e MYSQL_HOST=127.0.0.1 -e MYSQL_PASSWORD=selftest "$@"
+  docker exec -e MYSQL_HOST="$MYSQL_HOST" -e MYSQL_PORT="$MYSQL_PORT" -e MYSQL_PASSWORD=selftest "$@"
 }
 
 docker exec -i "$C" bash -c 'mkdir -p /tmp/migrations && cat > /tmp/migrations/0001_fixture.sql' <<'SQL'
@@ -105,7 +107,7 @@ sh_in "mkdir -p /tmp/set /tmp/other /tmp/empty /tmp/absent \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=20
+EXPECTED_ASSERTIONS=21
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -161,20 +163,31 @@ released
 
 printf '\n== a confirmed wipe, then the migrations, leaves every table empty\n'
 wipe_ok=1
-wipe "$DB" "$DB" /tmp/set >"$LOGS/wipe.log" 2>"$LOGS/wipe.err" || wipe_ok=0
+wipe_set=/tmp/set
+wipe "$DB" "$DB" "$wipe_set" >"$LOGS/wipe.log" 2>"$LOGS/wipe.err" || wipe_ok=0
 if [ "$wipe_ok" -eq 1 ]; then
   pass "the confirmed wipe exits 0"
 else
   fail "the confirmed wipe should exit 0"; cat "$LOGS/wipe.log" "$LOGS/wipe.err"
 fi
-# A stray command in wipe.sh ahead of `set -e` fails without stopping it, so
-# the exit status alone would not show it.
+# A stray command in wipe.sh whose failure set -e does not stop, for example
+# one ahead of it or inside a condition, leaves the exit status at 0, so only
+# its output shows it.
 if [ -s "$LOGS/wipe.err" ]; then
   fail "the confirmed wipe wrote to stderr; any stderr fails this, a mysql client warning included"
   # A failed wipe has printed wipe.err above.
   if [ "$wipe_ok" -eq 1 ]; then cat "$LOGS/wipe.err"; fi
 else
   pass "the confirmed wipe writes nothing to stderr"
+fi
+printf 'wipe %s: dropping and recreating at %s:%s, backup set %s\nwipe %s: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh\n' \
+  "$DB" "$MYSQL_HOST" "$MYSQL_PORT" "$wipe_set" "$DB" >"$LOGS/wipe.expected"
+if cmp -s "$LOGS/wipe.expected" "$LOGS/wipe.log"; then
+  pass "the confirmed wipe's stdout is exactly its two progress lines"
+else
+  fail "the confirmed wipe's stdout is not exactly its two progress lines"
+  # A failed wipe has printed wipe.log above.
+  if [ "$wipe_ok" -eq 1 ]; then diff "$LOGS/wipe.expected" "$LOGS/wipe.log" || true; fi
 fi
 if check >"$LOGS/check-premigrate.log" 2>&1; then
   fail "wipe-check passed before the migrations ran"
