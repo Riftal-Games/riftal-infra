@@ -3,7 +3,7 @@ import pytest
 
 from designer.blocks import AIR
 from designer.region import Bounds, Region
-from designer.verify import SPRINT_SPEED, WALK_SPEED, _snap, path_exists, stand_mask, travel_time
+from designer.verify import SPRINT_SPEED, WALK_SPEED, WEB_COST, _snap, path_exists, stand_mask, travel_time
 
 # Feet on the plane's floor, either side of the hole along z=20.
 A, B = (2, 4, 20), (37, 4, 20)
@@ -128,6 +128,37 @@ def test_drop_needs_head_room_at_take_off() -> None:
         region.set(*pos, "minecraft:stone")
     assert path_exists(region, (0, 2, 0), (1, 1, 0)).detail == "no path"
     assert path_exists(region, (1, 1, 0), (0, 2, 0)).detail == "no path"
+
+
+def _lane(web_at: tuple[int, int, int] | None) -> Region:
+    region = Region.empty("lane", Bounds((0, 0, 0), (9, 3, 0)))
+    region.fill(Bounds((0, 0, 0), (9, 0, 0)), "minecraft:stone")
+    if web_at is not None:
+        region.set(*web_at, "minecraft:web")
+    return region
+
+
+@pytest.mark.parametrize("web_y", [1, 2])
+def test_web_at_feet_or_head_costs_its_slowdown(web_y: int) -> None:
+    found = path_exists(_lane((5, web_y, 0)), (0, 1, 0), (9, 1, 0))
+    assert found.ok and len(found.path) == 10
+    assert found.length == pytest.approx(9 - 1 + WEB_COST)
+    assert travel_time(_lane((5, web_y, 0)), (0, 1, 0), (9, 1, 0)).seconds == pytest.approx((8 + WEB_COST) / WALK_SPEED)
+
+
+def test_cobweb_costs_the_same_as_web() -> None:
+    region = _lane(None)
+    region.set(5, 1, 0, "minecraft:cobweb")
+    assert path_exists(region, (0, 1, 0), (9, 1, 0)).length == pytest.approx(8 + WEB_COST)
+
+
+def test_path_walks_round_a_web_when_the_detour_is_cheaper() -> None:
+    region = Region.empty("two lanes", Bounds((0, 0, 0), (9, 3, 1)))
+    region.fill(Bounds((0, 0, 0), (9, 0, 1)), "minecraft:stone")
+    region.set(5, 1, 0, "minecraft:web")
+    found = path_exists(region, (0, 1, 0), (9, 1, 0))
+    assert found.ok and (5, 1, 0) not in found.path
+    assert found.length == pytest.approx(9 + 2)
 
 
 def test_water_floor_is_not_standable(flat_plane_with_hole: Region) -> None:
