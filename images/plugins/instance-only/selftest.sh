@@ -184,18 +184,19 @@ check "an unset MYSQL_ROOT_PASSWORD stops the boot before php, naming it" \
 printf '\n== the world index reaches every plugin that reads it (riftal-infra#293)\n'
 INDEX="$DIR/../../../designer/world_index.json"
 # PocketMine services in images/compose.yaml that do not run the delivery
-# script first or do not get the designer index mounted read-only for it.
+# script straight after boot-gate.sh or do not get the designer index
+# mounted read-only for it.
 undelivered() {
   jq -r '.services | to_entries[] | select(.value.image | test("pocketmine"))
-    | select((.value.command[0:2] != ["bash", "/plugins/deliver-world-index.sh"])
+    | select((.value.command[2:4] != ["bash", "/plugins/deliver-world-index.sh"])
       or (any(.value.volumes[]?; .target == "/etc/riftal/world_index.json"
         and (.source | endswith("designer/world_index.json")) and .read_only) | not))
     | .key' <<<"$1"
 }
 check "instance and instance-b both run the delivery with the designer index mounted" \
   '[ -z "$(undelivered "$real")" ] &&
-    [ "$(jq -c ".services.instance.command[2:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-only/start-instance.sh\"]" ] &&
-    [ "$(jq -c ".services[\"instance-b\"].command[2:]" <<<"$real")" = "[\"start-pocketmine\"]" ]'
+    [ "$(jq -c ".services.instance.command[4:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-only/start-instance.sh\"]" ] &&
+    [ "$(jq -c ".services[\"instance-b\"].command[4:]" <<<"$real")" = "[\"start-pocketmine\"]" ]'
 check "an instance without the index mounted is caught" \
   '[ "$(undelivered "$(edited "0,/world_index.json:ro/{/world_index.json:ro/d}")")" = instance ]'
 

@@ -56,9 +56,24 @@ services:
     # write to. See plugins/instance-only/README.md.
     command:
       - bash
+      - /plugins/restart/boot-gate.sh
+      - bash
       - /plugins/deliver-world-index.sh
       - bash
       - /plugins/instance-only/start-instance.sh
+    # No retry cap: Docker counts on-failure:<N> over the container's whole
+    # life, so a capped server that crashes now and then eventually stays down
+    # for good. unless-stopped and always would restart a `stop` on stdin,
+    # which exits 0. boot-gate.sh, first in the command, stops a bad deploy
+    # from restarting forever.
+    restart: on-failure
+    # start_period covers a first boot generating spawn terrain.
+    healthcheck: &raknet-health
+      test: ["CMD", "php", "/plugins/restart/raknet-ping.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
     environment:
       # Tags every shared-database row this instance writes, so a world
       # split later still shows who wrote what. No default, like
@@ -131,7 +146,15 @@ services:
       - ./plugins:/plugins
       # The same file `instance` gets. It names worlds, never instances.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
-    command: ["bash", "/plugins/deliver-world-index.sh", "start-pocketmine"]
+    command:
+      - bash
+      - /plugins/restart/boot-gate.sh
+      - bash
+      - /plugins/deliver-world-index.sh
+      - start-pocketmine
+    # See restart and healthcheck on `instance`, above.
+    restart: on-failure
+    healthcheck: *raknet-health
     environment:
       INSTANCE_ID: ${INSTANCE_B_ID}
       # See RIFTAL_DEV_ENV on `instance`, above; same reason, same value.

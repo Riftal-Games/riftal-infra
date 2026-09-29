@@ -37,6 +37,24 @@ changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
 path. A `wslc run` of either instance needs the same `-v` and command.
 
+## Restarts
+
+Both instances run `restart: on-failure` with no retry cap, start through
+`plugins/restart/boot-gate.sh`, and are healthchecked by
+`plugins/restart/raknet-ping.php` (riftal-infra#355). A crash restarts. A clean
+`stop` exits 0 and stays down. A deploy that cannot boot fails within seconds,
+and after three starts each under 120 s apart the gate stops starting
+PocketMine and parks the container Up and `unhealthy`, logging this line:
+
+```
+RIFTAL BOOT LOOP: 3 starts each under 120 s apart, PocketMine not started, container parked
+```
+
+Read the earlier boots in the same log, fix the cause, then restart the
+container, or replace it, which starts with no start times at all. A restart
+within 120 s of the last start parks again. `/dev-stack`'s `wslc run` lines
+carry none of the three yet.
+
 The full production `/add-instance` runbook already exists as a skill; this
 table exists so the mechanism (env var, not mounted config) is written down
 somewhere editable in a normal PR.

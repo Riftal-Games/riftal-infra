@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/restart/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
@@ -71,7 +71,7 @@ jobs:
           docker run --rm -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/restart/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -93,6 +93,9 @@ jobs:
 
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
+
+      - name: Instance restart policy and boot gate self-test
+        run: bash images/plugins/restart/selftest.sh
 
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
