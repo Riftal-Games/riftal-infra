@@ -254,7 +254,8 @@ def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     """A 1x2 hitbox with its feet at ``pos`` is free and whatever it rests on is walkable.
 
     Feet and head must be passable; a danger block there fails as ``hitbox in
-    danger``, any other obstruction as ``hitbox blocked``. The support is the first block below the
+    danger``, else a liquid as ``hitbox in liquid``, any other obstruction as
+    ``hitbox blocked``. The support is the first block below the
     feet that is neither air nor passable, and it must be solid, because a
     player over liquid sinks and over danger burns. A column with no support
     inside the region obstructs nothing here; ``warp_safe`` is the check that
@@ -275,6 +276,11 @@ def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     danger = [d for d in blocked if classes[iy + d, iz, ix] == BlockClass.DANGER]
     if danger:
         return Check(False, "hitbox in danger", [(x, y + d, z) for d in danger])
+    # Water lets a player move through it, so a designer reading "blocked"
+    # would look for a wall that is not there.
+    liquid = [d for d in blocked if classes[iy + d, iz, ix] == BlockClass.LIQUID]
+    if liquid:
+        return Check(False, "hitbox in liquid", [(x, y + d, z) for d in liquid])
     if blocked:
         return Check(False, "hitbox blocked", [(x, y + d, z) for d in blocked])
     support = np.flatnonzero(~passable[:iy, iz, ix])
