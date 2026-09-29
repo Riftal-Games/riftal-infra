@@ -123,3 +123,16 @@ def test_heightmap_from_region_canopy_versus_ground() -> None:
     assert set(_names(ground.palette, ground.top).ravel()) == {STONE, AIR}
     with pytest.raises(ValueError, match="int16"):
         Heightmap(WORLD, canopy.bounds, canopy.heights.astype(np.int32))
+
+
+@pytest.mark.parametrize("plant", ["minecraft:wither_rose", "minecraft:sweet_berry_bush[growth=3]"])
+def test_ground_heightmap_looks_through_danger_plants(plant: str) -> None:
+    region = Region.empty(WORLD, Bounds((0, 60, 0), (1, 66, 0)), fill=STONE)
+    region.blocks[4:] = 0
+    region.set(0, 64, 0, plant)
+    region.set(1, 64, 0, "minecraft:magma")
+    canopy = heightmap_from_region(region)
+    assert (canopy.height(0, 0), canopy.top_name(0, 0)) == (64, plant)
+    ground = heightmap_from_region(region, ground=True)
+    assert (ground.height(0, 0), ground.top_name(0, 0)) == (63, STONE)
+    assert (ground.height(1, 0), ground.top_name(1, 0)) == (64, "minecraft:magma")
