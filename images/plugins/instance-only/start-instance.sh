@@ -9,8 +9,9 @@
 # Everything else mirrors the image's start-pocketmine (pmmp-core
 # docker/start.sh), which instance-b runs and which cannot be reused here
 # because it hard-codes --plugins=/plugins. selftest.sh pins this copy of
-# that behaviour but never reads core's script, so a change to start.sh has
-# to be carried here by hand.
+# that behaviour, and check-start-sh.sh fails CI when the image's start.sh is
+# not the version recorded in start-sh.sha256, so a change there is noticed
+# but still has to be carried here by hand.
 set -euo pipefail
 shopt -s nullglob
 

@@ -94,6 +94,12 @@ jobs:
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
 
+      - name: start.sh parity check self-test
+        run: bash images/plugins/instance-only/check-start-sh-selftest.sh
+
+      - name: start-instance.sh checked against the image's start.sh
+        run: bash images/plugins/instance-only/check-start-sh.sh
+
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
 

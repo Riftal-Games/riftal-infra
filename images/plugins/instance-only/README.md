@@ -14,8 +14,10 @@ does what `start-pocketmine` does for `instance-b`: the ownership warning,
 `POCKETMINE_PLUGINS` from Poggit (into the roster, never `./plugins`) and
 `POCKETMINE_ANSI`. `start-pocketmine` hard-codes `--plugins=/plugins`, so
 it cannot be reused. `selftest.sh` pins this script's copy of that
-behaviour but never reads core's `docker/start.sh`, so a change there has to
-be carried into `start-instance.sh` by hand. Nothing is
+behaviour. `check-start-sh.sh` hashes the image's `start-pocketmine` (core's
+`docker/start.sh`) and fails CI when it is not the version recorded in
+`start-sh.sha256`; carry the change into `start-instance.sh` by hand, then
+record the new hash and pmmp-core commit. Nothing is
 bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
 mountpoint as root: a stray in `./plugins` that `instance-b` then fails to
 load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
