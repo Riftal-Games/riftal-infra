@@ -56,7 +56,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=22
+EXPECTED_ASSERTIONS=24
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -289,6 +289,27 @@ else
   fail "expected decoy refused and not created, got exit $decoy_rc, decoys=$decoys"
   cat "$LOGS"/out-prov-decoy.log
 fi
+
+section "each half of the role check refuses on its own"
+# Each decoy fails exactly one half of the check, so deleting either half
+# admits one of them.
+query riftal_selftest \
+  "CREATE USER 'riftal_role_lockedpw'@'%' IDENTIFIED BY 'selftestDecoyPassword0000' ACCOUNT LOCK"
+query riftal_selftest "CREATE USER 'riftal_role_openblank'@'%'"
+for half in LOCKEDPW OPENBLANK; do
+  login="${half,,}"
+  half_rc=0
+  provision -e "RIFTAL_DB_PASSWORD_$half=$PW_A" >"$LOGS/out-prov-half-$login.log" 2>&1 \
+    || half_rc=$?
+  halves="$(query riftal_selftest "SELECT COUNT(*) FROM mysql.user WHERE User='$login'")"
+  if [ "$half_rc" -ne 0 ] && [ "$halves" = "0" ] \
+     && grep -q "riftal_role_$login does not exist" "$LOGS/out-prov-half-$login.log"; then
+    pass "a login whose role is riftal_role_$login is refused and not created"
+  else
+    fail "expected $login refused by the role check and not created, got exit $half_rc, users=$halves"
+    cat "$LOGS/out-prov-half-$login.log"
+  fi
+done
 
 section "no provisioning run ever prints a password"
 if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e 'Quote00001' -e selftestShort1 \
