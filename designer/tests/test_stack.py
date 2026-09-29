@@ -69,6 +69,7 @@ def test_load_service_expands_overrides_and_rejects_a_missing_service(tmp_path: 
 
 def test_the_real_compose_file_keeps_its_security_and_bot_defaults() -> None:
     default = stack.load_service(env={})
+    assert [p for p in default.ports if p.endswith("/udp")] == ["127.0.0.1:19134:19132/udp"]
     assert [p for p in default.ports if "19140" in p] == ["127.0.0.1:19140:19140/tcp"]
     assert default.volumes[0] == "designer-world:/data"
     assert default.environment["RIFTAL_DEV_ENV"] == "1"

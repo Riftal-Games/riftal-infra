@@ -699,3 +699,27 @@ every consumer only tests a tag for membership and `world_index.json` keeps the 
 given. A repeated tag still counts, so `["mine", "mine"]` does not reproduce `["mine"]`, and a
 tag that is not a string refuses the build naming the entry. Dropping duplicates too was
 rejected because it would let a committed entry pass whose tags are not the step's list (#362).
+
+## 2026-09-29 A mine's exit-platform lights stop short of its last row
+
+`build_mine` lights the platform's near edge every `lights_every` blocks out from the wall, but
+never on its last row, which holds the sell sign on that same edge, the rankup sign and the
+spawn. A light that would fall on the last row moves one block back toward the mine, so a length
+that is a multiple of `lights_every` still lights the platform's end; a one-row platform has no
+row to spare and gets no light. Moving lights to the far edge was rejected because the rankup sign
+sits there on a width-3 path, and refusing a colliding spec was rejected because length 8 with
+`lights_every` 4 is a reasonable mine. Mine A and Lumber, length 6 with `lights_every` 4, keep
+their one light at 4 (#485).
+
+## 2026-09-29 No region in a contested world carries `safe_zone`
+
+`WorldIndex._admissible` refuses a region tagged `safe_zone` in a world whose role is
+`contested`, so `add_region`, `load` and a build's `preflight` all refuse it, a build before its
+snapshot and first edit. RiftalRiots treats a whole world as safe once any region in it carries
+the tag, and design plan 7.2 keeps the contested mine always PvP. A mine spec's `safe_zone`
+defaults to true, so a contested mine's spec that omits it is refused the same as one stating
+`true`, which makes `safe_zone: false` the only spec that builds there. The message reads
+`region '<name>' carries safe_zone in '<world>', a contested world that is always PvP; a
+contested mine's spec sets safe_zone: false`. Locations are not checked, since riots reads only
+regions. Refusing in `MineSpec` was rejected because a spec does not know its world's role; the
+index does (#313).

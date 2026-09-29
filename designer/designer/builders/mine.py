@@ -51,6 +51,17 @@ def _through_axis(side: str) -> tuple[int, int, int]:
     return through, lateral, sign
 
 
+def _light_distances(length: int, every: int) -> list[int]:
+    """Every ``every`` blocks out along the platform, short of its last row.
+
+    The last row holds the signs and the spawn, so a light that falls there moves one block back toward the mine.
+    """
+    distances = set(range(every, length, every))
+    if length % every == 0 and length > 1:
+        distances.add(length - 1)
+    return sorted(distances)
+
+
 def build_mine(spec: MineSpec, palette: Palette) -> EditList:
     """The mine's shell, floor, ceiling, trim, ore (or a hollow interior), entrance and lit exit platform.
 
@@ -85,7 +96,7 @@ def build_mine(spec: MineSpec, palette: Palette) -> EditList:
         ops.extend(_ore_ops(spec, geo.interior))
     ops.append(Fill(geo.entrance, AIR))
     ops.append(Fill(geo.exit_platform, floor))
-    ops.extend(SetBlock(*point(d, edge), light) for d in range(spec.lights_every, spec.exit_path.length + 1, spec.lights_every))
+    ops.extend(SetBlock(*point(d, edge), light) for d in _light_distances(spec.exit_path.length, spec.lights_every))
 
     suffix = spec.name.rsplit("_", 1)[-1]
     into, out = _FACING_YAW[opposite(spec.entrance.side)], _FACING_YAW[spec.entrance.side]
