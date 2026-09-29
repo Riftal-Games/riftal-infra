@@ -45,7 +45,7 @@ def _layered() -> dict:
 def test_committed_spec_pins_the_mine_a_fragment(spec: MineSpec) -> None:
     assert spec.name == "mine_a" and spec.world == "mine_a"
     assert spec.geometry().interior.to_json() == {"min": [-16, 40, -16], "max": [15, 50, 15]} and spec.floor_y == 40
-    assert spec.ores == {"minecraft:coal_ore": 1.0, "minecraft:iron_ore": 0.5} and spec.ore_layers == ()
+    assert spec.ores == {"minecraft:stone": 1.0, "minecraft:coal_ore": 0.5} and spec.ore_layers == ()
 
 
 def test_an_ore_layer_override_loads_and_places_only_inside_its_rows(palette: Palette) -> None:
