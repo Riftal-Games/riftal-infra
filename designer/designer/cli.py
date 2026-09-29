@@ -210,10 +210,11 @@ def _terrain_terraform(bridge: Bridge, options: argparse.Namespace) -> dict[str,
         "world": world, "bounds": bounds.to_json(), "mode": options.mode, "columns": edits.extras["columns"],
         "blocks": edits.count_blocks(), "requests": len(edits.requests()), "apply": options.apply,
     }
-    if options.apply and edits.bounds is not None:
-        report["snapshot"] = str(snapshots.take(bridge, world, edits.bounds, "terraform").path)
-        result = edits.apply(bridge)
-        report["ok"] = result.ok
+    if options.apply:
+        session = datetime.now(UTC).strftime("cli-%Y%m%dT%H%M%SZ")
+        done = snapshots.apply_undoable(bridge, edits, "terraform", session)
+        result = done.result
+        report["snapshot"], report["undo_id"], report["ok"] = done.snapshot, done.undo_id, result.ok
         if not result.ok:
             report["error"] = str(result.errors[0])
     return report
