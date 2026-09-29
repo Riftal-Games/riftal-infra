@@ -184,7 +184,7 @@ def test_exit_platform_lights_sit_every_lights_every_blocks_along_its_edge(
     assert len(signs) == 1 and signs.pop().startswith("minecraft:standing_sign[")
 
 
-@pytest.mark.parametrize("width", [1, 2])
+@pytest.mark.parametrize("width", [-1, 0, 1, 2])
 def test_from_dict_refuses_an_exit_path_narrower_than_3(width: int) -> None:
     data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
     data["exit_path"]["width"] = width
