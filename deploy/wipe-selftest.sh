@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Self-test for wipe.sh and wipe-check.sh, against one throwaway mysql:8
-# container that publishes nothing. Runs under `docker` on the CI runner and
-# under the Docker in the WSL distro that hosts it, as restore-selftest.sh.
+# Self-test for wipe.sh and wipe-check.sh, against two throwaway mysql:8
+# containers that publish nothing: one as the fixture, and one started with
+# performance_schema off to drive the refusal that needs it. Runs under
+# `docker` on the CI runner and under the Docker in the WSL distro that hosts
+# it, as restore-selftest.sh.
 #
 # The fixture database holds economy_balance_snapshot with ADR 006's DDL, rows
 # in it and in the tables it copies, and a table no migration creates. A wipe
@@ -103,7 +105,7 @@ sh_in "mkdir -p /tmp/set /tmp/other /tmp/empty /tmp/absent \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=19
+EXPECTED_ASSERTIONS=20
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -158,10 +160,17 @@ released
   || fail "a refused wipe changed the database"
 
 printf '\n== a confirmed wipe, then the migrations, leaves every table empty\n'
-if wipe "$DB" "$DB" /tmp/set >"$LOGS/wipe.log" 2>&1; then
+if wipe "$DB" "$DB" /tmp/set >"$LOGS/wipe.log" 2>"$LOGS/wipe.err"; then
   pass "the confirmed wipe exits 0"
 else
-  fail "the confirmed wipe should exit 0"; cat "$LOGS/wipe.log"
+  fail "the confirmed wipe should exit 0"; cat "$LOGS/wipe.log" "$LOGS/wipe.err"
+fi
+# A stray command in wipe.sh ahead of `set -e` fails without stopping it, so
+# the exit status alone would not show it.
+if [ -s "$LOGS/wipe.err" ]; then
+  fail "the confirmed wipe wrote to stderr"; cat "$LOGS/wipe.err"
+else
+  pass "the confirmed wipe writes nothing to stderr"
 fi
 if check >"$LOGS/check-premigrate.log" 2>&1; then
   fail "wipe-check passed before the migrations ran"
