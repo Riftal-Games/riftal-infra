@@ -13,10 +13,11 @@ from typing import Any
 import numpy as np
 import yaml
 
-from designer.bridge import Bridge
+from designer.bridge import Bridge, BridgeOpError, JobError
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT, REPORTS_DIR
 from designer.coords import int_coord, whole_int
+from designer.custody import offdisk_clear
 from designer.region import Bounds, LightRegion, Region, fetch_light, fetch_region
 from designer.verify import MARGIN_Y, WALK_SPEED, Check, Pos, entity_clear, light_ok, mine_valid, no_holes, path_exists
 from designer.verify import region_inside, travel_time, warp_safe
@@ -39,6 +40,7 @@ KINDS: dict[str, tuple[tuple[str, ...], dict[str, str], tuple[str, ...]]] = {
     "light_ok": (("region", "min_level"), {}, ("kind",)),
     "no_holes": (("region", "floor_y"), {}, ("inset",)),
     "mine_valid": (("region", "spec"), {}, ()),
+    "offdisk_clear": (("world",), {}, ()),
 }
 SAFETY_SIZE = (7, 7, 7)
 
@@ -152,7 +154,7 @@ def _needs(index: WorldIndex, spec: CheckSpec) -> tuple[str, Bounds, bool] | Non
     if spec.kind in ("warp_safe", "entity_clear"):
         world, pos = _at(index, spec.args["at"])
         return world, Bounds.from_center(pos, SAFETY_SIZE), False
-    if spec.kind == "region_inside":
+    if spec.kind in ("region_inside", "offdisk_clear"):
         return None
     named = _region(index, spec.args["region"])
     if spec.kind == "mine_valid":
@@ -165,7 +167,11 @@ def check_world(index: WorldIndex, spec: CheckSpec) -> str | None:
     """The world a check reads, or ``None`` when a name it needs does not resolve."""
     try:
         need = _needs(index, spec)
-        return need[0] if need is not None else _region(index, spec.args["inner"]).world
+        if need is not None:
+            return need[0]
+        if spec.kind == "offdisk_clear":
+            return index.world(str(spec.args["world"])).name
+        return _region(index, spec.args["inner"]).world
     except (KeyError, ValueError):
         return None
 
@@ -185,18 +191,43 @@ def plan_fetches(checks: Iterable[CheckSpec], index: WorldIndex) -> dict[str, Fe
     return plan
 
 
+def plan_scans(checks: Iterable[CheckSpec], index: WorldIndex) -> set[str]:
+    """Each indexed world an ``offdisk_clear`` names, scanned once however many read it; an unindexed one fails at run time."""
+    worlds = (check_world(index, spec) for spec in checks if spec.kind == "offdisk_clear")
+    return {world for world in worlds if world is not None}
+
+
 @dataclass
 class RunContext:
     """Each world's union fetched once; every check reads a ``sub`` view of it, light over the same cells as its blocks."""
 
     regions: dict[str, Region]
     lights: dict[str, LightRegion] = field(default_factory=dict)
+    scans: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    scan_errors: dict[str, str] = field(default_factory=dict)
 
     @classmethod
-    def fetch(cls, bridge: Bridge, plan: dict[str, Fetch]) -> RunContext:
+    def fetch(cls, bridge: Bridge, plan: dict[str, Fetch], scans: Iterable[str] = ()) -> RunContext:
         regions = {world: fetch_region(bridge, world, f.bounds) for world, f in plan.items()}
         lights = {world: fetch_light(bridge, world, f.bounds) for world, f in plan.items() if f.light}
-        return cls(regions, lights)
+        findings: dict[str, list[dict[str, Any]]] = {}
+        errors: dict[str, str] = {}
+        # A scan the bridge refuses or a job that fails concerns one world, so only the checks reading that world
+        # fail; a lost connection still raises, as it does for the region fetches above.
+        for world in sorted(scans):
+            try:
+                findings[world] = bridge.call_job("scan_items", world=world)["result"]["findings"]
+            except (BridgeOpError, JobError) as exc:
+                errors[world] = str(exc)
+        return cls(regions, lights, findings, errors)
+
+    def findings(self, world: str) -> list[dict[str, Any]]:
+        """``world``'s findings, or ``ValueError`` when it has none: an unscanned world cannot be shown clear, so it fails."""
+        if world in self.scan_errors:
+            raise ValueError(f"world {world!r} could not be scanned: {self.scan_errors[world]}")
+        if world not in self.scans:
+            raise ValueError(f"world {world!r} was never scanned")
+        return self.scans[world]
 
     def _whole(self, world: str) -> Region:
         if world not in self.regions:
@@ -277,10 +308,14 @@ def _run_mine(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Check
     return mine_valid(ctx.region(named.world, geo.padding.union(geo.exit_platform)), spec)
 
 
+def _run_offdisk(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Check:
+    return offdisk_clear(ctx.findings(index.world(str(args["world"])).name))
+
+
 CHECK_RUNNERS: dict[str, Callable[[RunContext, WorldIndex, dict[str, Any]], Check]] = {
     "path_exists": _run_path, "travel_time": _run_travel, "warp_safe": _run_safety(warp_safe),
     "entity_clear": _run_safety(entity_clear), "region_inside": _run_inside, "light_ok": _run_light,
-    "no_holes": _run_holes, "mine_valid": _run_mine,
+    "no_holes": _run_holes, "mine_valid": _run_mine, "offdisk_clear": _run_offdisk,
 }
 
 
@@ -303,7 +338,7 @@ def run_checks(bridge: Bridge, index: WorldIndex, checks: Iterable[CheckSpec], *
             raise ValueError(f"no such check {sorted(unknown)}")
         checks = [c for c in checks if c.id in wanted]
     started = datetime.now(UTC)
-    ctx = RunContext.fetch(bridge, plan_fetches(checks, index))
+    ctx = RunContext.fetch(bridge, plan_fetches(checks, index), plan_scans(checks, index))
     return Report([run_one(ctx, index, spec) for spec in checks], started)
 
 

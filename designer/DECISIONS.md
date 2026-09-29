@@ -748,3 +748,14 @@ builds, and every zone when the file is missing or unreadable. It then refuses a
 outside every `mine` interior in every zone, plots included: the toolkit builds no plots level
 that needs one, and reading `custody`'s plots-world name would be a second cross-repo read. The
 tests pass the file as `mines_config`, so CI needs no riftal-game checkout (ADR 014 item 7, #550).
+
+## 2026-09-29 `offdisk_clear` reads `scan_items` and fails a saved Human it cannot see into
+
+`offdisk_clear` runs `scan_items` once per world and fails each saved entity ADR 013 item 4
+destroys on load: an item, arrow, trident, falling block or painting, by every save name core
+registers and by legacy int id. `scan_items` reports a saved entity's id and position only, so a
+saved `Human` fails too, since its inventory, armor and offhand are unread, and so does a save id
+core does not register, which may be a plugin's `Human` subclass. Markers never save with a chunk,
+so they cannot trip it. Tile findings are item 6's, not item 4's, and `build_level`'s own scan
+already refuses them. `checks.yaml` holds each M1 zone, `mine_a` to `mine_c` and `lumber`, to it
+(ADR 013 item 4, #520).
