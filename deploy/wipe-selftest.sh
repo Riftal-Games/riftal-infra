@@ -3,7 +3,7 @@
 # containers that publish nothing: one as the fixture, and one started with
 # performance_schema off to drive the refusal that needs it. Runs under
 # `docker` on the CI runner and under the Docker in the WSL distro that hosts
-# it, as restore-selftest.sh.
+# it, as restore-selftest.sh does.
 #
 # The fixture database holds economy_balance_snapshot with ADR 006's DDL, rows
 # in it and in the tables it copies, and a table no migration creates. A wipe
@@ -160,7 +160,9 @@ released
   || fail "a refused wipe changed the database"
 
 printf '\n== a confirmed wipe, then the migrations, leaves every table empty\n'
-if wipe "$DB" "$DB" /tmp/set >"$LOGS/wipe.log" 2>"$LOGS/wipe.err"; then
+wipe_ok=1
+wipe "$DB" "$DB" /tmp/set >"$LOGS/wipe.log" 2>"$LOGS/wipe.err" || wipe_ok=0
+if [ "$wipe_ok" -eq 1 ]; then
   pass "the confirmed wipe exits 0"
 else
   fail "the confirmed wipe should exit 0"; cat "$LOGS/wipe.log" "$LOGS/wipe.err"
@@ -168,7 +170,9 @@ fi
 # A stray command in wipe.sh ahead of `set -e` fails without stopping it, so
 # the exit status alone would not show it.
 if [ -s "$LOGS/wipe.err" ]; then
-  fail "the confirmed wipe wrote to stderr"; cat "$LOGS/wipe.err"
+  fail "the confirmed wipe wrote to stderr; any stderr fails this, a mysql client warning included"
+  # A failed wipe has printed wipe.err above.
+  if [ "$wipe_ok" -eq 1 ]; then cat "$LOGS/wipe.err"; fi
 else
   pass "the confirmed wipe writes nothing to stderr"
 fi
