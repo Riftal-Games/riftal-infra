@@ -16,25 +16,35 @@ DB=riftal_smoke_wipe
 C="riftal_smoke_wipe_$$_$(date +%s)"
 LOGS="$(mktemp -d)"
 
+# A second server with performance_schema off, where performance_schema's
+# processlist is empty even for the connection reading it.
+C_PSOFF="${C}_psoff"
+
 cleanup() {
-  docker stop -t 30 "$C" >/dev/null 2>&1 || true
+  docker stop -t 30 "$C" "$C_PSOFF" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
 }
 trap cleanup EXIT
 
-docker run -d --rm --name "$C" -m 1g --cpus 1 \
-  -v "$REPO_DIR/deploy:/deploy:ro" -v "$REPO_DIR/migrations:/migrations-runner:ro" \
-  -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE="$DB" mysql:8 >/dev/null
-
-ready=0
-for _ in $(seq 1 90); do
-  if docker exec "$C" mysql -uroot -pselftest -h 127.0.0.1 -e 'SELECT 1' >/dev/null 2>&1; then
-    ready=1
-    break
-  fi
-  sleep 1
-done
-[ "$ready" -eq 1 ] || { echo "mysql never became ready" >&2; exit 1; }
+start() {
+  local name="$1"
+  shift
+  docker run -d --rm --name "$name" -m 1g --cpus 1 \
+    -v "$REPO_DIR/deploy:/deploy:ro" -v "$REPO_DIR/migrations:/migrations-runner:ro" \
+    -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE="$DB" mysql:8 "$@" >/dev/null
+}
+wait_ready() {
+  for _ in $(seq 1 90); do
+    docker exec "$1" mysql -uroot -pselftest -h 127.0.0.1 -e 'SELECT 1' >/dev/null 2>&1 && return
+    sleep 1
+  done
+  echo "mysql in $1 never became ready" >&2
+  exit 1
+}
+start "$C"
+start "$C_PSOFF" --performance-schema=OFF
+wait_ready "$C"
+wait_ready "$C_PSOFF"
 
 q() { docker exec "$C" mysql -uroot -pselftest -N -B -e "$1" 2>/dev/null; }
 sh_in() { docker exec "$C" bash -c "$1"; }
@@ -93,7 +103,7 @@ sh_in "mkdir -p /tmp/set /tmp/other /tmp/empty /tmp/absent \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=16
+EXPECTED_ASSERTIONS=19
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -118,6 +128,7 @@ else
 fi
 
 printf '\n== wipe refuses anything but an explicitly named, backed-up, idle target\n'
+refused bad-name "must match" wipe riftal-smoke riftal-smoke /tmp/set
 refused no-confirm "WIPE_CONFIRM must equal" wipe "$DB" "" /tmp/set
 refused wrong-confirm "WIPE_CONFIRM must equal" wipe "$DB" riftal_other /tmp/set
 refused no-dump "no non-empty" wipe "$DB" "$DB" /tmp/empty
@@ -168,6 +179,24 @@ fi
   || fail "economy_balance_snapshot should exist and be empty, got '$(snapshot_rows)'"
 [ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$DB' AND TABLE_NAME = 'stray_unmigrated'")" = "0" ] \
   && pass "a table no migration creates is gone" || fail "stray_unmigrated survived the wipe"
+
+printf '\n== with performance_schema off, a connected session still refuses the wipe\n'
+qp() { docker exec "$C_PSOFF" mysql -uroot -pselftest -N -B -e "$1" 2>/dev/null; }
+qp "CREATE TABLE $DB.t (id INT PRIMARY KEY); INSERT INTO $DB.t VALUES (1), (2), (3)"
+docker exec "$C_PSOFF" bash -c "mkdir -p /tmp/set && printf 'x\n' > /tmp/set/mysql.sql \
+  && printf 'mysql_database: $DB\n' > /tmp/set/manifest.txt"
+docker exec -d "$C_PSOFF" mysql -uroot -pselftest "$DB" -e 'SELECT SLEEP(20)'
+held=0
+for _ in $(seq 1 20); do
+  [ "$(qp "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE INFO LIKE 'SELECT SLEEP%'")" = "1" ] \
+    && { held=1; break; }
+  sleep 0.5
+done
+[ "$held" -eq 1 ] || { echo "the session on $C_PSOFF never connected" >&2; exit 1; }
+refused psoff-session "processlist does not show this session" \
+  env_run -e MYSQL_DATABASE="$DB" -e WIPE_CONFIRM="$DB" -e BACKUP_SET=/tmp/set "$C_PSOFF" bash /deploy/wipe.sh
+[ "$(qp "SELECT COUNT(*) FROM $DB.t")" = "3" ] && pass "the refused wipe left the rows in place" \
+  || fail "the wipe with performance_schema off changed the database"
 
 printf '\n'
 ran=$((PASSES + FAILURES))

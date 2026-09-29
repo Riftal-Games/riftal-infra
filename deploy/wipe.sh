@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Drops and recreates the shared database for a wipe between MVPs. The
-# runbook is WIPE.md in this directory; this script is its database step only.
+# Drops and recreates the shared database for a wipe between MVPs. It is the
+# database step only: instances are stopped and a backup is taken before it.
 #
 # The schema is dropped whole rather than truncated table by table, so no list
 # of tables can fall behind the migrations. A list would miss a derived table
@@ -42,7 +42,7 @@ sql() {
 
 # A connected instance would keep writing through the wipe, into tables the
 # drop is about to remove or the migrations are about to recreate. This reads
-# the moment of the check only: stopping every instance first is the runbook's
+# the moment of the check only: stopping every instance first is the operator's
 # step, and this catches one that was missed.
 #
 # Without PROCESS the processlist shows only this account's own threads, so the
@@ -51,9 +51,15 @@ sql() {
 [ "$(sql "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE PRIVILEGE_TYPE = 'PROCESS'
   AND GRANTEE = CONCAT('''', REPLACE(CURRENT_USER(), '@', '''@'''), '''')")" = "1" ] \
   || fail "$MYSQL_USER lacks a direct PROCESS grant, so it cannot see every session"
+# The processlist is empty when the server runs with performance_schema off,
+# and could be blind for a reason not foreseen here, so its count is trusted
+# only once it shows this connection's own thread.
+#
 # A session with no default database can still write here by qualified name.
-sessions="$(sql "SELECT COUNT(*) FROM performance_schema.processlist WHERE (DB = '$MYSQL_DATABASE' OR DB IS NULL)
-  AND COMMAND <> 'Daemon' AND ID <> CONNECTION_ID()")"
+counts="$(sql "SELECT COALESCE(SUM(ID = CONNECTION_ID()), 0), COALESCE(SUM((DB = '$MYSQL_DATABASE' OR DB IS NULL)
+  AND COMMAND <> 'Daemon' AND ID <> CONNECTION_ID()), 0) FROM performance_schema.processlist")"
+read -r own sessions <<<"$counts"
+[ "$own" = "1" ] || fail "the processlist does not show this session, so it cannot see the others; is performance_schema off?"
 [ "$sessions" = "0" ] || fail "$sessions other session(s) are connected to $MYSQL_DATABASE or to no database; stop every instance first"
 
 echo "wipe $MYSQL_DATABASE: dropping and recreating at $MYSQL_HOST:$MYSQL_PORT, backup set $BACKUP_SET"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Verifies a wiped database after the migrations have run on it: every table
-# the migrations created is empty, schema_migrations aside. WIPE.md step 6.
+# the migrations created is empty, schema_migrations aside.
 #
 # It counts every base table the schema holds, not a named list, so a table a
 # later migration adds is checked without editing this file.
