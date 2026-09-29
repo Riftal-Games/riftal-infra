@@ -103,6 +103,9 @@ jobs:
       - name: Restore drill self-test
         run: bash deploy/restore-selftest.sh
 
+      - name: Binlog retention check self-test
+        run: bash deploy/binlog-selftest.sh
+
       # --locked fails when uv.lock no longer matches pyproject.toml, where
       # --frozen would install the stale lock as-is. Once this sync has
       # validated the lock, the later uv run calls can stay --frozen.
