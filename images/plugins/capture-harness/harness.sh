@@ -13,7 +13,10 @@
 #
 # Publishes no port. Every container and volume it makes is named
 # riftal_smoke_capture_*, and the EXIT trap stops the server with `stop` on
-# stdin and removes both, on a failure or a cancelled job too.
+# stdin and removes both, on a failure too. Cleanup on a cancelled or
+# timed-out job is not guaranteed: the runner follows INT and TERM with
+# SIGKILL within seconds, which ends the trap before it can finish
+# (riftal-infra#509).
 #
 # Each condition reaches check single-quoted and is expanded by its eval, so
 # the variables it names are read there.
