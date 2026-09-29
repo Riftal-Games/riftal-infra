@@ -184,6 +184,24 @@ def test_exit_platform_lights_sit_every_lights_every_blocks_along_its_edge(
     assert len(signs) == 1 and signs.pop().startswith("minecraft:standing_sign[")
 
 
+# Each side's lights run away from its face along the platform's low-coordinate edge.
+@pytest.mark.parametrize("side", ["north", "south", "east", "west"])
+def test_exit_platform_lights_follow_the_entrance_side(side: str, palette: Palette) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["entrance"]["side"], data["exit_path"]["length"], data["lights_every"] = side, 8, 4
+    lit = MineSpec.from_dict(data)
+    _, region = _built_region(lit, palette)
+    geo, y = lit.geometry(), lit.floor_y
+    (ox0, _, oz0), (ox1, _, oz1) = geo.outer.min, geo.outer.max
+    px, pz = geo.exit_platform.min[0], geo.exit_platform.min[2]
+    expected = {
+        "north": {(px, y, oz0 - d) for d in (4, 7)}, "south": {(px, y, oz1 + d) for d in (4, 7)},
+        "west": {(ox0 - d, y, pz) for d in (4, 7)}, "east": {(ox1 + d, y, pz) for d in (4, 7)},
+    }[side]
+    assert _lantern_positions(region) == expected
+    assert all(geo.exit_platform.contains((x, geo.exit_platform.min[1], z)) for x, _, z in expected)
+
+
 @pytest.mark.parametrize("width", [1, 2])
 def test_from_dict_refuses_an_exit_path_narrower_than_3(width: int) -> None:
     data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
