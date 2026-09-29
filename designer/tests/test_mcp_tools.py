@@ -654,15 +654,10 @@ def test_build_specs_name_every_registered_kind() -> None:
     assert set(BUILD_SPECS) == set(BUILDERS)
 
 
-# A signage edit list is floating text alone, so it has no bounds, and ``_apply`` refuses any edit list
-# without bounds as "nothing to do" before a dry run or an apply sends anything.
-TEXT_ONLY_REFUSED = "riftal-infra#409: build() refuses a text-only edit list"
 BLOCK_KINDS = sorted(kind for kind in BUILD_SPECS if kind != "signage")
 
 
-@pytest.mark.parametrize(
-    "kind", [*BLOCK_KINDS, pytest.param("signage", marks=pytest.mark.xfail(strict=True, reason=TEXT_ONLY_REFUSED))],
-)
+@pytest.mark.parametrize("kind", sorted(BUILD_SPECS))
 def test_build_dry_run_of_every_kind_answers_its_names_and_touches_nothing(every_role: FakeBridge, tmp_path: Path, kind: str) -> None:
     spec, names, _ = BUILD_SPECS[kind]
     before, indexed = (tmp_path / "index.json").read_bytes(), _indexed()
@@ -692,17 +687,26 @@ def test_build_apply_of_every_block_kind_registers_its_names_and_writes_its_extr
     _assert_registered_and_reported(result, kind, indexed)
 
 
-# Whether a text-only build should be undoable is riftal-infra#410, so this asserts only what the code
-# promises today: a snapshot and an undo entry come from touched blocks, and floating text touches none.
-@pytest.mark.xfail(strict=True, reason=TEXT_ONLY_REFUSED)
-def test_build_apply_of_signage_places_its_text_and_takes_no_snapshot(every_role: FakeBridge, tmp_path: Path) -> None:
+def test_build_apply_of_signage_places_its_text_with_no_snapshot_and_undo_removes_it(every_role: FakeBridge) -> None:
     indexed = _indexed()
     result = call("build", kind="signage", spec=BUILD_SPECS["signage"][0], palette="test_every_role")
-    assert result["ok"] is True and result["dry_run"] is False, result
-    assert (result["snapshot"], result["undo_id"]) == (None, None) and call("list_undo")["entries"] == []
-    assert not (tmp_path / "snapshots").exists() and _writes(every_role) == []
+    assert result["ok"] is True and result["dry_run"] is False and result["undo_id"] == 1, result
+    assert (result["bounds"], result["snapshot"]) == (None, None) and _writes(every_role) == []
+    assert list(config.SNAPSHOTS_DIR.rglob("*.npz")) == []
     assert every_role.texts == {"t_sign": {"world": "design", "pos": [0, 64, 0], "text": "hi"}}
     _assert_registered_and_reported(result, "signage", indexed)
+    [entry] = call("list_undo")["entries"]
+    assert (entry["id"], entry["op"], entry["path"], entry["texts"], entry["restored"]) == (1, "build_signage", None, ["t_sign"], False)
+    undone = call("undo")
+    assert undone["ok"] is True and undone["undone"] == [1] and undone["undo_id"] is None, undone
+    assert every_role.texts == {} and [e["restored"] for e in call("list_undo")["entries"]] == [True]
+
+
+def test_undo_of_signage_completes_when_its_text_is_already_gone_and_restore_refuses_the_entry(every_role: FakeBridge) -> None:
+    assert call("build", kind="signage", spec=BUILD_SPECS["signage"][0], palette="test_every_role")["undo_id"] == 1
+    assert "floating text with no snapshot" in call("restore", snapshot=1)["error"]
+    assert call("remove_text", id="t_sign")["ok"] is True
+    assert call("undo")["undone"] == [1] and every_role.texts == {}
 
 
 def _with_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

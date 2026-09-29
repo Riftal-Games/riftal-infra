@@ -510,11 +510,17 @@ def _finish(out: dict[str, Any], result: ApplyResult) -> dict[str, Any]:
     return out if result.ok else {**out, **_error(result.errors[0])}
 
 def _apply(edits: EditList, op: str, dry_run: bool, ctx: Context | None) -> dict[str, Any]:
-    """Send ``edits``; the snapshot is taken and its undo entry pushed inside ``before``, ahead of the first request."""
-    if edits.bounds is None:
-        raise ValueError("nothing to do: no block is touched")
+    """Send ``edits`` and answer with its undo id.
+
+    When a block is touched, the snapshot is taken and its undo entry pushed inside ``before``, ahead of the
+    first request. Floating text alone leaves nothing to snapshot, so its entry is pushed once the texts are
+    set, naming the ids the bridge answered, even when a later text failed.
+    """
+    if not edits.ops:
+        raise ValueError("nothing to do: the edit list is empty")
+    box = edits.bounds
     out: dict[str, Any] = {
-        "world": edits.world, "bounds": edits.bounds.to_json(), "dry_run": dry_run,
+        "world": edits.world, "bounds": None if box is None else box.to_json(), "dry_run": dry_run,
         "blocks": edits.count_blocks(), "requests": len(edits.requests()), "snapshot": None, "undo_id": None,
     }
 
@@ -524,14 +530,19 @@ def _apply(edits: EditList, op: str, dry_run: bool, ctx: Context | None) -> dict
         return snap
 
     result = edits.apply(bridge(), dry_run=dry_run, on_progress=_progress(ctx), before=before)
+    texts = [job["result"]["id"] for job in result.jobs if job["op"] == "set_text"]
     if not dry_run:
         out["blocks"] = result.blocks
+    if box is None and texts:
+        out["undo_id"] = UndoStack(session=SESSION).push_texts(edits.world, texts, op)
     return _finish(out, result)
 
 def _snapshot_path(ref: str | int) -> Path:
     """A manifest id, or a path that must resolve under ``SNAPSHOTS_DIR``; a relative path is rooted there, not at the cwd."""
     if isinstance(ref, int) or ref.isdigit():
         for entry in UndoStack().entries():
+            if entry["id"] == int(ref) and entry["path"] is None:
+                raise ValueError(f"undo entry {ref} is floating text with no snapshot; undo removes it")
             if entry["id"] == int(ref):
                 return Path(entry["path"])
         raise KeyError(f"no undo entry with id {ref}")
@@ -694,6 +705,11 @@ def build(
     ``mine`` unless ``verify`` is false, and refuses a build that fails it before the snapshot, a dry run
     reporting the failure instead; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
     falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
+
+    A build of floating text alone, ``signage``, touches no block, so it answers ``bounds`` and ``snapshot`` as null
+    and takes no snapshot, and is undoable all the same: its undo entry is pushed once the texts are set, and
+    ``undo`` removes every text it set with ``remove_text``. An id that already carried text before the build is
+    removed too, not put back as it was.
 
     RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
     """
