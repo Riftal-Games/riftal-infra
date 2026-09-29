@@ -59,6 +59,28 @@ def test_ping_and_info_use_the_configured_bridge(
     assert json.loads(capsys.readouterr().out)["designer"] is True
 
 
+@pytest.mark.parametrize(("env", "error"), [
+    ({}, "designer: DESIGNER_TOKEN is not set."),
+    ({"DESIGNER_TOKEN": "t", "DESIGNER_PORT": "port"}, "designer: DESIGNER_PORT must be an integer, got 'port'."),
+    ({"DESIGNER_TOKEN": "wrong-token"}, "designer: ping failed with AUTH: bad token\n"),
+], ids=["missing-token", "bad-port", "bridge-refuses-token"])
+def test_a_config_or_bridge_error_prints_one_line_and_exits_one(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path,
+    env: dict[str, str], error: str,
+) -> None:
+    monkeypatch.setattr("designer.config.ENV_FILE", tmp_path / ".env")
+    monkeypatch.delenv("DESIGNER_TOKEN", raising=False)
+    monkeypatch.setenv("DESIGNER_HOST", "127.0.0.1")
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    assert main(["ping"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err.startswith(error) and captured.err.count("\n") == 1
+    assert fake.token not in captured.err
+
+
 def test_index_commands_need_no_bridge(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["index", "list"]) == 0
     listing = json.loads(capsys.readouterr().out)
@@ -285,6 +307,8 @@ def test_build_dry_run_reports_index_entries_and_mine_valid_without_touching_the
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
     spec_path = tmp_path / "spec.json"
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
 
     assert main(["build", "mine", "--spec", str(spec_path), "--palette", "mine_stone"]) == 0
@@ -487,6 +511,8 @@ def test_build_road_dry_run_fetches_the_heightmap_and_reports_no_apply(
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
     spec_path = tmp_path / "spec.json"
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     spec_path.write_text(json.dumps(SMALL_ROAD_SPEC), encoding="utf-8")
 
     assert main(["build", "road", "--spec", str(spec_path), "--palette", "mine_stone"]) == 0
