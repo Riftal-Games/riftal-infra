@@ -162,20 +162,26 @@ def _lantern_positions(region: Region) -> set[tuple[int, int, int]]:
     return {(x0 + int(x), y0 + int(y), z0 + int(z)) for x, y, z in zip(xs, ys, zs)}
 
 
-# Lengths that are not a multiple of lights_every, because the sell sign takes the
-# platform's edge block at the far end and would cover a light placed there.
-@pytest.mark.parametrize("length, every, distances", [(6, 4, [4]), (13, 4, [4, 8, 12]), (11, 3, [3, 6, 9])])
+# The platform's last row holds the sell sign on the lit edge, so a length that is a
+# multiple of lights_every lights the row before it instead; a one-row platform has no
+# row to spare.
+@pytest.mark.parametrize("length, every, distances", [
+    (6, 4, [4]), (13, 4, [4, 8, 12]), (11, 3, [3, 6, 9]),
+    (8, 4, [4, 7]), (12, 3, [3, 6, 9, 11]), (4, 1, [1, 2, 3]), (1, 1, []),
+])
 def test_exit_platform_lights_sit_every_lights_every_blocks_along_its_edge(
     length: int, every: int, distances: list[int], palette: Palette
 ) -> None:
     data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
     data["exit_path"]["length"], data["lights_every"] = length, every
     lit = MineSpec.from_dict(data)
-    _, region = _built_region(lit, palette)
+    edits, region = _built_region(lit, palette)
     geo = lit.geometry()
     x, face = geo.exit_platform.min[0], geo.outer.max[2]
     assert _lantern_positions(region) == {(x, lit.floor_y, face + d) for d in distances}
-    assert {region.get(x, lit.floor_y, face + d) for d in distances} == {"minecraft:lantern[hanging=false]"}
+    assert {region.get(x, lit.floor_y, face + d) for d in distances} <= {"minecraft:lantern[hanging=false]"}
+    signs = {region.get(*_location(edits, name)) for name in ("sell_npc_a", "rankup_npc_a")}
+    assert len(signs) == 1 and signs.pop().startswith("minecraft:standing_sign[")
 
 
 def _outer_tags(spec: MineSpec, palette: Palette) -> list[str]:
