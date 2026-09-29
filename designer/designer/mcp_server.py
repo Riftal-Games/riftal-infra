@@ -40,7 +40,7 @@ from designer.region import (
     WORLD_MAX_Y, WORLD_MIN_Y, Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region, heightmap_from_region,
 )
 from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, summary, timelapse_png, topdown_png
-from designer.snapshot import Snapshot, UndoStack
+from designer.snapshot import UndoStack
 from designer.verify import mine_valid
 from designer.world_index import Location, NamedRegion, WorldIndex, resolve_at
 
@@ -510,32 +510,17 @@ def _finish(out: dict[str, Any], result: ApplyResult) -> dict[str, Any]:
     return out if result.ok else {**out, **_error(result.errors[0])}
 
 def _apply(edits: EditList, op: str, dry_run: bool, ctx: Context | None) -> dict[str, Any]:
-    """Send ``edits`` and answer with its undo id.
-
-    When a block is touched, the snapshot is taken and its undo entry pushed inside ``before``, ahead of the
-    first request. Floating text alone leaves nothing to snapshot, so its entry is pushed once the texts are
-    set, naming the ids the bridge answered, even when a later text failed.
-    """
-    if not edits.ops:
-        raise ValueError("nothing to do: the edit list is empty")
+    """Send ``edits`` through ``snapshots.apply_undoable`` and answer with its undo id."""
     box = edits.bounds
     out: dict[str, Any] = {
         "world": edits.world, "bounds": None if box is None else box.to_json(), "dry_run": dry_run,
-        "blocks": edits.count_blocks(), "requests": len(edits.requests()), "snapshot": None, "undo_id": None,
+        "blocks": edits.count_blocks(), "requests": len(edits.requests()),
     }
-
-    def before(world: str, bounds: Bounds) -> Snapshot:
-        snap = snapshots.take(bridge(), world, bounds, op)
-        out["snapshot"], out["undo_id"] = str(snap.path), UndoStack(session=SESSION).push(snap, op)
-        return snap
-
-    result = edits.apply(bridge(), dry_run=dry_run, on_progress=_progress(ctx), before=before)
-    texts = [job["result"]["id"] for job in result.jobs if job["op"] == "set_text"]
+    done = snapshots.apply_undoable(bridge(), edits, op, SESSION, dry_run=dry_run, on_progress=_progress(ctx))
+    out["snapshot"], out["undo_id"] = done.snapshot, done.undo_id
     if not dry_run:
-        out["blocks"] = result.blocks
-    if box is None and texts:
-        out["undo_id"] = UndoStack(session=SESSION).push_texts(edits.world, texts, op)
-    return _finish(out, result)
+        out["blocks"] = done.result.blocks
+    return _finish(out, done.result)
 
 def _snapshot_path(ref: str | int) -> Path:
     """A manifest id, or a path that must resolve under ``SNAPSHOTS_DIR``; a relative path is rooted there, not at the cwd."""
