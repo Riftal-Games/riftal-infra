@@ -640,3 +640,15 @@ every upper half are PASSABLE. For snow, a cut at the 0.6 step-up (`Player.php:2
 the ceiling at `height=4`. `web` stays PASSABLE. A class cannot give a cell a travel cost, and
 DANGER would make `path_exists` deny a route a player can take, so pricing a cobweb belongs to
 the path search, not to its class, and is riftal-infra#419.
+
+## 2026-09-29 A failed apply and a failing `mine_valid` exit 1 on the CLI
+
+Supersedes the sentence in the 2026-09-28 build refusal entry that has a failed bridge write
+and a failing `mine_valid` exit 0. `designer build` and `designer terrain terraform` still print
+the whole report on stdout, since the snapshot path in it is what undoes a half-applied edit
+list, then print `designer: apply failed: <error>` for `ok: false` and `designer: mine_valid
+failed: <detail>` for a failing check on stderr, one line each, and exit 1. A script reads
+success from the exit code alone, as it does for every error `main` catches and for `designer
+checks run`. A failing `mine_valid` exits 1 on a dry run too, because the dry run exists to say
+whether the build is worth sending. It does not stop `--apply` from sending the edits, and a
+failed apply still registers nothing in the index (#342).
