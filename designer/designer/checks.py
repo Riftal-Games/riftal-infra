@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 import yaml
 
-from designer.bridge import Bridge
+from designer.bridge import Bridge, BridgeOpError, JobError
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT, REPORTS_DIR
 from designer.coords import int_coord, whole_int
@@ -204,15 +204,27 @@ class RunContext:
     regions: dict[str, Region]
     lights: dict[str, LightRegion] = field(default_factory=dict)
     scans: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    scan_errors: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def fetch(cls, bridge: Bridge, plan: dict[str, Fetch], scans: Iterable[str] = ()) -> RunContext:
         regions = {world: fetch_region(bridge, world, f.bounds) for world, f in plan.items()}
         lights = {world: fetch_light(bridge, world, f.bounds) for world, f in plan.items() if f.light}
-        findings = {world: bridge.call_job("scan_items", world=world)["result"]["findings"] for world in sorted(scans)}
-        return cls(regions, lights, findings)
+        findings: dict[str, list[dict[str, Any]]] = {}
+        errors: dict[str, str] = {}
+        # A scan the bridge refuses or a job that fails concerns one world, so only the checks reading that world
+        # fail; a lost connection still raises, as it does for the region fetches above.
+        for world in sorted(scans):
+            try:
+                findings[world] = bridge.call_job("scan_items", world=world)["result"]["findings"]
+            except (BridgeOpError, JobError) as exc:
+                errors[world] = str(exc)
+        return cls(regions, lights, findings, errors)
 
     def findings(self, world: str) -> list[dict[str, Any]]:
+        """``world``'s findings, or ``ValueError`` when it has none: an unscanned world cannot be shown clear, so it fails."""
+        if world in self.scan_errors:
+            raise ValueError(f"world {world!r} could not be scanned: {self.scan_errors[world]}")
         if world not in self.scans:
             raise ValueError(f"world {world!r} was never scanned")
         return self.scans[world]

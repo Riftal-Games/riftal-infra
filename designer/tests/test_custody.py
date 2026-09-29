@@ -18,7 +18,7 @@ def _entity(save_id: Any, pos: tuple[int, int, int] = (1, 64, 2)) -> dict[str, A
 
 @pytest.mark.parametrize("save_id", [
     "minecraft:item", "Item", "Arrow", "minecraft:arrow", "minecraft:thrown_trident", "ThrownTrident",
-    "FallingSand", "minecraft:falling_block", "Painting", "minecraft:painting", 64, "83", 80 | 0x0C00,
+    "FallingSand", "minecraft:falling_block", "Painting", "minecraft:painting", 64, 66, "73", "83", 80 | 0x0C00,
 ])
 def test_every_item_yielding_save_id_is_destroyed(save_id: Any) -> None:
     assert classify(save_id) == "yields an item"
@@ -80,6 +80,33 @@ def test_an_unindexed_world_fails_without_a_scan(fake: FakeBridge, bridge: Bridg
     (result,) = run_checks(bridge, index, specs).results
     assert not result.ok and "mars" in result.detail
     assert not [r for r in fake.requests if r["op"] == "scan_items"]
+
+
+def _full_run(bridge: Bridge) -> tuple[list, dict]:
+    specs = load_checks()
+    report = run_checks(bridge, WorldIndex.load(), specs)
+    assert [r.id for r in report.results] == [s.id for s in specs]
+    return specs, {r.id: r for r in report.results if r.check == "offdisk_clear"}
+
+
+def test_a_bridge_without_scan_items_fails_each_offdisk_check_and_still_reports(
+    fake: FakeBridge, bridge: Bridge, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delattr(FakeBridge, "op_scan_items")
+    for zone in M1_ZONES:
+        fake.worlds[zone] = FakeWorld()
+    _, offdisk = _full_run(bridge)
+    assert len(offdisk) == len(M1_ZONES)
+    assert all(not r.ok and "UNKNOWN_OP" in r.detail for r in offdisk.values())
+
+
+def test_a_zone_world_the_server_lacks_fails_only_its_own_offdisk_check(fake: FakeBridge, bridge: Bridge) -> None:
+    fake.worlds["mine_a"] = FakeWorld()
+    _, offdisk = _full_run(bridge)
+    assert offdisk["offdisk_clear_mine_a"].ok
+    for zone in ("mine_b", "mine_c", "lumber"):
+        result = offdisk[f"offdisk_clear_{zone}"]
+        assert not result.ok and "WORLD_NOT_FOUND" in result.detail and zone in result.detail
 
 
 @pytest.mark.parametrize("zone", M1_ZONES)
