@@ -622,6 +622,25 @@ lock instead was rejected: the lock would then describe an index no instance rec
 moving a committed entry stays a change to `world_index.json` a reviewer sees. This supersedes
 the replacement described in the entry above.
 
+## 2026-09-29 Block classes follow the core's collision box, and snow and pitcher crop follow their states
+
+A block a player can stand on but not share a cell with is SOLID, so `flower_pot` is SOLID:
+its box is 3/8 of a block (`FlowerPot.php:86`), which blocks a hitbox. Blocks with no box are
+PASSABLE: `frame`, `glow_frame`, `portal`, every `cave_vines` id, coral plants and fans, and
+five names the core does not implement, taken as vanilla (#327). `snow_layer` and
+`pitcher_crop` are the blocks whose collision a state changes, so a seeded rule may return a
+function of the states, and the flower pot's headroom rule decides both: a PASSABLE feet cell
+promises a 1.8-tall hitbox (`Human.php:121`) fits two cells under a ceiling, which leaves 0.2
+of a block. The snow box is `height`/8 (`SnowLayer.php:69`), so from `height=2` (0.25) the
+snow is SOLID. The pitcher crop box is 3/16 at `growth=0` and 5/16 from `growth=1`
+(`PitcherCrop.php:54`); from `growth=3` the lower half is 5/16 and the upper half has no box
+(`DoublePitcherCrop.php:54-61`). So a lower half from `growth=1` is SOLID, and `growth=0` and
+every upper half are PASSABLE. For snow, a cut at the 0.6 step-up (`Player.php:281`), SOLID only from `height=5`, was rejected: it let
+`entity_clear` and `warp_safe` pass a two-high space the hitbox overflows, with the eye inside
+the ceiling at `height=4`. `web` stays PASSABLE. A class cannot give a cell a travel cost, and
+DANGER would make `path_exists` deny a route a player can take, so pricing a cobweb belongs to
+the path search, not to its class, and is riftal-infra#419.
+
 ## 2026-09-29 A failed apply and a failing `mine_valid` exit 1 on the CLI
 
 Supersedes the sentence in the 2026-09-28 build refusal entry that has a failed bridge write
