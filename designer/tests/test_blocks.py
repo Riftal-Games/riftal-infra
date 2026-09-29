@@ -79,15 +79,14 @@ def test_mangrove_roots_are_solid_and_hanging_roots_passable() -> None:
 
 
 # Names exactly as DesignBridge's get_region returned them on a v26.50 core
-# (riftal-infra#59), states included. A block a player walks through or steps
-# over cannot be stood on as a floor, so it is PASSABLE; a SOLID answer there
+# (riftal-infra#59), states included. A block with no collision box is walked
+# through and cannot be stood on, so it is PASSABLE; a SOLID answer there
 # would let a floor check pass over a block a player falls through.
 @pytest.mark.parametrize("name", [
     "minecraft:wheat[growth=0]",
     "minecraft:carrots[growth=0]",
     "minecraft:potatoes[growth=0]",
     "minecraft:beetroot[growth=0]",
-    "minecraft:pitcher_crop[growth=0,upper_block_bit=false]",
     "minecraft:melon_stem[facing_direction=0,growth=0]",
     "minecraft:pumpkin_stem[facing_direction=0,growth=0]",
     "minecraft:nether_wart[age=0]",
@@ -159,7 +158,7 @@ def test_alias_and_prefix_names(name: str, cls: BlockClass) -> None:
 # Names from pmmp-core's generated BlockTypeNames.php and the flattened ids in
 # VanillaBlockMappings.php, not from a live get_region read. Each has no
 # collision box, in the core (BaseCoral.php:73, CaveVines.php:137,
-# ItemFrame.php via Flowable.php:48, NetherPortal.php:64) or, for the four the
+# ItemFrame.php via Flowable.php:48, NetherPortal.php:64) or, for the five the
 # core does not implement, in vanilla Bedrock.
 @pytest.mark.parametrize("name", [
     "minecraft:frame[facing_direction=0,item_frame_map_bit=false,item_frame_photo_bit=false]",
@@ -210,6 +209,23 @@ def test_core_names_with_collision_are_solid(name: str) -> None:
     ("minecraft:snow_layer[covered_bit=false,height=7]", BlockClass.SOLID),
 ])
 def test_snow_layer_class_follows_its_height(name: str, cls: BlockClass) -> None:
+    assert classify(name) is cls
+
+
+
+# ``growth`` 0-2 is the one-block crop, 3/16 tall at 0 and 5/16 after
+# (PitcherCrop.php:54); from 3 it is the double crop, whose lower half is 5/16
+# (DoublePitcherCrop.php:61) and upper half has no box (:54). 5/16 is past the
+# same 0.2 headroom that makes snow of height 2 SOLID.
+@pytest.mark.parametrize("name, cls", [
+    ("pitcher_crop", BlockClass.PASSABLE),
+    ("minecraft:pitcher_crop[growth=0,upper_block_bit=false]", BlockClass.PASSABLE),
+    ("minecraft:pitcher_crop[growth=1,upper_block_bit=false]", BlockClass.SOLID),
+    ("minecraft:pitcher_crop[growth=2,upper_block_bit=false]", BlockClass.SOLID),
+    ("minecraft:pitcher_crop[growth=4,upper_block_bit=false]", BlockClass.SOLID),
+    ("minecraft:pitcher_crop[growth=4,upper_block_bit=true]", BlockClass.PASSABLE),
+])
+def test_pitcher_crop_class_follows_its_growth_and_half(name: str, cls: BlockClass) -> None:
     assert classify(name) is cls
 
 

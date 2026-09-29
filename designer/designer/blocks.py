@@ -69,18 +69,31 @@ RULE_KINDS = ("exact", "prefix", "suffix", "contains")
 
 StateClass = Callable[[Mapping[str, str]], BlockClass]
 
+# A PASSABLE feet cell promises a 1.8-tall hitbox (Human.php:121) fits under a
+# ceiling two cells up, which leaves this much of a block for a box beneath
+# it. A taller box clips the ceiling, the same headroom rule that makes a 3/8
+# flower pot SOLID. It is below the 0.6 step-up (Player.php:281), so it holds
+# for climbing too.
+FEET_CELL_HEADROOM = 2 - 1.8
+
+
+def _by_box_top(top: float) -> BlockClass:
+    return BlockClass.SOLID if top > FEET_CELL_HEADROOM else BlockClass.PASSABLE
+
+
 # Bedrock's ``height`` is layers minus one and the collision box is ``height``
-# eighths of a block (SnowLayer.php:69). A PASSABLE feet cell promises a
-# 1.8-tall hitbox (Human.php:121) fits under a ceiling two cells up, which
-# leaves 0.2 of a block for the snow. From height 2 the box is 0.25 and the
-# hitbox clips the ceiling, the same headroom rule that makes a 3/8 flower pot
-# SOLID. That cut is below the 0.6 step-up (Player.php:281), so it holds for
-# climbing too.
-SNOW_BLOCKS_HITBOX_HEIGHT = 2
-
-
+# eighths of a block (SnowLayer.php:69), so from height 2 (0.25) it is SOLID.
 def _snow_layer(states: Mapping[str, str]) -> BlockClass:
-    return BlockClass.SOLID if int(states.get("height", "0")) >= SNOW_BLOCKS_HITBOX_HEIGHT else BlockClass.PASSABLE
+    return _by_box_top(int(states.get("height", "0")) / 8)
+
+
+# ``growth`` 0-2 is the one-block crop, 3/16 tall at 0 and 5/16 after
+# (PitcherCrop.php:54). From 3 it is the double crop, whose lower half is 5/16
+# (DoublePitcherCrop.php:61) and upper half has no box (:54).
+def _pitcher_crop(states: Mapping[str, str]) -> BlockClass:
+    if states.get("upper_block_bit") == "true":
+        return BlockClass.PASSABLE
+    return _by_box_top((3 if int(states.get("growth", "0")) == 0 else 5) / 16)
 
 
 # First match wins, on the base name. A seeded rule whose class is a function
@@ -94,6 +107,7 @@ CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
         "lava", "flowing_lava", "fire", "soul_fire", "magma", "cactus",
         "sweet_berry_bush", "wither_rose", "powder_snow", "campfire", "soul_campfire")),
     ("exact", "snow_layer", _snow_layer),
+    ("exact", "pitcher_crop", _pitcher_crop),
     *(("exact", n, BlockClass.PASSABLE) for n in (
         "lever", "ladder", "vine", "fern", "large_fern", "dead_bush",
         "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
@@ -101,7 +115,7 @@ CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
         "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley",
         "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",
         "double_plant", "red_flower", "yellow_flower",
-        "wheat", "carrots", "potatoes", "beetroot", "pitcher_crop", "melon_stem", "pumpkin_stem",
+        "wheat", "carrots", "potatoes", "beetroot", "melon_stem", "pumpkin_stem",
         "nether_wart", "web", "cobweb", "trip_wire", "deadbush", "structure_void", "glow_lichen",
         "resin_clump", "spore_blossom", "red_mushroom", "brown_mushroom", "crimson_roots",
         "warped_roots", "nether_sprouts", "pink_petals", "frame", "glow_frame", "portal",
