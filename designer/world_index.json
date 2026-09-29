@@ -5,9 +5,9 @@
       "name": "spawn",
       "pitch": 0,
       "pos": [
-        0,
-        64,
-        0
+        256,
+        70,
+        256
       ],
       "tags": [
         "spawn"

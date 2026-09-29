@@ -22,6 +22,14 @@ def _checks_index(tmp_path: Path) -> Path:
     return index.save(tmp_path / "index.json")
 
 
+@pytest.fixture
+def origin_spawn(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # FakeWorld's terrain starts at the origin, so a spawn there straddles its edge.
+    index = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
+    index.add_location(Location("spawn", "design", (0, 64, 0), tags=["spawn"]))
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index.save(tmp_path / "index.json"))
+
+
 def test_version_prints_name_and_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["--version"])
@@ -54,7 +62,7 @@ def test_index_commands_need_no_bridge(capsys: pytest.CaptureFixture[str]) -> No
     assert main(["index", "list", "--tag", "spawn"]) == 0
     assert json.loads(capsys.readouterr().out) == {"locations": listing["locations"], "regions": []}
     assert main(["index", "resolve", "spawn"]) == 0
-    assert json.loads(capsys.readouterr().out)["pos"] == [0, 64, 0]
+    assert json.loads(capsys.readouterr().out)["pos"] == [256, 70, 256]
     assert main(["index", "resolve", "spwan"]) == 1 and "did you mean 'spawn'" in capsys.readouterr().err
 
 
@@ -96,6 +104,7 @@ def test_every_command_reports_a_missing_index_in_one_line(
     assert fake.requests == []
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_heightmap_prints_the_map_with_header_and_legend(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -155,6 +164,7 @@ def test_render_isometric_writes_the_png_and_prints_its_path_and_summary(
     assert lines[1] == "size=8x8 columns=16 min=63 max=63 mean=63.0 water=0.0 flat=1.0"
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_render_slice_writes_the_png_and_prints_its_path_and_block_counts(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
@@ -168,6 +178,7 @@ def test_render_slice_writes_the_png_and_prints_its_path_and_block_counts(
     assert fake.requests[-1]["args"]["bounds"] == {"min": [-2, 63, -2], "max": [1, 64, 1]}
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_terrain_analyze_prints_stats_for_the_flat_area(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
