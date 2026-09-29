@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Self-test for run-migrations.sh, against a real, throwaway mysql:8
-# container. Runs on the self-hosted CI runner via `docker`, the same way
-# `.github/workflows/ci.yml`'s "Lint PHP plugins" step already does; not
-# runnable on Nasir's Windows machine, which has no docker, only wslc. See
-# the "docker form" section of /dev-stack for the same split.
+# container. Calls `docker` directly, the same way `.github/workflows/ci.yml`'s
+# "Lint PHP plugins" step does, so it runs on the self-hosted CI runner and, on
+# Nasir's Windows machine, under the WSL fallback engine:
+#   wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/.../migrations/selftest.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,11 +14,16 @@ CONTAINER="riftal_smoke_migrations_$SUFFIX"
 FRESH="riftal_smoke_migrations_fresh_$SUFFIX"
 NETWORK="riftal_smoke_migrations_net_$SUFFIX"
 
+# Per run, so two runs sharing a host, as the self-hosted CI runners do,
+# never read each other's logs.
+LOGS="$(mktemp -d)"
+
 # -v takes the anonymous volume the mysql:8 image declares with each container,
 # which would otherwise outlive every run.
 cleanup() {
   docker rm -f -v "$CONTAINER" "$FRESH" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
+  rm -rf "$LOGS"
 }
 trap cleanup EXIT
 
@@ -88,18 +93,18 @@ provision() {
 
 section "empty migrations directory is a no-op success"
 if run_migrations "$FIXTURES/empty" riftal_selftest "selftest-empty-$SUFFIX" \
-     >/tmp/out-empty.log 2>&1; then
+     >"$LOGS"/out-empty.log 2>&1; then
   pass "empty directory exits 0"
 else
-  fail "empty directory should exit 0"; cat /tmp/out-empty.log
+  fail "empty directory should exit 0"; cat "$LOGS"/out-empty.log
 fi
 
 section "applies pending migrations in order and records them"
 if run_migrations "$FIXTURES/good" riftal_selftest "selftest-good-$SUFFIX" \
-     >/tmp/out-good.log 2>&1; then
+     >"$LOGS"/out-good.log 2>&1; then
   pass "good fixtures apply cleanly"
 else
-  fail "good fixtures should apply cleanly"; cat /tmp/out-good.log
+  fail "good fixtures should apply cleanly"; cat "$LOGS"/out-good.log
 fi
 
 count="$(query riftal_selftest 'SELECT COUNT(*) FROM widgets')"
@@ -112,16 +117,16 @@ fi
 
 section "second run with nothing new is a no-op success"
 if run_migrations "$FIXTURES/good" riftal_selftest "selftest-good2-$SUFFIX" \
-     >/tmp/out-good2.log 2>&1 && grep -q 'nothing pending' /tmp/out-good2.log; then
+     >"$LOGS"/out-good2.log 2>&1 && grep -q 'nothing pending' "$LOGS"/out-good2.log; then
   pass "second run is a no-op and says so"
 else
-  fail "second run should exit 0 and report a no-op"; cat /tmp/out-good2.log
+  fail "second run should exit 0 and report a no-op"; cat "$LOGS"/out-good2.log
 fi
 
 section "a broken migration halts loudly and is not recorded"
 if run_migrations "$FIXTURES/bad" riftal_selftest_bad "selftest-bad-$SUFFIX" \
-     >/tmp/out-bad.log 2>&1; then
-  fail "a broken migration should exit nonzero"; cat /tmp/out-bad.log
+     >"$LOGS"/out-bad.log 2>&1; then
+  fail "a broken migration should exit nonzero"; cat "$LOGS"/out-bad.log
 else
   pass "broken migration exits nonzero"
 fi
@@ -139,10 +144,10 @@ fi
 section "two invocations racing the same lock name do not double-apply"
 RACE_LOCK="selftest-race-$SUFFIX"
 run_migrations "$FIXTURES/race" riftal_selftest_race "$RACE_LOCK" \
-  >/tmp/out-race-a.log 2>&1 &
+  >"$LOGS"/out-race-a.log 2>&1 &
 race_pid_a=$!
 run_migrations "$FIXTURES/race" riftal_selftest_race "$RACE_LOCK" \
-  >/tmp/out-race-b.log 2>&1 &
+  >"$LOGS"/out-race-b.log 2>&1 &
 race_pid_b=$!
 
 race_rc_a=0
@@ -158,15 +163,15 @@ if [ "$race_rc_a" -eq 0 ] && [ "$race_rc_b" -eq 0 ] \
   pass "the lock serialized the race: applied once, both invocations exited 0"
 else
   fail "expected both racers to exit 0 and the migration applied exactly once, got exit $race_rc_a/$race_rc_b, things=$things_count, schema_migrations=$race_applied"
-  cat /tmp/out-race-a.log
-  cat /tmp/out-race-b.log
+  cat "$LOGS"/out-race-a.log
+  cat "$LOGS"/out-race-b.log
 fi
 
 section "provisioning on an existing schema creates the login with its role"
-if provision -e RIFTAL_DB_PASSWORD_MINES="$PW_A" >/tmp/out-prov1.log 2>&1; then
+if provision -e RIFTAL_DB_PASSWORD_MINES="$PW_A" >"$LOGS"/out-prov1.log 2>&1; then
   pass "first provisioning run exits 0"
 else
-  fail "first provisioning run should exit 0"; cat /tmp/out-prov1.log
+  fail "first provisioning run should exit 0"; cat "$LOGS"/out-prov1.log
 fi
 seen="$(as_login mines 'SELECT CURRENT_ROLE(), COUNT(*) FROM widgets' "$PW_A" 2>&1 || true)"
 if [ "$seen" = "$(printf '`riftal_role_mines`@`%%`\t1')" ]; then
@@ -176,43 +181,43 @@ else
 fi
 
 section "a second provisioning run is idempotent"
-if provision -e RIFTAL_DB_PASSWORD_MINES="$PW_A" >/tmp/out-prov2.log 2>&1 \
+if provision -e RIFTAL_DB_PASSWORD_MINES="$PW_A" >"$LOGS"/out-prov2.log 2>&1 \
    && [ "$(as_login mines 'SELECT 1' "$PW_A" 2>&1)" = "1" ]; then
   pass "second run exits 0 and the same password still logs in"
 else
-  fail "second run should exit 0 and leave the login usable"; cat /tmp/out-prov2.log
+  fail "second run should exit 0 and leave the login usable"; cat "$LOGS"/out-prov2.log
 fi
 
 section "a changed password in the environment rotates the login"
-provision -e RIFTAL_DB_PASSWORD_MINES="$PW_B" >/tmp/out-prov3.log 2>&1 || true
+provision -e RIFTAL_DB_PASSWORD_MINES="$PW_B" >"$LOGS"/out-prov3.log 2>&1 || true
 if [ "$(as_login mines 'SELECT 1' "$PW_B" 2>&1)" = "1" ] \
    && ! as_login mines 'SELECT 1' "$PW_A" >/dev/null 2>&1; then
   pass "the new password logs in and the old one is refused"
 else
-  fail "rotation should admit only the new password"; cat /tmp/out-prov3.log
+  fail "rotation should admit only the new password"; cat "$LOGS"/out-prov3.log
 fi
 
 section "provisioning refuses bad input loudly and changes nothing"
 if provision -e RIFTAL_DB_PASSWORD_MINES="selftestPassword'Quote00001" \
-     >/tmp/out-prov-quote.log 2>&1; then
-  fail "a password with a quote should be refused"; cat /tmp/out-prov-quote.log
+     >"$LOGS"/out-prov-quote.log 2>&1; then
+  fail "a password with a quote should be refused"; cat "$LOGS"/out-prov-quote.log
 else
   pass "a password with a quote is refused"
 fi
-if provision -e RIFTAL_DB_PASSWORD_MINES=selftestShort1 >/tmp/out-prov-short.log 2>&1; then
-  fail "a password under 24 characters should be refused"; cat /tmp/out-prov-short.log
+if provision -e RIFTAL_DB_PASSWORD_MINES=selftestShort1 >"$LOGS"/out-prov-short.log 2>&1; then
+  fail "a password under 24 characters should be refused"; cat "$LOGS"/out-prov-short.log
 else
   pass "a password under 24 characters is refused"
 fi
 ghost_rc=0
-provision -e RIFTAL_DB_PASSWORD_GHOST="$PW_A" >/tmp/out-prov-ghost.log 2>&1 || ghost_rc=$?
+provision -e RIFTAL_DB_PASSWORD_GHOST="$PW_A" >"$LOGS"/out-prov-ghost.log 2>&1 || ghost_rc=$?
 ghosts="$(query riftal_selftest "SELECT COUNT(*) FROM mysql.user WHERE User='ghost'")"
 if [ "$ghost_rc" -ne 0 ] && [ "$ghosts" = "0" ] \
-   && grep -q 'riftal_role_ghost does not exist' /tmp/out-prov-ghost.log; then
+   && grep -q 'riftal_role_ghost does not exist' "$LOGS"/out-prov-ghost.log; then
   pass "a login whose role does not exist is refused and not created"
 else
   fail "expected a refusal naming riftal_role_ghost and no ghost user, got exit $ghost_rc, ghosts=$ghosts"
-  cat /tmp/out-prov-ghost.log
+  cat "$LOGS"/out-prov-ghost.log
 fi
 if [ "$(as_login mines 'SELECT 1' "$PW_B" 2>&1)" = "1" ]; then
   pass "the refused runs left the rotated password in place"
@@ -226,48 +231,48 @@ wait_mysql "$FRESH"
 docker exec "$CONTAINER" mysqldump -uroot -pselftest --single-transaction --routines \
   --triggers riftal_selftest 2>/dev/null \
   | docker exec -i "$FRESH" mysql -uroot -pselftest riftal_selftest 2>/dev/null
-HOST_ALIAS=fresh provision -e RIFTAL_DB_PASSWORD_MINES="$PW_B" >/tmp/out-prov-fresh.log 2>&1 \
+HOST_ALIAS=fresh provision -e RIFTAL_DB_PASSWORD_MINES="$PW_B" >"$LOGS"/out-prov-fresh.log 2>&1 \
   || true
-if grep -q 'nothing pending' /tmp/out-prov-fresh.log \
+if grep -q 'nothing pending' "$LOGS"/out-prov-fresh.log \
    && [ "$(as_login mines 'SELECT COUNT(*) FROM widgets' "$PW_B" "$FRESH" 2>&1)" = "1" ]; then
   pass "restored schema reapplies nothing, and mines logs in and reads widgets"
 else
   fail "the step should rebuild role and login on a restored fresh server"
-  cat /tmp/out-prov-fresh.log
+  cat "$LOGS"/out-prov-fresh.log
 fi
 
 section "an empty or missing migrations directory still provisions"
 PW_C=selftestPasswordEmptyDir0003
 PW_D=selftestPasswordNoDir0000004
 run_migrations "$FIXTURES/empty" riftal_selftest "selftest-prov-empty-$SUFFIX" \
-  "${GRANTS_ARGS[@]}" -e RIFTAL_DB_PASSWORD_MINES="$PW_C" >/tmp/out-prov-empty.log 2>&1 || true
+  "${GRANTS_ARGS[@]}" -e RIFTAL_DB_PASSWORD_MINES="$PW_C" >"$LOGS"/out-prov-empty.log 2>&1 || true
 if [ "$(as_login mines 'SELECT COUNT(*) FROM widgets' "$PW_C" 2>&1)" = "1" ]; then
   pass "an empty directory still provisions mines with its role"
 else
-  fail "an empty directory should still provision mines"; cat /tmp/out-prov-empty.log
+  fail "an empty directory should still provision mines"; cat "$LOGS"/out-prov-empty.log
 fi
 run_migrations "$FIXTURES/empty" riftal_selftest "selftest-prov-nodir-$SUFFIX" \
   "${GRANTS_ARGS[@]}" -e MIGRATIONS_DIR=/missing -e RIFTAL_DB_PASSWORD_MINES="$PW_D" \
-  >/tmp/out-prov-nodir.log 2>&1 || true
-if grep -q 'no migrations directory at /missing' /tmp/out-prov-nodir.log \
+  >"$LOGS"/out-prov-nodir.log 2>&1 || true
+if grep -q 'no migrations directory at /missing' "$LOGS"/out-prov-nodir.log \
    && [ "$(as_login mines 'SELECT COUNT(*) FROM widgets' "$PW_D" 2>&1)" = "1" ]; then
   pass "a missing directory still provisions mines with its role"
 else
-  fail "a missing directory should still provision mines"; cat /tmp/out-prov-nodir.log
+  fail "a missing directory should still provision mines"; cat "$LOGS"/out-prov-nodir.log
 fi
 
 section "a run needing grants fails when the grants file is not a file"
 if run_migrations "$FIXTURES/good" riftal_selftest "selftest-nogrants-$SUFFIX" \
      -v "$FIXTURES/empty:/grants.sql:ro" -e GRANTS_FILE=/grants.sql \
-     >/tmp/out-prov-nogrants-dir.log 2>&1; then
-  fail "a GRANTS_FILE that is a directory should fail the run"; cat /tmp/out-prov-nogrants-dir.log
+     >"$LOGS"/out-prov-nogrants-dir.log 2>&1; then
+  fail "a GRANTS_FILE that is a directory should fail the run"; cat "$LOGS"/out-prov-nogrants-dir.log
 else
   pass "a GRANTS_FILE that is a directory fails the run"
 fi
 if run_migrations "$FIXTURES/good" riftal_selftest "selftest-nogrants-$SUFFIX" \
-     -e RIFTAL_DB_PASSWORD_MINES="$PW_A" >/tmp/out-prov-nogrants-pw.log 2>&1 \
+     -e RIFTAL_DB_PASSWORD_MINES="$PW_A" >"$LOGS"/out-prov-nogrants-pw.log 2>&1 \
    || [ "$(as_login mines 'SELECT 1' "$PW_D" 2>&1)" != "1" ]; then
-  fail "a login with no grants file should fail and change nothing"; cat /tmp/out-prov-nogrants-pw.log
+  fail "a login with no grants file should fail and change nothing"; cat "$LOGS"/out-prov-nogrants-pw.log
 else
   pass "a login with no grants file fails and leaves the password in place"
 fi
@@ -276,18 +281,18 @@ section "a plain login named like a role does not pass as the role"
 query riftal_selftest \
   "CREATE USER 'riftal_role_decoy'@'%' IDENTIFIED BY 'selftestDecoyPassword0000'"
 decoy_rc=0
-provision -e RIFTAL_DB_PASSWORD_DECOY="$PW_A" >/tmp/out-prov-decoy.log 2>&1 || decoy_rc=$?
+provision -e RIFTAL_DB_PASSWORD_DECOY="$PW_A" >"$LOGS"/out-prov-decoy.log 2>&1 || decoy_rc=$?
 decoys="$(query riftal_selftest "SELECT COUNT(*) FROM mysql.user WHERE User='decoy'")"
 if [ "$decoy_rc" -ne 0 ] && [ "$decoys" = "0" ]; then
   pass "a login whose role name belongs to a plain login is refused"
 else
   fail "expected decoy refused and not created, got exit $decoy_rc, decoys=$decoys"
-  cat /tmp/out-prov-decoy.log
+  cat "$LOGS"/out-prov-decoy.log
 fi
 
 section "no provisioning run ever prints a password"
 if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e 'Quote00001' -e selftestShort1 \
-     /tmp/out-prov*.log; then
+     "$LOGS"/out-prov*.log; then
   fail "a password appeared in the log files above"
 else
   pass "no password in any provisioning log"
