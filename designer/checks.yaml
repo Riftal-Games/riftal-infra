@@ -30,6 +30,18 @@ checks:
     zone: lumber
     region: lumber
     spec: specs/lumber.json
+  - check: offdisk_clear
+    zone: mine_a
+    world: mine_a
+  - check: offdisk_clear
+    zone: mine_b
+    world: mine_b
+  - check: offdisk_clear
+    zone: mine_c
+    world: mine_c
+  - check: offdisk_clear
+    zone: lumber
+    world: lumber
   - check: no_holes
     region: plots_0_0
     floor_y: 65
