@@ -25,7 +25,17 @@ def test_committed_file_names_the_spec_worlds(index: WorldIndex) -> None:
     assert index.regions == [NamedRegion("lumber_safe_zone", "lumber", (-32, 40, -32), (31, 63, 31), ["mine", "safe_zone"])]
     assert {w.name: w.extra["rank"] for w in index.worlds if w.role == "ore_mine"} == {"mine_a": "A", "mine_b": "B", "mine_c": "C"}
     assert {(w.generator, w.seed) for w in index.worlds} == {("normal", 20260907)}
-    assert index.resolve_pos("spawn") == (0, 64, 0) and index.locations_tagged("spawn")[0].world == "design"
+    assert index.resolve_pos("spawn") == (256, 70, 256) and index.locations_tagged("spawn")[0].world == "design"
+
+
+def test_design_spawn_sits_on_chunks_a_fresh_level_generates(index: WorldIndex) -> None:
+    # PocketMine creates a level with its spawn at (256, 70, 256) and generates only a
+    # radius of 8 chunks around it (WorldCreationOptions, WorldManager::generateWorld).
+    # A spawn outside that area reads as ungenerated chunks until someone runs pregen.
+    boot_chunk, safe_offset = (256 >> 4, 256 >> 4), 4
+    x, _, z = index.resolve_pos("spawn")
+    assert index.resolve("spawn").world == index.default_world == "design"
+    assert max(abs((x >> 4) - boot_chunk[0]), abs((z >> 4) - boot_chunk[1])) <= safe_offset
 
 
 def test_save_is_byte_stable_and_name_ordered(index: WorldIndex, tmp_path: Path) -> None:
@@ -52,7 +62,7 @@ def test_save_is_byte_stable_and_name_ordered(index: WorldIndex, tmp_path: Path)
 
 def test_resolve_pos_accepts_every_form(index: WorldIndex) -> None:
     index.add_region(NamedRegion("yard", "design", (9, 70, 9), (-4, 60, -4)))
-    assert index.resolve_pos("spawn") == (0, 64, 0)
+    assert index.resolve_pos("spawn") == (256, 70, 256)
     assert index.resolve_pos("yard") == (3, 65, 3)
     assert index.resolve("yard").bounds == Bounds((-4, 60, -4), (9, 70, 9))
     assert Bounds.from_center(index.resolve_pos("yard"), index.resolve("yard").bounds.size) == index.resolve("yard").bounds
@@ -122,7 +132,7 @@ def test_register_refuses_a_taken_name_unless_replace(index: WorldIndex) -> None
     moved = Location("spawn", "design", (5, 64, 5)).to_json()
     with pytest.raises(ValueError, match="'spawn' is already defined"):
         index.register([moved], [])
-    assert index.resolve("spawn").pos == (0, 64, 0)
+    assert index.resolve("spawn").pos == (256, 70, 256)
     index.register([moved], [], replace=True)
     assert index.resolve("spawn").pos == (5, 64, 5)
 
