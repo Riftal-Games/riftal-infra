@@ -120,9 +120,9 @@ services:
 
   # A second instance, same image and same MySQL, proving the instance-split
   # shape (riftal-infra#6, CLAUDE.md hard rule 5) before any gameplay depends
-  # on it. Everything below differs from `instance`, above, on purpose: its
-  # own instance_id, its own world, its own volume, its own published port.
-  # The one thing that must NOT differ is which MySQL it points at, and
+  # on it. Its instance_id, world, volume, published port and start command
+  # differ from `instance`'s on purpose; its image and limits match. The one
+  # thing that must NOT differ is which MySQL it points at, and
   # nothing here does, because neither service names one; both share
   # `riftal-dev` and reach the same `mysql` alias.
   instance-b:
