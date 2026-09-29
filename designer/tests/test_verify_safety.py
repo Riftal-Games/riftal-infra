@@ -23,6 +23,22 @@ def test_entity_clear_names_the_blocked_hitbox_cells(flat_plane_with_hole: Regio
     assert entity_clear(flat_plane_with_hole, OPEN).ok
 
 
+def test_entity_clear_names_a_danger_plant_in_the_hitbox(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(10, 4, 10, "minecraft:sweet_berry_bush")
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert not found.ok and found.detail == "hitbox in danger" and found.coords == [(10, 4, 10)]
+    assert warp_safe(flat_plane_with_hole, OPEN) == found
+    flat_plane_with_hole.set(10, 5, 10, "minecraft:stone")
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert not found.ok and found.detail == "hitbox in danger" and found.coords == [(10, 4, 10)]
+    flat_plane_with_hole.set(10, 4, 10, AIR)
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert not found.ok and found.detail == "hitbox blocked" and found.coords == [(10, 5, 10)]
+    flat_plane_with_hole.set(10, 5, 10, "minecraft:wither_rose")
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert not found.ok and found.detail == "hitbox in danger" and found.coords == [(10, 5, 10)]
+
+
 def test_fails_over_the_lava_corner(flat_plane_with_hole: Region) -> None:
     found = entity_clear(flat_plane_with_hole, (1, 4, 1))
     assert not found.ok and found.detail == "floor is danger" and found.coords == [(1, 3, 1)]
