@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from designer.blocks import BlockClass, base_name, format_name, parse_name
+from designer.blocks import AIR, BlockClass, base_name, format_name, parse_name
 from designer.builders.mine_spec import SIDES, MineSpec
 from designer.region import Bounds, LightRegion, Region
 
@@ -422,6 +422,21 @@ def _fractions(blocks: np.ndarray, names: list[str]) -> dict[str, float]:
     return out
 
 
+def _as_ores(palette: list[str], ores: dict[str, float]) -> list[str]:
+    """Each palette name as the ``ores`` key it satisfies, else canonical.
+
+    A key matches a block with the same base whose states include the key's. The engine reads a block back with
+    every state it has, ``minecraft:oak_log[pillar_axis=y]``, while a spec names only what it cares about.
+    """
+    keys = [(key, *parse_name(key)) for key in ores]
+    out = []
+    for name in palette:
+        base, states = parse_name(name)
+        match = (key for key, kb, ks in keys if kb == base and ks.items() <= states.items())
+        out.append(next(match, format_name(base, states)))
+    return out
+
+
 def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> MineResult:
     """The mine in ``region`` is enclosed, opens only where declared, holds the declared ores and stands on a floor.
 
@@ -434,8 +449,12 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     is solid under its whole footprint with a clear cell above its walking lane, the centre line a player
     actually spawns and exits on, so a hand edit there is caught here rather than as a less specific failure
     from a check that walks out onto it. Furniture such as the lit posts down either side is outside the lane
-    and never trips this rule. ``detail`` names every failing rule; ``coords`` holds leaks, undeclared cells,
-    missing floor cells, missing platform cells, then blocked lane cells, ``LEAKS_REPORTED`` of each.
+    and never trips this rule. A block counts as an ``ores`` key when its base is the key's and its states include
+    the key's. Every interior cell is air or a block named in ``ores``, with no tolerance: a
+    reset refills only from ``ores``, so any other block there would break into an item nobody mined (ADR 014
+    item 7), and a name only in ``ore_layers`` fails for the same reason. ``detail`` names every failing rule
+    and those interior cells; ``coords`` holds leaks, undeclared cells, missing floor cells, missing platform
+    cells, blocked lane cells, then those interior cells, ``LEAKS_REPORTED`` of each.
     """
     geo = spec.geometry()
     if region.world != spec.world:
@@ -466,15 +485,18 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
             undeclared.extend(_world(geo.outer, at) for at in np.argwhere(part & ~opening))
 
     inner = region.sub(geo.interior).blocks
-    names = [format_name(*parse_name(name)) for name in region.palette]
+    names = _as_ores(region.palette, spec.ores)
     ys = np.arange(geo.interior.min[1], geo.interior.max[1] + 1)
     bands = [((ys >= l.y_from) & (ys <= l.y_to), l.ores, f"@{l.y_from}..{l.y_to}") for l in spec.ore_layers]
     bands.append((~np.logical_or.reduce([np.zeros(len(ys), dtype=bool), *(rows for rows, _, _ in bands)]), spec.ores, ""))
     deviations: dict[str, float] = {}
     for rows, ores, suffix in bands:
-        observed, total = _fractions(inner[rows], names), sum(ores.values())
+        observed, total = _fractions(inner[rows], _as_ores(region.palette, ores)), sum(ores.values())
         for name in (observed.keys() | ores.keys()) if observed else ():
             deviations[name + suffix] = abs(observed.get(name, 0.0) - ores.get(name, 0.0) / total)
+
+    stray = ~np.array([name == AIR or name in spec.ores for name in names])[inner]
+    strays = [_world(geo.interior, at) for at in np.argwhere(stray)[:LEAKS_REPORTED]]
 
     _, zs, xs = region.bounds.slices(geo.interior)
     missing = region.classes()[spec.floor_y - 1 - region.bounds.min[1], zs, xs] != BlockClass.SOLID
@@ -501,6 +523,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
             (f"{int(reach.sum())} leaks", leaks), ("entrance not open", not entrance_ok),
             (f"{len(undeclared)} undeclared opening cells", undeclared),
             ("composition off", any(d > tolerance for d in deviations.values())),
+            (f"{int(stray.sum())} interior cells neither air nor in ores {strays}", strays),
             (f"{int(missing.sum())} floor cells missing", gaps),
             (f"{int(platform_missing.sum())} exit platform cells missing", platform_gaps),
             (f"{int(platform_blocked.sum())} exit platform cells blocked above", platform_obstructed),
@@ -512,7 +535,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     }
     return MineResult(
         not failing, "; ".join(failing) or "mine valid",
-        leaks + data["undeclared"] + gaps + platform_gaps + platform_obstructed, data,
+        leaks + data["undeclared"] + gaps + platform_gaps + platform_obstructed + strays, data,
         leaks=leaks, entrances_found=components, composition=_fractions(inner, names), deviations=deviations,
     )
 

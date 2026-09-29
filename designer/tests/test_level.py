@@ -38,6 +38,7 @@ def root(tmp_path: Path, fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> P
     (tmp_path / "levels" / "zt.json").write_text(json.dumps(RECIPE), encoding="utf-8")
     (tmp_path / "specs" / "zt.json").write_text(json.dumps({**SMALL_MINE_SPEC, "world": "zt"}), encoding="utf-8")
     (tmp_path / "checks.yaml").write_text("version: 1\nchecks:\n  - check: warp_safe\n    zone: zt\n    at: zt_spawn\n", encoding="utf-8")
+    (tmp_path / "mines.yml").write_text("worlds:\n  mine_x: worlds/mine_x.json\n", encoding="utf-8")
     return tmp_path
 
 
@@ -47,7 +48,9 @@ def _build(bridge: Bridge, root: Path, zone: str = "zt", index: WorldIndex | Non
             calls.append("after_stop")
         return SAVED
 
-    return build_level(bridge, zone, after_stop, root=root, index=index or _index(), checks_path=root / "checks.yaml")
+    return build_level(
+        bridge, zone, after_stop, root=root, index=index or _index(), checks_path=root / "checks.yaml", mines_config=root / "mines.yml",
+    )
 
 
 def test_build_writes_the_lock(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
@@ -226,8 +229,15 @@ def test_the_committed_index_file_is_byte_identical_after_a_build(bridge: Bridge
     path = _index().save(root / "world_index.json", updated="2026-09-29T00:00:00+00:00")
     before = path.read_bytes()
     monkeypatch.setattr(world_index, "DEFAULT_PATH", path)
-    assert build_level(bridge, "zt", lambda: SAVED, root=root, checks_path=root / "checks.yaml").exists()
+    assert build_level(bridge, "zt", lambda: SAVED, root=root, checks_path=root / "checks.yaml", mines_config=root / "mines.yml").exists()
     assert path.read_bytes() == before
+
+
+def test_a_zone_mines_does_not_reset_is_refused_too_without_the_mines_config(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    (root / "mines.yml").unlink()
+    with pytest.raises(LevelError, match="cannot read the mines world list"):
+        _build(bridge, root)
+    assert fake.requests == []
 
 
 def test_other_zones_unresolved_checks_do_not_block(bridge: Bridge, root: Path) -> None:
