@@ -13,7 +13,10 @@ set -euo pipefail
 
 MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
-MYSQL_USER="${MYSQL_USER:-root}"
+# A read-only login, provisioned with its role by
+# ../migrations/run-migrations.sh from RIFTAL_DB_PASSWORD_BACKUP, so a backup
+# run can never change the database it copies.
+MYSQL_USER="${MYSQL_USER:-backup}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 MYSQL_DATABASE="${MYSQL_DATABASE:?MYSQL_DATABASE is required}"
 
@@ -234,8 +237,10 @@ done
 mkdir -p "$tmp_dir/worlds"
 
 echo "backup $ts: dumping database $MYSQL_DATABASE from $MYSQL_HOST:$MYSQL_PORT"
+# Tablespace definitions are server-wide and need PROCESS, which the backup
+# login does not hold; a single-schema restore never recreates them anyway.
 MYSQL_PWD="$MYSQL_PASSWORD" mysqldump --host="$MYSQL_HOST" --port="$MYSQL_PORT" \
-  --user="$MYSQL_USER" --single-transaction --routines --triggers \
+  --user="$MYSQL_USER" --single-transaction --routines --triggers --no-tablespaces \
   "$MYSQL_DATABASE" > "$tmp_dir/mysql.sql"
 [ -s "$tmp_dir/mysql.sql" ] || fail "mysqldump produced an empty file"
 

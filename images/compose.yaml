@@ -166,8 +166,10 @@ services:
     environment:
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
-      MYSQL_USER: root
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # Read-only. ../migrations/run-migrations.sh creates this login from the
+      # same variable, and until it has, every run here fails to log in.
+      MYSQL_USER: backup
+      MYSQL_PASSWORD: ${RIFTAL_DB_PASSWORD_BACKUP}
       MYSQL_DATABASE: riftal_dev
       BACKUP_RETENTION: ${BACKUP_RETENTION:-10}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-21600}

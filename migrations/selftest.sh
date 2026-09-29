@@ -56,7 +56,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=24
+EXPECTED_ASSERTIONS=26
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -311,8 +311,34 @@ for half in LOCKEDPW OPENBLANK; do
   fi
 done
 
+section "the backup login needs no grants file, reads everything and writes nothing"
+PW_E=selftestPasswordBackup000005
+run_migrations "$FIXTURES/good" riftal_selftest "selftest-prov-backup-$SUFFIX" \
+  -e RIFTAL_DB_PASSWORD_BACKUP="$PW_E" >"$LOGS"/out-prov-backup.log 2>&1 || true
+seen="$(as_login backup 'SELECT CURRENT_ROLE(), COUNT(*) FROM widgets' "$PW_E" 2>&1 || true)"
+if [ "$seen" = "$(printf '`riftal_role_backup`@`%%`\t1')" ]; then
+  pass "backup logs in with riftal_role_backup by default and reads widgets"
+else
+  fail "expected backup with riftal_role_backup to read 1 widget, got: $seen"
+  cat "$LOGS"/out-prov-backup.log
+fi
+written=()
+for stmt in "INSERT INTO widgets VALUES (2, 'x')" "UPDATE widgets SET name = 'x'" \
+    "DELETE FROM widgets" "CREATE TABLE w2 (id INT)" "ALTER TABLE widgets ADD c INT" \
+    "DROP TABLE widgets" "LOCK TABLES widgets WRITE" \
+    "CREATE EVENT e ON SCHEDULE EVERY 1 DAY DO SELECT 1" \
+    "CREATE USER 'x'@'%'" "GRANT SELECT ON widgets TO 'mines'@'%'"; do
+  if as_login backup "$stmt" "$PW_E" >/dev/null 2>&1; then written+=("$stmt"); fi
+done
+if [ "${#written[@]}" -eq 0 ] \
+   && [ "$(query riftal_selftest 'SELECT COUNT(*) FROM widgets')" = "1" ]; then
+  pass "every write, DDL, lock, event and account statement is denied to backup"
+else
+  fail "backup was allowed: ${written[*]-none, but widgets changed}"
+fi
+
 section "no provisioning run ever prints a password"
-if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e 'Quote00001' -e selftestShort1 \
+if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e "$PW_E" -e 'Quote00001' -e selftestShort1 \
      "$LOGS"/out-prov*.log; then
   fail "a password appeared in the log files above"
 else

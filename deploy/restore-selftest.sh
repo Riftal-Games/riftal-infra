@@ -16,18 +16,21 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUFFIX="$$-$(date +%s)"
-NETWORK="riftal-restore-selftest-net-$SUFFIX"
-MYSQL_CONTAINER="riftal-restore-selftest-mysql-$SUFFIX"
-BACKUPS_VOL="riftal-restore-selftest-backups-$SUFFIX"
-WORLD_A_VOL="riftal-restore-selftest-world-a-$SUFFIX"
-WORLD_B_VOL="riftal-restore-selftest-world-b-$SUFFIX"
+# riftal_smoke_ names, because the guard lets a volume be removed only under
+# that prefix, so this runs and cleans up the same on a dev machine as in CI.
+NETWORK="riftal_smoke_restore_net_$SUFFIX"
+MYSQL_CONTAINER="riftal_smoke_restore_mysql_$SUFFIX"
+BACKUPS_VOL="riftal_smoke_restore_backups_$SUFFIX"
+WORLD_A_VOL="riftal_smoke_restore_world_a_$SUFFIX"
+WORLD_B_VOL="riftal_smoke_restore_world_b_$SUFFIX"
+BACKUP_PW=selftestPasswordBackupLogin01
 
 # Per run, so two runs sharing a host, as the self-hosted CI runners do,
 # never read each other's logs.
 LOGS="$(mktemp -d)"
 
 cleanup() {
-  docker rm -f "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
+  docker rm -f -v "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
@@ -36,7 +39,7 @@ trap cleanup EXIT
 
 docker network create "$NETWORK" >/dev/null
 
-docker run -d --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
+docker run -d -m 1g --cpus 1 --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
   mysql:8 >/dev/null
 
@@ -66,32 +69,42 @@ exec_sql() {
 # named after this test rather than after the concept, so a wrong-database
 # or wrong-volume restore reads as an obviously wrong value below.
 exec_sql 'CREATE TABLE riftal_selftest.accounts (id INT PRIMARY KEY, balance INT);
-          INSERT INTO riftal_selftest.accounts VALUES (1, 500);'
-docker run --rm -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
+          INSERT INTO riftal_selftest.accounts VALUES (1, 500);
+          CREATE PROCEDURE riftal_selftest.selftest_proc() SELECT 42;'
+docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo 17 > /world/blocks_broken_mine_a.txt' >/dev/null
-docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
+docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
   'echo world-b-at-backup > /world/marker.txt' >/dev/null
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=14
+EXPECTED_ASSERTIONS=16
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
 
 run_backup() {
-  docker run --rm --network "$NETWORK" \
+  docker run --rm -m 1g --cpus 1 --network "$NETWORK" \
     -v "$SCRIPT_DIR/backup.sh:/deploy/backup.sh:ro" \
     -v "$BACKUPS_VOL:/backups" \
     -v "$WORLD_A_VOL:/worlds/world-a:ro" -v "$WORLD_B_VOL:/worlds/world-b:ro" \
-    -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
+    -e MYSQL_HOST=mysql -e MYSQL_PASSWORD="$BACKUP_PW" \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION=10 \
     mysql:8 bash /deploy/backup.sh
 }
 
+provision_backup_login() {
+  docker run --rm -m 1g --cpus 1 --network "$NETWORK" \
+    -v "$SCRIPT_DIR/../migrations/run-migrations.sh:/run-migrations.sh:ro" \
+    -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
+    -e MYSQL_DATABASE=riftal_selftest -e MIGRATIONS_DIR=/missing \
+    -e RIFTAL_DB_PASSWORD_BACKUP="$BACKUP_PW" \
+    mysql:8 bash /run-migrations.sh
+}
+
 run_restore() {
   local backup_set="$1"
-  timeout 60 docker run --rm --network "$NETWORK" \
+  timeout 60 docker run --rm -m 1g --cpus 1 --network "$NETWORK" \
     -v "$SCRIPT_DIR/restore.sh:/deploy/restore.sh:ro" \
     -v "$BACKUPS_VOL:/backups:ro" \
     -v "$WORLD_A_VOL:/worlds/world-a" -v "$WORLD_B_VOL:/worlds/world-b" \
@@ -101,13 +114,18 @@ run_restore() {
 }
 
 backups() {
-  docker run --rm -v "$BACKUPS_VOL:/backups" mysql:8 bash -c "$1"
+  docker run --rm -m 1g --cpus 1 -v "$BACKUPS_VOL:/backups" mysql:8 bash -c "$1"
 }
 world_a() {
-  docker run --rm -v "$WORLD_A_VOL:/world" mysql:8 bash -c "$1"
+  docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c "$1"
 }
 
-section "a backup is taken while balance is 500 and mine_a shows 17 blocks broken"
+section "a backup is taken by the read-only login while balance is 500 and mine_a shows 17 blocks broken"
+if provision_backup_login >"$LOGS"/out-provision.log 2>&1; then
+  pass "the migration runner provisions the backup login"
+else
+  fail "the migration runner should provision the backup login"; cat "$LOGS"/out-provision.log
+fi
 if run_backup >"$LOGS"/out-backup.log 2>&1; then
   pass "the backup run exits 0"
 else
@@ -134,6 +152,14 @@ restored_balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE id
   && pass "the account balance matches the backup-time value, not the drifted one" \
   || fail "expected the restored balance 500, got $restored_balance"
 
+# The restore drops the schema first, so the procedure is back only if the
+# backup login could read its body.
+restored_procs="$(query riftal_selftest "SELECT COUNT(*) FROM information_schema.ROUTINES
+  WHERE ROUTINE_SCHEMA = 'riftal_selftest' AND ROUTINE_NAME = 'selftest_proc'")"
+[ "$restored_procs" = "1" ] \
+  && pass "the stored procedure survives a backup taken by the read-only login" \
+  || fail "expected selftest_proc restored from the backup login's dump, found $restored_procs"
+
 restored_blocks="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
 [ "$restored_blocks" = "17" ] \
   && pass "mine_a's broken-blocks marker matches the backup-time value, not the drifted one" \
@@ -145,7 +171,7 @@ else
   pass "the post-backup stray file is gone: the volume was rebuilt, not merged onto"
 fi
 
-restored_world_b="$(docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'cat /world/marker.txt')"
+restored_world_b="$(docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'cat /world/marker.txt')"
 [ "$restored_world_b" = "world-b-at-backup" ] \
   && pass "world-b's marker also matches the backup-time value, proving every world volume is rebuilt, not just one" \
   || fail "expected world-b's restored marker, got $restored_world_b"
@@ -159,7 +185,7 @@ section "a backup set with one corrupt world tar is rejected before any world di
 dir2="corrupt-$SUFFIX"
 backups "cp -r /backups/$dir1 /backups/$dir2 && echo not-a-valid-gzip-archive > /backups/$dir2/worlds/world-b.tar.gz"
 world_a 'echo 123 > /world/blocks_broken_mine_a.txt'
-docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
+docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
   'echo drifted-again > /world/marker.txt' >/dev/null
 
 if run_restore "/backups/$dir2" >"$LOGS"/out-corrupt.log 2>&1; then
@@ -178,7 +204,7 @@ survives_a="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
   && pass "world-a, ordered ahead of the corrupt world-b tar, is untouched rather than cleared before the failure was found" \
   || fail "expected world-a's pre-restore-attempt marker 123 to survive, got $survives_a"
 
-survives_b="$(docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'cat /world/marker.txt')"
+survives_b="$(docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'cat /world/marker.txt')"
 [ "$survives_b" = "drifted-again" ] \
   && pass "world-b, whose own tar is the corrupt one, is untouched rather than left cleared and empty" \
   || fail "expected world-b's pre-restore-attempt marker to survive, got $survives_b"
@@ -212,4 +238,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup, drift, restore to the backup-time state across the database and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the read-only login with its procedure, drift, restore to the backup-time state across the database and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"

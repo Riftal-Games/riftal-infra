@@ -38,7 +38,7 @@ runs them; it never authors gameplay migrations.
 | `MIGRATIONS_LOCK_NAME` | no | `riftal_schema_migrations` | Override only for running more than one independent test in parallel |
 | `MIGRATIONS_LOCK_TIMEOUT` | no | `60` (seconds) | |
 | `GRANTS_FILE` | no | sibling checkout's `riftal-game/lib/resources/sql/grants.sql` | Mount the real file in explicitly, as with `MIGRATIONS_DIR` |
-| `RIFTAL_DB_PASSWORD_<NAME>` | no | | One per plugin login to provision, e.g. `RIFTAL_DB_PASSWORD_MINES` for `mines`. At least 24 characters, `[A-Za-z0-9]` only |
+| `RIFTAL_DB_PASSWORD_<NAME>` | no | | One per plugin login to provision, e.g. `RIFTAL_DB_PASSWORD_MINES` for `mines`, and `RIFTAL_DB_PASSWORD_BACKUP` for the dump login. At least 24 characters, `[A-Za-z0-9]` only |
 
 ## Provisioning logins
 
@@ -46,10 +46,13 @@ After the migrations, every run:
 
 1. Applies `GRANTS_FILE`, which creates the `riftal_role_*` roles and their
    privileges. A missing file is skipped only when neither `GRANTS_FILE` nor
-   any `RIFTAL_DB_PASSWORD_*` is set, and fails the run otherwise, before
-   anything connects. Grants are never recorded
-   as applied: a dump restored onto a fresh server carries
+   any `RIFTAL_DB_PASSWORD_*` other than `RIFTAL_DB_PASSWORD_BACKUP` is set,
+   and fails the run otherwise, before anything connects. Grants are never
+   recorded as applied: a dump restored onto a fresh server carries
    `schema_migrations` but no roles, so they are rebuilt every run.
+   It then creates `riftal_role_backup` itself, the read-only role for
+   `../deploy/backup.sh`, since that role follows the whole schema and no
+   plugin owns it (`../deploy/README.md`, The dump login).
 2. For each `RIFTAL_DB_PASSWORD_<NAME>`, runs `CREATE USER IF NOT EXISTS` and
    then `ALTER USER` for `'<name>'@'%'`, so the environment always decides the
    password. Rotating one is changing the variable and running this again.
@@ -87,8 +90,9 @@ and one name-only `-e RIFTAL_DB_PASSWORD_<NAME>` per login, exported in the
 shell first, so the password stays off the host's command line. Until
 `riftal-game` ships `grants.sql` (riftal-game#259), the bind mount creates an
 empty directory in its place, and the runner refuses it: any run that sets
-`GRANTS_FILE` or a `RIFTAL_DB_PASSWORD_*` exits nonzero unless the grants
-file is a readable regular file. Only a run setting neither skips grants.
+`GRANTS_FILE` or a plugin's `RIFTAL_DB_PASSWORD_*` exits nonzero unless the
+grants file is a readable regular file. Only a run setting neither skips
+grants, so the backup login alone needs no grants file and no mount.
 
 Wrap the `wslc run` above in `timeout 120` when running it unattended: if the
 lock cannot be acquired, this hangs for `MIGRATIONS_LOCK_TIMEOUT` seconds

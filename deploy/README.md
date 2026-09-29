@@ -27,6 +27,20 @@ subdirectories `WORLDS_DIR` holds. What appears there is decided by
 instance world volume. Splitting a world onto a new instance (`/add-instance`)
 adds one line there; the script needs no change, per `CLAUDE.md` hard rule 5.
 
+## The dump login
+
+`backup.sh` dumps as `backup`, a read-only login whose password is
+`RIFTAL_DB_PASSWORD_BACKUP`. `../migrations/run-migrations.sh` creates it on
+any run with that variable set, grants it `riftal_role_backup`, and rotates it
+when the variable changes. The role holds `SELECT`, `SHOW VIEW` and `TRIGGER`
+on the schema and the global `SHOW_ROUTINE`. The last two matter: without
+them `mysqldump` still exits 0 and silently leaves every trigger or stored
+procedure out of the set. It can change no row, table, account or grant.
+`TRIGGER` is the one privilege that reaches past reading, because MySQL ties
+seeing a trigger to being allowed to create and drop one.
+`restore.sh` still runs as the admin account, because it drops and recreates
+the schema and recreates each procedure under its original `DEFINER`.
+
 ## Retention
 
 `BACKUP_RETENTION` (default 10, see `images/.env.example`) is how many backup
@@ -166,7 +180,7 @@ cleared and left neither restored nor in their pre-restore state.
 |---|---|---|---|
 | `MYSQL_HOST` | yes | | Database host, `mysql` in this stack |
 | `MYSQL_PORT` | no | `3306` | |
-| `MYSQL_USER` | no | `root` | |
+| `MYSQL_USER` | no | `backup` for `backup.sh`, `root` for `restore.sh` | |
 | `MYSQL_PASSWORD` | yes | | Read via `MYSQL_PWD` internally, same as `../migrations/run-migrations.sh` |
 | `MYSQL_DATABASE` | yes | | `riftal_dev` in the local stack |
 | `BACKUP_ROOT` | no | `/backups` | Where backup sets land; must be a volume, never the container's own layer |
@@ -213,7 +227,7 @@ wslc run --rm --network riftal-dev \
   -v riftal-backups:/backups \
   -v riftal-world:/worlds/riftal-world:ro \
   -v riftal-world-b:/worlds/riftal-world-b:ro \
-  -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
+  -e MYSQL_HOST=mysql -e MYSQL_USER=backup -e MYSQL_PASSWORD="$RIFTAL_DB_PASSWORD_BACKUP" \
   -e MYSQL_DATABASE=riftal_dev -e BACKUP_RETENTION="${BACKUP_RETENTION:-10}" \
   mysql:8 bash /deploy/backup.sh
 ```
