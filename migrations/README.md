@@ -105,7 +105,13 @@ provisioning against `fixtures/grants/`: a login created on an existing
 schema, an idempotent second run, rotation, a restore onto a fresh server,
 and the loud refusals. It calls
 `docker` directly,
-the same way `.github/workflows/ci.yml`'s PHP lint step already does, so it
-runs in CI and is **not runnable on Nasir's Windows machine**, which has no
-docker, only `wslc`. The `wslc` command above is how this runner is actually
-exercised locally.
+the same way `.github/workflows/ci.yml`'s PHP lint step does, so it runs in
+CI and, on Nasir's Windows machine, under the Docker inside the WSL distro that
+hosts the CI runners:
+
+```sh
+wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/Users/nasir/riftal-games/riftal-infra/migrations/selftest.sh
+```
+
+Each run writes its logs to its own `mktemp -d` directory and removes it on
+exit, so concurrent runs on one host do not clobber each other.
