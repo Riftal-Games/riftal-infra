@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from designer import stack
 
@@ -78,12 +79,20 @@ def test_the_real_compose_file_keeps_its_security_and_bot_defaults() -> None:
     # PocketMine casts the value with (bool), so "false" enables crash uploads.
     assert [a for a in args if a.startswith("--auto-report.enabled")] == ["--auto-report.enabled=0"]
 
-    # The server runs with xbox-auth off, so no variable may move either publish
-    # off loopback (ADR 010, riftal-pm#491).
-    overridden = stack.load_service(env={"DESIGNER_GAME_BIND": "192.168.0.10", "DESIGNER_VOLUME": "riftal_smoke_x"})
-    assert [p for p in overridden.ports if p.endswith("/udp")] == ["127.0.0.1:19134:19132/udp"]
-    assert [p for p in overridden.ports if "19140" in p] == ["127.0.0.1:19140:19140/tcp"]
+    overridden = stack.load_service(env={"DESIGNER_VOLUME": "riftal_smoke_x"})
     assert overridden.volumes[0] == "riftal_smoke_x:/data"
+
+
+def test_every_publish_in_the_real_compose_file_names_loopback_literally() -> None:
+    # The server runs with xbox-auth off, so no variable may move a publish off
+    # loopback (ADR 010, riftal-pm#491). Interpolating with a chosen environment
+    # only catches the variable names it sets, so the host is read uninterpolated.
+    raw = yaml.safe_load(stack.COMPOSE_FILE.read_text(encoding="utf-8"))
+    ports = [port for service in raw["services"].values() for port in service.get("ports", [])]
+    assert ports
+    for port in ports:
+        host = port.get("host_ip") if isinstance(port, dict) else str(port).partition(":")[0]
+        assert host == "127.0.0.1", f"publish {port!r} does not bind the literal 127.0.0.1"
 
 
 VOLUMES_TEXT = """
