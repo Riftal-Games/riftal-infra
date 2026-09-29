@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from enum import IntEnum
 from typing import Any
 
@@ -67,18 +67,32 @@ def base_name(name: str) -> str:
 
 RULE_KINDS = ("exact", "prefix", "suffix", "contains")
 
-# First match wins, on the base name only so a state never changes what a
-# verification check sees. ``register_rule(front=True)`` inserts at index 0
-# to beat every seeded rule.
-CLASS_RULES: list[tuple[str, str, BlockClass]] = [
+StateClass = Callable[[Mapping[str, str]], BlockClass]
+
+# Bedrock's ``height`` is layers minus one and the collision box is ``height``
+# eighths of a block (SnowLayer.php:69). A player steps up 0.6 of a block
+# (Player.php:281), so from height 5 snow is climbed like a block.
+SNOW_CLIMB_HEIGHT = 5
+
+
+def _snow_layer(states: Mapping[str, str]) -> BlockClass:
+    return BlockClass.SOLID if int(states.get("height", "0")) >= SNOW_CLIMB_HEIGHT else BlockClass.PASSABLE
+
+
+# First match wins, on the base name. A seeded rule whose class is a function
+# decides from the block's states, for a block whose collision a state
+# changes. ``register_rule(front=True)`` inserts at index 0 to beat every
+# seeded rule.
+CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
     *(("exact", n, BlockClass.AIR) for n in ("air", "cave_air", "void_air")),
     *(("exact", n, BlockClass.LIQUID) for n in ("water", "flowing_water", "bubble_column")),
     *(("exact", n, BlockClass.DANGER) for n in (
         "lava", "flowing_lava", "fire", "soul_fire", "magma", "cactus",
         "sweet_berry_bush", "wither_rose", "powder_snow", "campfire", "soul_campfire")),
+    ("exact", "snow_layer", _snow_layer),
     *(("exact", n, BlockClass.PASSABLE) for n in (
-        "lever", "ladder", "vine", "fern", "large_fern", "dead_bush", "snow_layer",
-        "flower_pot", "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
+        "lever", "ladder", "vine", "fern", "large_fern", "dead_bush",
+        "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
         "sugar_cane", "reeds", "bamboo_sapling", "hanging_roots", "dandelion", "poppy", "blue_orchid",
         "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley",
         "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",
@@ -86,15 +100,18 @@ CLASS_RULES: list[tuple[str, str, BlockClass]] = [
         "wheat", "carrots", "potatoes", "beetroot", "pitcher_crop", "melon_stem", "pumpkin_stem",
         "nether_wart", "web", "cobweb", "trip_wire", "deadbush", "structure_void", "glow_lichen",
         "resin_clump", "spore_blossom", "red_mushroom", "brown_mushroom", "crimson_roots",
-        "warped_roots", "nether_sprouts", "pink_petals")),
+        "warped_roots", "nether_sprouts", "pink_petals", "frame", "glow_frame", "portal",
+        "mangrove_propagule", "open_eyeblossom", "closed_eyeblossom", "wildflowers",
+        "leaf_litter")),
     ("prefix", "tripwire", BlockClass.PASSABLE),
+    ("prefix", "cave_vines", BlockClass.PASSABLE),
     ("prefix", "light_block", BlockClass.PASSABLE),
     ("prefix", "small_dripleaf", BlockClass.PASSABLE),
     # A full-collision block the "flower" suffix below would otherwise take.
     ("exact", "chorus_flower", BlockClass.SOLID),
     *(("suffix", s, BlockClass.PASSABLE) for s in (
         "sign", "button", "pressure_plate", "rail", "carpet", "sapling", "flower",
-        "tulip", "banner", "fungus", "_vines", "_grass")),
+        "tulip", "banner", "fungus", "_vines", "_grass", "_coral", "_coral_fan", "_coral_wall_fan")),
     ("contains", "torch", BlockClass.PASSABLE),
 ]
 
@@ -121,10 +138,11 @@ def _matches(kind: str, pattern: str, base: str) -> bool:
 
 
 def classify(name: str) -> BlockClass:
-    base = base_name(name)
+    base, states = parse_name(name)
+    base = base.rpartition(":")[2]
     for kind, pattern, cls in CLASS_RULES:
         if _matches(kind, pattern, base):
-            return cls
+            return cls(states) if callable(cls) else cls
     return BlockClass.SOLID
 
 

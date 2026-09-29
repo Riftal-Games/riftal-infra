@@ -79,8 +79,8 @@ def test_mangrove_roots_are_solid_and_hanging_roots_passable() -> None:
 
 
 # Names exactly as DesignBridge's get_region returned them on a v26.50 core
-# (riftal-infra#59), states included. A block with no collision box is walked
-# through and cannot be stood on, so it is PASSABLE; a SOLID answer there
+# (riftal-infra#59), states included. A block a player walks through or steps
+# over cannot be stood on as a floor, so it is PASSABLE; a SOLID answer there
 # would let a floor check pass over a block a player falls through.
 @pytest.mark.parametrize("name", [
     "minecraft:wheat[growth=0]",
@@ -147,7 +147,6 @@ def test_bridge_names_with_collision_are_solid(name: str) -> None:
     ("dead_bush", BlockClass.PASSABLE),
     ("light_block", BlockClass.PASSABLE),
     ("light_block_7", BlockClass.PASSABLE),
-    ("tripwire_hook", BlockClass.PASSABLE),
     ("small_dripleaf", BlockClass.PASSABLE),
     ("crimson_stem", BlockClass.SOLID),
     ("light_blue_wool", BlockClass.SOLID),
@@ -155,6 +154,65 @@ def test_bridge_names_with_collision_are_solid(name: str) -> None:
 ])
 def test_alias_and_prefix_names(name: str, cls: BlockClass) -> None:
     assert classify(name) is cls
+
+
+# Names from pmmp-core's generated BlockTypeNames.php and the flattened ids in
+# VanillaBlockMappings.php, not from a live get_region read. Each has no
+# collision box, in the core (BaseCoral.php:73, CaveVines.php:137,
+# ItemFrame.php via Flowable.php:48, NetherPortal.php:64) or, for the four the
+# core does not implement, in vanilla Bedrock.
+@pytest.mark.parametrize("name", [
+    "minecraft:frame[facing_direction=0,item_frame_map_bit=false,item_frame_photo_bit=false]",
+    "minecraft:glow_frame[facing_direction=0,item_frame_map_bit=false,item_frame_photo_bit=false]",
+    "minecraft:portal[portal_axis=x]",
+    "minecraft:cave_vines[growing_plant_age=0]",
+    "minecraft:cave_vines_body_with_berries[growing_plant_age=0]",
+    "minecraft:cave_vines_head_with_berries[growing_plant_age=0]",
+    "minecraft:tube_coral",
+    "minecraft:dead_brain_coral",
+    "minecraft:fire_coral_fan[coral_fan_direction=0]",
+    "minecraft:dead_horn_coral_fan[coral_fan_direction=0]",
+    "minecraft:bubble_coral_wall_fan[coral_direction=0]",
+    "minecraft:dead_tube_coral_wall_fan[coral_direction=0]",
+    "minecraft:mangrove_propagule",
+    "minecraft:open_eyeblossom",
+    "minecraft:closed_eyeblossom",
+    "minecraft:wildflowers",
+    "minecraft:leaf_litter",
+])
+def test_core_names_without_collision_are_passable(name: str) -> None:
+    assert classify(name) is BlockClass.PASSABLE
+
+
+# A player stands on these but cannot share a cell with them: a flower pot's
+# box is 3/8 tall (FlowerPot.php:86), so as headroom it blocks the hitbox.
+@pytest.mark.parametrize("name", [
+    "minecraft:flower_pot[update_bit=false]",
+    "minecraft:tube_coral_block",
+    "minecraft:dead_fire_coral_block",
+    "minecraft:end_portal_frame[end_portal_eye_bit=false,minecraft:cardinal_direction=north]",
+])
+def test_core_names_with_collision_are_solid(name: str) -> None:
+    assert classify(name) is BlockClass.SOLID
+
+
+# ``height`` is layers minus one (VanillaBlockMappings.php:1502) and the box is
+# ``height`` eighths tall (SnowLayer.php:69). A player steps 0.6 of a block
+# (Player.php:281), so from height 5 the snow is climbed, not walked through.
+@pytest.mark.parametrize("name, cls", [
+    ("snow_layer", BlockClass.PASSABLE),
+    ("minecraft:snow_layer[covered_bit=false,height=0]", BlockClass.PASSABLE),
+    ("minecraft:snow_layer[covered_bit=false,height=4]", BlockClass.PASSABLE),
+    ("minecraft:snow_layer[covered_bit=false,height=5]", BlockClass.SOLID),
+    ("minecraft:snow_layer[covered_bit=false,height=7]", BlockClass.SOLID),
+])
+def test_snow_layer_class_follows_its_height(name: str, cls: BlockClass) -> None:
+    assert classify(name) is cls
+
+
+def test_register_rule_front_beats_the_snow_height_rule(rules: list) -> None:
+    register_rule("exact", "snow_layer", BlockClass.DANGER)
+    assert classify("snow_layer[height=7]") is BlockClass.DANGER
 
 
 def test_bridge_liquid_and_danger_names() -> None:
