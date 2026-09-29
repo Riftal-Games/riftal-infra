@@ -57,6 +57,34 @@ def test_load_keeps_zone_out_of_args_and_the_id(tmp_path: Path) -> None:
         _checks(tmp_path, "version: 1\nchecks:\n  - check: warp_safe\n    zone: Lumber\n    at: void\n")
 
 
+@pytest.mark.parametrize("kind, entry, unknown", [
+    ("no_holes", "region: r\n    floor_y: 65\n    insett: 1", "insett"),
+    ("path_exists", "from: a\n    to: b\n    max_dorp: 2", "max_dorp"),
+    ("no_holes", "region: r\n    floor_y: 65\n    kind: sky", "kind"),
+    ("warp_safe", "at: void\n    margin: 4", "margin"),
+])
+def test_load_refuses_a_key_its_kind_does_not_read(tmp_path: Path, kind: str, entry: str, unknown: str) -> None:
+    with pytest.raises(ValueError, match=rf"check 0 \({kind}\) has unknown keys \['{unknown}'\]; it reads \["):
+        _checks(tmp_path, f"version: 1\nchecks:\n  - check: {kind}\n    {entry}\n")
+
+
+# Written out by hand, not derived from KINDS, so dropping a key from any kind's list refuses its entry here.
+@pytest.mark.parametrize("kind, args", [
+    ("path_exists", {"from": "a", "to": "b", "margin": 2, "max_drop": 2}),
+    ("travel_time", {"from": "a", "to": "b", "margin": 2, "speed": 3, "max_seconds": 5, "max_drop": 2}),
+    ("warp_safe", {"at": "a"}),
+    ("entity_clear", {"at": "a"}),
+    ("region_inside", {"inner": "r", "outer": "s"}),
+    ("light_ok", {"region": "r", "min_level": 8, "kind": "sky"}),
+    ("no_holes", {"region": "r", "floor_y": 65, "inset": 1}),
+    ("mine_valid", {"region": "r", "spec": "m"}),
+])
+def test_load_accepts_every_key_a_runner_reads(tmp_path: Path, kind: str, args: dict[str, object]) -> None:
+    entry = "".join(f"\n    {k}: {v}" for k, v in args.items())
+    (spec,) = _checks(tmp_path, f"version: 1\nchecks:\n  - check: {kind}{entry}\n")
+    assert spec.args == args
+
+
 def test_plan_unions_a_world_and_separates_another(tmp_path: Path) -> None:
     index = _index(tmp_path)
     plan = plan_fetches([
