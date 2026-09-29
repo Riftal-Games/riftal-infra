@@ -39,6 +39,17 @@ def test_entity_clear_names_a_danger_plant_in_the_hitbox(flat_plane_with_hole: R
     assert not found.ok and found.detail == "hitbox in danger" and found.coords == [(10, 5, 10)]
 
 
+def test_snow_that_crowds_a_two_high_space_blocks_the_hitbox() -> None:
+    column = Region.empty("snow", Bounds((0, 0, 0), (0, 3, 0)))
+    column.set(0, 0, 0, "minecraft:stone")
+    column.set(0, 3, 0, "minecraft:stone")
+    column.set(0, 1, 0, "minecraft:snow_layer[covered_bit=false,height=4]")
+    found = entity_clear(column, (0, 1, 0))
+    assert not found.ok and found.detail == "hitbox blocked" and found.coords == [(0, 1, 0)]
+    column.set(0, 1, 0, "minecraft:snow_layer[covered_bit=false,height=1]")
+    assert entity_clear(column, (0, 1, 0)).ok
+
+
 def test_fails_over_the_lava_corner(flat_plane_with_hole: Region) -> None:
     found = entity_clear(flat_plane_with_hole, (1, 4, 1))
     assert not found.ok and found.detail == "floor is danger" and found.coords == [(1, 3, 1)]
