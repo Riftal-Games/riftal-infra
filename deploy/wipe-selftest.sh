@@ -51,9 +51,12 @@ wait_ready "$C_PSOFF"
 q() { docker exec "$C" mysql -uroot -pselftest -N -B -e "$1" 2>/dev/null; }
 sh_in() { docker exec "$C" bash -c "$1"; }
 MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
+# MYSQL_PORT stays unset in every script's environment, so each one reaches
+# the server only through the default deploy/README.md documents, and the wipe
+# prints that default back.
+DOCUMENTED_DEFAULT_PORT=3306
 env_run() {
-  docker exec -e MYSQL_HOST="$MYSQL_HOST" -e MYSQL_PORT="$MYSQL_PORT" -e MYSQL_PASSWORD=selftest "$@"
+  docker exec -e MYSQL_HOST="$MYSQL_HOST" -e MYSQL_PASSWORD=selftest "$@"
 }
 
 docker exec -i "$C" bash -c 'mkdir -p /tmp/migrations && cat > /tmp/migrations/0001_fixture.sql' <<'SQL'
@@ -181,7 +184,7 @@ else
   pass "the confirmed wipe writes nothing to stderr"
 fi
 printf 'wipe %s: dropping and recreating at %s:%s, backup set %s\nwipe %s: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh\n' \
-  "$DB" "$MYSQL_HOST" "$MYSQL_PORT" "$wipe_set" "$DB" >"$LOGS/wipe.expected"
+  "$DB" "$MYSQL_HOST" "$DOCUMENTED_DEFAULT_PORT" "$wipe_set" "$DB" >"$LOGS/wipe.expected"
 if cmp -s "$LOGS/wipe.expected" "$LOGS/wipe.log"; then
   pass "the confirmed wipe's stdout is exactly its two progress lines"
 else
