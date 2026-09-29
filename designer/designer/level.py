@@ -152,20 +152,28 @@ def scan(bridge: Bridge, zone: str) -> int:
     return int(result["chunks"])
 
 
+def _comparable(entry: Location | NamedRegion) -> dict[str, Any]:
+    if bad := [t for t in entry.tags if not isinstance(t, str)]:
+        raise LevelError(f"{entry.name!r} has a tag that is not a string: {bad[0]!r}")
+    # Tags are only ever tested for membership and are saved in the order given, so their order is no difference.
+    # A repeated tag still counts, so a committed entry is reproduced tag for tag.
+    return {**entry.to_json(), "tags": sorted(entry.tags)}
+
+
 def _differences(index: WorldIndex, locations: list[Any], regions: list[Any]) -> list[str]:
     """Each entry ``index`` already holds that the step names but does not reproduce exactly, and how it differs."""
     held = index.names()
     out = []
     for entry in (*map(Location.from_json, locations), *map(NamedRegion.from_json, regions)):
         theirs = held.get(entry.name)
-        if theirs is None or theirs == entry:
+        if theirs is None:
             continue
         if type(theirs) is not type(entry):
             out.append(f"{entry.name!r} is a {type(entry).__name__} in the step, a {type(theirs).__name__} in world_index.json")
             continue
-        ours_j, theirs_j = entry.to_json(), theirs.to_json()
-        fields = [f"{k} {ours_j[k]} (world_index.json {theirs_j[k]})" for k in ours_j if ours_j[k] != theirs_j[k]]
-        out.append(f"{entry.name!r} has {', '.join(fields)}")
+        ours_j, theirs_j = _comparable(entry), _comparable(theirs)
+        if fields := [f"{k} {ours_j[k]} (world_index.json {theirs_j[k]})" for k in ours_j if ours_j[k] != theirs_j[k]]:
+            out.append(f"{entry.name!r} has {', '.join(fields)}")
     return out
 
 

@@ -691,3 +691,11 @@ the index preflight still come first. Each CLI invocation labels its entries wit
 command; the MCP `undo` walks every session's entries, so it reverses a CLI build too. Keeping a
 second apply in the CLI was rejected: it is how a signage build came to send nothing from the CLI
 while the MCP path sent it (#438).
+
+## 2026-09-29 A level build compares an entry's tags without their order
+
+A step reproduces a committed index entry when its tags are the same list in any order, since
+every consumer only tests a tag for membership and `world_index.json` keeps the order it was
+given. A repeated tag still counts, so `["mine", "mine"]` does not reproduce `["mine"]`, and a
+tag that is not a string refuses the build naming the entry. Dropping duplicates too was
+rejected because it would let a committed entry pass whose tags are not the step's list (#362).
