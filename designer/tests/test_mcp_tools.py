@@ -357,6 +357,44 @@ def test_undo_restores_the_fake(server: FakeBridge) -> None:
     assert call("undo")["count"] == 0 and _pristine(server)
 
 
+def _fail_nth(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, op: str, nth: int) -> None:
+    real, seen = getattr(fake, f"op_{op}"), []
+
+    def failing(args: dict[str, Any]) -> Any:
+        seen.append(op)
+        if len(seen) == nth:
+            raise fake_bridge.FakeOpError("FAKE_DOWN", f"{op} number {nth} refused")
+        return real(args)
+
+    monkeypatch.setattr(fake, f"op_{op}", failing)
+
+
+def _assert_second_undo_failed(result: dict[str, Any]) -> None:
+    assert result["ok"] is False and result["code"] == "FAKE_DOWN", result
+    assert (result["count"], result["undone"], result["undo_id"]) == (2, [2], 3), result
+    [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 3]
+    assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and Path(result["snapshot"]).is_file()
+    assert [(e["id"], e["restored"]) for e in call("list_undo")["entries"]] == [(3, False), (2, True), (1, False)]
+
+
+def test_undo_that_fails_on_its_second_restore_reports_the_first_one_pushed(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 1
+    assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
+    _fail_nth(server, monkeypatch, "set_blocks", 2)
+    _assert_second_undo_failed(call("undo", n=2))
+
+
+# The second restore reads the region twice: once to find the cells that differ, once to snapshot them.
+@pytest.mark.parametrize("nth", [3, 4])
+def test_undo_that_fails_reading_the_region_for_its_second_restore_still_reports(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, nth: int,
+) -> None:
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 1
+    assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
+    _fail_nth(server, monkeypatch, "get_region", nth)
+    _assert_second_undo_failed(call("undo", n=2))
+
+
 def test_restore_by_manifest_id_and_by_path(server: FakeBridge) -> None:
     first = call("fill", **MUTATING["fill"])
     assert first["undo_id"] == 1 and not _pristine(server)
@@ -707,6 +745,15 @@ def test_undo_of_signage_completes_when_its_text_is_already_gone_and_restore_ref
     assert "floating text with no snapshot" in call("restore", snapshot=1)["error"]
     assert call("remove_text", id="t_sign")["ok"] is True
     assert call("undo")["undone"] == [1] and every_role.texts == {}
+
+
+def test_undo_reports_the_block_undo_entry_when_the_oldest_undone_entry_is_text(every_role: FakeBridge) -> None:
+    assert call("build", kind="signage", spec=BUILD_SPECS["signage"][0], palette="test_every_role")["undo_id"] == 1
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 2
+    result = call("undo", n=2)
+    assert result["ok"] is True and result["undone"] == [2, 1] and result["undo_id"] == 3, result
+    [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 3]
+    assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and _pristine(every_role)
 
 
 def _with_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

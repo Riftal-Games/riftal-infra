@@ -420,6 +420,9 @@ Returns: region, world, frames, path.
 
 Reverse the ``n`` newest edits not yet undone, from any session; each pushes an ``undo`` entry that plain ``undo`` skips.
 
+Stops at the first failure with ``ok`` false, and ``undone``, ``snapshot`` and ``undo_id`` still name what was
+reversed and pushed before it.
+
 ```json
 {"properties": {"dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "n": {"default": 1, "title": "N", "type": "integer"}}, "title": "undoArguments", "type": "object"}
 ```
