@@ -56,6 +56,7 @@ wslc run -d -i --name riftal-instance-b --network riftal-dev \
   -v riftal-world-b:/data -v "$INFRA/images/plugins:/plugins" \
   -v "$INFRA/designer/world_index.json:/etc/riftal/world_index.json:ro" \
   -e "INSTANCE_ID=${INSTANCE_B_ID}" \
+  -e "RIFTAL_DEV_ENV=1" \
   -e "POCKETMINE_ARGS=--level-name=plots_b --level-type=flat --xbox-auth=false --motd=riftal-dev-b --riftal-dev-bots=on --auto-report.enabled=0" \
   local-pocketmine-mp bash /plugins/deliver-world-index.sh start-pocketmine
 
@@ -70,6 +71,9 @@ its own `INSTANCE_ID` value from `INSTANCE_B_ID` instead of `INSTANCE_ID`,
 and a distinct world and generator (`plots_b`/`flat`, against the primary
 instance's `mine_a`/`normal`) so the split is exercised against two genuinely
 different worlds rather than one world cloned onto a second port.
+`RIFTAL_DEV_ENV=1` is the same on both: `images/plugins/RiftalDevBots.php`
+admits bots only with it set, alongside `--riftal-dev-bots=on` and
+`--xbox-auth=false`, so an `instance-b` created without it refuses every bot.
 
 - [ ] The log reaches `Done (` for `riftal-instance-b`, same checks as the
       primary instance in step 4: no `[.../CRITICAL]`, `[.../EMERGENCY]`,
