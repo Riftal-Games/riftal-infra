@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from enum import IntEnum
 from typing import Any
 
@@ -67,34 +67,69 @@ def base_name(name: str) -> str:
 
 RULE_KINDS = ("exact", "prefix", "suffix", "contains")
 
-# First match wins, on the base name only so a state never changes what a
-# verification check sees. ``register_rule(front=True)`` inserts at index 0
-# to beat every seeded rule.
-CLASS_RULES: list[tuple[str, str, BlockClass]] = [
+StateClass = Callable[[Mapping[str, str]], BlockClass]
+
+# A PASSABLE feet cell promises a 1.8-tall hitbox (Human.php:121) fits under a
+# ceiling two cells up, which leaves this much of a block for a box beneath
+# it. A taller box clips the ceiling, the same headroom rule that makes a 3/8
+# flower pot SOLID. It is below the 0.6 step-up (Player.php:281), so it holds
+# for climbing too.
+FEET_CELL_HEADROOM = 2 - 1.8
+
+
+def _by_box_top(top: float) -> BlockClass:
+    return BlockClass.SOLID if top > FEET_CELL_HEADROOM else BlockClass.PASSABLE
+
+
+# Bedrock's ``height`` is layers minus one and the collision box is ``height``
+# eighths of a block (SnowLayer.php:69), so from height 2 (0.25) it is SOLID.
+def _snow_layer(states: Mapping[str, str]) -> BlockClass:
+    return _by_box_top(int(states.get("height", "0")) / 8)
+
+
+# ``growth`` 0-2 is the one-block crop, 3/16 tall at 0 and 5/16 after
+# (PitcherCrop.php:54). From 3 it is the double crop, whose lower half is 5/16
+# (DoublePitcherCrop.php:61) and upper half has no box (:54).
+def _pitcher_crop(states: Mapping[str, str]) -> BlockClass:
+    if states.get("upper_block_bit") == "true":
+        return BlockClass.PASSABLE
+    return _by_box_top((3 if int(states.get("growth", "0")) == 0 else 5) / 16)
+
+
+# First match wins, on the base name. A seeded rule whose class is a function
+# decides from the block's states, for a block whose collision a state
+# changes. ``register_rule(front=True)`` inserts at index 0 to beat every
+# seeded rule.
+CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
     *(("exact", n, BlockClass.AIR) for n in ("air", "cave_air", "void_air")),
     *(("exact", n, BlockClass.LIQUID) for n in ("water", "flowing_water", "bubble_column")),
     *(("exact", n, BlockClass.DANGER) for n in (
         "lava", "flowing_lava", "fire", "soul_fire", "magma", "cactus",
         "sweet_berry_bush", "wither_rose", "powder_snow", "campfire", "soul_campfire")),
+    ("exact", "snow_layer", _snow_layer),
+    ("exact", "pitcher_crop", _pitcher_crop),
     *(("exact", n, BlockClass.PASSABLE) for n in (
-        "lever", "ladder", "vine", "fern", "large_fern", "dead_bush", "snow_layer",
-        "flower_pot", "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
+        "lever", "ladder", "vine", "fern", "large_fern", "dead_bush",
+        "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
         "sugar_cane", "reeds", "bamboo_sapling", "hanging_roots", "dandelion", "poppy", "blue_orchid",
         "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley",
         "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",
         "double_plant", "red_flower", "yellow_flower",
-        "wheat", "carrots", "potatoes", "beetroot", "pitcher_crop", "melon_stem", "pumpkin_stem",
+        "wheat", "carrots", "potatoes", "beetroot", "melon_stem", "pumpkin_stem",
         "nether_wart", "web", "cobweb", "trip_wire", "deadbush", "structure_void", "glow_lichen",
         "resin_clump", "spore_blossom", "red_mushroom", "brown_mushroom", "crimson_roots",
-        "warped_roots", "nether_sprouts", "pink_petals")),
+        "warped_roots", "nether_sprouts", "pink_petals", "frame", "glow_frame", "portal",
+        "mangrove_propagule", "open_eyeblossom", "closed_eyeblossom", "wildflowers",
+        "leaf_litter")),
     ("prefix", "tripwire", BlockClass.PASSABLE),
+    ("prefix", "cave_vines", BlockClass.PASSABLE),
     ("prefix", "light_block", BlockClass.PASSABLE),
     ("prefix", "small_dripleaf", BlockClass.PASSABLE),
     # A full-collision block the "flower" suffix below would otherwise take.
     ("exact", "chorus_flower", BlockClass.SOLID),
     *(("suffix", s, BlockClass.PASSABLE) for s in (
         "sign", "button", "pressure_plate", "rail", "carpet", "sapling", "flower",
-        "tulip", "banner", "fungus", "_vines", "_grass")),
+        "tulip", "banner", "fungus", "_vines", "_grass", "_coral", "_coral_fan", "_coral_wall_fan")),
     ("contains", "torch", BlockClass.PASSABLE),
 ]
 
@@ -121,10 +156,11 @@ def _matches(kind: str, pattern: str, base: str) -> bool:
 
 
 def classify(name: str) -> BlockClass:
-    base = base_name(name)
+    base, states = parse_name(name)
+    base = base.rpartition(":")[2]
     for kind, pattern, cls in CLASS_RULES:
         if _matches(kind, pattern, base):
-            return cls
+            return cls(states) if callable(cls) else cls
     return BlockClass.SOLID
 
 
