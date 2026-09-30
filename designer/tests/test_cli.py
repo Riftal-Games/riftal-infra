@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -268,6 +269,7 @@ def test_terrain_terraform_apply_pushes_an_undo_entry_that_restores_the_ground(
     report = json.loads(capsys.readouterr().out)
     [entry] = UndoStack().entries()
     assert report["undo_id"] == 1 and (entry["id"], entry["op"], entry["path"]) == (1, "terraform", report["snapshot"])
+    assert re.fullmatch(r"cli-\d{8}T\d{6}Z", entry["session"]), entry["session"]
 
     assert [r.ok for r in UndoStack().undo(bridge)] == [True]
     assert [(e["op"], e["restored"]) for e in UndoStack().entries()] == [("terraform", True), ("undo", False)]

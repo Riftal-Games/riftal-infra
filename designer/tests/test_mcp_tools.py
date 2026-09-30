@@ -899,3 +899,17 @@ def test_every_tool_is_registered() -> None:
         "spawn_npc", "move_entity", "remove_entity", "set_spawn", "set_text", "remove_text",
         "save_world", "load_world", "create_world", "pregen", "run_command",
     }
+
+
+def test_a_write_that_fails_reports_the_blocks_applied_not_the_blocks_planned(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert call("fill", **MUTATING["fill"], dry_run=True)["blocks"] == 192
+    _fail_nth(server, monkeypatch, "fill", 1)
+    result = call("fill", **MUTATING["fill"])
+    assert result["ok"] is False and result["code"] == "FAKE_DOWN" and result["blocks"] == 0, result
+    assert result["undo_id"] == 1 and _pristine(server)
+
+
+def test_terraform_refuses_an_empty_edit_list_and_sends_nothing(server: FakeBridge) -> None:
+    result = call("terraform", target={"min": [300, 300], "max": [303, 303]}, mode="flatten", level=70)
+    assert result["ok"] is False and "nothing to do: the edit list is empty" in result["error"], result
+    assert _writes(server) == [] and call("list_undo")["entries"] == []
