@@ -792,3 +792,12 @@ id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cann
 is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is. So
 is a `SetBlock` whose entry alone passes it: sent, the bridge would close the connection after
 the batches before it had already landed (#572).
+
+## 2026-09-30 Kelp and seagrass are LIQUID
+
+Both always stand in water in Bedrock, but DesignBridge's region read takes each cell from the
+chunk's main block layer only (`RegionReadJob`, `Chunk::getBlockStateId`), so the water beneath
+them never reaches the toolkit. Classed PASSABLE, a hitbox in kelp read "clear". They are LIQUID,
+so `entity_clear` names them `hitbox in liquid` as it does water and `bubble_column`. Reading the
+second layer in DesignBridge was rejected here: that is a riftal-game change, and the class is
+right for these blocks whatever the bridge sends (#479).

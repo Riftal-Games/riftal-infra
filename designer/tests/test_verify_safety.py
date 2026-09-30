@@ -1,3 +1,5 @@
+import pytest
+
 from designer.blocks import AIR
 from designer.region import Bounds, Region
 from designer.verify import LANDING, entity_clear, region_inside, warp_safe
@@ -204,3 +206,11 @@ def test_region_inside_both_ways() -> None:
     found = region_inside(Bounds((10, 1, 10), (40, 6, 20)), outer)
     assert not found.ok and found.coords == [(40, 6, 20)]
     assert found.detail == "corner (40, 6, 20) is outside (0, 0, 0)..(39, 7, 39)"
+
+
+# kelp and seagrass always stand in water, which DesignBridge's single-layer read never sends.
+@pytest.mark.parametrize("block", ["minecraft:bubble_column", "minecraft:kelp[kelp_age=3]", "minecraft:seagrass"])
+def test_entity_clear_names_a_waterlogged_or_bubbling_hitbox_liquid(flat_plane_with_hole: Region, block: str) -> None:
+    flat_plane_with_hole.set(10, 4, 10, block)
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert not found.ok and found.detail == "hitbox in liquid" and found.coords == [(10, 4, 10)]
