@@ -195,6 +195,7 @@ def test_zone_checks_resolve_names_the_steps_made(bridge: Bridge, root: Path) ->
     pytest.param("tbox", lambda s: replace(s, min=(s.min[0] - 1, *s.min[1:])), r"min \[.*\] \(world_index.json \[.*\]\)", id="min"),
     pytest.param("tbox", lambda s: replace(s, max=(*s.max[:2], s.max[2] + 1)), r"max \[.*\] \(world_index.json \[.*\]\)", id="max"),
     pytest.param("tbox_entrance", lambda s: replace(s, tags=["mine", "spawn"]), r"tags \['mine', 'walkway'\] \(world_index.json \['mine', 'spawn'\]\)", id="region-tags"),
+    pytest.param("tbox_entrance", lambda s: replace(s, tags=["spawn", "mine"]), r"tags \['mine', 'walkway'\] \(world_index.json \['spawn', 'mine'\]\)", id="tags-as-written"),
     pytest.param("tbox", lambda s: replace(s, meta={**s.meta, "resets": "never"}), r"meta .* \(world_index.json .*'resets': 'never'", id="meta"),
     pytest.param("tbox_spawn", lambda s: NamedRegion(s.name, s.world, s.pos, s.pos), "Location in the step, a NamedRegion", id="kind"),
 ])
