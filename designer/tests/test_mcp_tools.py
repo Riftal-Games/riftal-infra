@@ -377,11 +377,19 @@ def _assert_second_undo_failed(result: dict[str, Any], code: str = "FAKE_DOWN") 
     assert [(e["id"], e["restored"]) for e in call("list_undo")["entries"]] == [(3, False), (2, True), (1, False)]
 
 
-def test_undo_that_fails_on_its_second_restore_reports_the_first_one_pushed(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+# The second restore snapshots its region before its write fails, so that snapshot is pushed as entry 4 and reported.
+def test_undo_that_fails_writing_its_second_restore_pushes_and_reports_that_restore_snapshot(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     assert call("fill", **MUTATING["fill"])["undo_id"] == 1
     assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
     _fail_nth(server, monkeypatch, "set_blocks", 2)
-    _assert_second_undo_failed(call("undo", n=2))
+    result = call("undo", n=2)
+    assert result["ok"] is False and result["code"] == "FAKE_DOWN", result
+    assert (result["count"], result["undone"], result["undo_id"]) == (2, [2], 4), result
+    [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 4]
+    assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and Path(result["snapshot"]).is_file()
+    assert [(e["id"], e["restored"]) for e in call("list_undo")["entries"]] == [(4, False), (3, False), (2, True), (1, False)]
 
 
 # The second restore reads the region twice: once to find the cells that differ, once to snapshot them.

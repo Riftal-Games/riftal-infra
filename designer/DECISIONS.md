@@ -792,3 +792,12 @@ id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cann
 is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is. So
 is a `SetBlock` whose entry alone passes it: sent, the bridge would close the connection after
 the batches before it had already landed (#572).
+
+## 2026-09-30 An undo whose restore fails still pushes that restore's snapshot
+
+`UndoStack.undo` pushes the snapshot a restore took as an `undo` entry even when the restore
+then fails, as `fill` and `restore` already do, and leaves the entry it was undoing unrestored.
+The `undo` tool reports that snapshot and its `undo_id`. A restore can fail after writing some
+cells, so its snapshot is the only record of what those cells held. Deleting the file was
+rejected for that reason; leaving it on disk outside the manifest, as before, left an orphan
+`prune` never found (#544).
