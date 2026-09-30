@@ -7,11 +7,10 @@ import pytest
 from designer.builders.base import Palette
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
-from designer.config import PROJECT_ROOT
+from designer.config import PROJECT_ROOT, SIBLING_GAME_DIR
 
 SPEC_PATH = PROJECT_ROOT / "specs" / "lumber.json"
 FRAGMENT = Path("mines") / "resources" / "worlds" / "lumber.json"
-SIBLING_GAME_DIR = Path(__file__).resolve().parents[3] / "riftal-game"
 
 
 def _fragment_path() -> Path:
