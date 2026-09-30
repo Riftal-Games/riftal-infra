@@ -792,3 +792,12 @@ id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cann
 is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is. So
 is a `SetBlock` whose entry alone passes it: sent, the bridge would close the connection after
 the batches before it had already landed (#572).
+
+## 2026-09-30 `build_level` refuses a mines zone whose fragment's `ores` differ from its spec's
+
+`mine_valid` reads the designer spec's `ores`, but RiftalMines refills from the riftal-game
+fragment the mines `config.yml` names for the zone. `build_level` reads that fragment beside the
+config and refuses the build, before any request, unless every `mine` step's spec has the same
+`ores` (names compared canonically, weights as numbers). A fragment it cannot read also refuses.
+Until riftal-game#527 lands, riftal-game `main`'s ore lists are behind the specs, so real mine
+builds against it refuse; that is the check working, not a reason to relax it (#549).
