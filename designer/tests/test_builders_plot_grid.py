@@ -3,7 +3,7 @@ import pytest
 from designer.builders.base import Palette
 from designer.builders.plot_grid import CLEARANCE, PlotGridSpec, build_plot_grid
 from designer.edits import Fill
-from designer.region import Bounds
+from designer.region import Bounds, Region
 from designer.verify import path_exists
 
 
@@ -84,7 +84,9 @@ def test_build_plot_grid_is_deterministic(palette: Palette) -> None:
 def test_path_exists_between_two_far_plots(palette: Palette) -> None:
     spec = _spec()
     edits = build_plot_grid(spec, palette)
-    region = edits.to_region()
+    # One layer of air above the build, where the head of a player on a 1.5-tall plot edge wall reaches.
+    box = edits.bounds
+    region = edits.to_region(Region.empty(spec.world, Bounds(box.min, (box.max[0], box.max[1] + 1, box.max[2]))))
     found = path_exists(region, (1, spec.y + 1, 1), (7, spec.y + 1, 7))
     assert found.ok, found.detail
 

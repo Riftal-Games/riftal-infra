@@ -1,4 +1,6 @@
-from designer.blocks import AIR
+import pytest
+
+from designer.blocks import AIR, is_tall_floor
 from designer.region import Bounds, Region
 from designer.verify import LANDING, entity_clear, region_inside, warp_safe
 
@@ -204,3 +206,31 @@ def test_region_inside_both_ways() -> None:
     found = region_inside(Bounds((10, 1, 10), (40, 6, 20)), outer)
     assert not found.ok and found.coords == [(40, 6, 20)]
     assert found.detail == "corner (40, 6, 20) is outside (0, 0, 0)..(39, 7, 39)"
+
+
+@pytest.mark.parametrize("floor", ["minecraft:oak_fence", "minecraft:cobblestone_wall", "minecraft:fence_gate[open_bit=false]"])
+def test_a_tall_floor_needs_a_third_clear_cell_for_stand_mask_and_entity_clear(floor: str) -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+    region.set(0, 0, 0, floor)
+    assert region.stand_mask()[1, 0, 0] and entity_clear(region, (0, 1, 0)).ok
+    region.set(0, 3, 0, "minecraft:stone")
+    assert not region.stand_mask()[1, 0, 0]
+    found = entity_clear(region, (0, 1, 0))
+    assert (found.ok, found.detail, found.coords) == (False, "hitbox blocked", [(0, 3, 0)])
+
+
+def test_a_one_block_floor_and_an_open_gate_still_need_only_two_clear_cells() -> None:
+    for floor in ("minecraft:stone", "minecraft:oak_fence_gate[open_bit=true]", "minecraft:wall_torch"):
+        region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+        region.set(0, 0, 0, "minecraft:stone")
+        region.set(0, 3, 0, "minecraft:stone")
+        if floor != "minecraft:stone":
+            assert not is_tall_floor(floor)
+        assert region.stand_mask()[1, 0, 0] and entity_clear(region, (0, 1, 0)).ok
+
+
+def test_a_tall_floor_whose_third_cell_is_outside_the_region_is_not_standable() -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 2, 0)))
+    region.set(0, 0, 0, "minecraft:oak_fence")
+    assert not region.stand_mask()[1, 0, 0]
+    assert entity_clear(region, (0, 1, 0)).detail == "hitbox blocked"

@@ -792,3 +792,13 @@ id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cann
 is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is. So
 is a `SetBlock` whose entry alone passes it: sent, the bridge would close the connection after
 the batches before it had already landed (#572).
+
+## 2026-09-30 A fence, wall or closed fence gate floor needs a third clear cell
+
+Fences, walls and closed fence gates are 1.5 blocks tall, so a player standing on one reaches
+half a block into the third cell above it. `blocks.is_tall_floor` names them (base ending
+`fence` or `_wall`, or a `fence_gate` without `open_bit=true`). `Region.stand_mask` and
+`entity_clear` require that third cell to be passable over such a floor, and treat it as
+blocked when it lies outside the region, as the two-cell rule already treats a head cell
+outside the region. Classing these blocks by their box top like snow layers was rejected: they
+are still SOLID to stand on; only the headroom changes (#469).

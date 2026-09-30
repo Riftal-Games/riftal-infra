@@ -152,6 +152,25 @@ CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
 ]
 
 
+# Fences, walls and closed fence gates are 1.5 blocks tall (Fence.php, Wall.php, FenceGate.php), so a
+# player standing on one reaches half a block into the third cell above it, not the second.
+TALL_FLOOR_SUFFIXES = ("fence", "_wall")
+
+
+def is_tall_floor(name: str) -> bool:
+    """A block whose collision box tops out above 1, so standing on it needs a third clear cell."""
+    base, states = parse_name(name)
+    base = base.rpartition(":")[2]
+    if base.endswith("fence_gate"):
+        return states.get("open_bit") != "true"
+    return base.endswith(TALL_FLOOR_SUFFIXES)
+
+
+def tall_floor_lut(palette: Sequence[str]) -> np.ndarray:
+    """Palette index to ``is_tall_floor``, for ``lut[blocks]`` over a whole region."""
+    return np.array([is_tall_floor(name) for name in palette], dtype=bool)
+
+
 def register_rule(kind: str, pattern: str, cls: BlockClass, front: bool = True) -> None:
     """Add a rule. ``front`` rules override every existing one for their match."""
     if kind not in RULE_KINDS:
