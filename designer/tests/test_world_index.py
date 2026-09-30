@@ -236,3 +236,14 @@ def test_select_filters_by_kind_and_tag_in_name_order(index: WorldIndex) -> None
         index.select("worlds", "spawn")
     with pytest.raises(ValueError, match="^kind must be one of worlds, locations, regions, not 'save'$"):
         index.select("save")
+
+
+@pytest.mark.parametrize("kind", ["locations", "regions"])
+@pytest.mark.parametrize("tag", [1, True, None, ["safe_zone"]])
+def test_load_refuses_an_entry_with_a_tag_that_is_not_a_string(index: WorldIndex, tmp_path: Path, kind: str, tag: object) -> None:
+    data = index.to_json()
+    data[kind][0]["tags"] = ["mine", tag]
+    (tmp_path / "bad.json").write_text(json.dumps(data), encoding="utf-8")
+    name = data[kind][0]["name"]
+    with pytest.raises(ValueError, match=f"^{'Location' if kind == 'locations' else 'NamedRegion'} '{name}' has a tag that is not a string"):
+        WorldIndex.load(tmp_path / "bad.json")
