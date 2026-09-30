@@ -88,11 +88,13 @@ def test_a_layer_ore_absent_from_ores_refuses(bridge: Bridge, root: Path) -> Non
     _refused(bridge, root, "mine_a", r"mine_valid_mine_a: 1024 interior cells neither air nor in ores \[\(-16, 45, -16\)")
 
 
-def test_an_ore_named_by_an_alias_refuses_since_it_reads_back_under_another_name(bridge: Bridge, root: Path) -> None:
+# An alias reads back under another name, and it has no reset state, so it is refused before any request.
+def test_an_ore_named_by_an_alias_refuses_since_it_has_no_reset_state(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
     spec = json.loads((root / "specs" / "mine_c.json").read_text(encoding="utf-8"))
     spec["ores"] = {"minecraft:iron_ore": 1.0, "minecraft:lapis_lazuli_ore": 0.4}
     (root / "specs" / "mine_c.json").write_text(json.dumps(spec), encoding="utf-8")
-    _refused(bridge, root, "mine_c", r"mine_valid_mine_c: composition off; \d+ interior cells neither air nor in ores")
+    _refused(bridge, root, "mine_c", r"specs/mine_c\.json names \['minecraft:lapis_lazuli_ore'\], which have no reset state")
+    assert fake.requests == []
 
 
 def test_a_chorus_flower_outside_every_interior_refuses(bridge: Bridge, root: Path) -> None:

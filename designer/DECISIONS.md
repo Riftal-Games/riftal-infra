@@ -792,3 +792,17 @@ id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cann
 is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is. So
 is a `SetBlock` whose entry alone passes it: sent, the bridge would close the connection after
 the batches before it had already landed (#572).
+
+## 2026-09-30 A mine's `ores` key matches only the state the reset writes
+
+`mine_valid` counts a block under an `ores` key only when the block is in exactly the state
+`designer/reset_states.py` gives for its base, and the key names a subset of that state. The
+table mirrors what RiftalMines' reset places: the block of `StringToItemParser::parse(name)`
+(riftal-game `MineResetListener.php`), not what the bridge reads back for a bare id
+(riftal-game#256). It lists only the bases the specs and fragments use; a `mine` step naming a
+base the table lacks refuses the build before any request, and a test walks every spec and
+fragment base. Any entry for a block with states, today only `oak_log` with `pillar_axis=y`,
+needs a one-time live check on the designer stack. `MineSpec` refuses two `ores` keys on one
+base where one's states are a subset of the other's, since one block would satisfy both. A
+lenient match was rejected because it could pass a level the next reset silently changes; the
+vendored Bedrock state data was rejected because it marks no state as the default (#561).

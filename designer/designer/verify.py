@@ -13,6 +13,7 @@ import numpy as np
 from designer.blocks import AIR, BlockClass, base_name, format_name, parse_name
 from designer.builders.mine_spec import SIDES, MineSpec
 from designer.region import Bounds, LightRegion, Region
+from designer.reset_states import RESET_STATES
 
 # Bedrock player speeds on level ground, blocks per second.
 WALK_SPEED = 4.317
@@ -425,14 +426,18 @@ def _fractions(blocks: np.ndarray, names: list[str]) -> dict[str, float]:
 def _as_ores(palette: list[str], ores: dict[str, float]) -> list[str]:
     """Each palette name as the ``ores`` key it satisfies, else canonical.
 
-    A key matches a block with the same base whose states include the key's. The engine reads a block back with
-    every state it has, ``minecraft:oak_log[pillar_axis=y]``, while a spec names only what it cares about.
+    A block satisfies a key only in exactly the state the reset writes for its base (``RESET_STATES``), and a key
+    names a subset of that state. The engine reads a block back with every state it has,
+    ``minecraft:oak_log[pillar_axis=y]``, while a spec names only what it cares about; any other state of the same
+    base is a block the next reset would change, so it counts as unnamed. A base the table lacks matches nothing.
     """
     keys = [(key, *parse_name(key)) for key in ores]
     out = []
     for name in palette:
         base, states = parse_name(name)
-        match = (key for key, kb, ks in keys if kb == base and ks.items() <= states.items())
+        reset = RESET_STATES.get(base)
+        exact = reset is not None and states == reset
+        match = (key for key, kb, ks in keys if exact and kb == base and ks.items() <= states.items())
         out.append(next(match, format_name(base, states)))
     return out
 

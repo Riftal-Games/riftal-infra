@@ -21,6 +21,12 @@ def _weights(data: Any, key: str) -> dict[str, float]:
     ores = {format_name(*parse_name(name)): float(w) for name, w in dict(data).items()}
     if not ores or min(ores.values()) <= 0:
         raise ValueError(f"{key} must name at least one block with a positive weight, got {data!r}")
+    # A block in both keys' states would count under whichever came first, so the other could never be satisfied.
+    parsed = [(name, *parse_name(name)) for name in ores]
+    for i, (a, ab, astates) in enumerate(parsed):
+        for b, bb, bstates in parsed[i + 1:]:
+            if ab == bb and (astates.items() <= bstates.items() or bstates.items() <= astates.items()):
+                raise ValueError(f"{key} names {a!r} and {b!r}, which one block can satisfy both of")
     return ores
 
 

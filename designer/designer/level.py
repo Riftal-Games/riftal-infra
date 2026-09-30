@@ -32,6 +32,7 @@ from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
 from designer.palettes import load_palettes
 from designer.region import Bounds, Bounds2D, Region, fetch_heightmap, fetch_region
+from designer.reset_states import RESET_STATES
 from designer.world_index import Location, NamedRegion, WorldIndex
 
 ZONE_RE = re.compile(r"^[a-z0-9_]+$")
@@ -242,6 +243,17 @@ def check_mine_gate(recipe: Recipe, specs: list[checks_mod.CheckSpec], mines_con
         )
 
 
+def check_reset_states(recipe: Recipe, root: Path) -> None:
+    """Every ore a ``mine`` step names has its reset state in ``RESET_STATES``; ``mine_valid`` could not tell it apart otherwise."""
+    for step in recipe.steps:
+        if step.build != "mine":
+            continue
+        spec = MineSpec.from_dict(json.loads(_input(root, step.spec).read_text(encoding="utf-8")))
+        names = [*spec.ores, *(name for layer in spec.ore_layers for name in layer.ores)]
+        if missing := sorted({parse_name(n)[0] for n in names} - set(RESET_STATES)):
+            raise LevelError(f"{step.spec} names {missing}, which have no reset state in designer/reset_states.py")
+
+
 def chorus_outside(region: Region, recipe: Recipe, root: Path) -> list[tuple[int, int, int]]:
     """Chorus flowers outside every interior a ``mine`` step builds: a projectile breaks one with no cancellable event (ADR 014)."""
     interiors = [
@@ -279,6 +291,7 @@ def build_level(
     check_index(recipe, index)
     specs = checks_mod.load_checks(checks_path)
     check_mine_gate(recipe, specs, mines_config_path() if mines_config is None else mines_config)
+    check_reset_states(recipe, root)
     inputs = input_hashes(recipe, root)
     for tile in pregen_bounds(recipe.bounds).tiles():
         bridge.call_job("pregen", world=zone, bounds=tile.to_json())
