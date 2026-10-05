@@ -118,6 +118,9 @@ def _pitcher_crop(states: Mapping[str, str]) -> BlockClass:
 CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
     *(("exact", n, BlockClass.AIR) for n in ("air", "cave_air", "void_air")),
     *(("exact", n, BlockClass.LIQUID) for n in ("water", "flowing_water", "bubble_column")),
+    # Always waterlogged in Bedrock, but DesignBridge reads only a chunk's main block layer
+    # (RegionReadJob, Chunk::getBlockStateId), so the water under them never arrives.
+    *(("exact", n, BlockClass.LIQUID) for n in ("kelp", "seagrass")),
     *(("exact", n, BlockClass.DANGER) for n in (
         "lava", "flowing_lava", "fire", "soul_fire", "magma", "cactus",
         "sweet_berry_bush", "wither_rose", "powder_snow", "campfire", "soul_campfire")),
@@ -128,7 +131,7 @@ CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
     ("exact", "pitcher_crop", _pitcher_crop),
     *(("exact", n, BlockClass.PASSABLE) for n in (
         "lever", "ladder", "vine", "fern", "large_fern", "dead_bush",
-        "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
+        "redstone_wire", "lily_pad", "waterlily",
         "sugar_cane", "reeds", "bamboo_sapling", "hanging_roots", "dandelion", "poppy", "blue_orchid",
         "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley",
         "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",

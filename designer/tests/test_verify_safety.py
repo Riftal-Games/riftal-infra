@@ -234,3 +234,11 @@ def test_a_tall_floor_whose_third_cell_is_outside_the_region_is_not_standable_bu
     region.set(0, 0, 0, "minecraft:oak_fence")
     assert not region.stand_mask()[1, 0, 0]
     assert entity_clear(region, (0, 1, 0)).ok
+
+
+# kelp and seagrass always stand in water, which DesignBridge's single-layer read never sends.
+@pytest.mark.parametrize("block", ["minecraft:bubble_column", "minecraft:kelp[kelp_age=3]", "minecraft:seagrass"])
+def test_entity_clear_names_a_waterlogged_or_bubbling_hitbox_liquid(flat_plane_with_hole: Region, block: str) -> None:
+    flat_plane_with_hole.set(10, 4, 10, block)
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert not found.ok and found.detail == "hitbox in liquid" and found.coords == [(10, 4, 10)]

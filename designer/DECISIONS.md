@@ -840,3 +840,12 @@ half a block into the third cell above it. `blocks.is_tall_floor` names them (ba
 each keeps its existing rule: `stand_mask` treats the cell as blocked, as it never marks the
 top layer standable, and `entity_clear` lets it pass, as it does a head cell (2026-09-08). Classing these blocks by their box top like snow layers was rejected: they
 are still SOLID to stand on; only the headroom changes (#469).
+
+## 2026-09-30 Kelp and seagrass are LIQUID
+
+Both always stand in water in Bedrock, but DesignBridge's region read takes each cell from the
+chunk's main block layer only (`RegionReadJob`, `Chunk::getBlockStateId`), so the water beneath
+them never reaches the toolkit. Classed PASSABLE, a hitbox in kelp read "clear". They are LIQUID,
+so `entity_clear` names them `hitbox in liquid` as it does water and `bubble_column`. Reading the
+second layer in DesignBridge was rejected here: that is a riftal-game change, and the class is
+right for these blocks whatever the bridge sends (#479).
