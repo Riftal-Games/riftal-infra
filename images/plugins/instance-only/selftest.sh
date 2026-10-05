@@ -7,8 +7,9 @@
 #
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
-# stubbed. It starts no container, so it needs neither the dev stack nor a
-# built RiftalMines.phar.
+# stubbed. It also covers link-replaced.sh, which it runs against scratch
+# fixtures in a throwaway php:8.3-cli-alpine container, so it needs Docker and
+# that image, but neither the dev stack nor a built RiftalMines.phar.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
