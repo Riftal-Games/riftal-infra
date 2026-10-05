@@ -16,7 +16,7 @@ from designer.cli import main
 from designer.region import Bounds
 from designer.verify import Check
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
+from tests.conftest import ARENA, REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
 from tests import fake_bridge
 from tests.fake_bridge import FakeBridge, FakeWorld
 
@@ -357,6 +357,15 @@ def test_undo_restores_the_fake(server: FakeBridge) -> None:
     assert call("undo")["count"] == 0 and _pristine(server)
 
 
+
+def test_undo_of_two_block_edits_reports_the_newest_undo_entry(server: FakeBridge) -> None:
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 1
+    assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
+    result = call("undo", n=2)
+    assert result["ok"] is True and (result["count"], result["undone"], result["undo_id"]) == (2, [2, 1], 4), result
+    [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 4]
+    assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and _pristine(server)
+
 def _fail_nth(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, op: str, nth: int) -> None:
     real, seen = getattr(fake, f"op_{op}"), []
 
@@ -595,6 +604,9 @@ def test_build_without_register_index_lets_a_taken_name_through_and_leaves_the_i
 def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
     server: FakeBridge, refusable: FakeBridge, tmp_path: Path, kind: str, change: dict[str, Any], error: str, replace_index: bool,
 ) -> None:
+    listed = WorldIndex.load(tmp_path / "index.json")
+    listed.worlds.append(ARENA)
+    listed.save(tmp_path / "index.json")
     spec = {**SMALL_MINE_SPEC, **change}
     before = (tmp_path / "index.json").read_bytes()
     for dry_run in (True, False):

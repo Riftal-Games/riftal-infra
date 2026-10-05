@@ -39,11 +39,15 @@ STONE_PALETTES = {
     "colors": {},
     "palettes": {"test_stone": dict.fromkeys(("wall", "wall_trim", "floor", "ceiling", "light", "sign", "road", "road_edge", "stairs"), "minecraft:stone")},
 }
-# Each is a kind and a change to SMALL_MINE_SPEC that the index refuses once the `refusable` fixture is up.
+# A contested-role world under another name, so a refusal keyed on the world's name rather than its role shows.
+ARENA = world_index.WorldEntry("arena", "normal", 0, "contested")
+# Each is a kind and a change to SMALL_MINE_SPEC that the index refuses once the `refusable` fixture is up and the
+# test index lists ARENA.
 REFUSED_BUILDS = [
     pytest.param("mine", {"name": "TBox"}, "must match ^[a-z0-9_]+$", id="bad-name"),
     pytest.param("mine", {"world": "quarry"}, "no such world 'quarry'", id="unlisted-world"),
     pytest.param("twice", {}, "is given twice in one build", id="in-build-duplicate"),
+    pytest.param("mine", {"world": "arena"}, "carries safe_zone in 'arena', a contested world", id="contested-safe-zone"),
 ]
 
 # Read at import, before any fixture redirects a path, so the session check watches the working tree itself.
@@ -114,7 +118,7 @@ def fake():
 
 @pytest.fixture
 def refusable(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> FakeBridge:
-    """The bridge serves ``quarry``, which no test index lists, and ``twice`` is a mine that emits its first location twice."""
+    """The bridge serves ``quarry``, which no test index lists, and ``arena``;  ``twice`` is a mine that emits its first location twice."""
     build_mine = BUILDERS["mine"]
 
     def twice(spec: dict[str, Any], palette: Palette, fetch: HeightmapFetch) -> EditList:
@@ -125,6 +129,7 @@ def refusable(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> FakeBridge:
     monkeypatch.setitem(BUILDERS, "twice", twice)
     monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
     fake.worlds["quarry"] = FakeWorld()
+    fake.worlds["arena"] = FakeWorld()
     return fake
 
 

@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import tokenize
+import zipfile
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -178,11 +181,14 @@ def remove_texts(bridge: Bridge, ids: list[str], *, dry_run: bool = False) -> Ap
 
 
 def _load_entry(entry: dict[str, Any]) -> Snapshot:
-    # numpy reports a damaged file as OSError, ValueError, EOFError, KeyError or zipfile.BadZipFile depending
-    # on where the damage is, so every failure to read this one file is the same refusal.
+    # A damaged file fails differently depending on where the damage lands: the zip structure raises
+    # zipfile.BadZipFile, or RuntimeError for a flag claiming encryption and its subclass NotImplementedError
+    # for an unknown method or version; the deflate stream raises zlib.error; the npy header raises
+    # tokenize.TokenError, ValueError or EOFError; a missing member KeyError; a missing file OSError.
+    # Each is the same refusal. A TypeError or AttributeError is a bug in load and keeps its identity.
     try:
         return load(Path(entry["path"]))
-    except Exception as exc:
+    except (OSError, ValueError, EOFError, KeyError, RuntimeError, zipfile.BadZipFile, zlib.error, tokenize.TokenError) as exc:
         raise SnapshotLoadError(f"undo entry {entry['id']}: cannot load snapshot {entry['path']}: {exc}") from exc
 
 
