@@ -805,6 +805,15 @@ cells, so its snapshot is the only record of what those cells held. Deleting the
 rejected for that reason; leaving it on disk outside the manifest, as before, left an orphan
 `prune` never found (#544).
 
+## 2026-09-30 `build_level` refuses a mines zone whose fragment's `ores` differ from its spec's
+
+`mine_valid` reads the designer spec's `ores`, but RiftalMines refills from the riftal-game
+fragment the mines `config.yml` names for the zone. `build_level` reads that fragment beside the
+config and refuses the build, before any request, unless every `mine` step's spec has the same
+`ores` (names compared canonically, weights as numbers). A fragment it cannot read also refuses.
+Until riftal-game#527 lands, riftal-game `main`'s ore lists are behind the specs, so real mine
+builds against it refuse; that is the check working, not a reason to relax it (#549).
+
 ## 2026-09-30 A mine's `ores` key matches only the state the reset writes
 
 `mine_valid` counts a block under an `ores` key only when the block is in exactly the state

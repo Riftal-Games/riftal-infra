@@ -24,7 +24,7 @@ import numpy as np
 import yaml
 
 from designer import checks as checks_mod
-from designer.blocks import parse_name
+from designer.blocks import format_name, parse_name
 from designer.bridge import Bridge
 from designer.builders import BUILDERS
 from designer.builders.base import Palette
@@ -222,7 +222,20 @@ def mines_config_path() -> Path:
     return (Path(game) if game else SIBLING_GAME_DIR) / MINES_CONFIG
 
 
-def check_mine_gate(recipe: Recipe, specs: list[checks_mod.CheckSpec], mines_config: Path) -> None:
+def _check_fragment_ores(zone: str, fragment: Path, built: list[str], root: Path) -> None:
+    """The reset refills from the fragment's ``ores`` while ``mine_valid`` reads the spec's, so the two must be the same."""
+    try:
+        ores = json.loads(fragment.read_text(encoding="utf-8"))["ores"]
+        theirs = {format_name(*parse_name(name)): float(weight) for name, weight in dict(ores).items()}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise LevelError(f"cannot read the ores of {zone!r}'s mines fragment {fragment}: {exc!r}") from exc
+    for spec_path in built:
+        ours = MineSpec.from_dict(json.loads(_input(root, spec_path).read_text(encoding="utf-8"))).ores
+        if ours != theirs:
+            raise LevelError(f"{spec_path} ores {ours} differ from the mines fragment {fragment} ores {theirs}; the reset would refill another mix")
+
+
+def check_mine_gate(recipe: Recipe, specs: list[checks_mod.CheckSpec], mines_config: Path, root: Path = PROJECT_ROOT) -> None:
     """A world ``mines`` resets is built only with a zone-tagged ``mine_valid`` on a spec one of its ``mine`` steps builds (ADR 014 item 7).
 
     Without the world list no zone can be told apart from one ``mines`` resets, so every zone is refused.
@@ -236,6 +249,7 @@ def check_mine_gate(recipe: Recipe, specs: list[checks_mod.CheckSpec], mines_con
     if recipe.zone not in worlds:
         return
     built = {step.spec for step in recipe.steps if step.build == "mine"}
+    _check_fragment_ores(recipe.zone, mines_config.parent / str(worlds[recipe.zone]), sorted(built), root)
     if not any(s.kind == "mine_valid" and s.zone == recipe.zone and s.args["spec"] in built for s in specs):
         raise LevelError(
             f"{mines_config} lists {recipe.zone!r}, but checks.yaml has no mine_valid with zone {recipe.zone!r}"
@@ -291,7 +305,7 @@ def build_level(
     index = WorldIndex.load() if index is None else copy.deepcopy(index)
     check_index(recipe, index)
     specs = checks_mod.load_checks(checks_path)
-    check_mine_gate(recipe, specs, mines_config_path() if mines_config is None else mines_config)
+    check_mine_gate(recipe, specs, mines_config_path() if mines_config is None else mines_config, root)
     check_reset_states(recipe, root)
     inputs = input_hashes(recipe, root)
     for tile in pregen_bounds(recipe.bounds).tiles():

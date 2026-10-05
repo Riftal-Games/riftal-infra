@@ -48,7 +48,14 @@ def root(tmp_path: Path, fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> P
         fake.worlds[zone] = FakeWorld(extent=((100, 100), (101, 101)))
         _recipe(tmp_path, zone)
     (tmp_path / "mines.yml").write_text(MINES, encoding="utf-8")
+    (tmp_path / "worlds").mkdir()
+    for zone in ZONES:
+        _fragment(tmp_path, zone, json.loads((tmp_path / "specs" / f"{zone}.json").read_text(encoding="utf-8"))["ores"])
     return tmp_path
+
+
+def _fragment(root: Path, zone: str, ores: dict[str, float]) -> None:
+    (root / "worlds" / f"{zone}.json").write_text(json.dumps({"ores": ores}), encoding="utf-8")
 
 
 def _recipe(root: Path, zone: str, *poke: dict) -> None:
@@ -93,6 +100,7 @@ def test_an_ore_named_by_an_alias_refuses_since_it_has_no_reset_state(fake: Fake
     spec = json.loads((root / "specs" / "mine_c.json").read_text(encoding="utf-8"))
     spec["ores"] = {"minecraft:iron_ore": 1.0, "minecraft:lapis_lazuli_ore": 0.4}
     (root / "specs" / "mine_c.json").write_text(json.dumps(spec), encoding="utf-8")
+    _fragment(root, "mine_c", spec["ores"])
     _refused(bridge, root, "mine_c", r"specs/mine_c\.json names \['minecraft:lapis_lazuli_ore'\], which have no reset state")
     assert fake.requests == []
 
@@ -126,6 +134,28 @@ def test_no_mines_config_refuses_every_zone_before_any_request(
         build_level(bridge, zone, lambda: pytest.fail("after_stop"), root=root, checks_path=CHECKS)
     (root / "mines.yml").write_text("worlds: [mine_a]\n", encoding="utf-8")
     _refused(bridge, root, zone, "worlds is a list, not a mapping")
+    assert fake.requests == []
+
+
+def test_a_fragment_whose_ores_differ_from_the_spec_refuses_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    _fragment(root, "mine_a", {"minecraft:coal_ore": 1.0, "minecraft:iron_ore": 0.5})
+    _refused(bridge, root, "mine_a", r"specs/mine_a\.json ores .* differ from the mines fragment .*mine_a\.json ores")
+    assert fake.requests == []
+
+
+def test_a_fragment_naming_the_same_ores_in_another_spelling_builds(bridge: Bridge, root: Path) -> None:
+    _fragment(root, "mine_a", {"stone": 1, "minecraft:coal_ore[]": 0.5})
+    assert _build(bridge, root, "mine_a").is_file()
+
+
+@pytest.mark.parametrize("content", [None, "{}", "not json"])
+def test_an_unreadable_fragment_refuses_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path, content: str | None) -> None:
+    path = root / "worlds" / "mine_a.json"
+    if content is None:
+        path.unlink()
+    else:
+        path.write_text(content, encoding="utf-8")
+    _refused(bridge, root, "mine_a", "cannot read the ores of 'mine_a'")
     assert fake.requests == []
 
 
