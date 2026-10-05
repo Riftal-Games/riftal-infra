@@ -182,10 +182,16 @@ def _classify(name: str) -> BlockClass:
     return BlockClass.SOLID
 
 
+# Every palette entry ``class_lut`` has warned about in this process; a region is re-classed after
+# every edit, tile and render, so warning per call would repeat the same entry endlessly.
+_WARNED: set[str] = set()
+
+
 # A malformed state says nothing about the box, so the block is SOLID, the
 # class given to any block that cannot be read, rather than one bad palette
 # entry failing ``class_lut`` for the whole region.
 def classify(name: str) -> BlockClass:
+    """The class of one block; silent on a malformed state, which ``class_lut`` is the path that reports."""
     try:
         return _classify(name)
     except _MalformedState:
@@ -195,7 +201,7 @@ def classify(name: str) -> BlockClass:
 def class_lut(palette: Sequence[str]) -> np.ndarray:
     """Palette index to ``BlockClass``, for ``lut[blocks]`` over a whole region.
 
-    Warns once per distinct palette entry with a malformed state, since a
+    Warns once per process for each distinct palette entry with a malformed state, since a
     bridge sending bad state values would otherwise change classes unnoticed.
     """
     classes: list[BlockClass] = []
@@ -207,6 +213,9 @@ def class_lut(palette: Sequence[str]) -> np.ndarray:
             classes.append(BlockClass.SOLID)
             malformed.setdefault(name, err)
     for name, err in malformed.items():
+        if name in _WARNED:
+            continue
+        _WARNED.add(name)
         log.warning("block %r has malformed state %s, classified SOLID", name, err)
     return np.array(classes, dtype=np.uint8)
 

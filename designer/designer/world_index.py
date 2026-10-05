@@ -217,6 +217,9 @@ class WorldIndex:
         """
         if not NAME_RE.fullmatch(entry.name):
             raise ValueError(f"{what or f'name {entry.name!r}'} must match {NAME_RE.pattern}")
+        # The plugins match tags with a strict in_array, so an int tag would silently drop safe_zone or sell.
+        if bad := [t for t in entry.tags if not isinstance(t, str)]:
+            raise ValueError(f"{what or f'{type(entry).__name__} {entry.name!r}'} has a tag that is not a string: {bad[0]!r}")
         world = self.world(entry.world)
         if isinstance(entry, NamedRegion) and world.role == "contested" and "safe_zone" in entry.tags:
             raise ValueError(

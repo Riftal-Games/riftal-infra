@@ -10,9 +10,9 @@ import yaml
 from designer.bridge import Bridge
 from designer.builders import BUILDERS
 from designer.checks import DEFAULT_PATH as CHECKS
-from designer.config import PROJECT_ROOT
+from designer.config import PROJECT_ROOT, SIBLING_GAME_DIR
 from designer.edits import EditList, SetBlock
-from designer.level import LevelError, Saved, build_level
+from designer.level import MINES_CONFIG, LevelError, Saved, build_level, mines_config_path
 from tests.conftest import STONE_PALETTES
 from tests.fake_bridge import ALLOWED_BLOCKS, FakeBridge, FakeWorld
 
@@ -48,7 +48,14 @@ def root(tmp_path: Path, fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> P
         fake.worlds[zone] = FakeWorld(extent=((100, 100), (101, 101)))
         _recipe(tmp_path, zone)
     (tmp_path / "mines.yml").write_text(MINES, encoding="utf-8")
+    (tmp_path / "worlds").mkdir()
+    for zone in ZONES:
+        _fragment(tmp_path, zone, json.loads((tmp_path / "specs" / f"{zone}.json").read_text(encoding="utf-8"))["ores"])
     return tmp_path
+
+
+def _fragment(root: Path, zone: str, ores: dict[str, float]) -> None:
+    (root / "worlds" / f"{zone}.json").write_text(json.dumps({"ores": ores}), encoding="utf-8")
 
 
 def _recipe(root: Path, zone: str, *poke: dict) -> None:
@@ -88,11 +95,24 @@ def test_a_layer_ore_absent_from_ores_refuses(bridge: Bridge, root: Path) -> Non
     _refused(bridge, root, "mine_a", r"mine_valid_mine_a: 1024 interior cells neither air nor in ores \[\(-16, 45, -16\)")
 
 
-def test_an_ore_named_by_an_alias_refuses_since_it_reads_back_under_another_name(bridge: Bridge, root: Path) -> None:
+# An alias reads back under another name, and it has no reset state, so it is refused before any request.
+def test_an_ore_named_by_an_alias_refuses_since_it_has_no_reset_state(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
     spec = json.loads((root / "specs" / "mine_c.json").read_text(encoding="utf-8"))
     spec["ores"] = {"minecraft:iron_ore": 1.0, "minecraft:lapis_lazuli_ore": 0.4}
     (root / "specs" / "mine_c.json").write_text(json.dumps(spec), encoding="utf-8")
-    _refused(bridge, root, "mine_c", r"mine_valid_mine_c: composition off; \d+ interior cells neither air nor in ores")
+    _fragment(root, "mine_c", spec["ores"])
+    _refused(bridge, root, "mine_c", r"specs/mine_c\.json names \['minecraft:lapis_lazuli_ore'\], which have no reset state")
+    assert fake.requests == []
+
+
+# A layer ore is not in the fragment's comparison, so only the reset-state check stops it before
+# the build; mine_valid would refuse it, but only after every request has been made.
+def test_a_layer_ore_without_a_reset_state_refuses_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    spec = json.loads((root / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    spec["ore_layers"] = [{"y_from": 45, "y_to": 45, "ores": {"minecraft:quartz_ore": 1}}]
+    (root / "specs" / "mine_a.json").write_text(json.dumps(spec), encoding="utf-8")
+    _refused(bridge, root, "mine_a", r"specs/mine_a\.json names \['minecraft:quartz_ore'\], which have no reset state")
+    assert fake.requests == []
 
 
 def test_a_chorus_flower_outside_every_interior_refuses(bridge: Bridge, root: Path) -> None:
@@ -125,3 +145,49 @@ def test_no_mines_config_refuses_every_zone_before_any_request(
     (root / "mines.yml").write_text("worlds: [mine_a]\n", encoding="utf-8")
     _refused(bridge, root, zone, "worlds is a list, not a mapping")
     assert fake.requests == []
+
+
+def test_a_fragment_whose_ores_differ_from_the_spec_refuses_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    _fragment(root, "mine_a", {"minecraft:coal_ore": 1.0, "minecraft:iron_ore": 0.5})
+    _refused(bridge, root, "mine_a", r"specs/mine_a\.json ores .* differ from the mines fragment .*mine_a\.json ores")
+    assert fake.requests == []
+
+
+# check_reset_states reads only the spec, so a base without a reset state that only the fragment
+# names has to be caught as a difference, or the reset would refill a block mine_valid never counts.
+def test_a_fragment_naming_a_base_without_a_reset_state_refuses_as_a_difference(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    spec = json.loads((root / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    _fragment(root, "mine_a", {**spec["ores"], "minecraft:quartz_ore": 0.1})
+    _refused(bridge, root, "mine_a", r"specs/mine_a\.json ores .* differ from the mines fragment .*'minecraft:quartz_ore': 0\.1")
+    assert fake.requests == []
+
+
+def test_a_fragment_naming_the_same_ores_in_another_spelling_builds(bridge: Bridge, root: Path) -> None:
+    _fragment(root, "mine_a", {"stone": 1, "minecraft:coal_ore[]": 0.5})
+    assert _build(bridge, root, "mine_a").is_file()
+
+
+@pytest.mark.parametrize("content", [None, "{}", "not json"])
+def test_an_unreadable_fragment_refuses_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path, content: str | None) -> None:
+    path = root / "worlds" / "mine_a.json"
+    if content is None:
+        path.unlink()
+    else:
+        path.write_text(content, encoding="utf-8")
+    _refused(bridge, root, "mine_a", "cannot read the ores of 'mine_a'")
+    assert fake.requests == []
+
+
+def test_a_mines_config_that_is_not_utf8_refuses_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    (root / "mines.yml").write_bytes(b"worlds:\n  mine_a: \xff\xfe\n")
+    _refused(bridge, root, "mine_a", "cannot read the mines world list")
+    assert fake.requests == []
+
+
+def test_the_default_mines_config_sits_beside_the_checkout_whatever_designer_root_says(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("RIFTAL_GAME_DIR", raising=False)
+    monkeypatch.setattr("designer.level.PROJECT_ROOT", tmp_path / "copy" / "designer")
+    assert mines_config_path() == SIBLING_GAME_DIR / MINES_CONFIG
+    assert SIBLING_GAME_DIR == Path(__file__).resolve().parents[3] / "riftal-game"

@@ -271,3 +271,12 @@ def test_content_sha256_ignores_palette_order_and_sees_every_block_and_file() ->
     b.fill(Bounds((1, 1, 1), (1, 1, 1)), "minecraft:stone")
     assert content_sha256(a) != content_sha256(b)
     assert content_sha256(a, npcs=[]) != content_sha256(a) != content_sha256(a, texts=[])
+
+
+def test_a_zone_tagged_offdisk_clear_scans_the_zone_once(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    (root / "checks.yaml").write_text(
+        "version: 1\nchecks:\n  - check: warp_safe\n    zone: zt\n    at: zt_spawn\n  - check: offdisk_clear\n    zone: zt\n    world: zt\n",
+        encoding="utf-8",
+    )
+    _build(bridge, root)
+    assert [r["args"] for r in fake.requests if r["op"] == "scan_items"] == [{"world": "zt"}]
