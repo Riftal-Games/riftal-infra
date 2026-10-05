@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from designer.blocks import AIR, BlockClass, base_name, format_name, parse_name
+from designer.blocks import AIR, BlockClass, format_name, parse_name
 from designer.builders.mine_spec import SIDES, MineSpec
 from designer.region import Bounds, LightRegion, Region
 from designer.reset_states import RESET_STATES
@@ -32,7 +32,6 @@ DROP = 0.25
 # so a step into one takes four steps' time. The server has no say in it:
 # pmmp-core's Cobweb.php:36 only resets fall distance.
 WEB_COST = 4.0
-WEBS = ("web", "cobweb")
 
 # Blocks below the feet within which a warp must find solid ground.
 LANDING = 3
@@ -124,14 +123,6 @@ def _world(box: Bounds, local: Sequence[int]) -> Pos:
     return ix + box.min[0], iy + box.min[1], iz + box.min[2]
 
 
-def _webbed(region: Region) -> np.ndarray:
-    """Bool ``[y][z][x]``: a player with feet in the cell has a web at the feet or the head."""
-    webs = np.array([base_name(name) in WEBS for name in region.palette], dtype=bool)[region.blocks]
-    out = webs.copy()
-    out[:-1] |= webs[1:]
-    return out
-
-
 def path_exists(
     region: Region, a: Sequence[float], b: Sequence[float], *,
     max_nodes: int = 200_000, corridor: Bounds | None = None, margin: int = 16,
@@ -167,7 +158,7 @@ def path_exists(
     plane = nz * nx
     stand = mask[at].ravel().tolist()
     passable = region.passable()[at].ravel().tolist()
-    step = np.where(_webbed(region)[at], WEB_COST, 1.0).ravel().tolist()
+    step = np.where(region.web_mask()[at], WEB_COST, 1.0).ravel().tolist()
     g = np.full(ny * plane, np.inf, dtype=np.float32)
     closed = np.zeros(ny * plane, dtype=bool)
     parent = np.full(ny * plane, -1, dtype=np.int32)
