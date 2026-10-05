@@ -57,6 +57,9 @@ jobs:
       - name: Validate compose files
         run: bash .github/scripts/scan.sh compose
 
+      - name: Containers leave no anonymous volumes
+        run: bash .github/scripts/container-cleanup.sh
+
       # No PHP on the runner is confirmed, so the check runs inside a pinned
       # php:8.3-cli-alpine container instead of assuming a host binary.
       - name: Lint PHP plugins
