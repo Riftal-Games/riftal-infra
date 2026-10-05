@@ -703,8 +703,10 @@ rejected because it would let a committed entry pass whose tags are not the step
 ## 2026-09-29 A mine's exit-platform lights stop short of its last row
 
 `build_mine` lights the platform's near edge every `lights_every` blocks out from the wall, but
-never on its last row, which holds the sell sign on that same edge, the rankup sign and the
-spawn. A light that would fall on the last row moves one block back toward the mine, so a length
+never on its last row, which holds the sell and rankup signs and the spawn. On a 3-wide path the
+sell sign sits on the lit edge itself; a wider path has no collision there, and the row is kept
+clear all the same so the signs and spawn stand alone at the platform's end. A light that would
+fall on the last row moves one block back toward the mine, so a length
 that is a multiple of `lights_every` still lights the platform's end; a one-row platform has no
 row to spare and gets no light. Moving lights to the far edge was rejected because the rankup sign
 sits there on a width-3 path, and refusing a colliding spec was rejected because length 8 with
@@ -729,10 +731,11 @@ index does (#313).
 `MineSpec` refuses `exit_path.width` below 3 with `exit_path width must be at least 3 to hold
 both signs beside the walking line, got <width>`. `build_mine` walks players down the platform's
 centre, puts the sell and rankup signs one block either side of it on the last row, and lights the
-near edge. At width 1 every light sits on the walking line and the sell and rankup signs
-both land off the platform; at width 2 the rankup sign does. Placing signs and lights per width was rejected because
-no committed spec is narrower than 3, and a one- or two-wide platform has no room for two signs
-beside a clear path anyway. Mine A and Lumber use width 3 and are unchanged (#495).
+platform's low-coordinate edge. At width 1 every light sits on the walking line and the sell and
+rankup signs both land off the platform; at width 2 the rankup sign does. Placing signs and lights
+per width was rejected because no committed spec is narrower than 3, and a one- or two-wide
+platform has no room for two signs beside a clear path anyway. Mine A and Lumber use width 3
+and are unchanged (#495).
 
 ## 2026-09-29 A mine interior holds only air and its `ores`; a `mines` zone needs its gate
 
@@ -792,6 +795,51 @@ id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cann
 is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is. So
 is a `SetBlock` whose entry alone passes it: sent, the bridge would close the connection after
 the batches before it had already landed (#572).
+
+## 2026-09-30 An undo whose restore fails still pushes that restore's snapshot
+
+`UndoStack.undo` pushes the snapshot a restore took as an `undo` entry even when the restore
+then fails, as `fill` and `restore` already do, and leaves the entry it was undoing unrestored.
+The `undo` tool reports that snapshot and its `undo_id`. A restore can fail after writing some
+cells, so its snapshot is the only record of what those cells held. Deleting the file was
+rejected for that reason; leaving it on disk outside the manifest, as before, left an orphan
+`prune` never found (#544).
+
+## 2026-09-30 `build_level` refuses a mines zone whose fragment's `ores` differ from its spec's
+
+`mine_valid` reads the designer spec's `ores`, but RiftalMines refills from the riftal-game
+fragment the mines `config.yml` names for the zone. `build_level` reads that fragment beside the
+config and refuses the build, before any request, unless every `mine` step's spec has the same
+`ores` (names compared canonically, weights as numbers). A fragment it cannot read also refuses.
+Until riftal-game#527 lands, riftal-game `main`'s ore lists are behind the specs, so real mine
+builds against it refuse; that is the check working, not a reason to relax it (#549).
+
+## 2026-09-30 A mine's `ores` key matches only the state the reset writes
+
+`mine_valid` counts a block under an `ores` key only when the block is in exactly the state
+`designer/reset_states.py` gives for its base, and the key names a subset of that state. Any
+other state, or a base the table lacks, counts as unnamed even under a key that spells the
+block's whole name, such as `oak_log[pillar_axis=x]` or `quartz_ore`. `build_mine` fills
+the interior with that same reset state, so a build reads back as a reset mine does. The
+table mirrors what RiftalMines' reset places: the block of `StringToItemParser::parse(name)`
+(riftal-game `MineResetListener.php`), not what the bridge reads back for a bare id
+(riftal-game#256). It lists only the bases the specs and fragments use; a `mine` step naming a
+base the table lacks refuses the build before any request, and a test walks every spec and
+fragment base. Any entry for a block with states, today only `oak_log` with `pillar_axis=y`,
+needs a one-time live check on the designer stack. `MineSpec` refuses two `ores` keys on one
+base where one's states are a subset of the other's, since one block would satisfy both. A
+lenient match was rejected because it could pass a level the next reset silently changes; the
+vendored Bedrock state data was rejected because it marks no state as the default (#561).
+
+## 2026-09-30 A fence, wall or closed fence gate floor needs a third clear cell
+
+Fences, walls and closed fence gates are 1.5 blocks tall, so a player standing on one reaches
+half a block into the third cell above it. `blocks.is_tall_floor` names them (base ending
+`fence` or `_wall`, or a `fence_gate` without `open_bit=true`). `Region.stand_mask` and
+`entity_clear` require that third cell to be passable over such a floor. Outside the region,
+each keeps its existing rule: `stand_mask` treats the cell as blocked, as it never marks the
+top layer standable, and `entity_clear` lets it pass, as it does a head cell (2026-09-08). Classing these blocks by their box top like snow layers was rejected: they
+are still SOLID to stand on; only the headroom changes (#469).
 
 ## 2026-09-30 Kelp and seagrass are LIQUID
 

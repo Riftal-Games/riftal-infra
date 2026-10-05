@@ -10,7 +10,7 @@ from typing import Any, ClassVar, Self
 
 import numpy as np
 
-from designer.blocks import AIR, BlockClass, RLEError, base_name, class_lut, decode_rle, encode_rle, expand_runs
+from designer.blocks import AIR, BlockClass, RLEError, base_name, class_lut, decode_rle, encode_rle, expand_runs, tall_floor_lut
 from designer.bridge import Bridge
 
 # The bridge's ``max_region_edge``; any request with a longer edge is refused.
@@ -157,6 +157,9 @@ class Bounds2D(_Box):
         return z, x
 
 
+WEBS = ("web", "cobweb")
+
+
 @dataclass(eq=False)
 class Region:
     """One world's blocks inside ``bounds``, as ``blocks[y][z][x]`` over ``palette``."""
@@ -168,6 +171,7 @@ class Region:
     _parent: Region | None = field(default=None, repr=False)
     _classes: np.ndarray | None = field(default=None, init=False, repr=False)
     _stand: np.ndarray | None = field(default=None, init=False, repr=False)
+    _webbed: np.ndarray | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.blocks.shape != self.bounds.shape:
@@ -217,6 +221,7 @@ class Region:
         while region is not None:
             region._classes = None
             region._stand = None
+            region._webbed = None
             region = region._parent
 
     def index_of(self, name: str, add: bool = True) -> int:
@@ -271,7 +276,8 @@ class Region:
     def stand_mask(self) -> np.ndarray:
         """Bool ``[y][z][x]``: a player can stand with feet in the cell.
 
-        Solid floor below, the cell and the one above passable. The top and
+        Solid floor below, the cell and the one above passable, and the one above that too on a floor taller
+        than one block (``is_tall_floor``). The top and
         bottom layers are never standable because their floor or head cell is
         outside the region. The mask depends on nothing but the blocks, so the
         root region caches it beside ``classes`` and ``_invalidate`` clears
@@ -284,8 +290,26 @@ class Region:
         mask = np.zeros(classes.shape, dtype=bool)
         if classes.shape[0] >= 3:
             mask[1:-1] = (classes[:-2] == BlockClass.SOLID) & passable[1:-1] & passable[2:]
+            # On a 1.5-tall floor the head reaches the third cell up; with that cell outside the region the spot is treated as blocked.
+            third = np.zeros(classes.shape, dtype=bool)
+            third[:-3] = passable[3:]
+            mask[1:-1] &= ~tall_floor_lut(self.palette)[self.blocks][:-2] | third[:-2]
         if self._parent is None:
             self._stand = mask
+        return mask
+
+    def web_mask(self) -> np.ndarray:
+        """Bool ``[y][z][x]``: a player with feet in the cell has a web at the feet or the head.
+
+        Cached on the root region and cleared with ``stand_mask``; a view computes fresh, for the same reason.
+        """
+        if self._parent is None and self._webbed is not None:
+            return self._webbed
+        webs = np.array([base_name(name) in WEBS for name in self.palette], dtype=bool)[self.blocks]
+        mask = webs.copy()
+        mask[:-1] |= webs[1:]
+        if self._parent is None:
+            self._webbed = mask
         return mask
 
     def counts(self) -> dict[str, int]:
