@@ -68,7 +68,8 @@ open. Under `wslc`, translate the `-v` and `-w` flags as `/dev-stack` does.
 `pocketmine/pocketmine-mp`, which the fork only replaces, and pharynx reads a
 virion's requires by name, so without the link it stops at `Failed to read
 file ./vendor/pocketmine/pocketmine-mp/composer.json`. Run against a `mines`
-that still requires `pocketmine/pocketmine-mp` itself, it links nothing.
+that still requires `pocketmine/pocketmine-mp` itself, it links nothing. The
+fork pin arrives with riftal-game#566.
 
 Confirm the build holds a `plugin.yml`, the same check
 `riftal-game/.github/scripts/packages.sh`'s `phar_one()` runs on every phar it

@@ -22,7 +22,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=40
+EXPECTED_ASSERTIONS=43
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -226,6 +226,46 @@ check "the start command runs after delivery with its arguments intact" \
 check "a missing index stops the boot before the start command, naming the path" \
   '! deliver "" printf started && ! grep -q started "$work/deliver/out" &&
     grep -q "etc/world_index.json" "$work/deliver/out"'
+
+printf '\n== link-replaced.sh gives pharynx the folder a virion requires (riftal-infra#579)\n'
+# Lays out vendor/ as composer install leaves it for mines: libasynql, a
+# virion, requires pocketmine/pocketmine-mp. Pinned, the fork replaces that
+# name. Unpinned, the name is installed itself, and a package replacing a name
+# no virion requires sits beside it.
+fixture() {
+  local root="$work/link/$1" core
+  rm -rf "$root"
+  mkdir -p "$root/vendor/composer" "$root/vendor/poggit/libasynql"
+  local virion='{"name": "poggit/libasynql", "require": {"pocketmine/pocketmine-mp": "^5.0.0"}, "extra": {"virion": {"spec": "3.0"}}}'
+  if [ "$1" = pinned ]; then
+    core='{"name": "axolotl-pm/pocketmine-mp", "replace": {"pocketmine/pocketmine-mp": "5.49.1"}}'
+    mkdir -p "$root/vendor/axolotl-pm/pocketmine-mp"
+  else
+    core='{"name": "pocketmine/pocketmine-mp"}, {"name": "x/polyfill", "replace": {"symfony/polyfill-ctype": "*"}}'
+    mkdir -p "$root/vendor/pocketmine/pocketmine-mp" "$root/vendor/x/polyfill"
+  fi
+  printf '{"packages": [%s, %s]}\n' "$virion" "$core" > "$root/vendor/composer/installed.json"
+}
+# Runs link-replaced.sh in the fixture $1 as the README's build does, from the
+# plugin folder, in a PHP image so the host needs no PHP. Prints its output.
+link() {
+  docker run --rm --network none -m 1g --cpus 1 --user "$(id -u):$(id -g)" \
+    -v "$work/link/$1:/p" -v "$DIR/link-replaced.sh:/link-replaced.sh:ro" -w /p \
+    php:8.3-cli-alpine sh /link-replaced.sh
+}
+pinned="$work/link/pinned/vendor"
+fixture pinned
+fixture unpinned
+check "pinned to the fork, vendor/pocketmine/pocketmine-mp is linked to vendor/axolotl-pm/pocketmine-mp" \
+  'out="$(link pinned)" && [ -L "$pinned/pocketmine/pocketmine-mp" ] &&
+    [ "$(cd "$pinned/pocketmine/pocketmine-mp" && pwd -P)" = "$(cd "$pinned/axolotl-pm/pocketmine-mp" && pwd -P)" ] &&
+    [ "$out" = "linked vendor/pocketmine/pocketmine-mp to vendor/axolotl-pm/pocketmine-mp, which replaces it" ]'
+check "a second run links nothing and leaves the link as it was" \
+  'out="$(link pinned)" && [ -z "$out" ] &&
+    [ "$(readlink "$pinned/pocketmine/pocketmine-mp")" = ../axolotl-pm/pocketmine-mp ]'
+check "unpinned, nothing is linked, not even a replaced name no virion requires" \
+  'out="$(link unpinned)" && [ -z "$out" ] && [ ! -e "$work/link/unpinned/vendor/symfony" ] &&
+    [ -z "$(find "$work/link/unpinned" -type l)" ]'
 
 printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#262)\n'
 # The plugin throws on enable when any of these keys is missing, so the
