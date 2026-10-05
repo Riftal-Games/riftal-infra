@@ -1,4 +1,9 @@
 import json
+import struct
+import tokenize
+import zipfile
+import zlib
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -122,7 +127,6 @@ def test_undo_manifest_survives_a_new_stack_and_undo_restores_the_fake(fake: Fak
     assert sorted(p.name for p in snapshots_dir.iterdir()) == [WORLD, "undo-manifest.json"]
 
 
-
 @pytest.mark.parametrize("damage", [None, b"PK\x03\x04truncated", b"not a snapshot", b""])
 def test_undo_of_an_unloadable_snapshot_is_a_failed_result_that_keeps_its_cause(
     bridge: Bridge, snapshots_dir: Path, damage: bytes | None,
@@ -138,6 +142,60 @@ def test_undo_of_an_unloadable_snapshot_is_a_failed_result_that_keeps_its_cause(
     assert result.ok is False and isinstance(result.errors[0], SnapshotLoadError)
     assert result.errors[0].__cause__ is not None
     assert stack.entries()[0]["restored"] is False
+
+
+def _break_deflate(path: Path) -> None:
+    # 0x07 opens each member's deflate stream with a final block of the reserved type 3.
+    data = bytearray(path.read_bytes())
+    with zipfile.ZipFile(path) as archive:
+        infos = archive.infolist()
+    for info in infos:
+        name_len, extra_len = struct.unpack_from("<HH", data, info.header_offset + 26)
+        data[info.header_offset + 30 + name_len + extra_len] = 0x07
+    path.write_bytes(data)
+
+
+def _break_npy_header(path: Path) -> None:
+    header = b"{'descr': '\x00<U1', 'fortran_order': False, 'shape': (), }"
+    header += b" " * (63 - len(header) % 64) + b"\n"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("meta.npy", b"\x93NUMPY\x01\x00" + struct.pack("<H", len(header)) + header)
+
+
+def _patch_central_directory(offset: int, value: int) -> Callable[[Path], None]:
+    def patch(path: Path) -> None:
+        data = bytearray(path.read_bytes())
+        at = data.find(b"PK\x01\x02")
+        while at != -1:
+            struct.pack_into("<H", data, at + offset, value)
+            at = data.find(b"PK\x01\x02", at + 1)
+        path.write_bytes(data)
+
+    return patch
+
+
+@pytest.mark.parametrize(("damage", "cause"), [
+    (_break_deflate, zlib.error),
+    (_break_npy_header, tokenize.TokenError),
+    (_patch_central_directory(10, 99), NotImplementedError),
+    (_patch_central_directory(8, 1), RuntimeError),
+], ids=["deflate", "npy_header", "compression_method", "encrypted_flag"])
+def test_undo_of_a_snapshot_damaged_inside_the_archive_still_returns_the_entries_restored_before_it(
+    bridge: Bridge, snapshots_dir: Path, damage: Callable[[Path], None], cause: type[Exception],
+) -> None:
+    stack = UndoStack(session="s1")
+    older = take(bridge, WORLD, BOX, "older")
+    stack.push(older, "fill")
+    EditList(WORLD, [Fill(Bounds((0, 64, 0), (7, 64, 7)), GLASS)]).apply(bridge)
+    newer = take(bridge, WORLD, BOX, "newer")
+    stack.push(newer, "fill")
+    EditList(WORLD, [SetBlock(3, 65, 3, STONE)]).apply(bridge)
+    damage(older.path)
+    first, second = stack.undo(bridge, n=2)
+    assert (first.ok, first.blocks) == (True, 1) and diff(newer, fetch_region(bridge, WORLD, BOX)).changed == 0
+    assert second.ok is False and isinstance(second.errors[0], SnapshotLoadError)
+    assert type(second.errors[0].__cause__) is cause
+    assert [e["restored"] for e in stack.entries()[:2]] == [False, True]
 
 
 def test_undo_lets_a_bug_inside_load_keep_its_identity(bridge: Bridge, snapshots_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
