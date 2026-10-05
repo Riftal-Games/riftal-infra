@@ -190,7 +190,9 @@ Returns: snapshots as [{path, world, timestamp, label, bytes, undo_id}].
 
 ## list_undo
 
-Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored.
+Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored, and texts.
+
+A floating-text entry has ``texts``, the ids its undo removes, and null ``path`` and ``bounds``.
 
 ```json
 {"properties": {"limit": {"default": 20, "title": "Limit", "type": "integer"}}, "title": "list_undoArguments", "type": "object"}
