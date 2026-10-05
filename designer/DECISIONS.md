@@ -849,3 +849,14 @@ them never reaches the toolkit. Classed PASSABLE, a hitbox in kelp read "clear".
 so `entity_clear` names them `hitbox in liquid` as it does water and `bubble_column`. Reading the
 second layer in DesignBridge was rejected here: that is a riftal-game change, and the class is
 right for these blocks whatever the bridge sends (#479).
+
+## 2026-10-05 An unmapped block stays SOLID and the safety checks name it
+
+The core loads a block it has no mapping for as `minecraft:info_update`, so the world may hold
+kelp, water or anything else where the toolkit reads one block that classes SOLID. `entity_clear`
+names it apart from an ordinary wall: `hitbox blocked by a block the core does not map
+(minecraft:info_update)`, and `floor is` the same note when it is the support. `warp_safe` refuses
+one anywhere in the 3x3x3 it already scans for liquid and danger, since an unmapped block may be
+either. An `UNKNOWN` block class was rejected: every check compares against `SOLID`, so a sixth
+class would change what every path, hole and mine check counts, where only the reason a designer
+reads needed to change (#664).

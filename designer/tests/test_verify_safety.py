@@ -242,3 +242,36 @@ def test_entity_clear_names_a_waterlogged_or_bubbling_hitbox_liquid(flat_plane_w
     flat_plane_with_hole.set(10, 4, 10, block)
     found = entity_clear(flat_plane_with_hole, OPEN)
     assert not found.ok and found.detail == "hitbox in liquid" and found.coords == [(10, 4, 10)]
+
+
+UNKNOWN = "a block the core does not map (minecraft:info_update)"
+
+
+def test_entity_clear_names_an_unmapped_block_in_the_hitbox_apart_from_a_wall(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(10, 4, 10, "minecraft:stone")
+    flat_plane_with_hole.set(10, 5, 10, "minecraft:info_update")
+    found = entity_clear(flat_plane_with_hole, OPEN)
+    assert (found.ok, found.detail, found.coords) == (False, f"hitbox blocked by {UNKNOWN}", [(10, 5, 10)])
+    assert warp_safe(flat_plane_with_hole, OPEN) == found
+    flat_plane_with_hole.set(10, 5, 10, "minecraft:water")
+    assert entity_clear(flat_plane_with_hole, OPEN).detail == "hitbox in liquid"
+
+
+def test_entity_clear_names_an_unmapped_floor_and_third_cell() -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+    region.set(0, 0, 0, "info_update")
+    found = entity_clear(region, (0, 1, 0))
+    assert (found.ok, found.detail, found.coords) == (False, f"floor is {UNKNOWN}", [(0, 0, 0)])
+    region.set(0, 0, 0, "minecraft:oak_fence")
+    region.set(0, 3, 0, "minecraft:info_update")
+    found = entity_clear(region, (0, 1, 0))
+    assert (found.ok, found.detail, found.coords) == (False, f"hitbox blocked by {UNKNOWN}", [(0, 3, 0)])
+
+
+def test_warp_safe_refuses_an_unmapped_block_beside_the_hitbox(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(11, 3, 9, "minecraft:info_update")
+    flat_plane_with_hole.set(9, 5, 11, "minecraft:info_update")
+    assert entity_clear(flat_plane_with_hole, OPEN).ok
+    found = warp_safe(flat_plane_with_hole, OPEN)
+    assert (found.ok, found.detail) == (False, f"{UNKNOWN} beside the hitbox")
+    assert found.coords == [(11, 3, 9), (9, 5, 11)]
