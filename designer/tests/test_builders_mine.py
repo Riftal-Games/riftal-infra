@@ -196,6 +196,22 @@ def test_exit_platform_lights_sit_every_lights_every_blocks_along_its_edge(
     assert len(signs) == 1 and signs.pop().startswith("minecraft:standing_sign[")
 
 
+# Read from the ops, since a later sign op paints over a light on the sign row and a repeated op paints nothing new.
+@pytest.mark.parametrize("width", [3, 4, 5])
+@pytest.mark.parametrize("length, every, distances", [(8, 4, [4, 7]), (12, 3, [3, 6, 9, 11]), (4, 1, [1, 2, 3]), (1, 1, [])])
+def test_exit_platform_light_ops_are_one_per_light_and_none_on_the_sign_row(
+    width: int, length: int, every: int, distances: list[int], palette: Palette
+) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["exit_path"]["width"], data["exit_path"]["length"], data["lights_every"] = width, length, every
+    lit = MineSpec.from_dict(data)
+    geo = lit.geometry()
+    x, face = geo.exit_platform.min[0], geo.outer.max[2]
+    lights = [(op.x, op.y, op.z) for op in build_mine(lit, palette).ops if getattr(op, "block", "").startswith("minecraft:lantern")]
+    assert sorted(lights, key=lambda p: p[2]) == [(x, lit.floor_y, face + d) for d in distances]
+    assert all(z != face + length for _, _, z in lights)
+
+
 # Each side's lights run away from its face along the platform's low-coordinate edge.
 @pytest.mark.parametrize("side", ["north", "south", "east", "west"])
 def test_exit_platform_lights_follow_the_entrance_side(side: str, palette: Palette) -> None:
