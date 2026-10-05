@@ -209,6 +209,24 @@ def test_a_step_differing_from_a_committed_entry_refuses(fake: FakeBridge, bridg
     assert not fake.worlds["zt"].edits and not (root / "levels" / "zt.lock.json").exists()
 
 
+def test_a_refusal_quotes_the_step_tags_as_written(fake: FakeBridge, bridge: Bridge, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    build_mine = BUILDERS["mine"]
+
+    def unsorted_tags(spec: dict[str, Any], palette: Palette, fetch: Any) -> Any:
+        edits = build_mine(spec, palette, fetch)
+        for region in edits.extras["regions"]:
+            if region["name"] == "tbox_entrance":
+                region["tags"] = ["walkway", "mine"]
+        return edits
+
+    monkeypatch.setitem(BUILDERS, "mine", unsorted_tags)
+    index = _index()
+    index.regions.append(replace(_step_entry("tbox_entrance"), tags=["spawn", "mine"]))
+    with pytest.raises(LevelError, match=r"'tbox_entrance' has tags \['walkway', 'mine'\] \(world_index.json \['spawn', 'mine'\]\)"):
+        _build(bridge, root, index=index)
+    assert not fake.worlds["zt"].edits
+
+
 def test_a_committed_entry_matching_in_any_tag_order_builds(bridge: Bridge, root: Path) -> None:
     index = _index()
     sell, entrance = _step_entry("sell_npc_tbox"), _step_entry("tbox_entrance")
