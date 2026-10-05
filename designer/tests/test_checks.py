@@ -1,10 +1,14 @@
+import json
 from pathlib import Path
 
 import pytest
 
+from designer.blocks import AIR
 from designer.bridge import Bridge
+from designer.builders.mine_spec import MineSpec
 from designer.checks import CheckSpec, Fetch, RunContext, check_world, load_checks, plan_fetches, run_checks, run_one, write_report
-from designer.region import Bounds
+from designer.config import PROJECT_ROOT
+from designer.region import Bounds, Region
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.fake_bridge import FakeBridge, FakeWorld
 
@@ -125,6 +129,24 @@ def test_missing_mine_spec_file_fails_the_check(tmp_path: Path) -> None:
     spec = CheckSpec("m", "mine_valid", {"region": "box", "spec": "specs/nope.json"})
     result = run_one(RunContext({}), _index(tmp_path), spec)
     assert not result.ok and result.detail.endswith("nope.json does not exist")
+
+
+# The interior is all quartz_ore, a block with no reset state, so only the crafted key could have
+# let mine_valid count it as named.
+def test_a_checks_file_mine_valid_refuses_a_spec_key_spelling_the_not_reset_marker(tmp_path: Path) -> None:
+    raw = json.loads((PROJECT_ROOT / "specs" / "lumber.json").read_text(encoding="utf-8"))
+    crafted = {**raw, "world": "mine_a", "ores": {"minecraft:quartz_ore": 1.0, "minecraft:quartz_ore (not its reset state)": 99.0}}
+    spec_file = tmp_path / "crafted.json"
+    spec_file.write_text(json.dumps(crafted), encoding="utf-8")
+    geo = MineSpec.from_dict({**crafted, "ores": {"minecraft:stone": 1.0}}).geometry()
+    region = Region.empty("mine_a", geo.padding.union(geo.exit_platform))
+    region.fill(geo.outer, "minecraft:stone")
+    region.fill(geo.interior, "minecraft:quartz_ore")
+    region.fill(geo.entrance, AIR)
+    region.fill(geo.exit_platform, "minecraft:stone")
+    (check,) = _checks(tmp_path, f"version: 1\nchecks:\n  - check: mine_valid\n    region: box\n    spec: {json.dumps(str(spec_file))}\n")
+    result = run_one(RunContext({"mine_a": region}), _index(tmp_path), check)
+    assert not result.ok and "which is not a block id" in result.detail, result.detail
 
 
 def test_no_holes_fails_a_fractional_floor_y_instead_of_truncating_it(fake: FakeBridge, bridge: Bridge, tmp_path: Path) -> None:

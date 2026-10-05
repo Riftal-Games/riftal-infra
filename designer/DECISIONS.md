@@ -813,3 +813,20 @@ config and refuses the build, before any request, unless every `mine` step's spe
 `ores` (names compared canonically, weights as numbers). A fragment it cannot read also refuses.
 Until riftal-game#527 lands, riftal-game `main`'s ore lists are behind the specs, so real mine
 builds against it refuse; that is the check working, not a reason to relax it (#549).
+
+## 2026-09-30 A mine's `ores` key matches only the state the reset writes
+
+`mine_valid` counts a block under an `ores` key only when the block is in exactly the state
+`designer/reset_states.py` gives for its base, and the key names a subset of that state. Any
+other state, or a base the table lacks, counts as unnamed even under a key that spells the
+block's whole name, such as `oak_log[pillar_axis=x]` or `quartz_ore`. `build_mine` fills
+the interior with that same reset state, so a build reads back as a reset mine does. The
+table mirrors what RiftalMines' reset places: the block of `StringToItemParser::parse(name)`
+(riftal-game `MineResetListener.php`), not what the bridge reads back for a bare id
+(riftal-game#256). It lists only the bases the specs and fragments use; a `mine` step naming a
+base the table lacks refuses the build before any request, and a test walks every spec and
+fragment base. Any entry for a block with states, today only `oak_log` with `pillar_axis=y`,
+needs a one-time live check on the designer stack. `MineSpec` refuses two `ores` keys on one
+base where one's states are a subset of the other's, since one block would satisfy both. A
+lenient match was rejected because it could pass a level the next reset silently changes; the
+vendored Bedrock state data was rejected because it marks no state as the default (#561).
