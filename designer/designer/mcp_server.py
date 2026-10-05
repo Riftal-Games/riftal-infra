@@ -799,7 +799,9 @@ async def list_snapshots(world: str | None = None, limit: int = 20) -> dict[str,
 
 @tool
 async def list_undo(limit: int = 20) -> dict[str, Any]:
-    """Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored.
+    """Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored, and texts.
+
+    A floating-text entry has ``texts``, the ids its undo removes, and null ``path`` and ``bounds``.
 
     RETURNS: manifest, total, entries.
     """

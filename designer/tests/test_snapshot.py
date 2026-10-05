@@ -13,7 +13,7 @@ import pytest
 from designer import __version__, snapshot
 from designer.blocks import AIR
 from designer.bridge import Bridge
-from designer.edits import EditList, Fill, SetBlock
+from designer.edits import EditList, Fill, SetBlock, Text
 from designer.region import Bounds, Bounds2D, Region, fetch_heightmap, fetch_region
 from designer.snapshot import (
     TS_FORMAT,
@@ -27,6 +27,7 @@ from designer.snapshot import (
     save,
     take,
 )
+from tests import fake_bridge
 from tests.fake_bridge import FakeBridge, FakeOpError
 
 WORLD = "design"
@@ -328,6 +329,53 @@ def test_prune_refuses_a_manifest_entry_whose_path_resolves_outside_snapshots_di
     with pytest.raises(ValueError, match="outside the snapshots directory"):
         stack.prune(dry_run=False)
     assert outside.is_file() and [e["id"] for e in stack.entries()] == [1]
+
+
+def _texts(*ids: str) -> EditList:
+    return EditList(WORLD, [Text(i, 64, 0, f"text {tid}", tid) for i, tid in enumerate(ids)])
+
+
+def test_a_dry_run_undo_of_a_text_entry_leaves_the_text(fake: FakeBridge, bridge: Bridge, snapshots_dir: Path) -> None:
+    done = apply_undoable(bridge, _texts("a"), "signage", "s1")
+    assert done.undo_id == 1 and set(fake.texts) == {"a"}
+    [result] = UndoStack().undo(bridge, dry_run=True)
+    assert result.ok and result.jobs == [] and set(fake.texts) == {"a"} and UndoStack().entries()[0]["restored"] is False
+
+
+def test_a_remove_text_failure_other_than_not_found_stops_the_undo(fake: FakeBridge, bridge: Bridge, snapshots_dir: Path) -> None:
+    apply_undoable(bridge, _texts("a", "b"), "signage", "s1")
+
+    def refuse(args: dict) -> object:
+        raise fake_bridge.FakeOpError("FAKE_DOWN", "remove_text refused")
+
+    fake.op_remove_text = refuse
+    [result] = UndoStack().undo(bridge)
+    assert result.ok is False and result.jobs == [] and set(fake.texts) == {"a", "b"}
+    assert UndoStack().entries()[0]["restored"] is False
+
+
+def test_a_text_entry_is_pushed_for_the_texts_set_before_a_later_one_failed(fake: FakeBridge, bridge: Bridge, snapshots_dir: Path) -> None:
+    real, calls = fake.op_set_text, []
+
+    def second_fails(args: dict) -> object:
+        calls.append(args)
+        if len(calls) == 2:
+            raise fake_bridge.FakeOpError("FAKE_DOWN", "set_text refused")
+        return real(args)
+
+    fake.op_set_text = second_fails
+    done = apply_undoable(bridge, _texts("a", "b"), "signage", "s1")
+    assert done.result.ok is False and done.undo_id == 1
+    [entry] = UndoStack().entries()
+    assert (entry["path"], entry["bounds"], entry["texts"]) == (None, None, ["a"])
+
+
+def test_a_mixed_block_and_text_edit_list_gets_only_a_block_entry(fake: FakeBridge, bridge: Bridge, snapshots_dir: Path) -> None:
+    box = Bounds((0, 64, 0), (1, 64, 1))
+    done = apply_undoable(bridge, EditList(WORLD, [Fill(box, GLASS), *_texts("a").ops]), "mixed", "s1")
+    [entry] = UndoStack().entries()
+    assert done.undo_id == 1 and entry["bounds"] == box.to_json() and entry["path"] == done.snapshot
+    assert "texts" not in entry and set(fake.texts) == {"a"}
 
 
 def test_apply_undoable_refuses_an_empty_edit_list_before_any_request(fake: FakeBridge, bridge: Bridge, snapshots_dir: Path) -> None:
