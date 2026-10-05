@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from designer.blocks import AIR, BlockClass, format_name, parse_name
+from designer.blocks import AIR, BlockClass, format_name, is_tall_floor, parse_name
 from designer.builders.mine_spec import SIDES, MineSpec
 from designer.region import Bounds, LightRegion, Region
 from designer.reset_states import RESET_STATES
@@ -255,7 +255,8 @@ def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     feet that is neither air nor passable, and it must be solid, because a
     player over liquid sinks and over danger burns. A column with no support
     inside the region obstructs nothing here; ``warp_safe`` is the check that
-    demands a landing. ``coords`` names the offending cells. A fractional
+    demands a landing. On a floor taller than one block directly under the feet, the cell two above the feet
+    must be passable too. ``coords`` names the offending cells. A fractional
     ``pos`` means the block it falls in, each coordinate floored. ``pos``
     outside the region is a failed check, not a crash, for a caller that did
     not fetch around it first.
@@ -285,6 +286,10 @@ def entity_clear(region: Region, pos: Sequence[float]) -> Check:
         kind = BlockClass(int(classes[top, iz, ix]))
         if kind != BlockClass.SOLID:
             return Check(False, f"floor is {kind.name.lower()}", [(x, y - (iy - top), z)])
+        # Standing on a fence or wall puts the head half a block into the cell two above the feet.
+        if top == iy - 1 and is_tall_floor(region.get(x, y - 1, z)):
+            if iy + 2 < classes.shape[0] and not passable[iy + 2, iz, ix]:
+                return Check(False, "hitbox blocked", [(x, y + 2, z)])
     return Check(True, "clear")
 
 
