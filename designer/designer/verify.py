@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from designer.blocks import AIR, BlockClass, format_name, is_tall_floor, parse_name
+from designer.blocks import AIR, UNMAPPED, BlockClass, format_name, is_tall_floor, is_unmapped, parse_name
 from designer.builders.mine_spec import SIDES, MineSpec
 from designer.region import Bounds, LightRegion, Region
 from designer.reset_states import RESET_STATES
@@ -246,13 +246,26 @@ def _solid_within(classes: np.ndarray, iy: int, iz: int, ix: int, n: int) -> boo
     return bool((classes[max(iy - n + 1, 0):iy + 1, iz, ix] == BlockClass.SOLID).any())
 
 
+# An unmapped block classes SOLID, so without naming it a designer reads an ordinary wall or
+# floor where the world may hold kelp, water or anything else the core does not know.
+UNMAPPED_NOTE = f"a block the core does not map ({UNMAPPED})"
+
+
+def _obstruction(region: Region, cells: list[Pos]) -> Check:
+    unmapped = [c for c in cells if is_unmapped(region.get(*c))]
+    if unmapped:
+        return Check(False, f"hitbox blocked by {UNMAPPED_NOTE}", unmapped)
+    return Check(False, "hitbox blocked", cells)
+
+
 def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     """A 1x2 hitbox with its feet at ``pos`` is free and whatever it rests on is walkable.
 
     Feet and head must be passable; a danger block there fails as ``hitbox in
     danger``, else a liquid as ``hitbox in liquid``, any other obstruction as
-    ``hitbox blocked``. The support is the first block below the
-    feet that is neither air nor passable, and it must be solid, because a
+    ``hitbox blocked``, or ``hitbox blocked by`` an unmapped block when one is
+    among them. The support is the first block below the
+    feet that is neither air nor passable, and it must be solid and mapped, because a
     player over liquid sinks and over danger burns. A column with no support
     inside the region obstructs nothing here; ``warp_safe`` is the check that
     demands a landing. On a floor taller than one block directly under the feet, the cell two above the feet
@@ -279,17 +292,19 @@ def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     if liquid:
         return Check(False, "hitbox in liquid", [(x, y + d, z) for d in liquid])
     if blocked:
-        return Check(False, "hitbox blocked", [(x, y + d, z) for d in blocked])
+        return _obstruction(region, [(x, y + d, z) for d in blocked])
     support = np.flatnonzero(~passable[:iy, iz, ix])
     if len(support):
         top = int(support[-1])
         kind = BlockClass(int(classes[top, iz, ix]))
         if kind != BlockClass.SOLID:
             return Check(False, f"floor is {kind.name.lower()}", [(x, y - (iy - top), z)])
+        if is_unmapped(region.get(x, y - (iy - top), z)):
+            return Check(False, f"floor is {UNMAPPED_NOTE}", [(x, y - (iy - top), z)])
         # Standing on a fence or wall puts the head half a block into the cell two above the feet.
         if top == iy - 1 and is_tall_floor(region.get(x, y - 1, z)):
             if iy + 2 < classes.shape[0] and not passable[iy + 2, iz, ix]:
-                return Check(False, "hitbox blocked", [(x, y + 2, z)])
+                return _obstruction(region, [(x, y + 2, z)])
     return Check(True, "clear")
 
 
@@ -300,7 +315,8 @@ def warp_safe(region: Region, pos: Sequence[float]) -> Check:
     the feet, so a warp over a hole or a void column is refused; no liquid or
     danger in the 3x3 at floor, feet or head level, because the first step off
     the warp goes in any direction and a lava floor is the same death as a
-    lava wall; and no cell in the 3x3 at floor level that is a hole deeper
+    lava wall; no unmapped block in those same cells, since it may be either;
+    and no cell in the 3x3 at floor level that is a hole deeper
     than ``LANDING``, so that step cannot be a fall either.
     ``detail`` names the first rule that fails and ``coords`` the cells that
     break it. Cells outside the region are unknown: they never offend, and
@@ -326,6 +342,14 @@ def warp_safe(region: Region, pos: Sequence[float]) -> Check:
     ]
     if hazards:
         return Check(False, "liquid or danger beside the hitbox", hazards)
+    unmapped = [
+        (x + dx, y + dy, z + dz)
+        for dy in (-1, 0, 1) if 0 <= iy + dy < ny
+        for dz, dx in around
+        if is_unmapped(region.get(x + dx, y + dy, z + dz))
+    ]
+    if unmapped:
+        return Check(False, f"{UNMAPPED_NOTE} beside the hitbox", unmapped)
     holes = [
         (x + dx, y - 1, z + dz)
         for dz, dx in around

@@ -13,6 +13,9 @@ log = logging.getLogger("designer.blocks")
 
 AIR = "minecraft:air"
 NAMESPACE = "minecraft:"
+# What the core loads in place of a block it has no mapping for (LevelDB.php), so the
+# block the world really holds, and its collision, are unknown to the toolkit.
+UNMAPPED = "minecraft:info_update"
 
 # Wire order of a region's runs and axis order of every decoded array,
 # outermost first: ``blocks[y][z][x]``, x varies fastest.
@@ -167,6 +170,11 @@ def is_tall_floor(name: str) -> bool:
     if base.endswith("fence_gate"):
         return states.get("open_bit") != "true"
     return base.endswith(TALL_FLOOR_SUFFIXES)
+
+
+def is_unmapped(name: str) -> bool:
+    """A block the core could not map, which classes SOLID but may be anything in the world."""
+    return parse_name(name)[0] == UNMAPPED
 
 
 def tall_floor_lut(palette: Sequence[str]) -> np.ndarray:
