@@ -15,7 +15,18 @@ from designer.blocks import AIR
 from designer.bridge import Bridge
 from designer.edits import EditList, Fill, SetBlock
 from designer.region import Bounds, Bounds2D, Region, fetch_heightmap, fetch_region
-from designer.snapshot import TS_FORMAT, Snapshot, SnapshotLoadError, UndoStack, diff, load, restore, save, take
+from designer.snapshot import (
+    TS_FORMAT,
+    Snapshot,
+    SnapshotLoadError,
+    UndoStack,
+    apply_undoable,
+    diff,
+    load,
+    restore,
+    save,
+    take,
+)
 from tests.fake_bridge import FakeBridge, FakeOpError
 
 WORLD = "design"
@@ -317,3 +328,26 @@ def test_prune_refuses_a_manifest_entry_whose_path_resolves_outside_snapshots_di
     with pytest.raises(ValueError, match="outside the snapshots directory"):
         stack.prune(dry_run=False)
     assert outside.is_file() and [e["id"] for e in stack.entries()] == [1]
+
+
+def test_apply_undoable_refuses_an_empty_edit_list_before_any_request(fake: FakeBridge, bridge: Bridge, snapshots_dir: Path) -> None:
+    with pytest.raises(ValueError, match="^nothing to do: the edit list is empty$"):
+        apply_undoable(bridge, EditList(WORLD, []), "fill", "s1")
+    assert fake.requests == [] and UndoStack().entries() == []
+
+
+def test_apply_undoable_pushes_its_entry_before_the_first_write(fake: FakeBridge, bridge: Bridge, snapshots_dir: Path) -> None:
+    box = Bounds((0, 64, 0), (3, 64, 3))
+    seen: list[list[dict]] = []
+    real = fake.op_fill
+
+    def fill(args: dict) -> object:
+        seen.append(UndoStack().entries())
+        return real(args)
+
+    fake.op_fill = fill
+    done = apply_undoable(bridge, EditList(WORLD, [Fill(box, GLASS)]), "fill", "s1")
+    assert done.result.ok and done.result.blocks == 16 and done.undo_id == 1
+    [[entry]] = seen
+    assert (entry["id"], entry["op"], entry["session"], entry["path"]) == (1, "fill", "s1", done.snapshot)
+    assert diff(load(Path(done.snapshot)), fetch_region(bridge, WORLD, box)).changed == 16
