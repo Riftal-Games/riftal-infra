@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import tokenize
 import zipfile
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -179,11 +181,12 @@ def remove_texts(bridge: Bridge, ids: list[str], *, dry_run: bool = False) -> Ap
 
 
 def _load_entry(entry: dict[str, Any]) -> Snapshot:
-    # numpy reports a damaged file as OSError, ValueError, EOFError, KeyError or zipfile.BadZipFile depending
-    # on where the damage is, so every failure to read this one file is the same refusal.
+    # Where the damage lands decides what numpy and zipfile raise: OSError, ValueError, EOFError, KeyError,
+    # zipfile.BadZipFile, zlib.error in the deflate stream, NotImplementedError in a zip header, or
+    # tokenize.TokenError in the npy header. Every failure to read this one file is the same refusal.
     try:
         return load(Path(entry["path"]))
-    except (OSError, ValueError, EOFError, KeyError, zipfile.BadZipFile) as exc:
+    except (OSError, ValueError, EOFError, KeyError, zipfile.BadZipFile, zlib.error, NotImplementedError, tokenize.TokenError) as exc:
         raise SnapshotLoadError(f"undo entry {entry['id']}: cannot load snapshot {entry['path']}: {exc}") from exc
 
 
