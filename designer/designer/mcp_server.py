@@ -505,7 +505,7 @@ def _progress(ctx: Context | None) -> Callable[[int, int], None] | None:
     return lambda done, total: anyio.from_thread.run(ctx.report_progress, done, total)
 
 def _finish(out: dict[str, Any], result: ApplyResult) -> dict[str, Any]:
-    """The first ``BridgeError`` folded into the answer when the run stopped early, so the undo entry is still reported."""
+    """The first error folded into the answer when the run stopped early, so the undo entry is still reported."""
     out["jobs"] = result.jobs
     return out if result.ok else {**out, **_error(result.errors[0])}
 
