@@ -105,6 +105,16 @@ def test_an_ore_named_by_an_alias_refuses_since_it_has_no_reset_state(fake: Fake
     assert fake.requests == []
 
 
+# A layer ore is not in the fragment's comparison, so only the reset-state check stops it before
+# the build; mine_valid would refuse it, but only after every request has been made.
+def test_a_layer_ore_without_a_reset_state_refuses_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    spec = json.loads((root / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    spec["ore_layers"] = [{"y_from": 45, "y_to": 45, "ores": {"minecraft:quartz_ore": 1}}]
+    (root / "specs" / "mine_a.json").write_text(json.dumps(spec), encoding="utf-8")
+    _refused(bridge, root, "mine_a", r"specs/mine_a\.json names \['minecraft:quartz_ore'\], which have no reset state")
+    assert fake.requests == []
+
+
 def test_a_chorus_flower_outside_every_interior_refuses(bridge: Bridge, root: Path) -> None:
     _recipe(root, "lumber", {"at": [19, 54, 19], "block": "minecraft:chorus_flower"})
     _refused(bridge, root, "lumber", r"1 chorus flower\(s\) outside every mine interior, first at \(19, 54, 19\)")
@@ -140,6 +150,15 @@ def test_no_mines_config_refuses_every_zone_before_any_request(
 def test_a_fragment_whose_ores_differ_from_the_spec_refuses_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
     _fragment(root, "mine_a", {"minecraft:coal_ore": 1.0, "minecraft:iron_ore": 0.5})
     _refused(bridge, root, "mine_a", r"specs/mine_a\.json ores .* differ from the mines fragment .*mine_a\.json ores")
+    assert fake.requests == []
+
+
+# check_reset_states reads only the spec, so a base without a reset state that only the fragment
+# names has to be caught as a difference, or the reset would refill a block mine_valid never counts.
+def test_a_fragment_naming_a_base_without_a_reset_state_refuses_as_a_difference(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    spec = json.loads((root / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    _fragment(root, "mine_a", {**spec["ores"], "minecraft:quartz_ore": 0.1})
+    _refused(bridge, root, "mine_a", r"specs/mine_a\.json ores .* differ from the mines fragment .*'minecraft:quartz_ore': 0\.1")
     assert fake.requests == []
 
 
