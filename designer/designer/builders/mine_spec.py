@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -16,11 +17,23 @@ FILLS = ("solid", "hollow")
 
 Triple = tuple[int, int, int]
 
+# A key must name a block id, so no key can spell the marker mine_valid gives a block outside its reset state.
+BLOCK_ID = re.compile(r"[a-z0-9_.-]+:[a-z0-9_./-]+")
+
 
 def _weights(data: Any, key: str) -> dict[str, float]:
     ores = {format_name(*parse_name(name)): float(w) for name, w in dict(data).items()}
     if not ores or min(ores.values()) <= 0:
         raise ValueError(f"{key} must name at least one block with a positive weight, got {data!r}")
+    for name in ores:
+        if not BLOCK_ID.fullmatch(parse_name(name)[0]):
+            raise ValueError(f"{key} names {name!r}, which is not a block id")
+    # A block in both keys' states would count under whichever came first, so the other could never be satisfied.
+    parsed = [(name, *parse_name(name)) for name in ores]
+    for i, (a, ab, astates) in enumerate(parsed):
+        for b, bb, bstates in parsed[i + 1:]:
+            if ab == bb and (astates.items() <= bstates.items() or bstates.items() <= astates.items()):
+                raise ValueError(f"{key} names {a!r} and {b!r}, which one block can satisfy both of")
     return ores
 
 
