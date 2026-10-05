@@ -264,7 +264,8 @@ def _run_checks(bridge: Bridge, recipe: Recipe, index: WorldIndex, all_specs: li
         raise LevelError(f"checks.yaml has checks on {recipe.zone!r} naming nothing the built index resolves: {unresolved}")
     if elsewhere := [f"{i} reads {world!r}" for i, world in worlds if world != recipe.zone]:
         raise LevelError(f"checks.yaml has checks on {recipe.zone!r} that read another world: {elsewhere}")
-    if failed := checks_mod.run_checks(bridge, index, specs).failed:
+    # scan() refuses every finding, a stricter test than offdisk_clear, so running it here would only scan the zone twice.
+    if failed := checks_mod.run_checks(bridge, index, [s for s in specs if s.kind != "offdisk_clear"]).failed:
         raise LevelError(f"{recipe.zone!r} failed {[f'{r.id}: {r.detail}' for r in failed]}")
 
 
