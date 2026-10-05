@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=19
+EXPECTED_ASSERTIONS=23
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -169,6 +169,47 @@ expect_scan_fails() {
   fi
 }
 
+CLEANUP="$REPO_ROOT/.github/scripts/container-cleanup.sh"
+
+# The needle includes the line number, so a fixture rejected for some other
+# line than its one defect does not count.
+expect_cleanup() {
+  local file="$1" needle="$2" out status
+  out="$(bash "$CLEANUP" "$file" 2>&1)"
+  status=$?
+  if [ -z "$needle" ] && [ "$status" -eq 0 ]; then
+    pass "$(rel "$file") passes container-cleanup.sh"
+  elif [ -n "$needle" ] && [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qF "$file:$needle"; then
+    pass "$(rel "$file") rejected by container-cleanup.sh at $needle"
+  else
+    fail "expected container-cleanup.sh on $(rel "$file") to give '${needle:-a pass}', exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+expect_real_cleanup() {
+  local out status
+  mkdir -p "$PLANTED_DIR"
+  cp "$FIXTURES/bad/cleanup-rm.sh" "$PLANTED_DIR/cleanup-rm.sh"
+  out="$(cd "$REPO_ROOT" && bash "$CLEANUP" 2>&1)"
+  status=$?
+  rm -rf "$PLANTED_DIR"
+  if [ "$status" -ne 0 ] \
+    && printf '%s' "$out" | grep -qF './.ci-realscan-planted/cleanup-rm.sh:5:' \
+    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    pass "the real container-cleanup.sh invocation finds a planted file and excludes ci-fixtures"
+  else
+    fail "expected the real container-cleanup.sh invocation to flag the planted file and skip ci-fixtures, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+section "container cleanup takes the anonymous volumes with every container"
+expect_cleanup "$FIXTURES/good/cleanup.sh" ""
+expect_cleanup "$FIXTURES/bad/cleanup-rm.sh" "5: a container removed without -v"
+expect_cleanup "$FIXTURES/bad/cleanup-run.sh" "4: a container started without --rm"
+expect_real_cleanup
+
 section "hadolint, through scan.sh's own check_dockerfiles"
 expect_scan_ok dockerfiles "$FIXTURES/good/Dockerfile"
 expect_scan_bad dockerfiles "$FIXTURES/bad/Dockerfile" DL3007
@@ -213,5 +254,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed. A check has stopped discriminating.\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed, both sides for hadolint, discovery, compose and php lint.\n' "$PASSES"
+printf 'all %s assertions passed, both sides for hadolint, discovery, compose, php lint and container cleanup.\n' "$PASSES"
 printf 'scan.sh itself is exercised end to end: discovery, both check functions, the loop, and the exact no-argument invocation ci.yml uses.\n'

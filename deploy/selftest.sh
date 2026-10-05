@@ -19,7 +19,7 @@ WORLD_B_VOL="riftal-backup-selftest-world-b-$SUFFIX"
 LOGS="$(mktemp -d)"
 
 cleanup() {
-  docker rm -f "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
+  docker rm -f -v "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
@@ -28,7 +28,7 @@ trap cleanup EXIT
 
 docker network create "$NETWORK" >/dev/null
 
-docker run -d --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
+docker run -d --rm --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
   mysql:8 >/dev/null
 
