@@ -7,7 +7,7 @@ import pytest
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
 from designer.reset_states import RESET_STATES
-from designer.verify import _as_ores
+from designer.verify import NOT_RESET_STATE, _as_ores
 
 WORLDS = Path("mines") / "resources" / "worlds"
 SIBLING_GAME_DIR = Path(__file__).resolve().parents[3] / "riftal-game"
@@ -42,12 +42,16 @@ def test_a_key_matches_only_the_reset_state_of_its_base() -> None:
     ]
 
 
+# Each key below spells the block's whole canonical name, so only a name outside
+# the keys proves the block went unmatched.
 def test_a_base_without_a_reset_state_matches_nothing() -> None:
-    assert _as_ores(["minecraft:quartz_ore"], {"minecraft:quartz_ore": 1.0}) == ["minecraft:quartz_ore"]
+    ores = {"minecraft:quartz_ore": 1.0}
+    assert _as_ores(["minecraft:quartz_ore"], ores) == [f"minecraft:quartz_ore{NOT_RESET_STATE}"]
 
 
 def test_a_key_naming_a_non_reset_state_matches_nothing() -> None:
-    assert _as_ores([f"{LOG}[pillar_axis=x]"], {f"{LOG}[pillar_axis=x]": 1.0}) == [f"{LOG}[pillar_axis=x]"]
+    ores = {f"{LOG}[pillar_axis=x]": 1.0}
+    assert _as_ores([f"{LOG}[pillar_axis=x]"], ores) == [f"{LOG}[pillar_axis=x]{NOT_RESET_STATE}"]
 
 
 @pytest.mark.parametrize("ores", [

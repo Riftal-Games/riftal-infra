@@ -68,18 +68,18 @@ def test_wrong_weights_fail_with_per_block_deviations(box_mine_region: Fixture) 
     assert not found.ok and found.detail == "composition off"
     assert found.deviations["minecraft:stone"] == pytest.approx(0.098, abs=0.01)
     assert found.deviations["minecraft:gold_ore"] == 0.1 and found.deviations["minecraft:coal_ore"] < 0.01
-    region.fill(Bounds((2, 2, 2), (17, 2, 17)), "minecraft:gravel")
+    region.fill(Bounds((2, 2, 2), (17, 2, 17)), "minecraft:gold_ore")
     found = mine_valid(region, spec)
-    assert not found.ok and found.deviations["minecraft:gravel"] == pytest.approx(1 / 6)
+    assert not found.ok and found.deviations["minecraft:gold_ore"] == pytest.approx(1 / 6)
     stray = "256 interior cells neither air nor in ores [(2, 2, 2), (3, 2, 2)"
     assert mine_valid(region, spec, tolerance=0.2).detail.startswith(stray)
-    layered = MineSpec.from_dict({**MINE_SPEC, "ore_layers": [{"y_from": 2, "y_to": 2, "ores": {"gravel": 1}}]})
+    layered = MineSpec.from_dict({**MINE_SPEC, "ore_layers": [{"y_from": 2, "y_to": 2, "ores": {"gold_ore": 1}}]})
     found = mine_valid(region, layered)
     assert found.detail.startswith(stray) and found.coords[0] == (2, 2, 2) and len(found.coords) == 20
-    assert found.deviations["minecraft:gravel@2..2"] == 0.0 and "minecraft:gravel" not in found.deviations
-    gravelly = MineSpec.from_dict({**MINE_SPEC, "ores": {**MINE_SPEC["ores"], "gravel": 20}})
-    assert mine_valid(region, gravelly).ok
-    assert found.composition["minecraft:gravel"] == pytest.approx(1 / 6)
+    assert found.deviations["minecraft:gold_ore@2..2"] == 0.0 and "minecraft:gold_ore" not in found.deviations
+    with_gold = MineSpec.from_dict({**MINE_SPEC, "ores": {**MINE_SPEC["ores"], "gold_ore": 20}})
+    assert mine_valid(region, with_gold).ok
+    assert found.composition["minecraft:gold_ore"] == pytest.approx(1 / 6)
 
 
 def test_one_stray_interior_block_fails_at_any_tolerance(box_mine_region: Fixture) -> None:

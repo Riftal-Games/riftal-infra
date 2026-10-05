@@ -48,6 +48,10 @@ LEAKS_REPORTED = 20
 
 LIGHT_KINDS = ("block", "sky", "max")
 
+# A block name never ends in a space or a parenthesis, so no ores key can spell
+# a canonical name with this appended.
+NOT_RESET_STATE = " (not its reset state)"
+
 Pos = tuple[int, int, int]
 
 
@@ -424,12 +428,14 @@ def _fractions(blocks: np.ndarray, names: list[str]) -> dict[str, float]:
 
 
 def _as_ores(palette: list[str], ores: dict[str, float]) -> list[str]:
-    """Each palette name as the ``ores`` key it satisfies, else canonical.
+    """Each palette name as the ``ores`` key it satisfies, else a name no ``ores`` key equals.
 
     A block satisfies a key only in exactly the state the reset writes for its base (``RESET_STATES``), and a key
     names a subset of that state. The engine reads a block back with every state it has,
     ``minecraft:oak_log[pillar_axis=y]``, while a spec names only what it cares about; any other state of the same
     base is a block the next reset would change, so it counts as unnamed. A base the table lacks matches nothing.
+    An unnamed block reads as its canonical name, unless a key spells that name, as
+    ``minecraft:oak_log[pillar_axis=x]`` can; then it carries ``NOT_RESET_STATE`` so it cannot pass as that key.
     """
     keys = [(key, *parse_name(key)) for key in ores]
     out = []
@@ -438,7 +444,8 @@ def _as_ores(palette: list[str], ores: dict[str, float]) -> list[str]:
         reset = RESET_STATES.get(base)
         exact = reset is not None and states == reset
         match = (key for key, kb, ks in keys if exact and kb == base and ks.items() <= states.items())
-        out.append(next(match, format_name(base, states)))
+        canonical = format_name(base, states)
+        out.append(next(match, canonical + NOT_RESET_STATE if canonical in ores else canonical))
     return out
 
 
@@ -454,8 +461,9 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     is solid under its whole footprint with a clear cell above its walking lane, the centre line a player
     actually spawns and exits on, so a hand edit there is caught here rather than as a less specific failure
     from a check that walks out onto it. Furniture such as the lit posts down either side is outside the lane
-    and never trips this rule. A block counts as an ``ores`` key when its base is the key's and its states include
-    the key's. Every interior cell is air or a block named in ``ores``, with no tolerance: a
+    and never trips this rule. A block counts as an ``ores`` key only in exactly the state the reset writes for its
+    base, ``RESET_STATES``, and only when the key names a subset of that state; any other state, or a base the
+    table lacks, counts as unnamed even under a key spelling its whole name. Every interior cell is air or a block named in ``ores``, with no tolerance: a
     reset refills only from ``ores``, so any other block there would break into an item nobody mined (ADR 014
     item 7), and a name only in ``ore_layers`` fails for the same reason. ``detail`` names every failing rule
     and those interior cells; ``coords`` holds leaks, undeclared cells, missing floor cells, missing platform

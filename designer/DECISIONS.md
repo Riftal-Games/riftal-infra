@@ -808,7 +808,10 @@ rejected for that reason; leaving it on disk outside the manifest, as before, le
 ## 2026-09-30 A mine's `ores` key matches only the state the reset writes
 
 `mine_valid` counts a block under an `ores` key only when the block is in exactly the state
-`designer/reset_states.py` gives for its base, and the key names a subset of that state. The
+`designer/reset_states.py` gives for its base, and the key names a subset of that state. Any
+other state, or a base the table lacks, counts as unnamed even under a key that spells the
+block's whole name, such as `oak_log[pillar_axis=x]` or `quartz_ore`. `build_mine` fills
+the interior with that same reset state, so a build reads back as a reset mine does. The
 table mirrors what RiftalMines' reset places: the block of `StringToItemParser::parse(name)`
 (riftal-game `MineResetListener.php`), not what the bridge reads back for a bare id
 (riftal-game#256). It lists only the bases the specs and fragments use; a `mine` step naming a
