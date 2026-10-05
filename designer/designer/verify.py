@@ -10,9 +10,10 @@ from typing import Any
 
 import numpy as np
 
-from designer.blocks import AIR, BlockClass, base_name, format_name, is_tall_floor, parse_name
+from designer.blocks import AIR, BlockClass, format_name, is_tall_floor, parse_name
 from designer.builders.mine_spec import SIDES, MineSpec
 from designer.region import Bounds, LightRegion, Region
+from designer.reset_states import RESET_STATES
 
 # Bedrock player speeds on level ground, blocks per second.
 WALK_SPEED = 4.317
@@ -31,7 +32,6 @@ DROP = 0.25
 # so a step into one takes four steps' time. The server has no say in it:
 # pmmp-core's Cobweb.php:36 only resets fall distance.
 WEB_COST = 4.0
-WEBS = ("web", "cobweb")
 
 # Blocks below the feet within which a warp must find solid ground.
 LANDING = 3
@@ -46,6 +46,10 @@ HOLES_REPORTED = 50
 LEAKS_REPORTED = 20
 
 LIGHT_KINDS = ("block", "sky", "max")
+
+# MineSpec refuses an ores key whose base is not a block id, so no key can spell
+# a canonical name with this appended.
+NOT_RESET_STATE = " (not its reset state)"
 
 Pos = tuple[int, int, int]
 
@@ -119,14 +123,6 @@ def _world(box: Bounds, local: Sequence[int]) -> Pos:
     return ix + box.min[0], iy + box.min[1], iz + box.min[2]
 
 
-def _webbed(region: Region) -> np.ndarray:
-    """Bool ``[y][z][x]``: a player with feet in the cell has a web at the feet or the head."""
-    webs = np.array([base_name(name) in WEBS for name in region.palette], dtype=bool)[region.blocks]
-    out = webs.copy()
-    out[:-1] |= webs[1:]
-    return out
-
-
 def path_exists(
     region: Region, a: Sequence[float], b: Sequence[float], *,
     max_nodes: int = 200_000, corridor: Bounds | None = None, margin: int = 16,
@@ -162,7 +158,7 @@ def path_exists(
     plane = nz * nx
     stand = mask[at].ravel().tolist()
     passable = region.passable()[at].ravel().tolist()
-    step = np.where(_webbed(region)[at], WEB_COST, 1.0).ravel().tolist()
+    step = np.where(region.web_mask()[at], WEB_COST, 1.0).ravel().tolist()
     g = np.full(ny * plane, np.inf, dtype=np.float32)
     closed = np.zeros(ny * plane, dtype=bool)
     parent = np.full(ny * plane, -1, dtype=np.int32)
@@ -428,17 +424,24 @@ def _fractions(blocks: np.ndarray, names: list[str]) -> dict[str, float]:
 
 
 def _as_ores(palette: list[str], ores: dict[str, float]) -> list[str]:
-    """Each palette name as the ``ores`` key it satisfies, else canonical.
+    """Each palette name as the ``ores`` key it satisfies, else a name no ``ores`` key equals.
 
-    A key matches a block with the same base whose states include the key's. The engine reads a block back with
-    every state it has, ``minecraft:oak_log[pillar_axis=y]``, while a spec names only what it cares about.
+    A block satisfies a key only in exactly the state the reset writes for its base (``RESET_STATES``), and a key
+    names a subset of that state. The engine reads a block back with every state it has,
+    ``minecraft:oak_log[pillar_axis=y]``, while a spec names only what it cares about; any other state of the same
+    base is a block the next reset would change, so it counts as unnamed. A base the table lacks matches nothing.
+    An unnamed block reads as its canonical name, unless a key spells that name, as
+    ``minecraft:oak_log[pillar_axis=x]`` can; then it carries ``NOT_RESET_STATE`` so it cannot pass as that key.
     """
     keys = [(key, *parse_name(key)) for key in ores]
     out = []
     for name in palette:
         base, states = parse_name(name)
-        match = (key for key, kb, ks in keys if kb == base and ks.items() <= states.items())
-        out.append(next(match, format_name(base, states)))
+        reset = RESET_STATES.get(base)
+        exact = reset is not None and states == reset
+        match = (key for key, kb, ks in keys if exact and kb == base and ks.items() <= states.items())
+        canonical = format_name(base, states)
+        out.append(next(match, canonical + NOT_RESET_STATE if canonical in ores else canonical))
     return out
 
 
@@ -454,8 +457,9 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     is solid under its whole footprint with a clear cell above its walking lane, the centre line a player
     actually spawns and exits on, so a hand edit there is caught here rather than as a less specific failure
     from a check that walks out onto it. Furniture such as the lit posts down either side is outside the lane
-    and never trips this rule. A block counts as an ``ores`` key when its base is the key's and its states include
-    the key's. Every interior cell is air or a block named in ``ores``, with no tolerance: a
+    and never trips this rule. A block counts as an ``ores`` key only in exactly the state the reset writes for its
+    base, ``RESET_STATES``, and only when the key names a subset of that state; any other state, or a base the
+    table lacks, counts as unnamed even under a key spelling its whole name. Every interior cell is air or a block named in ``ores``, with no tolerance: a
     reset refills only from ``ores``, so any other block there would break into an item nobody mined (ADR 014
     item 7), and a name only in ``ore_layers`` fails for the same reason. ``detail`` names every failing rule
     and those interior cells; ``coords`` holds leaks, undeclared cells, missing floor cells, missing platform

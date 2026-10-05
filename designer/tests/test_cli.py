@@ -14,7 +14,7 @@ from designer.render import LEGEND_LINE
 from designer.snapshot import UndoStack
 from designer.verify import Check
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
+from tests.conftest import ARENA, REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge
 
 
@@ -172,6 +172,7 @@ def test_heightmap_spawn_falls_back_to_the_tag_and_bad_refs_exit_one(
     assert capsys.readouterr().err.startswith("designer: no such name 'spawn'")
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_render_topdown_writes_the_png_and_prints_its_path_and_summary(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
@@ -185,6 +186,7 @@ def test_render_topdown_writes_the_png_and_prints_its_path_and_summary(
     assert lines[1] == "size=32x32 columns=256 min=63 max=63 mean=63.0 water=0.0 flat=1.0"
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_render_isometric_writes_the_png_and_prints_its_path_and_summary(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
@@ -229,6 +231,7 @@ def test_terrain_analyze_prints_stats_for_the_flat_area(
     }
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_terrain_find_site_ranks_by_the_near_flag(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
@@ -241,6 +244,7 @@ def test_terrain_find_site_ranks_by_the_near_flag(fake: FakeBridge, monkeypatch:
     assert len(sites) == 1 and sites[0]["height"] == 63 and sites[0]["score"] == 0.0
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_terrain_terraform_defaults_to_a_dry_run_and_apply_sends_it(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -257,6 +261,7 @@ def test_terrain_terraform_defaults_to_a_dry_run_and_apply_sends_it(
     assert Path(applied["snapshot"]).is_file() and "fill" in [r["op"] for r in fake.requests]
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_terrain_terraform_apply_pushes_an_undo_entry_that_restores_the_ground(
     fake: FakeBridge, bridge: Bridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -286,6 +291,7 @@ def test_terrain_terraform_apply_refuses_an_empty_edit_list_and_sends_nothing(
     assert not (tmp_path / "snapshots").exists()
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_terrain_terraform_apply_exits_one_when_the_bridge_refuses_an_edit(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -383,7 +389,7 @@ def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", refusable.token)
     monkeypatch.setenv("DESIGNER_PORT", str(refusable.port))
-    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design"), ARENA]).save(tmp_path / "index.json")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     before = index_path.read_bytes()
     spec_path = tmp_path / "spec.json"
