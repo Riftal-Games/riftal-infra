@@ -15,7 +15,7 @@ from designer.render import LEGEND_LINE
 from designer.snapshot import UndoStack
 from designer.verify import Check
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
+from tests.conftest import ARENA, REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge
 
 
@@ -385,7 +385,7 @@ def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", refusable.token)
     monkeypatch.setenv("DESIGNER_PORT", str(refusable.port))
-    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design"), ARENA]).save(tmp_path / "index.json")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     before = index_path.read_bytes()
     spec_path = tmp_path / "spec.json"
