@@ -52,7 +52,9 @@ docker run --rm \
   -v /tmp/pharynx.phar:/pharynx.phar:ro -v /tmp/composer.phar:/composer.phar:ro \
   -w /build/mines -e COMPOSER_ALLOW_SUPERUSER=1 -e HOME=/tmp \
   local-pocketmine-mp sh -c '
+    set -e
     php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev
+    sh /out/link-replaced.sh
     php -dphar.readonly=0 /pharynx.phar -i . -c "-p=/out/RiftalMines.phar"
   '
 ```
@@ -60,6 +62,13 @@ docker run --rm \
 Building from a copy of `mines/` and `lib/`, not a bind mount, keeps
 `composer install`'s `vendor/` out of a working tree another lane may have
 open. Under `wslc`, translate the `-v` and `-w` flags as `/dev-stack` does.
+
+`link-replaced.sh` is the step that lets a `mines` pinned to the fork,
+`axolotl-pm/pocketmine-mp`, build at all. libasynql requires
+`pocketmine/pocketmine-mp`, which the fork only replaces, and pharynx reads a
+virion's requires by name, so without the link it stops at `Failed to read
+file ./vendor/pocketmine/pocketmine-mp/composer.json`. Run against a `mines`
+that still requires `pocketmine/pocketmine-mp` itself, it links nothing.
 
 Confirm the build holds a `plugin.yml`, the same check
 `riftal-game/.github/scripts/packages.sh`'s `phar_one()` runs on every phar it
