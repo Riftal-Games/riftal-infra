@@ -357,6 +357,15 @@ def test_undo_restores_the_fake(server: FakeBridge) -> None:
     assert call("undo")["count"] == 0 and _pristine(server)
 
 
+
+def test_undo_of_two_block_edits_reports_the_newest_undo_entry(server: FakeBridge) -> None:
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 1
+    assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
+    result = call("undo", n=2)
+    assert result["ok"] is True and (result["count"], result["undone"], result["undo_id"]) == (2, [2, 1], 4), result
+    [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 4]
+    assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and _pristine(server)
+
 def _fail_nth(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, op: str, nth: int) -> None:
     real, seen = getattr(fake, f"op_{op}"), []
 

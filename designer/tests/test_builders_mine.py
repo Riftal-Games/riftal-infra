@@ -48,6 +48,18 @@ def test_committed_spec_pins_the_mine_a_fragment(spec: MineSpec) -> None:
     assert spec.ores == {"minecraft:stone": 1.0, "minecraft:coal_ore": 0.5} and spec.ore_layers == ()
 
 
+# _ore_ops draws by position in ``ores``, so the same weights in another order place other blocks.
+@pytest.mark.parametrize(("name", "ores"), [
+    ("mine_a", [("minecraft:stone", 1.0), ("minecraft:coal_ore", 0.5)]),
+    ("mine_b", [("minecraft:copper_ore", 1.0), ("minecraft:iron_ore", 0.5)]),
+    ("mine_c", [("minecraft:iron_ore", 1.0), ("minecraft:lapis_ore", 0.4)]),
+    ("lumber", [("minecraft:oak_log", 1.0)]),
+])
+def test_committed_spec_pins_its_ore_order(name: str, ores: list[tuple[str, float]]) -> None:
+    spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / f"{name}.json").read_text(encoding="utf-8")))
+    assert list(spec.ores.items()) == ores
+
+
 def test_an_ore_layer_override_loads_and_places_only_inside_its_rows(palette: Palette) -> None:
     layered = MineSpec.from_dict(_layered())
     assert len(layered.ore_layers) == 1 and layered.ore_layers[0].ores["minecraft:gold_ore"] == 5.0
