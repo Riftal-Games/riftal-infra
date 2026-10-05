@@ -29,7 +29,7 @@ from designer.bridge import Bridge
 from designer.builders import BUILDERS
 from designer.builders.base import Palette
 from designer.builders.mine_spec import MineSpec
-from designer.config import PROJECT_ROOT
+from designer.config import PROJECT_ROOT, SIBLING_GAME_DIR
 from designer.palettes import load_palettes
 from designer.region import Bounds, Bounds2D, Region, fetch_heightmap, fetch_region
 from designer.world_index import Location, NamedRegion, WorldIndex
@@ -218,7 +218,7 @@ def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex) ->
 def mines_config_path() -> Path:
     """RiftalMines' ``config.yml`` in ``RIFTAL_GAME_DIR``, else in the riftal-game checkout beside this repository."""
     game = os.environ.get("RIFTAL_GAME_DIR")
-    return (Path(game) if game else PROJECT_ROOT.parents[1] / "riftal-game") / MINES_CONFIG
+    return (Path(game) if game else SIBLING_GAME_DIR) / MINES_CONFIG
 
 
 def check_mine_gate(recipe: Recipe, specs: list[checks_mod.CheckSpec], mines_config: Path) -> None:
@@ -230,7 +230,7 @@ def check_mine_gate(recipe: Recipe, specs: list[checks_mod.CheckSpec], mines_con
         worlds = yaml.safe_load(mines_config.read_text(encoding="utf-8"))["worlds"]
         if not isinstance(worlds, dict):
             raise TypeError(f"worlds is a {type(worlds).__name__}, not a mapping")
-    except (OSError, yaml.YAMLError, KeyError, TypeError) as exc:
+    except (OSError, yaml.YAMLError, KeyError, TypeError, UnicodeDecodeError) as exc:
         raise LevelError(f"cannot read the mines world list {mines_config}: {exc!r}; no zone is built without it") from exc
     if recipe.zone not in worlds:
         return
