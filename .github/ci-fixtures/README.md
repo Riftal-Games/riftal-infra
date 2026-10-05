@@ -43,5 +43,12 @@ failure and that the companion on the far side of it still gets its own clean re
 Three implementation rounds on this check each held for one position and broke on
 another; that is why all three positions are pinned.
 
+`good/cleanup.sh`, `bad/cleanup-rm.sh` and `bad/cleanup-run.sh` drive
+`.github/scripts/container-cleanup.sh`, which refuses a `docker run` without
+`--rm` and a `docker rm` without `-v`, because either leaves `mysql:8`'s
+anonymous volume on the shared engine. `bad/cleanup-run.sh` puts a second run
+with `--rm` on the same line, so a check that reads past the end of a command
+goes red.
+
 The real scans exclude this directory. If they ever stop excluding it, CI is red
 forever and the reason is here.

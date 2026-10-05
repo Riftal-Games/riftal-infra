@@ -11,7 +11,7 @@ from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
 from designer.region import Bounds
-from designer.world_index import Location, NamedRegion, WorldIndex
+from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
 SPEC_WORLDS = {"mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm", "contested", "plots"}
 STAMP = "2026-09-07T12:00:00+00:00"
@@ -156,6 +156,13 @@ def test_a_contested_world_refuses_a_safe_zone_region_on_add_and_load(index: Wor
     index.add_region(NamedRegion("pit", "contested", (0, 0, 0), (3, 3, 3), ["mine"]))
     index.add_region(NamedRegion("yard", "mine_a", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
 
+
+
+def test_the_safe_zone_refusal_follows_the_world_role_not_its_name() -> None:
+    index = WorldIndex(worlds=[WorldEntry("arena", "normal", 0, "contested"), WorldEntry("contested", "normal", 0, "ore_mine")])
+    with pytest.raises(ValueError, match="region 'pit' carries safe_zone in 'arena'"):
+        index.add_region(NamedRegion("pit", "arena", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
+    index.add_region(NamedRegion("yard", "contested", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
 
 def test_register_refuses_a_taken_name_unless_replace(index: WorldIndex) -> None:
     moved = Location("spawn", "design", (5, 64, 5)).to_json()

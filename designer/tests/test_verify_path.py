@@ -31,6 +31,18 @@ def test_stand_mask_on_a_view_recomputes_after_a_parent_edit(flat_plane_with_hol
     assert not stand_mask(view)[4, 3, 3]
 
 
+def test_web_mask_is_cached_until_an_edit_and_a_view_recomputes(flat_plane_with_hole: Region) -> None:
+    mask = flat_plane_with_hole.web_mask()
+    assert mask.shape == (8, 40, 40) and not mask.any()
+    assert flat_plane_with_hole.web_mask() is mask
+    view = flat_plane_with_hole.sub(Bounds((0, 0, 0), (9, 7, 9)))
+    assert not view.web_mask()[4, 3, 3]
+    flat_plane_with_hole.set(3, 5, 3, "minecraft:web")
+    after = flat_plane_with_hole.web_mask()
+    assert after is not mask and after[4, 3, 3] and after[5, 3, 3] and not after[6, 3, 3]
+    assert view.web_mask()[4, 3, 3]
+
+
 def test_path_across_plane_is_near_manhattan_and_bounded(flat_plane_with_hole: Region) -> None:
     found = path_exists(flat_plane_with_hole, A, B)
     assert found.ok and found.detail == "path found"

@@ -422,8 +422,8 @@ Returns: region, world, frames, path.
 
 Reverse the ``n`` newest edits not yet undone, from any session; each pushes an ``undo`` entry that plain ``undo`` skips.
 
-Stops at the first failure with ``ok`` false, and ``undone``, ``snapshot`` and ``undo_id`` still name what was
-reversed and pushed before it. An entry whose snapshot file is missing or cannot be read fails with code
+Stops at the first failure with ``ok`` false. ``undone`` still names what was reversed before it, and
+``snapshot`` and ``undo_id`` the newest snapshot pushed, the failed restore's own when it took one. An entry whose snapshot file is missing or cannot be read fails with code
 ``snapshot_unreadable``.
 
 ```json
