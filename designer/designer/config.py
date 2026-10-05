@@ -17,6 +17,8 @@ from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = Path(os.environ.get("DESIGNER_ROOT", PACKAGE_DIR.parent)).resolve()
+# Beside this checkout, found from the code rather than DESIGNER_ROOT, which may point at a copy of the project.
+SIBLING_GAME_DIR = PACKAGE_DIR.parents[2] / "riftal-game"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 SNAPSHOTS_DIR = PROJECT_ROOT / "snapshots"
 ENV_FILE = PROJECT_ROOT / ".env"
