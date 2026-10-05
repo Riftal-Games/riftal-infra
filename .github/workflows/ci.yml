@@ -74,7 +74,7 @@ jobs:
           docker run --rm -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
