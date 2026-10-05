@@ -48,7 +48,7 @@ LEAKS_REPORTED = 20
 
 LIGHT_KINDS = ("block", "sky", "max")
 
-# A block name never ends in a space or a parenthesis, so no ores key can spell
+# MineSpec refuses an ores key whose base is not a block id, so no key can spell
 # a canonical name with this appended.
 NOT_RESET_STATE = " (not its reset state)"
 

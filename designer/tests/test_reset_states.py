@@ -68,3 +68,10 @@ def test_from_dict_accepts_ores_keys_on_disjoint_states_of_one_base() -> None:
     data = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
     ores = {f"{LOG}[pillar_axis=y]": 1.0, f"{LOG}[pillar_axis=x]": 0.5}
     assert MineSpec.from_dict({**data, "ores": ores}).ores == ores
+
+
+def test_from_dict_refuses_an_ores_key_spelling_the_not_reset_marker() -> None:
+    data = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    ores = {"minecraft:quartz_ore": 1.0, "minecraft:quartz_ore (not its reset state)": 99.0}
+    with pytest.raises(ValueError, match="which is not a block id"):
+        MineSpec.from_dict({**data, "ores": ores})
