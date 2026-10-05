@@ -729,10 +729,11 @@ index does (#313).
 `MineSpec` refuses `exit_path.width` below 3 with `exit_path width must be at least 3 to hold
 both signs beside the walking line, got <width>`. `build_mine` walks players down the platform's
 centre, puts the sell and rankup signs one block either side of it on the last row, and lights the
-near edge. At width 1 every light sits on the walking line and the sell and rankup signs
-both land off the platform; at width 2 the rankup sign does. Placing signs and lights per width was rejected because
-no committed spec is narrower than 3, and a one- or two-wide platform has no room for two signs
-beside a clear path anyway. Mine A and Lumber use width 3 and are unchanged (#495).
+platform's low-coordinate edge. At width 1 every light sits on the walking line and the sell and
+rankup signs both land off the platform; at width 2 the rankup sign does. Placing signs and lights
+per width was rejected because no committed spec is narrower than 3, and a one- or two-wide
+platform has no room for two signs beside a clear path anyway. Mine A and Lumber use width 3
+and are unchanged (#495).
 
 ## 2026-09-29 A mine interior holds only air and its `ores`; a `mines` zone needs its gate
 
@@ -762,8 +763,15 @@ already refuses them. `checks.yaml` holds each M1 zone, `mine_a` to `mine_c` and
 
 ## 2026-09-30 A container run of the suite goes through `container-test.sh`, which keeps its environment off the checkout
 
-`sh designer/container-test.sh` runs the suite in `python:3.12-alpine` under any engine taking
-docker's run flags, named by `CONTAINER_ENGINE`. The project is mounted read-only and
+`sh designer/container-test.sh` runs the suite in `python:3.12-alpine`, or the image named by
+`DESIGNER_TEST_IMAGE`, which needs python and pip, under any engine taking docker's run flags,
+named by `CONTAINER_ENGINE`. It needs a POSIX `sh` and a path the engine can mount, so from
+Windows it runs under the WSL distro's docker on the checkout's `/mnt/c` path:
+`wsl -d Ubuntu-26.04 -u runner --exec sh /mnt/c/<checkout>/designer/container-test.sh`. `--exec`
+runs no shell, so a variable goes through `env`, as in `--exec env DESIGNER_TEST_IMAGE=<image> sh
+...`, and Git Bash needs `MSYS_NO_PATHCONV=1` or it rewrites `/mnt/c/...` into its own install
+path. `--` in place of `--exec` hands the line to the distro's shell to re-parse
+(riftal-pm#293). The project is mounted read-only and
 `UV_PROJECT_ENVIRONMENT` puts the environment at `/opt/designer-venv` inside the container. A
 container `uv sync` on a writable mount leaves a Linux `.venv` in the checkout, a `lib64` symlink
 and a `pyvenv.cfg` whose home is a container interpreter, and Windows `uv run` then stops on
@@ -772,3 +780,16 @@ mount makes a run that omits the variable fail on `Read-only file system` rather
 CI runs the script before its host-side sync. A checkout that already holds such a `.venv` works
 from Windows with `UV_PROJECT_ENVIRONMENT` set to a path outside it, until its owner clears it
 (#583).
+
+## 2026-09-30 `requests` splits a `set_blocks` batch under `max_line_bytes` and refuses any other op too long for one line
+
+DesignBridge answers a line over `max_line_bytes` (1 MiB) with `BAD_REQUEST` and closes it,
+and no op reports its limits, so `MAX_LINE_BYTES` mirrors the default the way `MAX_SET_BLOCKS`
+and `MAX_EDGE` do. A `set_blocks` batch closes at `batch` entries or when the next entry would
+pass `LINE_BUDGET`, whichever comes first, the way a `Fill` past `MAX_EDGE` is tiled: the line
+length of a batch turns on its block names, which the caller does not pick per batch, so
+refusing it would make a valid `batch` fail on content. `LINE_BUDGET` keeps 4096 bytes for the
+id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cannot be split and
+is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is. So
+is a `SetBlock` whose entry alone passes it: sent, the bridge would close the connection after
+the batches before it had already landed (#572).

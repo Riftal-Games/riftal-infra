@@ -7,8 +7,16 @@
 # pointing at a container interpreter, and uv on a Windows checkout then fails
 # on it with "Access is denied" instead of rebuilding it.
 #
-# CONTAINER_ENGINE names any runtime taking docker's run flags. Extra
-# arguments go to pytest.
+# CONTAINER_ENGINE names any runtime taking docker's run flags, and
+# DESIGNER_TEST_IMAGE the image, which needs python and pip. Extra arguments go
+# to pytest.
+#
+# From Windows it runs under the WSL distro's docker, on the checkout's
+# /mnt/c path. --exec runs no shell, so a variable goes through env:
+#   wsl -d Ubuntu-26.04 -u runner --exec sh /mnt/c/<checkout>/designer/container-test.sh
+#   wsl -d Ubuntu-26.04 -u runner --exec env DESIGNER_TEST_IMAGE=<image> sh /mnt/c/<checkout>/designer/container-test.sh
+# Git Bash rewrites /mnt/c/... into its own install path unless
+# MSYS_NO_PATHCONV=1 is set.
 set -eu
 
 engine="${CONTAINER_ENGINE:-docker}"
