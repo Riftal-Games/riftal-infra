@@ -30,7 +30,7 @@ trap cleanup EXIT
 docker network create "$NETWORK" >/dev/null
 
 start_mysql() {
-  docker run -d --name "$1" --network "$NETWORK" --network-alias "$2" \
+  docker run -d --rm --name "$1" --network "$NETWORK" --network-alias "$2" \
     -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
     mysql:8 >/dev/null
 }
