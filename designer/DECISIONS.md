@@ -729,10 +729,11 @@ index does (#313).
 `MineSpec` refuses `exit_path.width` below 3 with `exit_path width must be at least 3 to hold
 both signs beside the walking line, got <width>`. `build_mine` walks players down the platform's
 centre, puts the sell and rankup signs one block either side of it on the last row, and lights the
-near edge. At width 1 every light sits on the walking line and the sell and rankup signs
-both land off the platform; at width 2 the rankup sign does. Placing signs and lights per width was rejected because
-no committed spec is narrower than 3, and a one- or two-wide platform has no room for two signs
-beside a clear path anyway. Mine A and Lumber use width 3 and are unchanged (#495).
+platform's low-coordinate edge. At width 1 every light sits on the walking line and the sell and
+rankup signs both land off the platform; at width 2 the rankup sign does. Placing signs and lights
+per width was rejected because no committed spec is narrower than 3, and a one- or two-wide
+platform has no room for two signs beside a clear path anyway. Mine A and Lumber use width 3
+and are unchanged (#495).
 
 ## 2026-09-29 A mine interior holds only air and its `ores`; a `mines` zone needs its gate
 
