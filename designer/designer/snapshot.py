@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import tokenize
+import zipfile
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -178,11 +181,14 @@ def remove_texts(bridge: Bridge, ids: list[str], *, dry_run: bool = False) -> Ap
 
 
 def _load_entry(entry: dict[str, Any]) -> Snapshot:
-    # numpy reports a damaged file as OSError, ValueError, EOFError, KeyError or zipfile.BadZipFile depending
-    # on where the damage is, so every failure to read this one file is the same refusal.
+    # A damaged file fails differently depending on where the damage lands: the zip structure raises
+    # zipfile.BadZipFile, or RuntimeError for a flag claiming encryption and its subclass NotImplementedError
+    # for an unknown method or version; the deflate stream raises zlib.error; the npy header raises
+    # tokenize.TokenError, ValueError or EOFError; a missing member KeyError; a missing file OSError.
+    # Each is the same refusal. A TypeError or AttributeError is a bug in load and keeps its identity.
     try:
         return load(Path(entry["path"]))
-    except Exception as exc:
+    except (OSError, ValueError, EOFError, KeyError, RuntimeError, zipfile.BadZipFile, zlib.error, tokenize.TokenError) as exc:
         raise SnapshotLoadError(f"undo entry {entry['id']}: cannot load snapshot {entry['path']}: {exc}") from exc
 
 
@@ -247,7 +253,8 @@ class UndoStack:
 
         A ``BridgeError`` while reading the region to restore, or a ``SnapshotLoadError`` for the entry's snapshot
         file, is that entry's failed result, not an exception, so the entries already restored in this call are
-        still returned.
+        still returned. A restore that fails after taking its snapshot still pushes that snapshot as an ``undo``
+        entry, as ``fill`` and ``restore`` do, and its entry stays unrestored.
         """
         entries, results = self.entries(), []
         pending = [e for e in reversed(entries) if not e["restored"] and (include_undo or e["op"] != "undo")]
@@ -260,13 +267,14 @@ class UndoStack:
             except (BridgeError, SnapshotLoadError) as exc:
                 result = ApplyResult(False, errors=[exc])
             results.append(result)
-            if not result.ok:
-                break
             if not dry_run:
-                entry["restored"] = True
+                entry["restored"] = entry["restored"] or result.ok
+                # A failed restore may have overwritten some cells, so its snapshot is the only record of them.
                 if result.before_result is not None:
                     self._append(entries, result.before_result, "undo")
                 self._write(entries)
+            if not result.ok:
+                break
         return results
 
     def prune(self, keep_days: int = 14, *, dry_run: bool = True) -> list[Path]:

@@ -9,6 +9,7 @@ from designer.builders.base import Palette, facing_state, opposite
 from designer.builders.mine_spec import SIDES, MineGeometry, MineSpec
 from designer.edits import EditList, Fill, SetBlock
 from designer.region import Bounds
+from designer.reset_states import RESET_STATES
 from designer.world_index import Location, NamedRegion
 
 # Bedrock yaw where south is 0 and it winds clockwise looking down, matching
@@ -26,15 +27,24 @@ def _trim_ring(geo: MineGeometry, floor_y: int, block: str) -> list[Fill]:
     ]
 
 
+def _as_reset(key: str) -> str:
+    """The block the mine reset places for ``key``: its base's ``RESET_STATES`` entry under the key's own states."""
+    base, states = parse_name(key)
+    return format_name(base, {**RESET_STATES.get(base, {}), **states})
+
+
 def _ore_ops(spec: MineSpec, interior: Bounds) -> list[SetBlock]:
-    """One weighted, seeded draw per interior row: its ore layer's weights inside one, ``spec.ores`` outside every layer."""
+    """One weighted, seeded draw per interior row: its ore layer's weights inside one, ``spec.ores`` outside every layer.
+
+    Each cell holds the block the reset would place, so ``mine_valid`` reads the build as it reads a reset mine.
+    """
     rng = np.random.default_rng(spec.seed)
     nx, _, nz = interior.size
     ops: list[SetBlock] = []
     for y in range(interior.min[1], interior.max[1] + 1):
         layer = next((l for l in spec.ore_layers if l.y_from <= y <= l.y_to), None)
         weights = layer.ores if layer is not None else spec.ores
-        names = list(weights)
+        names = [_as_reset(key) for key in weights]
         p = np.fromiter(weights.values(), dtype=float)
         picks = rng.choice(len(names), size=(nz, nx), p=p / p.sum())
         ops.extend(
