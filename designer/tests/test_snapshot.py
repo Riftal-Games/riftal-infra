@@ -16,7 +16,7 @@ from designer.bridge import Bridge
 from designer.edits import EditList, Fill, SetBlock
 from designer.region import Bounds, Bounds2D, Region, fetch_heightmap, fetch_region
 from designer.snapshot import TS_FORMAT, Snapshot, SnapshotLoadError, UndoStack, diff, load, restore, save, take
-from tests.fake_bridge import FakeBridge
+from tests.fake_bridge import FakeBridge, FakeOpError
 
 WORLD = "design"
 STONE, GLASS = "minecraft:stone", "minecraft:glass"
@@ -211,6 +211,37 @@ def test_every_single_byte_corruption_of_a_snapshot_loads_or_is_a_snapshot_load_
             refused.add(type(exc.__cause__))
     # Damage in the deflate stream is the commonest kind, so the sweep must reach it.
     assert zlib.error in refused, refused
+
+
+def test_undo_whose_restore_write_fails_pushes_its_snapshot_where_a_retry_and_prune_both_reach_it(
+    fake: FakeBridge, bridge: Bridge, snapshots_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stack = UndoStack(session="s1")
+    snap = take(bridge, WORLD, BOX, "fill")
+    stack.push(snap, "fill")
+    EditList(WORLD, [Fill(Bounds((0, 64, 0), (7, 64, 7)), GLASS)]).apply(bridge)
+    edited = fetch_region(bridge, WORLD, BOX)
+
+    def refuse(args: dict) -> dict:
+        raise FakeOpError("FAKE_DOWN", "write refused")
+
+    with monkeypatch.context() as m:
+        m.setattr(fake, "op_set_blocks", refuse)
+        m.setattr(fake, "op_fill", refuse)
+        [failed] = stack.undo(bridge)
+    pushed = failed.before_result
+    assert failed.ok is False and isinstance(pushed, Snapshot) and pushed.path.is_file()
+    assert diff(pushed, edited.sub(pushed.bounds)).changed == 0
+    assert [(e["id"], e["op"], e["restored"], e["path"]) for e in stack.entries()] == [
+        (1, "fill", False, str(snap.path)), (2, "undo", False, str(pushed.path)),
+    ]
+    assert stack.prune(keep_days=-1) == [snap.path, pushed.path]
+
+    [retry] = stack.undo(bridge)
+    assert retry.ok and diff(snap, fetch_region(bridge, WORLD, BOX)).changed == 0
+    assert [(e["id"], e["op"], e["restored"]) for e in stack.entries()] == [(1, "fill", True), (2, "undo", False), (3, "undo", False)]
+    assert stack.prune(keep_days=-1, dry_run=False) == [snap.path, pushed.path, retry.before_result.path]
+    assert stack.entries() == [] and list((snapshots_dir / WORLD).iterdir()) == []
 
 
 def test_undo_lets_a_bug_inside_load_keep_its_identity(bridge: Bridge, snapshots_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:

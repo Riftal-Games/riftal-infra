@@ -759,8 +759,8 @@ def restore(snapshot: str | int, dry_run: bool = False) -> dict[str, Any]:
 def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
     """Reverse the ``n`` newest edits not yet undone, from any session; each pushes an ``undo`` entry that plain ``undo`` skips.
 
-    Stops at the first failure with ``ok`` false, and ``undone``, ``snapshot`` and ``undo_id`` still name what was
-    reversed and pushed before it. An entry whose snapshot file is missing or cannot be read fails with code
+    Stops at the first failure with ``ok`` false. ``undone`` still names what was reversed before it, and
+    ``snapshot`` and ``undo_id`` the newest snapshot pushed, the failed restore's own when it took one. An entry whose snapshot file is missing or cannot be read fails with code
     ``snapshot_unreadable``.
 
     RETURNS: dry_run, count, undone, blocks, snapshot, undo_id, jobs.
@@ -773,9 +773,8 @@ def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
         "dry_run": dry_run, "count": len(results), "undone": sorted(undone, reverse=True), "blocks": sum(r.blocks for r in results),
         "snapshot": None, "undo_id": None, "jobs": [job for r in results for job in r.jobs],
     }
-    # A text undo takes no snapshot, and a failed restore's snapshot is never pushed, so the one to report
-    # is the last snapshot a successful restore pushed.
-    last = next((r.before_result for r in reversed(results) if r.ok and r.before_result is not None), None)
+    # A text undo takes no snapshot, so the one to report is the last snapshot any restore pushed, a failed one included.
+    last = next((r.before_result for r in reversed(results) if r.before_result is not None), None)
     if last is not None:
         out["snapshot"], out["undo_id"] = str(last.path), _entry_id(last.path)
     failed = [r for r in results if not r.ok]
