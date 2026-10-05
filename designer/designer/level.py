@@ -178,7 +178,7 @@ def _differences(index: WorldIndex, locations: list[Any], regions: list[Any]) ->
             out.append(f"{entry.name!r} is a {type(entry).__name__} in the step, a {type(theirs).__name__} in world_index.json")
             continue
         ours_j, theirs_j = _comparable(entry), _comparable(theirs)
-        # Compared sorted, but quoted as written, so the committed list can be found verbatim in world_index.json.
+        # Compared sorted, but quoted in the order written, so each list reads in the same order as in world_index.json.
         ours_w, theirs_w = entry.to_json(), theirs.to_json()
         if fields := [f"{k} {ours_w[k]} (world_index.json {theirs_w[k]})" for k in ours_j if ours_j[k] != theirs_j[k]]:
             out.append(f"{entry.name!r} has {', '.join(fields)}")
