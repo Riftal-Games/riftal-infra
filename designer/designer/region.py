@@ -290,7 +290,7 @@ class Region:
         mask = np.zeros(classes.shape, dtype=bool)
         if classes.shape[0] >= 3:
             mask[1:-1] = (classes[:-2] == BlockClass.SOLID) & passable[1:-1] & passable[2:]
-            # On a 1.5-tall floor the head reaches the third cell up; with that cell outside the region it is unknown.
+            # On a 1.5-tall floor the head reaches the third cell up; with that cell outside the region the spot is treated as blocked.
             third = np.zeros(classes.shape, dtype=bool)
             third[:-3] = passable[3:]
             mask[1:-1] &= ~tall_floor_lut(self.palette)[self.blocks][:-2] | third[:-2]

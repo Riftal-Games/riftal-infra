@@ -229,8 +229,8 @@ def test_a_one_block_floor_and_an_open_gate_still_need_only_two_clear_cells() ->
         assert region.stand_mask()[1, 0, 0] and entity_clear(region, (0, 1, 0)).ok
 
 
-def test_a_tall_floor_whose_third_cell_is_outside_the_region_is_not_standable() -> None:
+def test_a_tall_floor_whose_third_cell_is_outside_the_region_is_not_standable_but_does_not_offend() -> None:
     region = Region.empty("design", Bounds((0, 0, 0), (0, 2, 0)))
     region.set(0, 0, 0, "minecraft:oak_fence")
     assert not region.stand_mask()[1, 0, 0]
-    assert entity_clear(region, (0, 1, 0)).detail == "hitbox blocked"
+    assert entity_clear(region, (0, 1, 0)).ok

@@ -836,7 +836,7 @@ vendored Bedrock state data was rejected because it marks no state as the defaul
 Fences, walls and closed fence gates are 1.5 blocks tall, so a player standing on one reaches
 half a block into the third cell above it. `blocks.is_tall_floor` names them (base ending
 `fence` or `_wall`, or a `fence_gate` without `open_bit=true`). `Region.stand_mask` and
-`entity_clear` require that third cell to be passable over such a floor, and treat it as
-blocked when it lies outside the region, as the two-cell rule already treats a head cell
-outside the region. Classing these blocks by their box top like snow layers was rejected: they
+`entity_clear` require that third cell to be passable over such a floor. Outside the region,
+each keeps its existing rule: `stand_mask` treats the cell as blocked, as it never marks the
+top layer standable, and `entity_clear` lets it pass, as it does a head cell (2026-09-08). Classing these blocks by their box top like snow layers was rejected: they
 are still SOLID to stand on; only the headroom changes (#469).
