@@ -198,6 +198,21 @@ def test_undo_of_a_snapshot_damaged_inside_the_archive_still_returns_the_entries
     assert [e["restored"] for e in stack.entries()[:2]] == [False, True]
 
 
+def test_every_single_byte_corruption_of_a_snapshot_loads_or_is_a_snapshot_load_error(bridge: Bridge, snapshots_dir: Path) -> None:
+    snap = take(bridge, WORLD, BOX, "fill")
+    entry = {"id": 1, "path": str(snap.path)}
+    good = snap.path.read_bytes()
+    refused: set[type] = set()
+    for offset in range(len(good)):
+        snap.path.write_bytes(good[:offset] + bytes([good[offset] ^ 0x55]) + good[offset + 1:])
+        try:
+            snapshot._load_entry(entry)
+        except SnapshotLoadError as exc:
+            refused.add(type(exc.__cause__))
+    # Damage in the deflate stream is the commonest kind, so the sweep must reach it.
+    assert zlib.error in refused, refused
+
+
 def test_undo_lets_a_bug_inside_load_keep_its_identity(bridge: Bridge, snapshots_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stack = UndoStack(session="s1")
     stack.push(take(bridge, WORLD, BOX, "fill"), "fill")
