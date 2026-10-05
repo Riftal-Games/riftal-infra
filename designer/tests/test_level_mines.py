@@ -10,9 +10,9 @@ import yaml
 from designer.bridge import Bridge
 from designer.builders import BUILDERS
 from designer.checks import DEFAULT_PATH as CHECKS
-from designer.config import PROJECT_ROOT
+from designer.config import PROJECT_ROOT, SIBLING_GAME_DIR
 from designer.edits import EditList, SetBlock
-from designer.level import LevelError, Saved, build_level
+from designer.level import MINES_CONFIG, LevelError, Saved, build_level, mines_config_path
 from tests.conftest import STONE_PALETTES
 from tests.fake_bridge import ALLOWED_BLOCKS, FakeBridge, FakeWorld
 
@@ -127,3 +127,18 @@ def test_no_mines_config_refuses_every_zone_before_any_request(
     (root / "mines.yml").write_text("worlds: [mine_a]\n", encoding="utf-8")
     _refused(bridge, root, zone, "worlds is a list, not a mapping")
     assert fake.requests == []
+
+
+def test_a_mines_config_that_is_not_utf8_refuses_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    (root / "mines.yml").write_bytes(b"worlds:\n  mine_a: \xff\xfe\n")
+    _refused(bridge, root, "mine_a", "cannot read the mines world list")
+    assert fake.requests == []
+
+
+def test_the_default_mines_config_sits_beside_the_checkout_whatever_designer_root_says(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("RIFTAL_GAME_DIR", raising=False)
+    monkeypatch.setattr("designer.level.PROJECT_ROOT", tmp_path / "copy" / "designer")
+    assert mines_config_path() == SIBLING_GAME_DIR / MINES_CONFIG
+    assert SIBLING_GAME_DIR == Path(__file__).resolve().parents[3] / "riftal-game"

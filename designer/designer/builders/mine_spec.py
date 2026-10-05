@@ -138,8 +138,8 @@ class MineSpec:
         if min(self.entrance.width, self.entrance.height, self.exit_path.length, self.lights_every) < 1:
             raise ValueError("entrance, exit_path and lights_every dimensions must be at least 1")
         # The walking line runs down the platform's centre with a sign on each side of it on the
-        # last row and the lights on the near edge; narrower than 3 puts the lights on the walking
-        # line or a sign off the platform.
+        # last row and the lights on its low-coordinate edge; narrower than 3 puts the lights on the
+        # walking line or a sign off the platform.
         if self.exit_path.width < 3:
             raise ValueError(f"exit_path width must be at least 3 to hold both signs beside the walking line, got {self.exit_path.width}")
         if not 1 <= self.reset_percent <= 100:

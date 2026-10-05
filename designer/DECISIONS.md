@@ -703,8 +703,10 @@ rejected because it would let a committed entry pass whose tags are not the step
 ## 2026-09-29 A mine's exit-platform lights stop short of its last row
 
 `build_mine` lights the platform's near edge every `lights_every` blocks out from the wall, but
-never on its last row, which holds the sell sign on that same edge, the rankup sign and the
-spawn. A light that would fall on the last row moves one block back toward the mine, so a length
+never on its last row, which holds the sell and rankup signs and the spawn. On a 3-wide path the
+sell sign sits on the lit edge itself; a wider path has no collision there, and the row is kept
+clear all the same so the signs and spawn stand alone at the platform's end. A light that would
+fall on the last row moves one block back toward the mine, so a length
 that is a multiple of `lights_every` still lights the platform's end; a one-row platform has no
 row to spare and gets no light. Moving lights to the far edge was rejected because the rankup sign
 sits there on a width-3 path, and refusing a colliding spec was rejected because length 8 with
@@ -729,10 +731,11 @@ index does (#313).
 `MineSpec` refuses `exit_path.width` below 3 with `exit_path width must be at least 3 to hold
 both signs beside the walking line, got <width>`. `build_mine` walks players down the platform's
 centre, puts the sell and rankup signs one block either side of it on the last row, and lights the
-near edge. At width 1 every light sits on the walking line and the sell and rankup signs
-both land off the platform; at width 2 the rankup sign does. Placing signs and lights per width was rejected because
-no committed spec is narrower than 3, and a one- or two-wide platform has no room for two signs
-beside a clear path anyway. Mine A and Lumber use width 3 and are unchanged (#495).
+platform's low-coordinate edge. At width 1 every light sits on the walking line and the sell and
+rankup signs both land off the platform; at width 2 the rankup sign does. Placing signs and lights
+per width was rejected because no committed spec is narrower than 3, and a one- or two-wide
+platform has no room for two signs beside a clear path anyway. Mine A and Lumber use width 3
+and are unchanged (#495).
 
 ## 2026-09-29 A mine interior holds only air and its `ores`; a `mines` zone needs its gate
 
@@ -792,6 +795,15 @@ id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cann
 is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is. So
 is a `SetBlock` whose entry alone passes it: sent, the bridge would close the connection after
 the batches before it had already landed (#572).
+
+## 2026-09-30 An undo whose restore fails still pushes that restore's snapshot
+
+`UndoStack.undo` pushes the snapshot a restore took as an `undo` entry even when the restore
+then fails, as `fill` and `restore` already do, and leaves the entry it was undoing unrestored.
+The `undo` tool reports that snapshot and its `undo_id`. A restore can fail after writing some
+cells, so its snapshot is the only record of what those cells held. Deleting the file was
+rejected for that reason; leaving it on disk outside the manifest, as before, left an orphan
+`prune` never found (#544).
 
 ## 2026-09-30 A mine's `ores` key matches only the state the reset writes
 
