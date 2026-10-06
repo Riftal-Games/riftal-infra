@@ -138,7 +138,8 @@ def path_exists(
     blocks of open walking. The heuristic charges the open-ground rates, so it
     never overestimates. A step up onto a fence, wall or closed fence gate
     (``is_tall_floor``) is open only from another such floor, with the third
-    cell above the feet clear for the head. No step stands on an unmapped
+    cell above the feet clear for the head; a step up from one onto ordinary
+    ground is a 0.5 rise and needs only the usual two. No step stands on an unmapped
     block; when the route exists only over one, the result fails as ``path
     only over`` it, with ``path`` that route and ``coords`` its unmapped floor
     cells.
@@ -181,7 +182,7 @@ def _search(
     stand = mask[at].ravel().tolist()
     passable = region.passable()[at].ravel().tolist()
     tall = region.on_tall_floor()[at].ravel().tolist()
-    step =np.where(region.web_mask()[at], WEB_COST, 1.0).ravel().tolist()
+    step = np.where(region.web_mask()[at], WEB_COST, 1.0).ravel().tolist()
     g = np.full(ny * plane, np.inf, dtype=np.float32)
     closed = np.zeros(ny * plane, dtype=bool)
     parent = np.full(ny * plane, -1, dtype=np.int32)
@@ -224,10 +225,13 @@ def _search(
             steps = [(y, base)]
             # A jump rises about 1.25 blocks (Living.php jumpVelocity 0.42). A 1.5-tall floor one block up
             # is a 1.5 climb from an ordinary floor, out of reach, but a 1.0 climb from another tall floor,
-            # where the jump lifts the head into the third cell above the feet.
-            head = y + 3 if tall[cur] else y + 2
-            if head < ny and passable[head * plane + z * nx + x] and (tall[cur] or not tall[(y + 1) * plane + col]):
-                steps.append((y + 1, base + STEP_UP))
+            # where the jump lifts the head into the third cell above the feet. Ordinary ground one block
+            # above a tall floor is a 0.5 rise, under the 0.6 walk step (Player.php stepHeight), so no jump.
+            if y + 2 < ny:
+                up_tall = tall[(y + 1) * plane + col]
+                head = y + 3 if up_tall else y + 2
+                if head < ny and passable[head * plane + z * nx + x] and (tall[cur] or not up_tall):
+                    steps.append((y + 1, base + STEP_UP))
             # The head enters the neighbour column before the feet leave the ledge.
             if passable[(y + 1) * plane + col]:
                 for d in range(1, max_drop + 1):
