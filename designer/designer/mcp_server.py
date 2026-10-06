@@ -530,7 +530,7 @@ def _apply(edits: EditList, op: str, dry_run: bool, ctx: Context | None) -> dict
     return _finish(out, done.result)
 
 def _load_snapshot(ref: str | int) -> snapshots.Snapshot:
-    """A manifest id, held to the level its entry recorded, or a path that must resolve under ``SNAPSHOTS_DIR``.
+    """A manifest id, held to the level and bounds its entry recorded, or a path that must resolve under ``SNAPSHOTS_DIR``.
 
     A relative path is rooted at ``SNAPSHOTS_DIR``, not at the cwd.
     """
