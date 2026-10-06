@@ -235,6 +235,35 @@ def test_an_open_fence_gate_is_not_a_tall_floor() -> None:
     assert not is_tall_floor("minecraft:fence_gate[open_bit=true]")
 
 
+OPEN_GATE = "minecraft:fence_gate[direction=0,in_wall_bit=false,open_bit=true]"
+
+
+# A player falls through an open gate, so it holds no one up: a spot over one is not standable,
+# and warp_safe finds no landing in it.
+def test_a_spot_over_an_open_fence_gate_has_no_floor() -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+    region.set(0, 0, 0, OPEN_GATE)
+    assert not region.stand_mask()[1, 0, 0]
+    assert entity_clear(region, (0, 1, 0)).ok
+    found = warp_safe(region, (0, 1, 0))
+    assert (found.ok, found.detail, found.coords) == (False, f"no solid within {LANDING} below", [(0, 0, 0)])
+
+
+def test_entity_clear_judges_the_floor_under_an_open_fence_gate() -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+    region.set(0, 0, 0, "minecraft:lava")
+    region.set(0, 1, 0, OPEN_GATE)
+    found = entity_clear(region, (0, 2, 0))
+    assert (found.ok, found.detail, found.coords) == (False, "floor is danger", [(0, 0, 0)])
+
+
+def test_an_open_fence_gate_in_the_hitbox_does_not_block_it(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(10, 4, 10, OPEN_GATE)
+    flat_plane_with_hole.set(10, 5, 10, OPEN_GATE)
+    assert entity_clear(flat_plane_with_hole, OPEN).ok
+    assert flat_plane_with_hole.stand_mask()[4, 10, 10]
+
+
 # A torch is passable, so under the feet it is no floor at all: nothing to stand on, and nothing
 # below it for entity_clear to judge. The case pins that a name merely containing "wall" is not tall.
 def test_a_wall_torch_is_neither_a_tall_floor_nor_a_floor() -> None:
