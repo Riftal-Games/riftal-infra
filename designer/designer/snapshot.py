@@ -241,6 +241,30 @@ def _load_entry(entry: dict[str, Any]) -> Snapshot:
     return snap
 
 
+class ManifestError(ValueError):
+    """The undo manifest is not one ``UndoStack`` wrote: an entry is not an object or lacks a key every entry carries."""
+
+    code = "manifest_invalid"
+
+
+# Every key UndoStack has written on every entry since the manifest began, so one missing was hand-edited away.
+ENTRY_KEYS = ("id", "session", "op", "world", "bounds", "label", "timestamp", "path", "restored")
+
+
+def _checked(manifest: Path, entries: Any) -> list[dict[str, Any]]:
+    if not isinstance(entries, list):
+        raise ManifestError(f"{manifest}: entries is {type(entries).__name__}, expected a list")
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ManifestError(f"{manifest}: entry {i} is {type(entry).__name__}, expected an object")
+        missing = [key for key in ENTRY_KEYS if key not in entry]
+        if entry.get("path", "") is None and "texts" not in entry:
+            missing.append("texts")
+        if missing:
+            raise ManifestError(f"{manifest}: undo entry {entry.get('id')} lacks {', '.join(missing)}")
+    return entries
+
+
 class UndoStack:
     """Undo entries in a JSON manifest, rewritten whole on every change so a crash leaves the old file or the new one.
 
@@ -260,9 +284,17 @@ class UndoStack:
         self.session = session
 
     def entries(self, session: str | None = None) -> list[dict[str, Any]]:
+        """Every entry, oldest first; a manifest with an entry missing any key in ``ENTRY_KEYS`` is a ``ManifestError``.
+
+        The whole manifest is refused rather than the one entry, because ``undo`` reads ``restored`` and ``op`` of
+        every entry to choose which to restore, and every write rewrites the file whole and would carry the entry on.
+        """
         if not self.manifest.is_file():
             return []
-        entries = json.loads(self.manifest.read_text(encoding="utf-8"))["entries"]
+        data = json.loads(self.manifest.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or "entries" not in data:
+            raise ManifestError(f"{self.manifest} is not an object with entries")
+        entries = _checked(self.manifest, data["entries"])
         return entries if session is None else [e for e in entries if e["session"] == session]
 
     def _write(self, entries: list[dict[str, Any]]) -> None:
@@ -303,7 +335,8 @@ class UndoStack:
         A ``BridgeError`` while reading the region to restore, or a ``SnapshotLoadError`` for the entry's snapshot
         file, is that entry's failed result, not an exception, so the entries already restored in this call are
         still returned. A restore that fails after taking its snapshot still pushes that snapshot as an ``undo``
-        entry, as ``fill`` and ``restore`` do, and its entry stays unrestored.
+        entry, as ``fill`` and ``restore`` do, and its entry stays unrestored. A ``ManifestError`` from ``entries``
+        is raised before any entry is restored.
         """
         entries, results = self.entries(), []
         pending = [e for e in reversed(entries) if not e["restored"] and (include_undo or e["op"] != "undo")]
