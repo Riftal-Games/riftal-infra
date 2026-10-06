@@ -321,3 +321,21 @@ def test_warp_safe_refuses_an_unmapped_block_beside_the_hitbox(flat_plane_with_h
     found = warp_safe(flat_plane_with_hole, OPEN)
     assert (found.ok, found.detail) == (False, f"{UNKNOWN} beside the hitbox")
     assert found.coords == [(11, 3, 9), (9, 5, 11)]
+
+
+def test_warp_safe_names_an_unmapped_block_as_the_only_landing_in_the_floor_ring(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.fill(Bounds((19, 1, 19), (19, 1, 20)), "minecraft:info_update")
+    found = warp_safe(flat_plane_with_hole, (18, 4, 19))
+    assert (found.ok, found.detail) == (False, f"floor ring lands only on {UNKNOWN}")
+    assert found.coords == [(19, 1, 19), (19, 1, 20)]
+    flat_plane_with_hole.set(19, 0, 20, "minecraft:stone")
+    assert warp_safe(flat_plane_with_hole, (18, 4, 19)).coords == [(19, 1, 19)]
+    flat_plane_with_hole.set(19, 1, 19, AIR)
+    found = warp_safe(flat_plane_with_hole, (18, 4, 19))
+    assert (found.detail, found.coords) == (f"hole deeper than {LANDING} in the floor ring", [(19, 3, 19)])
+
+
+def test_a_mapped_landing_over_an_unmapped_block_is_safe(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.fill(Bounds((19, 2, 19), (19, 2, 20)), "minecraft:info_update")
+    flat_plane_with_hole.fill(Bounds((19, 1, 19), (19, 1, 20)), "minecraft:stone")
+    assert warp_safe(flat_plane_with_hole, (18, 4, 19)).ok
