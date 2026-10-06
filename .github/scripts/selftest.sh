@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=33
+EXPECTED_ASSERTIONS=35
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -237,11 +237,13 @@ expect_cleanup "$FIXTURES/bad/cleanup-run.sh" "4: a container started without --
 expect_cleanup "$FIXTURES/bad/cleanup-create.sh" "4: a container created without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-comment.sh" "4: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-separator.sh" "4: a container removed without -v"
+expect_cleanup "$FIXTURES/bad/cleanup-nosep.sh" "4: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-indirect.sh" "4: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-optout-reason.sh" "4: a container-cleanup opt-out without a reason"
 expect_cleanup "$FIXTURES/bad/cleanup-optout-unused.sh" "4: a container-cleanup opt-out with no container under it to keep"
 expect_cleanup "$FIXTURES/bad/cleanup-optout-gap.sh" "4: a container-cleanup opt-out with no container under it to keep"
 expect_cleanup "$FIXTURES/bad/cleanup-optout-twice.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-command.sh" "6: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-optout-last.sh" "5: a container-cleanup opt-out with no container under it to keep"
 expect_cleanup_trailing_pair
 expect_real_cleanup

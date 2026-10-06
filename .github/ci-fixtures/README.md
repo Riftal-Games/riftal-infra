@@ -47,16 +47,20 @@ another; that is why all three positions are pinned.
 `.github/scripts/container-cleanup.sh`, which refuses a `docker run` or
 `docker create` without `--rm` and a `docker rm` without `-v`, because either
 leaves `mysql:8`'s anonymous volume on the shared engine. `bad/cleanup-run.sh`
-puts a second run with `--rm` on the same line, `bad/cleanup-separator.sh` an
-`echo -v` after a `;`, and `bad/cleanup-comment.sh` a `--rm` in a trailing
-comment, so a check that reads past the end of a command goes red.
+puts a second run with `--rm` on the same line after a `;`,
+`bad/cleanup-nosep.sh` the same with no separator between them,
+`bad/cleanup-separator.sh` an `echo -v` after a `;`, and
+`bad/cleanup-comment.sh` a `--rm` in a trailing comment, so a check that reads
+past the end of a command goes red.
 `good/cleanup.sh` holds a `--restart` service under a reasoned
 `# container-cleanup: keep` opt-out; `bad/cleanup-optout-reason.sh` and
 `bad/cleanup-optout-unused.sh` pin that an opt-out needs a reason and a
-container to keep. `bad/cleanup-optout-gap.sh`, `bad/cleanup-optout-twice.sh`
-and `bad/cleanup-optout-last.sh` pin that it keeps only the command directly
-under it: another comment in between, a second opt-out, or the end of the file
-leaves it keeping nothing. `bad/cleanup-optout-wrap.sh` has no shebang, so its
+container to keep. `bad/cleanup-optout-gap.sh`,
+`bad/cleanup-optout-command.sh`, `bad/cleanup-optout-twice.sh` and
+`bad/cleanup-optout-last.sh` pin that it keeps only the command directly under
+it: another comment in between, an ordinary command in between, a second
+opt-out, or the end of the file leaves it keeping nothing, and the unkept run
+below an ordinary command is still reported. `bad/cleanup-optout-wrap.sh` has no shebang, so its
 first line is an unkept `docker run`; the self-test scans two copies of it at
 once, and an opt-out ending the first copy must not keep the run opening the
 second.
