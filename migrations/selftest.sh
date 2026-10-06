@@ -30,7 +30,7 @@ trap cleanup EXIT
 docker network create "$NETWORK" >/dev/null
 
 start_mysql() {
-  docker run -d --name "$1" --network "$NETWORK" --network-alias "$2" \
+  docker run -d --rm --name "$1" --network "$NETWORK" --network-alias "$2" \
     -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
     mysql:8 >/dev/null
 }
@@ -56,7 +56,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=22
+EXPECTED_ASSERTIONS=26
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -165,6 +165,34 @@ else
   fail "expected both racers to exit 0 and the migration applied exactly once, got exit $race_rc_a/$race_rc_b, things=$things_count, schema_migrations=$race_applied"
   cat "$LOGS"/out-race-a.log
   cat "$LOGS"/out-race-b.log
+fi
+
+section "a lock connection that dies early fails cleanly"
+# A wrong password ends the lock session before GET_LOCK answers, so bash has
+# reaped the coprocess and unset LOCKCONN by the time the exit trap runs.
+dead_rc=0
+run_migrations "$FIXTURES/good" riftal_selftest "selftest-dead-$SUFFIX" \
+  -e MYSQL_PASSWORD=selftestWrongPassword >"$LOGS"/out-deadlock.log 2>&1 || dead_rc=$?
+if [ "$dead_rc" -eq 1 ] \
+   && grep -q 'lock connection closed before answering GET_LOCK' "$LOGS"/out-deadlock.log \
+   && ! grep -q 'unbound variable' "$LOGS"/out-deadlock.log; then
+  pass "a dead lock connection exits 1 with its own error and nothing from the trap"
+else
+  fail "expected exit 1, the GET_LOCK error and no unbound variable, got exit $dead_rc"
+  cat "$LOGS"/out-deadlock.log
+fi
+
+section "a run whose lock session dies mid-run fails"
+lost_rc=0
+run_migrations "$FIXTURES/lostlock" riftal_selftest_race selftest-lost-lock \
+  >"$LOGS"/out-lostlock.log 2>&1 || lost_rc=$?
+if [ "$lost_rc" -eq 1 ] \
+   && grep -q "lost the migration lock 'selftest-lost-lock'" "$LOGS"/out-lostlock.log \
+   && ! grep -q 'unbound variable' "$LOGS"/out-lostlock.log; then
+  pass "a lock lost mid-run exits 1 and says the lock was lost"
+else
+  fail "expected exit 1 and a lost-lock error, got exit $lost_rc"
+  cat "$LOGS"/out-lostlock.log
 fi
 
 section "provisioning on an existing schema creates the login with its role"
@@ -289,6 +317,27 @@ else
   fail "expected decoy refused and not created, got exit $decoy_rc, decoys=$decoys"
   cat "$LOGS"/out-prov-decoy.log
 fi
+
+section "each half of the role check refuses on its own"
+# Each decoy fails exactly one half of the check, so deleting either half
+# admits one of them.
+query riftal_selftest \
+  "CREATE USER 'riftal_role_lockedpw'@'%' IDENTIFIED BY 'selftestDecoyPassword0000' ACCOUNT LOCK"
+query riftal_selftest "CREATE USER 'riftal_role_openblank'@'%'"
+for half in LOCKEDPW OPENBLANK; do
+  login="${half,,}"
+  half_rc=0
+  provision -e "RIFTAL_DB_PASSWORD_$half=$PW_A" >"$LOGS/out-prov-half-$login.log" 2>&1 \
+    || half_rc=$?
+  halves="$(query riftal_selftest "SELECT COUNT(*) FROM mysql.user WHERE User='$login'")"
+  if [ "$half_rc" -ne 0 ] && [ "$halves" = "0" ] \
+     && grep -q "riftal_role_$login does not exist" "$LOGS/out-prov-half-$login.log"; then
+    pass "a login whose role is riftal_role_$login is refused and not created"
+  else
+    fail "expected $login refused by the role check and not created, got exit $half_rc, users=$halves"
+    cat "$LOGS/out-prov-half-$login.log"
+  fi
+done
 
 section "no provisioning run ever prints a password"
 if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e 'Quote00001' -e selftestShort1 \

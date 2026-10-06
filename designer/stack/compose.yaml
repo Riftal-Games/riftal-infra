@@ -1,8 +1,8 @@
 # One core container and nothing else. This stack builds worlds, it does not
 # serve players: there is no proxy because only a builder and dev bots join,
 # and no database because the design world holds no player state. The server
-# runs in offline mode, so the game port defaults to 127.0.0.1 and the bridge
-# port is fixed there.
+# runs in offline mode, so the game port and the bridge port are both fixed to
+# 127.0.0.1.
 #
 # Every server setting travels as a command-line flag, because flags beat
 # server.properties in ServerConfigGroup. That leaves the world volume as the
@@ -16,13 +16,9 @@ services:
       # 19132 for its always-on instance and 19133 for its second one, so this
       # stack needs its own host port to run alongside either. The container
       # still listens on 19132 internally; DESIGNER_GAME_PORT is only where
-      # the host maps it, same pattern as INSTANCE_BIND there.
-      #
-      # DESIGNER_GAME_BIND exists for an engine inside a bridged WSL distro,
-      # whose 127.0.0.1 Windows cannot reach. Every address such a distro has
-      # that Windows can reach is on the LAN, so setting it exposes the
-      # offline-mode game port to the LAN; see README.md.
-      - "${DESIGNER_GAME_BIND:-127.0.0.1}:${DESIGNER_GAME_PORT:-19134}:19132/udp"
+      # the host maps it. The server runs in offline mode, so the address has
+      # no override (ADR 010, riftal-pm#491).
+      - "127.0.0.1:${DESIGNER_GAME_PORT:-19134}:19132/udp"
       # Loopback with no override: this port edits the world for anyone
       # holding the token, so an op client runs where the engine runs.
       - "127.0.0.1:19140:19140/tcp"

@@ -22,16 +22,26 @@ BACKUPS_VOL="riftal-restore-selftest-backups-$SUFFIX"
 WORLD_A_VOL="riftal-restore-selftest-world-a-$SUFFIX"
 WORLD_B_VOL="riftal-restore-selftest-world-b-$SUFFIX"
 
+# Per run, so two runs sharing a host, as the self-hosted CI runners do,
+# never read each other's logs.
+LOGS="$(mktemp -d)"
+
 cleanup() {
-  docker rm -f "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
+  docker rm -f -v "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" >/dev/null 2>&1 || true
+  rm -rf "$LOGS"
 }
 trap cleanup EXIT
 
 docker network create "$NETWORK" >/dev/null
+# Created before any `run -v` names them, so CI's label shim stamps them for
+# the job's sweep, which is all that removes them when a cancel skips the trap.
+docker volume create "$BACKUPS_VOL" >/dev/null
+docker volume create "$WORLD_A_VOL" >/dev/null
+docker volume create "$WORLD_B_VOL" >/dev/null
 
-docker run -d --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
+docker run -d --rm --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
   mysql:8 >/dev/null
 
@@ -103,10 +113,10 @@ world_a() {
 }
 
 section "a backup is taken while balance is 500 and mine_a shows 17 blocks broken"
-if run_backup >/tmp/out-backup.log 2>&1; then
+if run_backup >"$LOGS"/out-backup.log 2>&1; then
   pass "the backup run exits 0"
 else
-  fail "the backup run should exit 0"; cat /tmp/out-backup.log
+  fail "the backup run should exit 0"; cat "$LOGS"/out-backup.log
 fi
 dir1="$(backups 'ls -1 /backups')"
 
@@ -118,10 +128,10 @@ drifted_balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE id 
   || fail "expected the drifted balance 999 before restoring, got $drifted_balance"
 
 section "restoring from the pre-drift backup set rebuilds the database and both world volumes"
-if run_restore "/backups/$dir1" >/tmp/out-restore.log 2>&1; then
+if run_restore "/backups/$dir1" >"$LOGS"/out-restore.log 2>&1; then
   pass "the restore run exits 0"
 else
-  fail "the restore run should exit 0"; cat /tmp/out-restore.log
+  fail "the restore run should exit 0"; cat "$LOGS"/out-restore.log
 fi
 
 restored_balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE id = 1')"
@@ -157,15 +167,15 @@ world_a 'echo 123 > /world/blocks_broken_mine_a.txt'
 docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
   'echo drifted-again > /world/marker.txt' >/dev/null
 
-if run_restore "/backups/$dir2" >/tmp/out-corrupt.log 2>&1; then
+if run_restore "/backups/$dir2" >"$LOGS"/out-corrupt.log 2>&1; then
   fail "restoring a backup set with a corrupt world tar should exit nonzero"
 else
   pass "restoring a backup set with a corrupt world tar exits nonzero"
 fi
-if grep -qi 'restore' /tmp/out-corrupt.log; then
+if grep -qi 'restore' "$LOGS"/out-corrupt.log; then
   pass "the corrupt-tar failure is logged, not silent"
 else
-  fail "expected a logged failure message for the corrupt world tar"; cat /tmp/out-corrupt.log
+  fail "expected a logged failure message for the corrupt world tar"; cat "$LOGS"/out-corrupt.log
 fi
 
 survives_a="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
@@ -179,15 +189,15 @@ survives_b="$(docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'cat /wor
   || fail "expected world-b's pre-restore-attempt marker to survive, got $survives_b"
 
 section "a restore against a backup set that does not exist fails loudly instead of silently no-op'ing"
-if run_restore "/backups/no-such-set" >/tmp/out-missing.log 2>&1; then
+if run_restore "/backups/no-such-set" >"$LOGS"/out-missing.log 2>&1; then
   fail "restoring a nonexistent backup set should exit nonzero"
 else
   pass "restoring a nonexistent backup set exits nonzero"
 fi
-if grep -qi 'restore' /tmp/out-missing.log; then
+if grep -qi 'restore' "$LOGS"/out-missing.log; then
   pass "the failure is logged, not silent"
 else
-  fail "expected a logged failure message"; cat /tmp/out-missing.log
+  fail "expected a logged failure message"; cat "$LOGS"/out-missing.log
 fi
 
 section "a restore leaves the database and both worlds untouched by the failed attempt"

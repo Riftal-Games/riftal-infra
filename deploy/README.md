@@ -160,6 +160,69 @@ cleared, so a corrupt tar for one world in a multi-world set aborts the whole
 restore instead of being found only after earlier worlds have already been
 cleared and left neither restored nor in their pre-restore state.
 
+Wiping the shared database between MVPs is its own runbook,
+[`WIPE.md`](WIPE.md). It drops and recreates the database only, leaving world
+volumes alone, and its rollback is this restore with the backup set taken
+just before the wipe. Every wipe of alpha or production data is Nasir's.
+
+## Binary log retention
+
+The shared database keeps its binary log for **30 days**
+(`binlog_expire_logs_seconds = 2592000`), with the log on, in `ROW` format with
+`FULL` row images, and purged automatically once a file is older than that.
+The riftal-pm workspace's ADR 005 names the binlog as the only per-change
+history of a balance, and hands its retention to this repo (riftal-infra#268).
+
+These are `mysql:8`'s own defaults, and nothing in this repo sets them.
+Verified 2026-09-29 on `mysql:8` at repo digest
+`mysql@sha256:0744ee5ef89ce6ccfa13de3e579fe6b9e27f93dd70da9c06d2c908b1b193fb8d`,
+MySQL 8.4.11, a throwaway container started with no options:
+
+```
+log_bin=1 binlog_format=ROW binlog_row_image=FULL
+binlog_expire_logs_seconds=2592000 binlog_expire_logs_auto_purge=1
+```
+
+`mysql:8` is a floating tag, so the default can move under us on a pull.
+`binlog-check.sh` reads those five values from a running server and fails,
+naming the setting, if any differs. Run it against a database before relying
+on its binlog as history, and against the production database definition
+when one exists, as part of bringing it up. `binlog-selftest.sh` runs it in CI
+against a default `mysql:8`, which must pass, and against one started with a
+one-day retention, which must fail.
+
+What this means for backup and restore:
+
+- **Binlogs are kept, but not backed up.** They live in the MySQL data
+  directory (`/var/lib/mysql/binlog.*`), so they survive a container
+  replacement on the `riftal-mysql` volume. A backup set holds only
+  `mysql.sql` and the world tars; losing the MySQL volume loses every binlog,
+  whatever the backups hold.
+- **No point-in-time recovery.** `restore.sh` rebuilds the database to the
+  moment of one backup set and replays nothing from the binlog, and the dump
+  records no binlog position to replay from. Changes after that set are gone
+  from the database. On a restore into the same server they stay readable in
+  the binlog for an investigation, as long as the files are younger than 30
+  days. A restore onto a fresh server starts with no binlog history at all.
+- **The binlog outlasts every backup set.** At the default schedule
+  (`BACKUP_RETENTION` 10, `BACKUP_INTERVAL_SECONDS` 21600) the oldest set is
+  2.5 days old, well inside 30 days. Raising either so that
+  `BACKUP_RETENTION * BACKUP_INTERVAL_SECONDS` passes 30 days leaves the
+  oldest sets older than any change history the binlog still holds.
+- **The binlog costs disk on the MySQL volume.** 30 days of row images for
+  every write is sized by write volume, not by database size, so watch the
+  volume's free space as the alpha grows.
+
+To check the dev stack, with `riftal-mysql` up and the variables set as in
+Running it locally, via `wslc`, below:
+
+```sh
+wslc run --rm --network riftal-dev \
+  -v "$INFRA/deploy:/deploy:ro" \
+  -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
+  mysql:8 bash /deploy/binlog-check.sh
+```
+
 ## Environment
 
 | Variable | Required | Default | Meaning |
@@ -198,7 +261,9 @@ run to finish and try again, or run it against a separate `BACKUP_ROOT`.
 `selftest.sh` and `restore-selftest.sh` are the real proof and run under
 `docker` on the self-hosted CI runner, the same split as
 `../migrations/selftest.sh`: not runnable on Nasir's Windows machine, which
-has no `docker`, only `wslc`. One backup run by hand, against the dev
+has no `docker`, only `wslc`. Each selftest run writes its logs to its own
+`mktemp -d` directory and removes it on exit, so concurrent runs on one host
+do not clobber each other. One backup run by hand, against the dev
 stack's own throwaway data, after `riftal-mysql` is up:
 
 ```sh

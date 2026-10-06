@@ -1,12 +1,14 @@
 import json
 import re
 
+import numpy as np
 import pytest
 
 from designer.builders.base import Palette
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
+from designer.edits import EditList, Fill
 from designer.region import Region
 from designer.verify import mine_valid, travel_time
 
@@ -34,15 +36,60 @@ def _location(edits, name: str) -> tuple[int, int, int]:
     return tuple(next(l for l in edits.extras["locations"] if l["name"] == name)["pos"])
 
 
-def test_committed_spec_loads_and_places_the_ore_layer_override(spec: MineSpec) -> None:
+def _layered() -> dict:
+    """The committed spec with one ore layer over its bottom three rows, which the committed spec has none of."""
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["ore_layers"] = [{"y_from": 40, "y_to": 42, "ores": {"stone": 50, "coal_ore": 30, "iron_ore": 15, "gold_ore": 5}}]
+    return data
+
+
+def test_committed_spec_pins_the_mine_a_fragment(spec: MineSpec) -> None:
     assert spec.name == "mine_a" and spec.world == "mine_a"
-    assert len(spec.ore_layers) == 1 and spec.ore_layers[0].ores["minecraft:gold_ore"] == 5.0
+    assert spec.geometry().interior.to_json() == {"min": [-16, 40, -16], "max": [15, 50, 15]} and spec.floor_y == 40
+    assert spec.ores == {"minecraft:stone": 1.0, "minecraft:coal_ore": 0.5} and spec.ore_layers == ()
+
+
+# _ore_ops draws by position in ``ores``, so the same weights in another order place other blocks.
+@pytest.mark.parametrize(("name", "ores"), [
+    ("mine_a", [("minecraft:stone", 1.0), ("minecraft:coal_ore", 0.5)]),
+    ("mine_b", [("minecraft:copper_ore", 1.0), ("minecraft:iron_ore", 0.5)]),
+    ("mine_c", [("minecraft:iron_ore", 1.0), ("minecraft:lapis_ore", 0.4)]),
+    ("lumber", [("minecraft:oak_log", 1.0)]),
+])
+def test_committed_spec_pins_its_ore_order(name: str, ores: list[tuple[str, float]]) -> None:
+    spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / f"{name}.json").read_text(encoding="utf-8")))
+    assert list(spec.ores.items()) == ores
+
+
+def test_an_ore_layer_override_loads_and_places_only_inside_its_rows(palette: Palette) -> None:
+    layered = MineSpec.from_dict(_layered())
+    assert len(layered.ore_layers) == 1 and layered.ore_layers[0].ores["minecraft:gold_ore"] == 5.0
+    gold_rows = {op.y for op in build_mine(layered, palette).ops if getattr(op, "block", "") == "minecraft:gold_ore"}
+    assert gold_rows and gold_rows <= {40, 41, 42}
 
 
 def test_to_region_passes_mine_valid(spec: MineSpec, palette: Palette) -> None:
     _, region = _built_region(spec, palette)
     found = mine_valid(region, spec)
     assert found.ok and found.detail == "mine valid", found.detail
+
+
+# Every committed spec faces south; north and west run the lane toward lower coordinates, so the carve's box is reversed.
+@pytest.mark.parametrize(("name", "side"), [("mine_a", None), ("lumber", None), ("mine_a", "north"), ("mine_a", "west")])
+def test_a_mine_buried_in_stone_keeps_its_exit_lane_walkable(name: str, side: str | None, palette: Palette) -> None:
+    data = json.loads((PROJECT_ROOT / "specs" / f"{name}.json").read_text(encoding="utf-8"))
+    if side is not None:
+        data["entrance"]["side"] = side
+    buried = MineSpec.from_dict(data)
+    geo = buried.geometry()
+    box = geo.padding.union(geo.exit_platform).expand(2, "y")
+    stone = EditList(buried.world, [Fill(box, "minecraft:stone")]).to_region(Region.empty(buried.world, box))
+    edits = build_mine(buried, palette)
+    region = edits.to_region(stone)
+    found = mine_valid(region, buried)
+    assert found.ok, found.detail
+    walk = travel_time(region, _location(edits, f"{name}_spawn"), _location(edits, f"{name}_exit"))
+    assert walk.ok, walk.detail
 
 
 def test_travel_time_from_spawn_to_exit_is_under_ten_seconds(spec: MineSpec, palette: Palette) -> None:
@@ -111,7 +158,7 @@ def test_from_dict_rejects_a_fractional_floor_y() -> None:
 
 @pytest.mark.parametrize("field", ["y_from", "y_to"])
 def test_from_dict_rejects_a_fractional_ore_layer_bound(field: str) -> None:
-    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data = _layered()
     data["ore_layers"][0][field] = -0.5
     with pytest.raises(ValueError, match="y_from and y_to must be integers"):
         MineSpec.from_dict(data)
@@ -139,6 +186,92 @@ def test_from_dict_rejects_a_fractional_size_or_count(path: tuple[str, ...], val
         MineSpec.from_dict(data)
 
 
+def _lantern_positions(region: Region) -> set[tuple[int, int, int]]:
+    lanterns = [i for i, name in enumerate(region.palette) if name.startswith("minecraft:lantern")]
+    ys, zs, xs = np.nonzero(np.isin(region.blocks, lanterns))
+    x0, y0, z0 = region.bounds.min
+    return {(x0 + int(x), y0 + int(y), z0 + int(z)) for x, y, z in zip(xs, ys, zs)}
+
+
+# The platform's last row holds the sell sign on the lit edge, so a length that is a
+# multiple of lights_every lights the row before it instead; a one-row platform has no
+# row to spare.
+@pytest.mark.parametrize("length, every, distances", [
+    (6, 4, [4]), (13, 4, [4, 8, 12]), (11, 3, [3, 6, 9]),
+    (8, 4, [4, 7]), (12, 3, [3, 6, 9, 11]), (4, 1, [1, 2, 3]), (1, 1, []),
+])
+def test_exit_platform_lights_sit_every_lights_every_blocks_along_its_edge(
+    length: int, every: int, distances: list[int], palette: Palette
+) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["exit_path"]["length"], data["lights_every"] = length, every
+    lit = MineSpec.from_dict(data)
+    edits, region = _built_region(lit, palette)
+    geo = lit.geometry()
+    x, face = geo.exit_platform.min[0], geo.outer.max[2]
+    assert _lantern_positions(region) == {(x, lit.floor_y, face + d) for d in distances}
+    assert {region.get(x, lit.floor_y, face + d) for d in distances} <= {"minecraft:lantern[hanging=false]"}
+    signs = {region.get(*_location(edits, name)) for name in ("sell_npc_a", "rankup_npc_a")}
+    assert len(signs) == 1 and signs.pop().startswith("minecraft:standing_sign[")
+
+
+# Read from the ops, since a later sign op paints over a light on the sign row and a repeated op paints nothing new.
+@pytest.mark.parametrize("width", [3, 4, 5])
+@pytest.mark.parametrize("length, every, distances", [(8, 4, [4, 7]), (12, 3, [3, 6, 9, 11]), (4, 1, [1, 2, 3]), (1, 1, [])])
+def test_exit_platform_light_ops_are_one_per_light_and_none_on_the_sign_row(
+    width: int, length: int, every: int, distances: list[int], palette: Palette
+) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["exit_path"]["width"], data["exit_path"]["length"], data["lights_every"] = width, length, every
+    lit = MineSpec.from_dict(data)
+    geo = lit.geometry()
+    x, face = geo.exit_platform.min[0], geo.outer.max[2]
+    lights = [(op.x, op.y, op.z) for op in build_mine(lit, palette).ops if getattr(op, "block", "").startswith("minecraft:lantern")]
+    assert sorted(lights, key=lambda p: p[2]) == [(x, lit.floor_y, face + d) for d in distances]
+    assert all(z != face + length for _, _, z in lights)
+
+
+# Each side's lights run away from its face along the platform's low-coordinate edge.
+@pytest.mark.parametrize("side", ["north", "south", "east", "west"])
+def test_exit_platform_lights_follow_the_entrance_side(side: str, palette: Palette) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["entrance"]["side"], data["exit_path"]["length"], data["lights_every"] = side, 8, 4
+    lit = MineSpec.from_dict(data)
+    _, region = _built_region(lit, palette)
+    geo, y = lit.geometry(), lit.floor_y
+    (ox0, _, oz0), (ox1, _, oz1) = geo.outer.min, geo.outer.max
+    px, pz = geo.exit_platform.min[0], geo.exit_platform.min[2]
+    expected = {
+        "north": {(px, y, oz0 - d) for d in (4, 7)}, "south": {(px, y, oz1 + d) for d in (4, 7)},
+        "west": {(ox0 - d, y, pz) for d in (4, 7)}, "east": {(ox1 + d, y, pz) for d in (4, 7)},
+    }[side]
+    assert _lantern_positions(region) == expected
+    assert all(geo.exit_platform.contains((x, geo.exit_platform.min[1], z)) for x, _, z in expected)
+
+
+@pytest.mark.parametrize("width", [-1, 0, 1, 2])
+def test_from_dict_refuses_an_exit_path_narrower_than_3(width: int) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["exit_path"]["width"] = width
+    with pytest.raises(ValueError, match=f"^exit_path width must be at least 3 to hold both signs beside the walking line, got {width}$"):
+        MineSpec.from_dict(data)
+
+
+@pytest.mark.parametrize("width", [3, 4, 5])
+def test_signs_sit_on_the_platform_and_lights_off_the_walking_line(width: int, palette: Palette) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["exit_path"]["width"] = width
+    wide = MineSpec.from_dict(data)
+    edits, region = _built_region(wide, palette)
+    platform = wide.geometry().exit_platform
+    for name in ("sell_npc_a", "rankup_npc_a"):
+        x, y, z = _location(edits, name)
+        assert platform.min[0] <= x <= platform.max[0] and platform.min[2] <= z <= platform.max[2] and y == platform.min[1] + 1
+    walking_x = _location(edits, "mine_a_spawn")[0]
+    lanterns = _lantern_positions(region)
+    assert lanterns and all(x != walking_x for x, _, _ in lanterns)
+
+
 def _outer_tags(spec: MineSpec, palette: Palette) -> list[str]:
     return next(r for r in build_mine(spec, palette).extras["regions"] if r["name"] == spec.name)["tags"]
 
@@ -149,7 +282,7 @@ def test_a_spec_without_safe_zone_builds_a_safe_mine(palette: Palette) -> None:
     assert _outer_tags(MineSpec.from_dict(data), palette) == ["mine", "safe_zone"]
 
 
-@pytest.mark.parametrize("name", ["mine_a", "lumber"])
+@pytest.mark.parametrize("name", ["mine_a", "mine_b", "mine_c", "lumber"])
 def test_committed_specs_build_safe_mines(name: str, palette: Palette) -> None:
     spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / f"{name}.json").read_text(encoding="utf-8")))
     assert _outer_tags(spec, palette) == ["mine", "safe_zone"]
