@@ -264,15 +264,16 @@ def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     Feet and head must be passable; a danger block there fails as ``hitbox in
     danger``, else a liquid as ``hitbox in liquid``, any other obstruction as
     ``hitbox blocked``, or ``hitbox blocked by`` an unmapped block when one is
-    among them. The support is the first block below the
-    feet that is neither air nor passable, and it must be solid and mapped, because a
-    player over liquid sinks and over danger burns. A column with no support
-    inside the region obstructs nothing here; ``warp_safe`` is the check that
-    demands a landing. On a floor taller than one block directly under the feet, the cell two above the feet
-    must be passable too. ``coords`` names the offending cells. A fractional
-    ``pos`` means the block it falls in, each coordinate floored. ``pos``
-    outside the region is a failed check, not a crash, for a caller that did
-    not fetch around it first.
+    among them. The support is the first block below the feet that is neither
+    air nor passable, and it must be solid and mapped, because a player over
+    liquid sinks and over danger burns. A column with no support inside the
+    region obstructs nothing here; ``warp_safe`` is the check that demands a
+    landing. On a floor taller than one block directly under the feet, the
+    cell two above the feet must be passable too, and passes when it is
+    outside the region, as the head cell does. ``coords`` names the offending
+    cells. A fractional ``pos`` means the block it falls in, each coordinate
+    floored. ``pos`` outside the region is a failed check, not a crash, for a
+    caller that did not fetch around it first.
     """
     at = _block(pos)
     if not region.bounds.contains(at):
@@ -301,7 +302,8 @@ def entity_clear(region: Region, pos: Sequence[float]) -> Check:
             return Check(False, f"floor is {kind.name.lower()}", [(x, y - (iy - top), z)])
         if is_unmapped(region.get(x, y - (iy - top), z)):
             return Check(False, f"floor is {UNMAPPED_NOTE}", [(x, y - (iy - top), z)])
-        # Standing on a fence or wall puts the head half a block into the cell two above the feet.
+        # Standing on a tall floor (is_tall_floor) puts the head half a block into the cell
+        # two above the feet.
         if top == iy - 1 and is_tall_floor(region.get(x, y - 1, z)):
             if iy + 2 < classes.shape[0] and not passable[iy + 2, iz, ix]:
                 return _obstruction(region, [(x, y + 2, z)])
