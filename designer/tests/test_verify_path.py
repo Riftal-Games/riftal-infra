@@ -229,3 +229,39 @@ def test_water_floor_is_not_standable(flat_plane_with_hole: Region) -> None:
 def test_lava_at_the_feet_is_not_standable(flat_plane_with_hole: Region) -> None:
     flat_plane_with_hole.set(6, 4, 6, "minecraft:lava")
     assert not stand_mask(flat_plane_with_hole)[4, 6, 6]
+
+
+UNKNOWN = "a block the core does not map (minecraft:info_update)"
+
+
+def test_an_unmapped_floor_is_standable_only_when_asked(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(5, 3, 5, "minecraft:info_update")
+    mask = stand_mask(flat_plane_with_hole)
+    assert not mask[4, 5, 5] and mask[4, 5, 6]
+    assert flat_plane_with_hole.stand_mask(unmapped_floor=True)[4, 5, 5]
+    assert stand_mask(flat_plane_with_hole) is mask
+    assert flat_plane_with_hole.unmapped().sum() == 1
+
+
+def test_path_walks_round_an_unmapped_floor(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(10, 3, 20, "minecraft:info_update")
+    found = path_exists(flat_plane_with_hole, A, B)
+    assert found.ok and (10, 4, 20) not in found.path
+
+
+def test_a_route_only_over_an_unmapped_floor_fails_and_names_it(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.fill(Bounds((19, 3, 0), (20, 3, 39)), AIR)
+    flat_plane_with_hole.fill(Bounds((19, 3, 20), (20, 3, 20)), "minecraft:info_update")
+    found = path_exists(flat_plane_with_hole, A, B)
+    assert (found.ok, found.detail) == (False, f"path only over {UNKNOWN}")
+    assert found.coords == [(19, 3, 20), (20, 3, 20)]
+    assert found.path[0] == A and found.path[-1] == B and _adjacent(found.path)
+    timed = travel_time(flat_plane_with_hole, A, B)
+    assert (timed.ok, timed.detail, timed.coords) == (False, found.detail, found.coords)
+
+
+def test_an_end_on_an_unmapped_floor_is_named(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.fill(Bounds((35, 3, 18), (39, 3, 22)), "minecraft:info_update")
+    found = path_exists(flat_plane_with_hole, A, B)
+    assert (found.ok, found.detail) == (False, f"path only over {UNKNOWN}")
+    assert found.coords[-1] == (37, 3, 20)

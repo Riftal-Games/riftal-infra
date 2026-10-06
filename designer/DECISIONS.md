@@ -896,3 +896,16 @@ and that code, so the designer sees which file to look at rather than a silently
 When nothing readable matches, the refusal counts the skipped files. Catching every exception was
 rejected for the reason `_load_entry` gives: a `TypeError` or `AttributeError` is a bug in `load`
 and must still surface (#627).
+
+## 2026-10-06 An unmapped block is no floor to stand or land on, and the route over one is named
+
+An unmapped block still classes SOLID (#664), but it holds no one: `Region.stand_mask` leaves the
+cell above it unstandable, and `warp_safe` does not count it as a landing. A floor ring cell whose
+only landing within `LANDING + 1` is one fails last, as `floor ring lands only on a block the core
+does not map (minecraft:info_update)`, naming those blocks; a real hole in the ring still fails
+first. When `path_exists` finds no route, it searches again with unmapped floors allowed
+(`stand_mask(unmapped_floor=True)`); a route found that way fails as `path only over` the same
+note, with `path` that route and `coords` its unmapped floor cells, and `travel_time` reports the
+same. A route that walks round an unmapped floor passes. Letting the route through and naming its
+cells in `data` was rejected: `entity_clear` already refuses a player standing on one, and a check
+that passes reads as walkable to a designer who never opens `data` (#669).

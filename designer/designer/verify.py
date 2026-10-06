@@ -138,9 +138,29 @@ def path_exists(
     blocks of open walking. The heuristic charges the open-ground rates, so it
     never overestimates. A step up onto a fence, wall or closed fence gate
     (``is_tall_floor``) is open only from another such floor, with the third
-    cell above the feet clear for the head.
+    cell above the feet clear for the head. No step stands on an unmapped
+    block; when the route exists only over one, the result fails as ``path
+    only over`` it, with ``path`` that route and ``coords`` its unmapped floor
+    cells.
     """
-    mask = stand_mask(region)
+    found = _search(region, stand_mask(region), a, b, max_nodes, corridor, margin, max_drop, snap_radius)
+    if found.ok or not region.unmapped().any():
+        return found
+    over = _search(region, region.stand_mask(unmapped_floor=True), a, b, max_nodes, corridor, margin, max_drop, snap_radius)
+    if not over.ok:
+        return found
+    floors = [(x, y - 1, z) for x, y, z in over.path if is_unmapped(region.get(x, y - 1, z))]
+    return PathResult(
+        False, f"path only over {UNMAPPED_NOTE}", floors, over.data,
+        path=over.path, length=over.length, explored=found.explored + over.explored,
+    )
+
+
+def _search(
+    region: Region, mask: np.ndarray, a: Sequence[float], b: Sequence[float],
+    max_nodes: int, corridor: Bounds | None, margin: int, max_drop: int, snap_radius: int,
+) -> PathResult:
+    """``path_exists`` over the standable cells of ``mask``."""
     start = _snap(mask, region.bounds, a, snap_radius)
     if start is None:
         return PathResult(False, "start not standable", [_block(a)])
@@ -248,9 +268,9 @@ def travel_time(
     )
 
 
-def _solid_within(classes: np.ndarray, iy: int, iz: int, ix: int, n: int) -> bool:
-    """A solid block among the ``n`` cells from ``(iy, iz, ix)`` downward; cells below the region count as not solid."""
-    return bool((classes[max(iy - n + 1, 0):iy + 1, iz, ix] == BlockClass.SOLID).any())
+def _within(mask: np.ndarray, iy: int, iz: int, ix: int, n: int) -> bool:
+    """A ``mask`` cell among the ``n`` cells from ``(iy, iz, ix)`` downward; cells below the region count as not in it."""
+    return bool(mask[max(iy - n + 1, 0):iy + 1, iz, ix].any())
 
 
 # An unmapped block classes SOLID, so without naming it a designer reads an ordinary wall or
@@ -326,7 +346,9 @@ def warp_safe(region: Region, pos: Sequence[float]) -> Check:
     the warp goes in any direction and a lava floor is the same death as a
     lava wall; no unmapped block in those same cells, since it may be either;
     and no cell in the 3x3 at floor level that is a hole deeper
-    than ``LANDING``, so that step cannot be a fall either.
+    than ``LANDING``, so that step cannot be a fall either. An unmapped
+    block is no landing, and a ring cell whose only landing is one fails
+    last, as ``floor ring lands only on`` it, naming those blocks.
     ``detail`` names the first rule that fails and ``coords`` the cells that
     break it. Cells outside the region are unknown: they never offend, and
     they never count as solid. ``pos`` itself outside the region is a failed
@@ -338,9 +360,10 @@ def warp_safe(region: Region, pos: Sequence[float]) -> Check:
         return clear
     x, y, z = at = _block(pos)
     iy, iz, ix = region.bounds.local(at)
-    classes = region.classes()
+    classes, unmapped_at = region.classes(), region.unmapped()
+    solid = (classes == BlockClass.SOLID) & ~unmapped_at
     ny, nz, nx = classes.shape
-    if not _solid_within(classes, iy - 1, iz, ix, LANDING):
+    if not _within(solid, iy - 1, iz, ix, LANDING):
         return Check(False, f"no solid within {LANDING} below", [(x, y - 1, z)])
     around = [(dz, dx) for dz, dx in RING if 0 <= iz + dz < nz and 0 <= ix + dx < nx]
     hazards = [
@@ -359,13 +382,20 @@ def warp_safe(region: Region, pos: Sequence[float]) -> Check:
     ]
     if unmapped:
         return Check(False, f"{UNMAPPED_NOTE} beside the hitbox", unmapped)
-    holes = [
-        (x + dx, y - 1, z + dz)
-        for dz, dx in around
-        if (dz, dx) != (0, 0) and not _solid_within(classes, iy - 1, iz + dz, ix + dx, LANDING + 1)
+    open_ring = [
+        (dz, dx) for dz, dx in around
+        if (dz, dx) != (0, 0) and not _within(solid, iy - 1, iz + dz, ix + dx, LANDING + 1)
     ]
+    holes = [(x + dx, y - 1, z + dz) for dz, dx in open_ring if not _within(unmapped_at, iy - 1, iz + dz, ix + dx, LANDING + 1)]
     if holes:
         return Check(False, f"hole deeper than {LANDING} in the floor ring", holes)
+    landings = [
+        (x + dx, y - d, z + dz)
+        for dz, dx in open_ring
+        for d in range(2, LANDING + 2) if iy - d >= 0 and unmapped_at[iy - d, iz + dz, ix + dx]
+    ]
+    if landings:
+        return Check(False, f"floor ring lands only on {UNMAPPED_NOTE}", landings)
     return Check(True, "warp safe")
 
 
