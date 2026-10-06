@@ -534,9 +534,12 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     reset refills only from ``ores``, so any other block there would break into an item nobody mined (ADR 014
     item 7), and a name only in ``ore_layers`` fails for the same reason. ``detail`` names every failing rule
     and those interior cells. A floor or platform block the core does not map classes solid but fails as ``floor
-    cells are`` or ``exit platform cells are`` that note, since it may be water or kelp in the world. ``coords``
-    holds leaks, undeclared cells, missing floor cells, unmapped floor cells, missing platform cells, unmapped
-    platform cells, blocked lane cells, then those interior cells, ``LEAKS_REPORTED`` of each.
+    cells are`` or ``exit platform cells are`` that note, since it may be water or kelp in the world. So does
+    any other one in the shell or padding ring, as ``wall cells are`` that note, when it lies on the shell's
+    surface or the enclosure flood would reach it were it open; one sealed off inside the wall cannot leak.
+    ``coords`` holds leaks, undeclared cells, unmapped wall cells, missing floor cells, unmapped floor cells,
+    missing platform cells, unmapped platform cells, blocked lane cells, then those interior cells,
+    ``LEAKS_REPORTED`` of each.
     """
     geo = spec.geometry()
     if region.world != spec.world:
@@ -544,13 +547,26 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     covers = geo.padding.union(geo.exit_platform)
     if region.bounds.intersect(covers) != covers:
         raise ValueError(f"region {region.bounds.min}..{region.bounds.max} does not cover the padding and exit platform {covers.min}..{covers.max}")
-    open_ = region.sub(geo.padding).passable().copy()
+    pad = region.sub(geo.padding)
+    open_ = pad.passable().copy()
     open_[geo.padding.slices(geo.interior)] = True
     open_[geo.padding.slices(geo.entrance)] = False
     ring = np.ones(open_.shape, dtype=bool)
     ring[geo.padding.slices(geo.outer)] = False
     reach = _flood(open_, geo.padding.slices(geo.interior), ring) & ring
     leaks = [_world(geo.padding, at) for at in np.argwhere(reach)[:LEAKS_REPORTED]]
+
+    # Interior, entrance, floor and platform cells already fail under their own rules when unmapped.
+    unknown = pad.unmapped().copy()
+    floor = Bounds((geo.interior.min[0], spec.floor_y - 1, geo.interior.min[2]), (geo.interior.max[0], spec.floor_y - 1, geo.interior.max[2]))
+    for named in (geo.interior, geo.entrance, floor, geo.padding.intersect(geo.exit_platform)):
+        if named is not None:
+            unknown[geo.padding.slices(named)] = False
+    skin = np.zeros(open_.shape, dtype=bool)
+    skin[geo.padding.slices(geo.outer)] = True
+    skin[geo.padding.slices(geo.outer.expand(-1))] = False
+    wall_unknown = unknown & (_flood(open_ | unknown, geo.padding.slices(geo.interior), ring) | skin)
+    wall_odd = [_world(geo.padding, at) for at in np.argwhere(wall_unknown)[:LEAKS_REPORTED]]
 
     shell = region.sub(geo.outer).passable()
     surface, opening = np.zeros(shell.shape, dtype=bool), np.zeros(shell.shape, dtype=bool)
@@ -610,6 +626,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
         text for text, bad in (
             (f"{int(reach.sum())} leaks", leaks), ("entrance not open", not entrance_ok),
             (f"{len(undeclared)} undeclared opening cells", undeclared),
+            (f"{int(wall_unknown.sum())} wall cells are {UNMAPPED_NOTE}", wall_odd),
             ("composition off", any(d > tolerance for d in deviations.values())),
             (f"{int(stray.sum())} interior cells neither air nor in ores {strays}", strays),
             (f"{int(missing.sum())} floor cells missing", gaps),
@@ -620,13 +637,13 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
         ) if bad
     ]
     data = {
-        "undeclared": undeclared[:LEAKS_REPORTED], "floor_missing": int(missing.sum()),
+        "undeclared": undeclared[:LEAKS_REPORTED], "wall_unmapped": int(wall_unknown.sum()), "floor_missing": int(missing.sum()),
         "floor_unmapped": int(floor_unmapped.sum()), "platform_missing": int(platform_missing.sum()),
         "platform_unmapped": int(platform_unmapped.sum()), "platform_blocked": int(platform_blocked.sum()),
     }
     return MineResult(
         not failing, "; ".join(failing) or "mine valid",
-        leaks + data["undeclared"] + gaps + floor_odd + platform_gaps + platform_odd + platform_obstructed + strays, data,
+        leaks + data["undeclared"] + wall_odd + gaps + floor_odd + platform_gaps + platform_odd + platform_obstructed + strays, data,
         leaks=leaks, entrances_found=components, composition=_fractions(inner, names), deviations=deviations,
     )
 
