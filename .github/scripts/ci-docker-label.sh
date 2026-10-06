@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Puts a `docker` shim first on PATH for the rest of the job. The shim stamps
-# every container and network this job creates with a label naming the job run,
-# so ci-container-sweep.sh can remove exactly those once the job ends, however
-# it ends (riftal-infra#509).
+# every container, network and `volume create` this job runs with a label
+# naming the job run, so ci-container-sweep.sh can remove exactly those once the
+# job ends, however it ends (riftal-infra#509). A volume that `run -v name:/path`
+# creates on first use carries no label, so a self-test that needs a named
+# volume creates it explicitly first (riftal-infra#685).
 #
 # A cancelled run kills a self-test before its EXIT trap fires, and its mysql
 # or server container runs on for hours. Name prefixes alone cannot scope the
@@ -42,7 +44,7 @@ if [ -z "${GITHUB_RUN_ID:-}" ] || [ -z "${GITHUB_RUN_ATTEMPT:-}" ]; then
 fi
 label="riftal.ci.job=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB:-job}"
 case "$1 ${2:-}" in
-  "container run"|"container create"|"network create")
+  "container run"|"container create"|"network create"|"volume create")
     group="$1" verb="$2"
     shift 2
     exec "$real" "$group" "$verb" --label "$label" "$@"

@@ -35,6 +35,11 @@ cleanup() {
 trap cleanup EXIT
 
 docker network create "$NETWORK" >/dev/null
+# Created before any `run -v` names them, so CI's label shim stamps them for
+# the job's sweep, which is all that removes them when a cancel skips the trap.
+docker volume create "$BACKUPS_VOL" >/dev/null
+docker volume create "$WORLD_A_VOL" >/dev/null
+docker volume create "$WORLD_B_VOL" >/dev/null
 
 docker run -d --rm --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
