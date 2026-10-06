@@ -21,3 +21,8 @@ only real source of those; these exist only so `selftest.sh` can prove
 - `grants/` holds a `grants.sql` standing in for `riftal-game`'s, creating
   `riftal_role_mines` with `SELECT` on the `good/` fixtures' `widgets`, so
   the self-test can provision a login against a real role.
+- `definer/` creates `tallies` and `tallies_bump`, a procedure with the
+  default `SQL SECURITY DEFINER`, the shape of `gangs_ledger_contribute`.
+- `definer-grants/` creates `riftal_role_tally` with `SELECT` on `tallies` and
+  `EXECUTE` on `tallies_bump`, and no `UPDATE`, so the self-test can show a
+  login writing the table only through the procedure.
