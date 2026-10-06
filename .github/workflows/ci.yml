@@ -29,6 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Before any step that starts a container, so every one of them carries
+      # this job's label for the sweep at the end.
+      - name: Label this job's containers
+        run: bash .github/scripts/ci-docker-label.sh
+
+      - name: Self-test, prove the label and the sweep
+        run: bash .github/scripts/ci-sweep-selftest.sh
+
       - name: Install hadolint
         # /usr/local/bin is root-owned on the self-hosted runner, unlike the
         # hosted image where the runner user already owns it.
@@ -134,3 +142,9 @@ jobs:
       - name: TOOLS.md matches the registered tools
         working-directory: designer
         run: uv run --frozen python -m designer.tools_doc --check
+
+      # always() rather than failure(): a cancelled run is the case that leaks,
+      # because the runner kills a self-test before its EXIT trap fires.
+      - name: Remove this job's containers
+        if: always()
+        run: bash .github/scripts/ci-container-sweep.sh
