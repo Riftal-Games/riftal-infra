@@ -98,15 +98,28 @@ lock_pid="$LOCKCONN_PID"
 
 released=0
 release_lock() {
+  # Once bash reaps a dead coprocess it unsets LOCKCONN and closes both of its
+  # descriptors, so an empty value means the lock session is already over.
+  # MySQL releases a named lock when the session holding it ends, so there is
+  # then nothing left to release or close.
+  local lock_fd="${LOCKCONN[1]-}"
+  if [ -z "$lock_fd" ]; then
+    wait "$lock_pid" 2>/dev/null || true
+    return 0
+  fi
+  # A coprocess that has exited but is not yet reaped still has its pipe, and
+  # writing to a pipe with no reader raises SIGPIPE, which would end this
+  # trap before the close and wait below. Ignored, the write just fails.
+  trap '' PIPE
   if [ "$released" -eq 0 ]; then
     released=1
     if kill -0 "$lock_pid" 2>/dev/null; then
-      printf "SELECT RELEASE_LOCK('%s');\n" "$LOCK_NAME" >&"${LOCKCONN[1]}" 2>/dev/null || true
+      printf "SELECT RELEASE_LOCK('%s');\n" "$LOCK_NAME" >&"$lock_fd" 2>/dev/null || true
     fi
   fi
   # Closing the write side is what lets the held mysql session see EOF and
   # exit; without it "wait" below blocks forever, success or failure alike.
-  eval "exec ${LOCKCONN[1]}>&-" 2>/dev/null || true
+  eval "exec $lock_fd>&-" 2>/dev/null || true
   wait "$lock_pid" 2>/dev/null || true
 }
 trap release_lock EXIT
