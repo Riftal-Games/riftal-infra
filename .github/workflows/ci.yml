@@ -108,6 +108,9 @@ jobs:
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
 
+      - name: Instance boot on the pinned core image self-test
+        run: bash images/plugins/instance-only/boot-selftest.sh
+
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
 
