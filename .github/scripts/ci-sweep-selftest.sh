@@ -86,5 +86,20 @@ check "$([ "$rc" -eq 0 ] && echo ok)" "sweep exits 0 once a held network is rele
 held="$(docker network ls -q --filter "name=^${net}\$")"
 check "$([ -z "$held" ] && echo ok)" "sweep removed this job's network after its first removal was refused"
 
+# Last on purpose: a label script that wraps its own shim leaves `docker`
+# exec'ing itself forever, and every check above would hang on it rather than
+# fail. Its GITHUB_PATH line goes to a scratch file, since the shim's directory
+# is already on this job's PATH.
+scratch_path="$(mktemp)"
+if GITHUB_PATH="$scratch_path" bash "$dir/ci-docker-label.sh" >/dev/null; then
+  check ok 'label script runs a second time in one job'
+else
+  check fail 'label script failed on a second run in one job'
+fi
+rm -f "$scratch_path"
+timeout 20 docker version --format '{{.Server.Version}}' >/dev/null 2>&1
+rc=$?
+check "$([ "$rc" -eq 0 ] && echo ok)" "docker answers within 20s after a second label run (got $rc)"
+
 [ "$failures" -eq 0 ] || exit 1
 printf 'label shim and sweep proven on this engine\n'
