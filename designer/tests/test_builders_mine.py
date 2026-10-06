@@ -74,9 +74,13 @@ def test_to_region_passes_mine_valid(spec: MineSpec, palette: Palette) -> None:
     assert found.ok and found.detail == "mine valid", found.detail
 
 
-@pytest.mark.parametrize("name", ["mine_a", "lumber"])
-def test_a_mine_buried_in_stone_keeps_its_exit_lane_walkable(name: str, palette: Palette) -> None:
-    buried = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / f"{name}.json").read_text(encoding="utf-8")))
+# Every committed spec faces south; north and west run the lane toward lower coordinates, so the carve's box is reversed.
+@pytest.mark.parametrize(("name", "side"), [("mine_a", None), ("lumber", None), ("mine_a", "north"), ("mine_a", "west")])
+def test_a_mine_buried_in_stone_keeps_its_exit_lane_walkable(name: str, side: str | None, palette: Palette) -> None:
+    data = json.loads((PROJECT_ROOT / "specs" / f"{name}.json").read_text(encoding="utf-8"))
+    if side is not None:
+        data["entrance"]["side"] = side
+    buried = MineSpec.from_dict(data)
     geo = buried.geometry()
     box = geo.padding.union(geo.exit_platform).expand(2, "y")
     stone = EditList(buried.world, [Fill(box, "minecraft:stone")]).to_region(Region.empty(buried.world, box))

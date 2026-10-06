@@ -90,6 +90,18 @@ def test_a_mine_dug_into_terrain_builds_with_its_exit_lane_clear(fake: FakeBridg
     assert json.loads(_build(bridge, root, zone).read_text(encoding="utf-8"))["zone"] == zone
 
 
+@pytest.mark.parametrize("side", ["north", "west"])
+def test_a_mine_dug_into_terrain_facing_north_or_west_builds_with_its_exit_lane_clear(
+    fake: FakeBridge, bridge: Bridge, root: Path, side: str,
+) -> None:
+    spec_path = root / "specs" / "mine_a.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    spec["entrance"]["side"] = side
+    spec_path.write_text(json.dumps(spec), encoding="utf-8")
+    fake.worlds["mine_a"] = FakeWorld(extent=((-64, -64), (64, 64)))
+    assert json.loads(_build(bridge, root, "mine_a").read_text(encoding="utf-8"))["zone"] == "mine_a"
+
+
 def test_a_torch_in_the_interior_refuses_naming_the_entry_and_cell(bridge: Bridge, root: Path) -> None:
     _recipe(root, "mine_a", {"at": MINE_A_INTERIOR_CELL, "block": "minecraft:torch"})
     _refused(bridge, root, "mine_a", r"mine_valid_mine_a: 1 interior cells neither air nor in ores \[\(0, 45, 0\)\]")

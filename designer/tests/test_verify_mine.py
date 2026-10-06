@@ -148,6 +148,14 @@ def test_a_block_placed_on_the_exit_platform_is_reported(box_mine_region: Fixtur
     assert found.data["platform_blocked"] == 1 and found.data["platform_missing"] == 0
 
 
+def test_a_block_at_head_height_over_the_exit_lane_is_reported(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(10, 3, -3, "minecraft:stone")
+    found = mine_valid(region, spec)
+    assert not found.ok and found.detail == "1 exit platform cells blocked above" and found.coords == [(10, 3, -3)]
+    assert found.data["platform_blocked"] == 1 and found.data["platform_missing"] == 0
+
+
 def test_an_undeclared_opening_overlapping_the_entrance_only_counts_the_extra_cells(box_mine_region: Fixture) -> None:
     region, spec = box_mine_region
     region.set(10, 5, 0, AIR)

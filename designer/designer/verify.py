@@ -487,7 +487,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     cells outside it. Composition compares each block's share of the non-air interior to the normalised weights,
     per ore layer where given and ``ores`` elsewhere; an unnamed block deviates by its whole share and an empty
     band passes, so does a mined-out mine. The floor is solid under every interior column, and the exit platform
-    is solid under its whole footprint with a clear cell above its walking lane, the centre line a player
+    is solid under its whole footprint with feet and head cells clear above its walking lane, the centre line a player
     actually spawns and exits on, so a hand edit there is caught here rather than as a less specific failure
     from a check that walks out onto it. Furniture such as the lit posts down either side is outside the lane
     and never trips this rule. A block counts as an ``ores`` key only in exactly the state the reset writes for its
@@ -556,9 +556,9 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     _, lzs, lxs = region.bounds.slices(lane)
     classes, passable = region.classes(), region.passable()
     platform_missing = classes[py, pzs, pxs] != BlockClass.SOLID
-    platform_blocked = ~passable[py + 1, lzs, lxs]
+    platform_blocked = ~passable[py + 1:py + 3, lzs, lxs]
     platform_gaps = [_world(geo.exit_platform, (0, iz, ix)) for iz, ix in np.argwhere(platform_missing)[:LEAKS_REPORTED]]
-    platform_obstructed = [_world(lane, (1, iz, ix)) for iz, ix in np.argwhere(platform_blocked)[:LEAKS_REPORTED]]
+    platform_obstructed = [_world(lane, (1 + iy, iz, ix)) for iy, iz, ix in np.argwhere(platform_blocked)[:LEAKS_REPORTED]]
 
     failing = [
         text for text, bad in (
