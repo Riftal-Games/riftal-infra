@@ -53,10 +53,12 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
   'CREATE DATABASE IF NOT EXISTS riftal_selftest_bad' >/dev/null
 docker exec "$CONTAINER" mysql -uroot -pselftest -e \
   'CREATE DATABASE IF NOT EXISTS riftal_selftest_race' >/dev/null
+docker exec "$CONTAINER" mysql -uroot -pselftest -e \
+  'CREATE DATABASE IF NOT EXISTS riftal_selftest_definer' >/dev/null
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=26
+EXPECTED_ASSERTIONS=32
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -269,6 +271,71 @@ else
   cat "$LOGS"/out-prov-fresh.log
 fi
 
+section "a DEFINER procedure runs on its definer's privileges and survives a restore"
+PW_T=selftestPasswordTally0000005
+as_tally() {
+  docker exec -e MYSQL_PWD="$PW_T" "${2:-$CONTAINER}" mysql -h 127.0.0.1 -utally -N -B \
+    riftal_selftest_definer -e "$1"
+}
+provision_definer() {
+  run_migrations "$FIXTURES/definer" riftal_selftest_definer "selftest-definer-$SUFFIX" \
+    -v "$FIXTURES/definer-grants:/grants:ro" -e GRANTS_FILE=/grants/grants.sql \
+    -e RIFTAL_DB_PASSWORD_TALLY="$PW_T"
+}
+definer_rc=0
+provision_definer >"$LOGS"/out-prov-definer.log 2>&1 || definer_rc=$?
+definer="$(query riftal_selftest_definer "SELECT CONCAT(DEFINER, ' ', SECURITY_TYPE) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA='riftal_selftest_definer' AND ROUTINE_NAME='tallies_bump'")"
+if [ "$definer_rc" -eq 0 ] && [ "$definer" = "root@% DEFINER" ]; then
+  pass "the procedure's definer is the account the runner connected as"
+else
+  fail "expected exit 0 and definer 'root@% DEFINER', got exit $definer_rc, definer '$definer'"
+  cat "$LOGS"/out-prov-definer.log
+fi
+if [ "$(as_tally 'CALL tallies_bump(); SELECT n FROM tallies' 2>&1)" = "1" ]; then
+  pass "a login holding only EXECUTE calls the procedure and the row moves"
+else
+  fail "tally should call tallies_bump and read n=1"
+fi
+if as_tally 'UPDATE tallies SET n = 99' >/dev/null 2>&1; then
+  fail "tally updated tallies directly, so the call did not prove the definer's privileges"
+else
+  pass "the same login is refused a direct UPDATE of that table"
+fi
+
+docker exec "$CONTAINER" mysqldump -uroot -pselftest --single-transaction --routines \
+  --triggers riftal_selftest_definer 2>/dev/null >"$LOGS"/definer-dump.sql
+docker exec "$CONTAINER" mysqldump -uroot -pselftest --single-transaction \
+  riftal_selftest_definer 2>/dev/null >"$LOGS"/definer-dump-noroutines.sql
+if grep -qF 'CREATE DEFINER=`root`@`%` PROCEDURE `tallies_bump`' "$LOGS"/definer-dump.sql \
+   && ! grep -q 'PROCEDURE' "$LOGS"/definer-dump-noroutines.sql; then
+  pass "a dump carries the procedure and its definer with --routines and not without"
+else
+  fail "expected the DEFINER clause with --routines and no PROCEDURE without"
+fi
+
+docker exec "$FRESH" mysql -uroot -pselftest -e \
+  'CREATE DATABASE IF NOT EXISTS riftal_selftest_definer' 2>/dev/null
+docker exec -i "$FRESH" mysql -uroot -pselftest riftal_selftest_definer \
+  <"$LOGS"/definer-dump.sql 2>/dev/null
+HOST_ALIAS=fresh provision_definer >"$LOGS"/out-prov-definer-fresh.log 2>&1 || true
+if grep -q 'nothing pending' "$LOGS"/out-prov-definer-fresh.log \
+   && [ "$(as_tally 'CALL tallies_bump(); SELECT n FROM tallies' "$FRESH" 2>&1)" = "2" ]; then
+  pass "after a restore and the step, the login calls the restored procedure"
+else
+  fail "the restored procedure should be callable by tally once the step has run"
+  cat "$LOGS"/out-prov-definer-fresh.log
+fi
+
+# Last use of FRESH: its root@'%' is gone after this.
+docker exec "$FRESH" mysql -uroot -pselftest -e \
+  "RENAME USER 'root'@'%' TO 'root_renamed'@'%'" 2>/dev/null
+orphan="$(as_tally 'CALL tallies_bump()' "$FRESH" 2>&1 || true)"
+if [[ "$orphan" == *"ERROR 1449"*"('root'@'%') does not exist"* ]]; then
+  pass "a renamed definer makes every call fail with ERROR 1449"
+else
+  fail "expected ERROR 1449 naming 'root'@'%', got: $orphan"
+fi
+
 section "an empty or missing migrations directory still provisions"
 PW_C=selftestPasswordEmptyDir0003
 PW_D=selftestPasswordNoDir0000004
@@ -340,7 +407,7 @@ for half in LOCKEDPW OPENBLANK; do
 done
 
 section "no provisioning run ever prints a password"
-if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e 'Quote00001' -e selftestShort1 \
+if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e "$PW_T" -e 'Quote00001' -e selftestShort1 \
      "$LOGS"/out-prov*.log; then
   fail "a password appeared in the log files above"
 else
@@ -358,4 +425,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, login provisioning.\n' "$PASSES"
+printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, login provisioning, DEFINER procedures.\n' "$PASSES"

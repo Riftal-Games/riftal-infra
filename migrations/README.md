@@ -61,6 +61,41 @@ a login whose `riftal_role_<name>` does not exist as a role. No password is ever
 printed. It is not a `/docker-entrypoint-initdb.d` script: it runs wherever
 migrations run, including after every `../deploy/restore.sh`.
 
+## Stored procedures and their definer
+
+A migration that creates a procedure, such as riftal-game's
+`gangs_ledger_contribute` (`0009_create_gang_ledger.sql`, redefined in
+`0010_add_gang_founded_marker.sql`), leaves MySQL's default
+`SQL SECURITY DEFINER` in place, per ADR 008. Its definer is the account this
+runner connected as: `MYSQL_USER`, which defaults to `root`, reached over the
+container network, so `root`@`%`. Three things follow, and `selftest.sh`
+proves each one against a fixture procedure.
+
+**A login needs only `EXECUTE`.** The procedure body runs with the definer's
+privileges, so a plugin role holds `EXECUTE` on the procedure and nothing on
+the columns it writes. A direct `UPDATE` by the same login is refused. The
+gangs line is `GRANT EXECUTE ON PROCEDURE gangs_ledger_contribute TO
+riftal_role_gangs` in riftal-game's `grants.sql`, which reaches `main` with
+riftal-game PR 454. Until it does, no provisioned login can call the
+procedure. Grants are reapplied on every run, so a restore rebuilds this one
+too.
+
+**The definer account is never dropped or renamed.** MySQL resolves the
+definer on every call. Once `root`@`%` is gone, every call fails with
+`ERROR 1449 ... The user specified as a definer ('root'@'%') does not exist`,
+on every instance at once. `root`@`localhost` is a separate account and does
+not stand in for it. Running migrations as a different account later does not
+move an existing procedure: it keeps its definer until a new migration drops
+and recreates it, so the old account stays until then.
+
+**Backups keep routines.** `mysqldump` leaves procedures out unless it is
+given `--routines`. Without them, a restore carries `schema_migrations` saying
+`0009` and `0010` ran and no procedure, and this runner never recreates it.
+`../deploy/backup.sh` passes `--routines --triggers`. The dump writes each
+procedure as ``CREATE DEFINER=`root`@`%` PROCEDURE``, so the server restored
+into must have that account before the first call, and `../deploy/restore.sh`
+runs as `root`, which may create a routine under any definer.
+
 ## Running it locally, via `wslc`
 
 Same `mysql:8` image the dev stack already runs, so nothing new to pull.
@@ -103,7 +138,7 @@ migration halting the run without being recorded, and two invocations racing
 the same lock name applying a pending migration exactly once, and login
 provisioning against `fixtures/grants/`: a login created on an existing
 schema, an idempotent second run, rotation, a restore onto a fresh server,
-and the loud refusals. It calls
+and the loud refusals, and the DEFINER procedure checks above. It calls
 `docker` directly,
 the same way `.github/workflows/ci.yml`'s PHP lint step does, so it runs in
 CI and, on Nasir's Windows machine, under the Docker inside the WSL distro that
