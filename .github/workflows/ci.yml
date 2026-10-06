@@ -24,9 +24,9 @@ jobs:
   checks:
     name: lint and validate
     runs-on: [self-hosted, linux, riftal]
-    # ci-sweep-selftest.sh removes another job's volumes once they are 20
-    # minutes old, as left by a run that has ended. A timeout past 20 would let
-    # it remove a live run's.
+    # ci-sweep-selftest.sh removes the self-test's other-job volumes once they
+    # are 20 minutes old, as left by a run that has ended. A timeout past 20
+    # would let it remove a live run's.
     timeout-minutes: 10
 
     steps:

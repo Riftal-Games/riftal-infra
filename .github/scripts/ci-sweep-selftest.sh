@@ -78,6 +78,15 @@ reap_other_vols() {
   done
 }
 
+# The other job's volumes, both the reap's test volumes below and the one the
+# sweep must leave alone, carry a label no sweep matches, so a cancel that kills
+# this script before its EXIT trap leaves them for the next run on this engine
+# to remove. The job times out at 10 minutes, so a volume older than 20 belongs
+# to a run that has ended, and a younger one may be a concurrent run's still
+# waiting on its assertion.
+reap_other_vols "$(($(date +%s) - 1200))" riftal_smoke_sweep_other_vol_ || exit 1
+reap_other_vols "$(($(date +%s) - 1200))" riftal_smoke_sweep_reap || exit 1
+
 # The reap's three conditions run against volumes named for this run alone. A
 # cutoff in the future would remove a concurrent run's volume under the real
 # prefix, so the real prefix never sees one.
@@ -96,14 +105,7 @@ kept="$(docker volume ls -q --filter "name=^${reap_miss}\$")"
 check "$([ "$kept" = "$reap_miss" ] && echo ok)" "reap keeps the other job's volume under another name (got '$kept')"
 kept="$(docker volume ls -q --filter "name=^${reap_label}\$")"
 check "$([ "$kept" = "$reap_label" ] && echo ok)" "reap keeps a matching name under this job's label (got '$kept')"
-docker volume rm "$reap_young" "$reap_miss" "$reap_label" >/dev/null 2>&1
-
-# The other job's volume carries a label no sweep matches, so a cancel that
-# kills this script before its EXIT trap leaves it for the next run on this
-# engine to remove. The job times out at 10 minutes, so a volume older than 20
-# belongs to a run that has ended, and a younger one may be a concurrent run's
-# still waiting on its assertion.
-reap_other_vols "$(($(date +%s) - 1200))" riftal_smoke_sweep_other_vol_ || exit 1
+docker volume rm "$reap_miss" "$reap_label" >/dev/null 2>&1
 
 if DOCKER_HOST=unix:///nonexistent.sock bash "$sweep" >/dev/null 2>&1; then
   check fail 'sweep exited 0 with no reachable daemon'
