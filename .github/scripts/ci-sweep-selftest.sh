@@ -34,12 +34,78 @@ net="riftal_smoke_sweep_net_${GITHUB_RUN_ID}_$$"
 holder="riftal_smoke_sweep_holder_${GITHUB_RUN_ID}_$$"
 own_vol="riftal_smoke_sweep_own_vol_${GITHUB_RUN_ID}_$$"
 other_vol="riftal_smoke_sweep_other_vol_${GITHUB_RUN_ID}_$$"
+reap_prefix="riftal_smoke_sweep_reaptest_${GITHUB_RUN_ID}_$$_"
+reap_young="${reap_prefix}young"
+reap_old="${reap_prefix}old"
+reap_label="${reap_prefix}label"
+reap_miss="riftal_smoke_sweep_reapmiss_${GITHUB_RUN_ID}_$$"
 cleanup() {
   docker rm -v -f "$own" "$other" "$holder" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
-  docker volume rm "$own_vol" "$other_vol" >/dev/null 2>&1 || true
+  docker volume rm "$own_vol" "$other_vol" "$reap_young" "$reap_old" "$reap_miss" \
+    "$reap_label" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+
+# Removes every volume labelled as the other job's whose name starts with the
+# second argument and whose creation time is before the first, in epoch seconds.
+reap_other_vols() {
+  local before="$1" prefix="$2" stale vol created epoch left
+  if ! stale="$(docker volume ls -q --filter label=riftal.ci.job=selftest-other-job)"; then
+    check fail "could not list the other job's volumes"
+    return 1
+  fi
+  for vol in $stale; do
+    case "$vol" in
+      "$prefix"*) ;;
+      *) continue ;;
+    esac
+    # A volume removed after the list, by its own run or another's, fails
+    # inspect and is skipped.
+    created="$(docker volume inspect -f '{{.CreatedAt}}' "$vol" 2>/dev/null)" || continue
+    if ! epoch="$(date -d "$created" +%s)"; then
+      check fail "unreadable creation time '$created' on $vol"
+      continue
+    fi
+    [ "$epoch" -lt "$before" ] || continue
+    docker volume rm "$vol" >/dev/null 2>&1
+    left="$(docker volume ls -q --filter "name=^${vol}\$")"
+    if [ -z "$left" ]; then
+      check ok "removed $vol, left by a cancelled run"
+    else
+      check fail "could not remove $vol, left by a cancelled run; remove it by hand with: docker volume rm $vol"
+    fi
+  done
+}
+
+# The other job's volumes, both the reap's test volumes below and the one the
+# sweep must leave alone, carry a label no sweep matches, so a cancel that kills
+# this script before its EXIT trap leaves them for the next run on this engine
+# to remove. The job times out at 10 minutes, so a volume older than 20 belongs
+# to a run that has ended, and a younger one may be a concurrent run's still
+# waiting on its assertion.
+reap_other_vols "$(($(date +%s) - 1200))" riftal_smoke_sweep_other_vol_ || exit 1
+reap_other_vols "$(($(date +%s) - 1200))" riftal_smoke_sweep_reap || exit 1
+
+# The reap's three conditions run against volumes named for this run alone. A
+# cutoff in the future would remove a concurrent run's volume under the real
+# prefix, so the real prefix never sees one.
+for vol in "$reap_young" "$reap_old" "$reap_miss"; do
+  GITHUB_RUN_ID='' docker volume create --label riftal.ci.job=selftest-other-job "$vol" \
+    >/dev/null || exit 1
+done
+docker volume create "$reap_label" >/dev/null || exit 1
+reap_other_vols "$(($(date +%s) - 1200))" "$reap_prefix" || exit 1
+kept="$(docker volume ls -q --filter "name=^${reap_young}\$")"
+check "$([ "$kept" = "$reap_young" ] && echo ok)" "reap keeps a matching volume younger than the cutoff (got '$kept')"
+reap_other_vols "$(($(date +%s) + 3600))" "$reap_prefix" || exit 1
+gone="$(docker volume ls -q --filter "name=^${reap_old}\$")"
+check "$([ -z "$gone" ] && echo ok)" "reap removes a matching volume older than the cutoff (got '$gone')"
+kept="$(docker volume ls -q --filter "name=^${reap_miss}\$")"
+check "$([ "$kept" = "$reap_miss" ] && echo ok)" "reap keeps the other job's volume under another name (got '$kept')"
+kept="$(docker volume ls -q --filter "name=^${reap_label}\$")"
+check "$([ "$kept" = "$reap_label" ] && echo ok)" "reap keeps a matching name under this job's label (got '$kept')"
+docker volume rm "$reap_miss" "$reap_label" >/dev/null 2>&1
 
 if DOCKER_HOST=unix:///nonexistent.sock bash "$sweep" >/dev/null 2>&1; then
   check fail 'sweep exited 0 with no reachable daemon'
