@@ -285,9 +285,13 @@ def _meta(**fields: object) -> str:
     {"bmax": np.array([["a", "b", "c"]])},
     {"palette": np.int64(7)},
     {"palette": np.array([0, 1])},
+    {"blocks": np.full(BOX.shape, 1.5)},
+    {"blocks": np.full(BOX.shape, 32768, dtype=np.int32)},
+    {"blocks": np.zeros((7, 16), dtype=np.int16)},
 ], ids=[
     "meta_list", "meta_string", "meta_number", "world_number", "label_null", "timestamp_number",
     "bmin_scalar", "bmax_short", "bmin_float", "bmax_nested", "palette_scalar", "palette_int_entries",
+    "blocks_float", "blocks_past_int16", "blocks_short",
 ])
 def test_undo_of_a_well_formed_archive_with_malformed_members_is_a_snapshot_load_error(
     bridge: Bridge, snapshots_dir: Path, member: dict[str, object],
@@ -298,6 +302,34 @@ def test_undo_of_a_well_formed_archive_with_malformed_members_is_a_snapshot_load
     with np.load(snap.path) as data:
         members = {name: data[name] for name in data.files}
     np.savez_compressed(snap.path, **{**members, **member})
+    [result] = stack.undo(bridge)
+    assert result.ok is False and isinstance(result.errors[0], SnapshotLoadError)
+    assert type(result.errors[0].__cause__) is ValueError
+
+
+@pytest.mark.parametrize("past", [lambda size: size, lambda size: -1], ids=["palette_length", "negative"])
+def test_undo_of_a_block_index_outside_the_palette_is_a_snapshot_load_error(
+    bridge: Bridge, snapshots_dir: Path, past: Callable[[int], int],
+) -> None:
+    snap = take(bridge, WORLD, BOX, "fill")
+    stack = UndoStack(session="s1")
+    stack.push(snap, "fill")
+    with np.load(snap.path) as data:
+        members = {name: data[name] for name in data.files}
+    members["blocks"] = members["blocks"].copy()
+    members["blocks"][0, 0, 0] = past(len(members["palette"]))
+    np.savez_compressed(snap.path, **members)
+    [result] = stack.undo(bridge)
+    assert result.ok is False and isinstance(result.errors[0], SnapshotLoadError)
+    assert type(result.errors[0].__cause__) is ValueError
+
+
+def test_undo_of_a_plain_npy_file_at_the_snapshot_path_is_a_snapshot_load_error(bridge: Bridge, snapshots_dir: Path) -> None:
+    snap = take(bridge, WORLD, BOX, "fill")
+    stack = UndoStack(session="s1")
+    stack.push(snap, "fill")
+    with snap.path.open("wb") as handle:
+        np.save(handle, snap.region.blocks)
     [result] = stack.undo(bridge)
     assert result.ok is False and isinstance(result.errors[0], SnapshotLoadError)
     assert type(result.errors[0].__cause__) is ValueError
