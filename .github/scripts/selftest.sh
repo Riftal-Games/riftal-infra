@@ -187,23 +187,28 @@ expect_cleanup() {
   fi
 }
 
-# Two copies of a file ending in an opt-out, scanned in one run. Whatever order
-# find(1) yields them in, one is followed by the other and one ends the run, so
-# both the per-file reset and the end of input must report the opt-out.
+# Two copies of a file that opens on an unkept run and ends in an opt-out,
+# scanned in one run. Whatever order find(1) yields them in, the first copy's
+# opt-out is followed directly by the second copy's run, so only the per-file
+# reset stops it keeping a container in another file, and the second copy's
+# opt-out must still be reported at the end of input.
 expect_cleanup_trailing_pair() {
-  local dir out status
+  local dir out status f
+  local missing=""
   dir="$(mktemp -d)"
-  cp "$FIXTURES/bad/cleanup-optout-last.sh" "$dir/a.sh"
-  cp "$FIXTURES/bad/cleanup-optout-last.sh" "$dir/b.sh"
+  cp "$FIXTURES/bad/cleanup-optout-wrap.sh" "$dir/a.sh"
+  cp "$FIXTURES/bad/cleanup-optout-wrap.sh" "$dir/b.sh"
   out="$(bash "$CLEANUP" "$dir" 2>&1)"
   status=$?
   rm -rf "$dir"
-  if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -qF "$dir/a.sh:5: a container-cleanup opt-out with no container under it to keep" \
-    && printf '%s' "$out" | grep -qF "$dir/b.sh:5: a container-cleanup opt-out with no container under it to keep"; then
-    pass "a trailing opt-out is reported both mid-run and at the end of the run"
+  for f in a.sh b.sh; do
+    printf '%s' "$out" | grep -qF "$dir/$f:1: a container started without --rm" || missing="$missing $f:1"
+    printf '%s' "$out" | grep -qF "$dir/$f:5: a container-cleanup opt-out with no container under it to keep" || missing="$missing $f:5"
+  done
+  if [ "$status" -ne 0 ] && [ -z "$missing" ]; then
+    pass "an opt-out ending one file keeps nothing in the next, and is reported mid-run and at the end of the run"
   else
-    fail "expected container-cleanup.sh to report the trailing opt-out in both a.sh and b.sh, exit $status"
+    fail "expected container-cleanup.sh to report the run and the opt-out in both a.sh and b.sh, missing$missing, exit $status"
     printf '%s\n' "$out"
   fi
 }
