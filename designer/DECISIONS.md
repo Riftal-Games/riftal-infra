@@ -933,3 +933,13 @@ sealed inside the wall by mapped solid blocks cannot leak and passes. Interior, 
 and exit platform cells are left to the rules that already name them, so no cell gets two notes.
 Failing every unmapped block anywhere in the padding was rejected: a wall chunk pasted from the
 world would fail over a block that can never reach the mine (#741).
+
+## 2026-10-06 `build_level` refuses `ore_layers` on a mine in a zone mines resets
+
+RiftalMines reads only `ores` from a fragment (riftal-game `MineDefinition.php`) and refills the
+whole interior from that one flat mix, while `mine_valid` checks the spec's layers band by band.
+A layered spec would pass the gate and reset to another composition, so `build_level` refuses,
+before any request, a `mine` step whose spec has any `ore_layers` in a zone the mines `config.yml`
+lists. An empty list builds. A zone mines does not list keeps its layers, since nothing refills
+it. Carrying layers into the fragment was rejected for now: the plugin would need layer support
+first, a riftal-game change of its own (#653).
