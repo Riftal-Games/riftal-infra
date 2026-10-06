@@ -244,6 +244,14 @@ def test_a_committed_entry_with_a_non_string_tag_refuses(fake: FakeBridge, bridg
     assert not fake.worlds["zt"].edits
 
 
+def test_a_committed_entry_whose_tags_are_not_a_list_refuses(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    index = _index()
+    index.locations.append(replace(_step_entry("sell_npc_tbox"), tags="npc"))
+    with pytest.raises(LevelError, match="'sell_npc_tbox' has tags that are not a list: 'npc'"):
+        _build(bridge, root, index=index)
+    assert not fake.worlds["zt"].edits
+
+
 def test_the_committed_index_file_is_byte_identical_after_a_build(bridge: Bridge, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = _index().save(root / "world_index.json", updated="2026-09-29T00:00:00+00:00")
     before = path.read_bytes()
