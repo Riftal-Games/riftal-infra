@@ -88,6 +88,9 @@ def load(path: Path) -> Snapshot:
         for key in ("world", "label", "timestamp"):
             if not isinstance(meta.get(key), str):
                 raise ValueError(f"{path} meta {key} is {meta.get(key)!r}, expected a string")
+        for key in ("world", "label"):
+            if not LABEL_RE.fullmatch(meta[key]):
+                raise ValueError(f"{path} meta {key} must match {LABEL_RE.pattern!r}, got {meta[key]!r}")
         bounds = Bounds(_corner(path, "bmin", data["bmin"].tolist()), _corner(path, "bmax", data["bmax"].tolist()))
         palette = data["palette"].tolist()
         if not (isinstance(palette, list) and palette and all(isinstance(name, str) for name in palette)):
@@ -216,10 +219,20 @@ UNREADABLE = (OSError, ValueError, EOFError, KeyError, RuntimeError, zipfile.Bad
 
 
 def _load_entry(entry: dict[str, Any]) -> Snapshot:
+    """The entry's snapshot, refused unless it names the level the entry recorded.
+
+    ``restore`` writes into the level the file names, so a snapshot that names another
+    level would paint that level's cells, which this entry never touched.
+    """
     try:
-        return load(Path(entry["path"]))
+        snap = load(Path(entry["path"]))
     except UNREADABLE as exc:
         raise SnapshotLoadError(f"undo entry {entry.get('id')}: cannot load snapshot {entry.get('path')}: {exc}") from exc
+    if snap.world != entry.get("world"):
+        raise SnapshotLoadError(
+            f"undo entry {entry.get('id')}: snapshot {entry.get('path')} is of level {snap.world!r}, the entry recorded {entry.get('world')!r}"
+        )
+    return snap
 
 
 class UndoStack:
