@@ -13,7 +13,7 @@ from designer import config, mcp_server
 from designer.blocks import BlockClass
 from designer.builders import BUILDERS
 from designer.cli import main
-from designer.region import Bounds
+from designer.region import Bounds, Region
 from designer.verify import Check
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.conftest import ARENA, REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
@@ -480,6 +480,21 @@ def test_restore_of_a_damaged_snapshot_answers_snapshot_unreadable_as_undo_does(
     result = call("restore", snapshot=1 if by_id else str(damaged))
     assert result["ok"] is False and result["code"] == "snapshot_unreadable" and str(damaged) in result["error"]
     assert _writes(server) == writes and [e["id"] for e in call("list_undo")["entries"]] == [1]
+
+
+def test_restore_by_undo_id_refuses_a_snapshot_of_another_level_and_sends_nothing(server: FakeBridge) -> None:
+    server.worlds["other"] = FakeWorld()
+    first = call("fill", **MUTATING["fill"])
+    stray = mcp_server.snapshots.save(Region.empty("other", PAD, "minecraft:stone"), "fill")
+    stack = mcp_server.UndoStack()
+    entries = stack.entries()
+    entries[0]["path"] = str(stray)
+    stack._write(entries)
+    server.requests.clear()
+    result = call("restore", snapshot=first["undo_id"])
+    assert result["ok"] is False and result["code"] == "snapshot_unreadable"
+    assert "'other'" in result["error"] and "'design'" in result["error"]
+    assert server.requests == [] and [e["id"] for e in call("list_undo")["entries"]] == [1]
 
 
 def test_restore_reports_a_bug_in_load_as_itself_not_as_an_unreadable_snapshot(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
