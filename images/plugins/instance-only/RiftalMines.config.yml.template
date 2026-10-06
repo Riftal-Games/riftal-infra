@@ -13,9 +13,9 @@
 # and the dev stack has never provisioned a separate "mines" MySQL user, so
 # this uses the same root credentials the backup service already uses
 # rather than inventing a second, equally dev-only credential. "mysql" is
-# this stack's actual resolvable network alias for the database container,
-# under both the compose and wslc bring-up forms; "riftal-mysql" (the
-# plugin's shipped default) resolves under neither.
+# the compose service name, which resolves on riftal-dev; "riftal-mysql" (the
+# plugin's shipped default) does not under compose. Name resolution under the
+# wslc bring-up form is unverified; see instance-only/README.md.
 database:
   host: "mysql"
   schema: "riftal_dev"

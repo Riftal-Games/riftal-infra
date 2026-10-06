@@ -93,10 +93,14 @@ file rendered into this folder is read.
 ## Why an override is required, not optional
 
 `mines/resources/config.yml`'s shipped default (`host: riftal-mysql, schema:
-riftal, username: mines`) matches nothing on this stack: the MySQL service's
-actual resolvable alias is `mysql` under both the compose and wslc forms, the
-database compose creates is `riftal_dev`, and no `mines` MySQL user has ever
-been provisioned here. Loading the phar without this override does not fail
+riftal, username: mines`) matches nothing on this stack under compose: the
+`mysql` service sets no `container_name`, so on `riftal-dev` it answers to
+`mysql` and not to `riftal-mysql` (checked 2026-10-06 with `getent hosts` on
+a throwaway compose network of the same shape), the database compose creates
+is `riftal_dev`, and no `mines` MySQL user has ever been provisioned here.
+Under the `wslc run` form, whose database container is named `riftal-mysql`
+on `riftal-dev`, whether either name resolves has not been checked
+(riftal-infra#265). The template names `mysql` for compose. Loading the phar without this override does not fail
 the plugin alone: `RiftalGames\Lib\Database\ConnectionProvider::open()` in
 `Main::onEnable()` connects synchronously, so a `SqlError` there is uncaught
 and takes the whole server down within 4 seconds of boot (verified

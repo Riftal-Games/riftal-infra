@@ -47,7 +47,8 @@ for plugin in "${poggit[@]}"; do
 done
 
 if [ -f "$here/RiftalMines.phar" ]; then
-	# The plugin's bundled config names a database nothing here resolves, and
+	# The plugin's bundled config names a schema and user this stack never
+	# provisions, and
 	# it connects on enable, so a config with the wrong password takes the
 	# whole server down. Rendering from this container's own environment on
 	# every boot means the password is always the one mysql was started with.
