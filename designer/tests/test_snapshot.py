@@ -352,6 +352,27 @@ def test_undo_refuses_a_snapshot_of_another_level_and_writes_nothing(fake: FakeB
     assert fake.requests == [] and stack.entries()[0]["restored"] is False
 
 
+def test_undo_refuses_a_snapshot_at_other_bounds_and_writes_nothing(fake: FakeBridge, bridge: Bridge, snapshots_dir: Path) -> None:
+    snap = take(bridge, WORLD, BOX, "fill")
+    stack = UndoStack(session="s1")
+    stack.push(snap, "fill")
+    stray = save(Region.empty(WORLD, Bounds((16, 60, 0), (31, 66, 15)), STONE), "fill")
+    entries = stack.entries()
+    entries[0]["path"] = str(stray)
+    stack._write(entries)
+    fake.requests.clear()
+    [result] = stack.undo(bridge)
+    assert result.ok is False and isinstance(result.errors[0], SnapshotLoadError)
+    assert "[16, 60, 0]" in str(result.errors[0]) and "[0, 60, 0]" in str(result.errors[0])
+    assert fake.requests == [] and stack.entries()[0]["restored"] is False
+
+
+def test_a_snapshot_entry_without_recorded_bounds_is_refused(snapshots_dir: Path) -> None:
+    stray = save(Region.empty(WORLD, BOX, STONE), "fill")
+    with pytest.raises(SnapshotLoadError, match="the entry recorded None"):
+        snapshot._load_entry({"id": 1, "world": WORLD, "path": str(stray)})
+
+
 def test_an_entry_without_a_path_or_id_is_reported_rather_than_raising_from_the_handler() -> None:
     with pytest.raises(SnapshotLoadError, match="undo entry None: cannot load snapshot None") as caught:
         snapshot._load_entry({})
