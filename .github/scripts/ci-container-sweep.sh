@@ -36,7 +36,7 @@ fi
 
 # --rm removal finishes asynchronously after the stop returns, and a network
 # refuses removal while any container is still attached, so every pass retries
-# the networks rather than only waiting on them.
+# removing the networks.
 for _ in $(seq 1 30); do
   networks="$(query network ls -q)" || exit 1
   if [ -n "$networks" ]; then
