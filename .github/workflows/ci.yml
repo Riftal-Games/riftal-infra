@@ -37,6 +37,32 @@ jobs:
       - name: Self-test, prove the label and the sweep
         run: bash .github/scripts/ci-sweep-selftest.sh
 
+      - name: Red proof for 509, removed in the next commit
+        run: |
+          set -uo pipefail
+          src=.github/scripts
+          bad=0
+          expect_red() {
+            printf '\n== %s\n' "$1"
+            shift
+            if "$@"; then printf '::error::passed against a broken copy\n'; bad=1; else printf '== red, as required\n'; fi
+          }
+          d1="$RUNNER_TEMP/red-name"; mkdir -p "$d1"; cp "$src"/ci-*.sh "$d1/"
+          sed -i 's/^filter="label=\$label"$/filter="name=riftal_smoke_sweep_"/' "$d1/ci-container-sweep.sh"
+          grep -n '^filter=' "$d1/ci-container-sweep.sh"
+          expect_red 'sweep matching by name' bash "$d1/ci-sweep-selftest.sh"
+          d2="$RUNNER_TEMP/red-shim"; mkdir -p "$d2"
+          sed 's/^  run|create)$/  run-off|create-off)/' "$src/ci-docker-label.sh" > "$d2/label.sh"
+          clean_path="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v riftal-docker-label | paste -sd:)"
+          PATH="$clean_path" RUNNER_TEMP="$d2" GITHUB_PATH="$d2/path" bash "$d2/label.sh"
+          grep -n 'run-off' "$d2/riftal-docker-label/docker"
+          expect_red 'shim that does not label run' env PATH="$d2/riftal-docker-label:$clean_path" bash "$src/ci-sweep-selftest.sh"
+          d3="$RUNNER_TEMP/red-daemon"; mkdir -p "$d3"; cp "$src"/ci-*.sh "$d3/"
+          sed -i 's/^  if ! out="\$(docker "\$@" --filter "\$filter")"; then$/  if ! out="$(docker "$@" --filter "$filter")" \&\& false; then/' "$d3/ci-container-sweep.sh"
+          grep -n 'false; then' "$d3/ci-container-sweep.sh"
+          expect_red 'sweep that ignores a failed docker ps' bash "$d3/ci-sweep-selftest.sh"
+          exit "$bad"
+
       - name: Install hadolint
         # /usr/local/bin is root-owned on the self-hosted runner, unlike the
         # hosted image where the runner user already owns it.
