@@ -180,15 +180,18 @@ def remove_texts(bridge: Bridge, ids: list[str], *, dry_run: bool = False) -> Ap
     return result
 
 
+# A damaged file fails differently depending on where the damage lands: the zip structure raises
+# zipfile.BadZipFile, or RuntimeError for a flag claiming encryption and its subclass NotImplementedError
+# for an unknown method or version; the deflate stream raises zlib.error; the npy header raises
+# tokenize.TokenError, ValueError or EOFError; a missing member KeyError; a missing file OSError.
+# Each is the same refusal. A TypeError or AttributeError is a bug in load and keeps its identity.
+UNREADABLE = (OSError, ValueError, EOFError, KeyError, RuntimeError, zipfile.BadZipFile, zlib.error, tokenize.TokenError)
+
+
 def _load_entry(entry: dict[str, Any]) -> Snapshot:
-    # A damaged file fails differently depending on where the damage lands: the zip structure raises
-    # zipfile.BadZipFile, or RuntimeError for a flag claiming encryption and its subclass NotImplementedError
-    # for an unknown method or version; the deflate stream raises zlib.error; the npy header raises
-    # tokenize.TokenError, ValueError or EOFError; a missing member KeyError; a missing file OSError.
-    # Each is the same refusal. A TypeError or AttributeError is a bug in load and keeps its identity.
     try:
         return load(Path(entry["path"]))
-    except (OSError, ValueError, EOFError, KeyError, RuntimeError, zipfile.BadZipFile, zlib.error, tokenize.TokenError) as exc:
+    except UNREADABLE as exc:
         raise SnapshotLoadError(f"undo entry {entry['id']}: cannot load snapshot {entry['path']}: {exc}") from exc
 
 
