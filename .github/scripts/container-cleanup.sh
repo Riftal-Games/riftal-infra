@@ -47,6 +47,15 @@ awk '
     printf "%s:%d: %s\n", FILENAME, at, what
     bad = 1
   }
+  # keep_file is the file the pending opt-out was read in, which is no longer
+  # FILENAME once the next file has started.
+  function drop_keep() {
+    if (keep_at) {
+      printf "%s:%d: %s\n", keep_file, keep_at, "a container-cleanup opt-out with no container under it to keep"
+      bad = 1
+    }
+    keep_at = 0
+  }
   function check(cmd, at,    rest, head, seg, n, kept) {
     kept = 0
     rest = cmd
@@ -72,16 +81,20 @@ awk '
         report(at, "a container removed without -v")
       }
     }
-    if (keep_at && !kept) report(keep_at, "a container-cleanup opt-out with no container under it to keep")
-    keep_at = 0
+    if (kept) keep_at = 0
+    drop_keep()
   }
-  FNR == 1 { cmd = ""; at = 0; keep_at = 0 }
+  FNR == 1 { drop_keep(); cmd = ""; at = 0 }
   {
     line = $0
     if (cmd == "" && line ~ /^[ \t]*#/) {
+      # Any comment, another opt-out included, means the pending opt-out is not
+      # directly above a command.
+      drop_keep()
       if (line ~ /^[ \t]*#[ \t]*container-cleanup:/) {
         if (line ~ /^[ \t]*#[ \t]*container-cleanup:[ \t]*keep[ \t]+[^ \t]/) {
           keep_at = FNR
+          keep_file = FILENAME
         } else {
           report(FNR, "a container-cleanup opt-out without a reason")
         }
@@ -97,5 +110,5 @@ awk '
     check(cmd line, at)
     cmd = ""
   }
-  END { exit bad }
+  END { drop_keep(); exit bad }
 ' "${files[@]}"

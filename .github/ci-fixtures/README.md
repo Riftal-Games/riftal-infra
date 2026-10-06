@@ -53,7 +53,10 @@ comment, so a check that reads past the end of a command goes red.
 `good/cleanup.sh` holds a `--restart` service under a reasoned
 `# container-cleanup: keep` opt-out; `bad/cleanup-optout-reason.sh` and
 `bad/cleanup-optout-unused.sh` pin that an opt-out needs a reason and a
-container to keep.
+container to keep. `bad/cleanup-optout-gap.sh`, `bad/cleanup-optout-twice.sh`
+and `bad/cleanup-optout-last.sh` pin that it keeps only the command directly
+under it: another comment in between, a second opt-out, or the end of the file
+leaves it keeping nothing.
 
 The real scans exclude this directory. If they ever stop excluding it, CI is red
 forever and the reason is here.

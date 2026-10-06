@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=29
+EXPECTED_ASSERTIONS=33
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -187,6 +187,27 @@ expect_cleanup() {
   fi
 }
 
+# Two copies of a file ending in an opt-out, scanned in one run. Whatever order
+# find(1) yields them in, one is followed by the other and one ends the run, so
+# both the per-file reset and the end of input must report the opt-out.
+expect_cleanup_trailing_pair() {
+  local dir out status
+  dir="$(mktemp -d)"
+  cp "$FIXTURES/bad/cleanup-optout-last.sh" "$dir/a.sh"
+  cp "$FIXTURES/bad/cleanup-optout-last.sh" "$dir/b.sh"
+  out="$(bash "$CLEANUP" "$dir" 2>&1)"
+  status=$?
+  rm -rf "$dir"
+  if [ "$status" -ne 0 ] \
+    && printf '%s' "$out" | grep -qF "$dir/a.sh:5: a container-cleanup opt-out with no container under it to keep" \
+    && printf '%s' "$out" | grep -qF "$dir/b.sh:5: a container-cleanup opt-out with no container under it to keep"; then
+    pass "a trailing opt-out is reported both mid-run and at the end of the run"
+  else
+    fail "expected container-cleanup.sh to report the trailing opt-out in both a.sh and b.sh, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
 expect_real_cleanup() {
   local out status
   mkdir -p "$PLANTED_DIR"
@@ -214,6 +235,10 @@ expect_cleanup "$FIXTURES/bad/cleanup-separator.sh" "4: a container removed with
 expect_cleanup "$FIXTURES/bad/cleanup-indirect.sh" "4: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-optout-reason.sh" "4: a container-cleanup opt-out without a reason"
 expect_cleanup "$FIXTURES/bad/cleanup-optout-unused.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-gap.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-twice.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-last.sh" "5: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup_trailing_pair
 expect_real_cleanup
 
 section "hadolint, through scan.sh's own check_dockerfiles"
