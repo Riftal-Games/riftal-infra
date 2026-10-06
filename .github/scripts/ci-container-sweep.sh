@@ -8,10 +8,22 @@ set -uo pipefail
 label="riftal.ci.job=${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-${GITHUB_JOB:-job}"
 filter="label=$label"
 
-left="$(docker ps -a --filter "$filter" --format '{{.Names}} ({{.Status}})')"
+# An unreachable daemon lists nothing, and an empty list would read as a clean
+# sweep. Every caller runs this in a command substitution followed by
+# `|| exit 1`, because the exit here leaves only that subshell.
+query() {
+  if ! out="$(docker "$@" --filter "$filter")"; then
+    printf 'docker %s failed, so nothing is known to be removed\n' "$1" >&2
+    exit 1
+  fi
+  printf '%s' "$out"
+}
+
+left="$(query ps -a --format '{{.Names}} ({{.Status}})')" || exit 1
 if [ -n "$left" ]; then
   printf 'containers left by this job:\n%s\n' "$left"
-  mapfile -t ids < <(docker ps -aq --filter "$filter")
+  ids_out="$(query ps -aq)" || exit 1
+  mapfile -t ids <<<"$ids_out"
   # SIGTERM first. A PocketMine server and mysqld both shut down cleanly on it,
   # and a server whose stdin went with the cancelled step never stops by
   # itself. 60 seconds covers a mysql:8 flush on the shared runner engine.
@@ -22,14 +34,19 @@ if [ -n "$left" ]; then
   done
 fi
 
-mapfile -t nets < <(docker network ls -q --filter "$filter")
-for net in "${nets[@]}"; do
-  docker network rm "$net" >/dev/null 2>&1 || true
-done
+nets_out="$(query network ls -q)" || exit 1
+if [ -n "$nets_out" ]; then
+  mapfile -t nets <<<"$nets_out"
+  for net in "${nets[@]}"; do
+    docker network rm "$net" >/dev/null 2>&1 || true
+  done
+fi
 
 # --rm removal finishes asynchronously after the stop returns.
 for _ in $(seq 1 30); do
-  remaining="$(docker ps -aq --filter "$filter")$(docker network ls -q --filter "$filter")"
+  containers="$(query ps -aq)" || exit 1
+  networks="$(query network ls -q)" || exit 1
+  remaining="$containers$networks"
   [ -z "$remaining" ] && break
   sleep 1
 done

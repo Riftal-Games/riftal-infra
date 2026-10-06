@@ -34,6 +34,9 @@ jobs:
       - name: Label this job's containers
         run: bash .github/scripts/ci-docker-label.sh
 
+      - name: Self-test, prove the label and the sweep
+        run: bash .github/scripts/ci-sweep-selftest.sh
+
       - name: Install hadolint
         # /usr/local/bin is root-owned on the self-hosted runner, unlike the
         # hosted image where the runner user already owns it.
