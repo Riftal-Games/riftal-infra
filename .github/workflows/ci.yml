@@ -142,9 +142,6 @@ jobs:
 
       # always() rather than failure(): a cancelled run is the case that leaks,
       # because the runner kills a self-test before its EXIT trap fires.
-      - name: Leak a container on purpose
-        run: docker run -d --rm -m 1g --cpus 1 --name "riftal_smoke_leak509_${GITHUB_RUN_ID}" php:8.3-cli-alpine sleep 600
-
       - name: Remove this job's containers
         if: always()
         run: bash .github/scripts/ci-container-sweep.sh
