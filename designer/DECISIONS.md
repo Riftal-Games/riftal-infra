@@ -831,6 +831,19 @@ base where one's states are a subset of the other's, since one block would satis
 lenient match was rejected because it could pass a level the next reset silently changes; the
 vendored Bedrock state data was rejected because it marks no state as the default (#561).
 
+## 2026-10-07 `MineSpec` refuses an `ores` key the mine reset cannot resolve
+
+RiftalMines resolves every `ores` key with `StringToItemParser::parse` and throws on null
+(riftal-game `MineResetListener.php`). The parser strips `minecraft:`, lowercases, and looks the
+rest up among aliases, none of which holds `:`, `[` or `=` (pmmp-core
+`src/item/StringToItemParser.php`). So `MineSpec.from_dict` refuses, in `ores` and in every ore
+layer, a key with states, such as `oak_log[pillar_axis=x]`, or a namespace other than
+`minecraft`, which would otherwise pass every designer check and fail only at the reset.
+Whether a bare id is a registered alias is not checked: the designer holds no copy of the alias
+list, and `check_reset_states` already refuses a base outside `RESET_STATES`. `build_mine` fills
+each cell with its base's reset state alone, since a key brings no states of its own. `mine_valid`
+keeps its reading of stated keys for a spec built without `from_dict` (#650).
+
 ## 2026-09-30 A fence, wall or closed fence gate floor needs a third clear cell
 
 Fences, walls and closed fence gates are 1.5 blocks tall, so a player standing on one reaches

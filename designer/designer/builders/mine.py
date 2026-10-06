@@ -28,9 +28,9 @@ def _trim_ring(geo: MineGeometry, floor_y: int, block: str) -> list[Fill]:
 
 
 def _as_reset(key: str) -> str:
-    """The block the mine reset places for ``key``: its base's ``RESET_STATES`` entry under the key's own states."""
-    base, states = parse_name(key)
-    return format_name(base, {**RESET_STATES.get(base, {}), **states})
+    """The block the mine reset places for ``key``, a bare id ``MineSpec`` admits: its base's ``RESET_STATES`` entry."""
+    base = parse_name(key)[0]
+    return format_name(base, RESET_STATES.get(base, {}))
 
 
 def _ore_ops(spec: MineSpec, interior: Bounds) -> list[SetBlock]:
