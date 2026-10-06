@@ -19,6 +19,7 @@ from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.conftest import ARENA, REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
 from tests import fake_bridge
 from tests.fake_bridge import FakeBridge, FakeWorld
+from tests.test_snapshot import _break_deflate
 
 PAD = Bounds((0, 63, 0), (7, 65, 7))
 MUTATING = {
@@ -129,6 +130,33 @@ def test_timelapse_ignores_a_snapshot_taken_over_a_different_box(server: FakeBri
     assert call("snapshot", target={"min": [0, 70, 0], "max": [3, 70, 3]}, label="not_pad")["ok"]
     result = call("timelapse", region="pad")
     assert result["ok"] is False and "no snapshot of 'pad'" in result["error"]
+
+
+@pytest.mark.parametrize("damage", [b"", b"not a snapshot", b"PK\x03\x04truncated", _break_deflate], ids=["empty", "garbage", "zip", "deflate"])
+def test_timelapse_skips_a_damaged_snapshot_and_names_it(server: FakeBridge, damage: Any) -> None:
+    first = call("snapshot", target="pad", label="before")
+    second = call("snapshot", target="pad", label="after")
+    assert first["ok"] and second["ok"]
+    damaged = Path(first["path"])
+    if callable(damage):
+        damage(damaged)
+    else:
+        damaged.write_bytes(damage)
+    result = call("timelapse", region="pad")
+    assert result["ok"] and result["frames"] == 1 and Path(result["path"]).is_file()
+    [skip] = result["skipped"]
+    assert skip["path"] == str(damaged) and skip["code"] == "snapshot_unreadable" and skip["error"]
+
+
+def test_timelapse_with_only_damaged_snapshots_says_how_many_it_skipped(server: FakeBridge) -> None:
+    Path(call("snapshot", target="pad", label="before")["path"]).write_bytes(b"not a snapshot")
+    result = call("timelapse", region="pad")
+    assert result["ok"] is False and "no snapshot of 'pad'" in result["error"] and "1 unreadable" in result["error"]
+
+
+def test_timelapse_with_no_damage_skips_nothing(server: FakeBridge) -> None:
+    assert call("snapshot", target="pad", label="before")["ok"]
+    assert call("timelapse", region="pad")["skipped"] == []
 
 
 def test_timelapse_refuses_a_location_name(server: FakeBridge) -> None:

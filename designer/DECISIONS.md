@@ -885,3 +885,14 @@ passable, and outside the region counts as blocked as it does in `stand_mask`. A
 tall floor rises 0.5 and is left to `stand_mask`'s third clear cell. `Region.on_tall_floor` is the
 one per-cell reading of the floor height that `stand_mask` and `path_exists` share. Refusing every
 step up onto a tall floor was rejected: it would deny a fence stair a player can climb (#659).
+
+## 2026-10-06 `timelapse` skips an unreadable snapshot and lists it in `skipped`
+
+`timelapse` reads every `*.npz` in the world's snapshot folder, so a single damaged file there
+would otherwise fail the strip for every region in that world, including regions the file never
+covered. It catches the same `snapshot.UNREADABLE` errors `_load_entry` turns into
+`snapshot_unreadable` for `undo`, leaves that file out, and names it in `skipped` with its error
+and that code, so the designer sees which file to look at rather than a silently shorter strip.
+When nothing readable matches, the refusal counts the skipped files. Catching every exception was
+rejected for the reason `_load_entry` gives: a `TypeError` or `AttributeError` is a bug in `load`
+and must still surface (#627).

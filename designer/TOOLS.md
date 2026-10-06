@@ -412,11 +412,13 @@ A top-down PNG strip, one frame per snapshot on disk whose bounds exactly match 
 A frame is either an explicit ``snapshot`` call naming ``region`` or the automatic
 before-mutation snapshot a mutating tool takes when its own ``target`` was ``region``;
 a snapshot over any other box, such as a builder's own extras, is not one of its frames.
+A file in the world's folder that cannot be read is left out and listed in ``skipped``
+with code ``snapshot_unreadable``, so one damaged file costs one frame, not the strip.
 
 ```json
 {"properties": {"out": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "Out"}, "region": {"title": "Region", "type": "string"}}, "required": ["region"], "title": "timelapseArguments", "type": "object"}
 ```
-Returns: region, world, frames, path.
+Returns: region, world, frames, path, skipped as [{path, error, code}].
 
 ## undo
 

@@ -210,15 +210,20 @@ def _timelapse(region: str, out: str | None) -> dict[str, Any]:
     if not isinstance(entry, NamedRegion):
         raise ValueError(f"{region!r} is a location; timelapse needs a region name")
     folder = config.SNAPSHOTS_DIR / entry.world
-    frames = []
+    frames, skipped = [], []
     for path in sorted(folder.glob("*.npz")) if folder.is_dir() else []:
-        snap = snapshots.load(path)
+        try:
+            snap = snapshots.load(path)
+        except snapshots.UNREADABLE as exc:
+            skipped.append({"path": str(path), "error": str(exc), "code": snapshots.SnapshotLoadError.code})
+            continue
         if snap.bounds == entry.bounds:
             frames.append((snap.timestamp, heightmap_from_region(snap.region)))
     if not frames:
-        raise ValueError(f"no snapshot of {region!r} taken at its exact bounds; call snapshot(target={region!r}, ...) first")
+        unread = f"; {len(skipped)} unreadable snapshot file(s) in {folder} skipped" if skipped else ""
+        raise ValueError(f"no snapshot of {region!r} taken at its exact bounds{unread}; call snapshot(target={region!r}, ...) first")
     path = timelapse_png(frames, load_palettes()["colors"], out=out)
-    return {"region": region, "world": entry.world, "frames": len(frames), "path": str(path)}
+    return {"region": region, "world": entry.world, "frames": len(frames), "path": str(path), "skipped": skipped}
 
 @tool
 async def timelapse(region: str, out: str | None = None) -> dict[str, Any]:
@@ -227,8 +232,10 @@ async def timelapse(region: str, out: str | None = None) -> dict[str, Any]:
     A frame is either an explicit ``snapshot`` call naming ``region`` or the automatic
     before-mutation snapshot a mutating tool takes when its own ``target`` was ``region``;
     a snapshot over any other box, such as a builder's own extras, is not one of its frames.
+    A file in the world's folder that cannot be read is left out and listed in ``skipped``
+    with code ``snapshot_unreadable``, so one damaged file costs one frame, not the strip.
 
-    RETURNS: region, world, frames, path.
+    RETURNS: region, world, frames, path, skipped as [{path, error, code}].
     """
     return await _run(_timelapse, region, out)
 
