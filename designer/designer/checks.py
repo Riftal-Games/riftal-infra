@@ -42,6 +42,8 @@ KINDS: dict[str, tuple[tuple[str, ...], dict[str, str], tuple[str, ...]]] = {
     "mine_valid": (("region", "spec"), {}, ()),
     "offdisk_clear": (("world",), {}, ()),
 }
+TOP_LEVEL = ("version", "defaults", "checks")
+DEFAULT_KEYS = sorted({source for _, optional, _ in KINDS.values() for source in optional.values()})
 SAFETY_SIZE = (7, 7, 7)
 
 
@@ -83,9 +85,18 @@ def load_checks(path: Path | None = None) -> list[CheckSpec]:
     """Every check in the file with its defaults filled in and an id, or ``ValueError`` naming the first bad entry."""
     path = DEFAULT_PATH if path is None else Path(path)
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must be a mapping with keys {list(TOP_LEVEL)}")
     if data.get("version") != VERSION:
         raise ValueError(f"{path} is version {data.get('version')!r}; this toolkit reads version {VERSION}")
-    defaults, specs, seen = {**DEFAULTS, **(data.get("defaults") or {})}, [], set()
+    if unknown := [k for k in data if k not in TOP_LEVEL]:
+        raise ValueError(f"{path} has unknown top-level keys {unknown}; it reads {list(TOP_LEVEL)}")
+    given = data.get("defaults") or {}
+    if not isinstance(given, dict):
+        raise ValueError(f"{path}: defaults must be a mapping of {DEFAULT_KEYS}")
+    if unknown := [k for k in given if k not in DEFAULT_KEYS]:
+        raise ValueError(f"{path}: defaults has unknown keys {unknown}; checks read {DEFAULT_KEYS}")
+    defaults, specs, seen = {**DEFAULTS, **given}, [], set()
     for n, entry in enumerate(data.get("checks") or []):
         kind = entry.get("check") if isinstance(entry, dict) else None
         if kind not in KINDS:
