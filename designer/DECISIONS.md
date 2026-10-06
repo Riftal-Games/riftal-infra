@@ -882,11 +882,12 @@ ordinary floor, so `path_exists` refuses it, and `travel_time` with it: a fence 
 players does not read as a path over it. From another tall floor the same step is a 1.0 climb,
 so it stays open, but the jump lifts the head into the third cell above the feet, which must be
 passable, and outside the region counts as blocked as it does in `stand_mask`. A level step onto a
-tall floor rises 0.5, under the walk step, and its headroom is the next entry's. A step up from a
-tall floor onto ordinary ground also rises 0.5, so it needs only the two cells any step up needs;
-demanding the third would report no path where a player walks (#726). `Region.on_tall_floor` is
-the one per-cell reading of the floor height that `stand_mask` and `path_exists` share. Refusing
-every step up onto a tall floor was rejected: it would deny a fence stair a player can climb (#659).
+tall floor rises 0.5, under the walk step, and its headroom is the 2026-10-07 entry's (#747). A
+step up from a tall floor onto ordinary ground also rises 0.5, so it needs only the two cells any
+step up needs; demanding the third would report no path where a player walks (#726).
+`Region.on_tall_floor` is the one per-cell reading of the floor height that `stand_mask` and
+`path_exists` share. Refusing every step up onto a tall floor was rejected: it would deny a fence
+stair a player can climb (#659).
 
 ## 2026-10-06 `timelapse` skips an unreadable snapshot and lists it in `skipped`
 
