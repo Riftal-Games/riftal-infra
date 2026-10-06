@@ -12,8 +12,24 @@
 # every self-test without each script having to remember it.
 set -euo pipefail
 
-real="$(command -v docker)"
 dir="${RUNNER_TEMP:?}/riftal-docker-label"
+
+# A second run in the same job finds this shim first on PATH. Wrapping it would
+# make the shim exec itself forever, so the search skips the shim's directory.
+real=
+IFS=: read -ra entries <<<"$PATH"
+for entry in "${entries[@]}"; do
+  entry="${entry:-.}"
+  [ "$entry" = "$dir" ] && continue
+  if [ -f "$entry/docker" ] && [ -x "$entry/docker" ]; then
+    real="$entry/docker"
+    break
+  fi
+done
+if [ -z "$real" ]; then
+  printf '::error::no docker on PATH outside %s\n' "$dir" >&2
+  exit 1
+fi
 mkdir -p "$dir"
 
 cat >"$dir/docker" <<EOF
