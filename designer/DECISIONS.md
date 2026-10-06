@@ -882,11 +882,11 @@ ordinary floor, so `path_exists` refuses it, and `travel_time` with it: a fence 
 players does not read as a path over it. From another tall floor the same step is a 1.0 climb,
 so it stays open, but the jump lifts the head into the third cell above the feet, which must be
 passable, and outside the region counts as blocked as it does in `stand_mask`. A level step onto a
-tall floor rises 0.5 and is left to `stand_mask`'s third clear cell. A step up from a tall floor
-onto ordinary ground also rises 0.5, under the walk step, so it needs only the two cells any step
-up needs; demanding the third would report no path where a player walks (#726). `Region.on_tall_floor` is the
-one per-cell reading of the floor height that `stand_mask` and `path_exists` share. Refusing every
-step up onto a tall floor was rejected: it would deny a fence stair a player can climb (#659).
+tall floor rises 0.5, under the walk step, and its headroom is the next entry's. A step up from a
+tall floor onto ordinary ground also rises 0.5, so it needs only the two cells any step up needs;
+demanding the third would report no path where a player walks (#726). `Region.on_tall_floor` is
+the one per-cell reading of the floor height that `stand_mask` and `path_exists` share. Refusing
+every step up onto a tall floor was rejected: it would deny a fence stair a player can climb (#659).
 
 ## 2026-10-06 `timelapse` skips an unreadable snapshot and lists it in `skipped`
 
@@ -945,3 +945,15 @@ before any request, a `mine` step whose spec has any `ore_layers` in a zone the 
 lists. An empty list builds. A zone mines does not list keeps its layers, since nothing refills
 it. Carrying layers into the fragment was rejected for now: the plugin would need layer support
 first, a riftal-game change of its own (#653).
+
+## 2026-10-07 `path_exists` keeps the head's third cell clear on and off a tall floor
+
+A player on a tall floor stands 0.5 higher, so the 1.8 hitbox reaches about 2.3 above the cell the
+feet are in, into the third cell up. The hitbox is 0.6 wide and straddles both columns while it
+moves, so a level step or a drop off a tall floor needs the third cell of the column it enters
+passable, and a level step from ordinary ground onto one needs the third cell above the origin
+passable, since the 0.5 walk step lifts the head there before the feet leave. Outside the region
+counts as blocked, as in `stand_mask`. A step up follows #659 and #726, which check the head cell
+above the origin, and between two tall floors `stand_mask` holds both third cells. Leaving these
+moves to `stand_mask` was rejected: it checks only the cell a player ends in, so a fence edge under
+a low ceiling read as a path no player can take (#747).

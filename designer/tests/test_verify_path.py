@@ -200,6 +200,33 @@ def test_step_up_from_a_tall_floor_onto_ordinary_ground_leaves_the_third_cell_al
     assert found.ok and found.path == [(5, 2, 0), (6, 3, 0)]
 
 
+# Feet at y=2 on the fence put the head into y=4. Each case fills that cell in the column the head
+# passes through, and with blocked false leaves it clear as the control.
+HEAD_CASES = {
+    "drop off": ([], (5, 2, 0), (6, 1, 0), (6, 4, 0)),
+    "level step off": ([(6, 1, 0)], (5, 2, 0), (6, 2, 0), (6, 4, 0)),
+    "level step on": ([(4, 1, 0)], (4, 2, 0), (5, 2, 0), (4, 4, 0)),
+}
+
+
+@pytest.mark.parametrize("case", HEAD_CASES)
+@pytest.mark.parametrize("blocked", [True, False])
+def test_a_move_on_or_off_a_tall_floor_needs_the_third_cell_for_the_head(case: str, blocked: bool) -> None:
+    floors, start, goal, head = HEAD_CASES[case]
+    region = _fenced_lane("minecraft:oak_fence")
+    for pos in floors:
+        region.set(*pos, "minecraft:stone")
+    if blocked:
+        region.set(*head, "minecraft:stone")
+    mask = stand_mask(region)
+    assert mask[start[1], 0, start[0]] and mask[goal[1], 0, goal[0]]
+    found = path_exists(region, start, goal, snap_radius=0)
+    if blocked:
+        assert not found.ok and found.detail == "no path"
+    else:
+        assert found.ok and found.path == [start, goal]
+
+
 def _lane(web_at: tuple[int, int, int] | None) -> Region:
     region = Region.empty("lane", Bounds((0, 0, 0), (9, 3, 0)))
     region.fill(Bounds((0, 0, 0), (9, 0, 0)), "minecraft:stone")

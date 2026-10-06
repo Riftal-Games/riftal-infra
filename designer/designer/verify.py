@@ -139,10 +139,12 @@ def path_exists(
     never overestimates. A step up onto a fence, wall or closed fence gate
     (``is_tall_floor``) is open only from another such floor, with the third
     cell above the feet clear for the head; a step up from one onto ordinary
-    ground is a 0.5 rise and needs only the usual two. No step stands on an unmapped
-    block; when the route exists only over one, the result fails as ``path
-    only over`` it, with ``path`` that route and ``coords`` its unmapped floor
-    cells.
+    ground is a 0.5 rise and needs only the usual two. A level step or a drop
+    off a tall floor needs that third cell clear in the column it enters, and
+    a level step onto one needs it clear above the origin. No step stands on
+    an unmapped block; when the route exists only over one, the result fails
+    as ``path only over`` it, with ``path`` that route and ``coords`` its
+    unmapped floor cells.
     """
     found = _search(region, stand_mask(region), a, b, max_nodes, corridor, margin, max_drop, snap_radius)
     if found.ok or not region.unmapped().any():
@@ -222,18 +224,25 @@ def _search(
             if not (0 <= z2 < nz and 0 <= x2 < nx):
                 continue
             col = z2 * nx + x2
-            steps = [(y, base)]
+            # On a tall floor the head reaches the third cell above the feet, so a level step or a drop
+            # off one carries it into that cell of the neighbour column, and a level step onto one lifts
+            # it into that cell above the origin while the feet are still there.
+            third = y + 2 < ny
+            off_tall = not tall[cur] or (third and passable[(y + 2) * plane + col])
+            steps = []
+            if off_tall and (not tall[y * plane + col] or (third and passable[(y + 2) * plane + z * nx + x])):
+                steps.append((y, base))
             # A jump rises about 1.25 blocks (Living.php jumpVelocity 0.42). A 1.5-tall floor one block up
             # is a 1.5 climb from an ordinary floor, out of reach, but a 1.0 climb from another tall floor,
             # where the jump lifts the head into the third cell above the feet. Ordinary ground one block
             # above a tall floor is a 0.5 rise, under the 0.6 walk step (Player.php stepHeight), so no jump.
-            if y + 2 < ny:
+            if third:
                 up_tall = tall[(y + 1) * plane + col]
                 head = y + 3 if up_tall else y + 2
                 if head < ny and passable[head * plane + z * nx + x] and (tall[cur] or not up_tall):
                     steps.append((y + 1, base + STEP_UP))
             # The head enters the neighbour column before the feet leave the ledge.
-            if passable[(y + 1) * plane + col]:
+            if off_tall and passable[(y + 1) * plane + col]:
                 for d in range(1, max_drop + 1):
                     if y - d < 1 or not passable[(y - d + 1) * plane + col]:
                         break
