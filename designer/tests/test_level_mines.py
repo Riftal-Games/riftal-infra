@@ -83,6 +83,13 @@ def test_one_mine_step_builds_and_writes_a_lock(bridge: Bridge, root: Path, zone
     assert json.loads(_build(bridge, root, zone).read_text(encoding="utf-8"))["zone"] == zone
 
 
+@pytest.mark.parametrize("zone", ["mine_a", "lumber"])
+def test_a_mine_dug_into_terrain_builds_with_its_exit_lane_clear(fake: FakeBridge, bridge: Bridge, root: Path, zone: str) -> None:
+    # Stone up to the surface at y 63 buries the whole mine, as a generated world does.
+    fake.worlds[zone] = FakeWorld(extent=((-64, -64), (64, 64)))
+    assert json.loads(_build(bridge, root, zone).read_text(encoding="utf-8"))["zone"] == zone
+
+
 def test_a_torch_in_the_interior_refuses_naming_the_entry_and_cell(bridge: Bridge, root: Path) -> None:
     _recipe(root, "mine_a", {"at": MINE_A_INTERIOR_CELL, "block": "minecraft:torch"})
     _refused(bridge, root, "mine_a", r"mine_valid_mine_a: 1 interior cells neither air nor in ores \[\(0, 45, 0\)\]")
