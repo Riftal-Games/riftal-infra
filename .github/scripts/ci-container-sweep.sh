@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Removes every container and network this job run created, found by the label
-# ci-docker-label.sh stamps on them. Runs last, whether the job passed, failed
-# or was cancelled. Fails if anything carrying the label is still there after
-# the sweep, so a leak shows up as a red step rather than as a full runner.
+# Removes every container, network and named volume this job run created, found
+# by the label ci-docker-label.sh stamps on them. Runs last, whether the job
+# passed, failed or was cancelled. Fails if anything carrying the label is still
+# there after the sweep, so a leak shows up as a red step rather than as a full
+# runner.
 set -uo pipefail
 
 label="riftal.ci.job=${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-${GITHUB_JOB:-job}"
@@ -34,9 +35,14 @@ if [ -n "$left" ]; then
   done
 fi
 
-# --rm removal finishes asynchronously after the stop returns, and a network
-# refuses removal while any container is still attached, so every pass retries
-# removing the networks.
+volumes_left="$(query volume ls --format '{{.Name}}')" || exit 1
+if [ -n "$volumes_left" ]; then
+  printf 'volumes left by this job:\n%s\n' "$volumes_left"
+fi
+
+# --rm removal finishes asynchronously after the stop returns, and a network or
+# a volume refuses removal while any container still uses it, so every pass
+# retries removing both.
 for _ in $(seq 1 30); do
   networks="$(query network ls -q)" || exit 1
   if [ -n "$networks" ]; then
@@ -45,9 +51,17 @@ for _ in $(seq 1 30); do
       docker network rm "$net" >/dev/null 2>&1 || true
     done
   fi
+  volumes="$(query volume ls -q)" || exit 1
+  if [ -n "$volumes" ]; then
+    mapfile -t vols <<<"$volumes"
+    for vol in "${vols[@]}"; do
+      docker volume rm "$vol" >/dev/null 2>&1 || true
+    done
+  fi
   containers="$(query ps -aq)" || exit 1
   networks="$(query network ls -q)" || exit 1
-  remaining="$containers$networks"
+  volumes="$(query volume ls -q)" || exit 1
+  remaining="$containers$networks$volumes"
   [ -z "$remaining" ] && break
   sleep 1
 done
@@ -56,6 +70,7 @@ if [ -n "$remaining" ]; then
   printf 'still present after the sweep:\n'
   docker ps -a --filter "$filter" --format '{{.Names}} ({{.Status}})'
   docker network ls --filter "$filter" --format '{{.Name}}'
+  docker volume ls --filter "$filter" --format '{{.Name}}'
   exit 1
 fi
-printf 'no container or network carries %s\n' "$label"
+printf 'no container, network or volume carries %s\n' "$label"

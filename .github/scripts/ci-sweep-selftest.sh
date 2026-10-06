@@ -32,9 +32,12 @@ check() {
 }
 net="riftal_smoke_sweep_net_${GITHUB_RUN_ID}_$$"
 holder="riftal_smoke_sweep_holder_${GITHUB_RUN_ID}_$$"
+own_vol="riftal_smoke_sweep_own_vol_${GITHUB_RUN_ID}_$$"
+other_vol="riftal_smoke_sweep_other_vol_${GITHUB_RUN_ID}_$$"
 cleanup() {
   docker rm -v -f "$own" "$other" "$holder" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
+  docker volume rm "$own_vol" "$other_vol" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -53,6 +56,12 @@ check "$([ "$got" = "$want" ] && echo ok)" "shim labels a run with riftal.ci.job
 # this container carries is the other job's.
 GITHUB_RUN_ID='' start 60 --name "$other" --label riftal.ci.job=selftest-other-job || exit 1
 
+docker volume create "$own_vol" >/dev/null || exit 1
+got="$(docker volume inspect -f '{{index .Labels "riftal.ci.job"}}' "$own_vol")"
+check "$([ "$got" = "$want" ] && echo ok)" "shim labels a volume create with riftal.ci.job=$want (got '$got')"
+GITHUB_RUN_ID='' docker volume create --label riftal.ci.job=selftest-other-job "$other_vol" \
+  >/dev/null || exit 1
+
 out="$(bash "$sweep")"
 rc=$?
 printf '%s\n' "$out" | sed 's/^/  sweep | /'
@@ -63,6 +72,12 @@ gone="$(docker ps -aq --filter "name=^/${own}\$")"
 check "$([ -z "$gone" ] && echo ok)" "sweep removed this job's container"
 running="$(docker inspect -f '{{.State.Running}}' "$other" 2>/dev/null)"
 check "$([ "$running" = true ] && echo ok)" "another job's container is still running (got '$running')"
+listed="$(printf '%s\n' "$out" | sed -n '/^volumes left by this job:$/,$p' | grep -cx "$own_vol")"
+check "$([ "$listed" -eq 1 ] && echo ok)" "sweep names $own_vol under 'volumes left by this job:'"
+gone="$(docker volume ls -q --filter "name=^${own_vol}\$")"
+check "$([ -z "$gone" ] && echo ok)" "sweep removed this job's volume"
+kept="$(docker volume ls -q --filter "name=^${other_vol}\$")"
+check "$([ "$kept" = "$other_vol" ] && echo ok)" "another job's volume survives the sweep (got '$kept')"
 
 # A container outside this job's label holds this job's network for its first
 # seconds, so the sweep's first removal of it is refused, the way a --rm
