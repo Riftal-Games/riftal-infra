@@ -278,11 +278,17 @@ def _meta(**fields: object) -> str:
     {"meta": np.int64(7)},
     {"meta": _meta(world=3)},
     {"meta": _meta(label=None)},
+    {"meta": _meta(timestamp=1700000000)},
     {"bmin": np.int64(0)},
     {"bmax": np.array([15, 66])},
     {"bmin": np.array([0.5, 60, 0])},
     {"bmax": np.array([["a", "b", "c"]])},
-], ids=["meta_list", "meta_string", "meta_number", "world_number", "label_null", "bmin_scalar", "bmax_short", "bmin_float", "bmax_nested"])
+    {"palette": np.int64(7)},
+    {"palette": np.array([0, 1])},
+], ids=[
+    "meta_list", "meta_string", "meta_number", "world_number", "label_null", "timestamp_number",
+    "bmin_scalar", "bmax_short", "bmin_float", "bmax_nested", "palette_scalar", "palette_int_entries",
+])
 def test_undo_of_a_well_formed_archive_with_malformed_members_is_a_snapshot_load_error(
     bridge: Bridge, snapshots_dir: Path, member: dict[str, object],
 ) -> None:

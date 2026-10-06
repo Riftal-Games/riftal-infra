@@ -85,7 +85,10 @@ def load(path: Path) -> Snapshot:
             if not isinstance(meta.get(key), str):
                 raise ValueError(f"{path} meta {key} is {meta.get(key)!r}, expected a string")
         bounds = Bounds(_corner(path, "bmin", data["bmin"].tolist()), _corner(path, "bmax", data["bmax"].tolist()))
-        region = Region(meta["world"], bounds, np.ascontiguousarray(data["blocks"], dtype=np.int16), data["palette"].tolist())
+        palette = data["palette"].tolist()
+        if not (isinstance(palette, list) and palette and all(isinstance(name, str) for name in palette)):
+            raise ValueError(f"{path} palette is {palette!r}, expected a non-empty list of strings")
+        region = Region(meta["world"], bounds, np.ascontiguousarray(data["blocks"], dtype=np.int16), palette)
     return Snapshot(Path(path), meta["world"], bounds, meta["label"], meta["timestamp"], region)
 
 
