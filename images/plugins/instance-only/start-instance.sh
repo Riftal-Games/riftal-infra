@@ -48,10 +48,10 @@ done
 
 if [ -f "$here/RiftalMines.phar" ]; then
 	# The plugin's bundled config names a schema and user this stack never
-	# provisions, and
-	# it connects on enable, so a config with the wrong password takes the
-	# whole server down. Rendering from this container's own environment on
-	# every boot means the password is always the one mysql was started with.
+	# provisions, and it connects on enable, so a config with the wrong
+	# password takes the whole server down. Rendering from this container's
+	# own environment on every boot means the password is always the one
+	# mysql was started with.
 	mkdir -p /data/plugin_data/RiftalMines
 	bash "$here/render-config.sh" /data/plugin_data/RiftalMines/config.yml
 	cp "$here/RiftalMines.phar" "$roster/"
