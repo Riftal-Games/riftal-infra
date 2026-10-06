@@ -45,7 +45,9 @@ def test_the_box_mine_is_valid(box_mine_region: Fixture) -> None:
     found = mine_valid(region, spec)
     assert found.ok and found.detail == "mine valid" and found.coords == [] and found.leaks == []
     assert found.entrances_found == 1
-    assert found.data == {"undeclared": [], "floor_missing": 0, "platform_missing": 0, "platform_blocked": 0}
+    assert found.data == {
+        "undeclared": [], "floor_missing": 0, "floor_unmapped": 0, "platform_missing": 0, "platform_unmapped": 0, "platform_blocked": 0,
+    }
     assert set(found.composition) == set(found.deviations) == set(spec.ores)
     assert found.composition["minecraft:stone"] == pytest.approx(0.6, abs=0.01)
     assert max(found.deviations.values()) < 0.01
@@ -162,3 +164,20 @@ def test_an_undeclared_opening_overlapping_the_entrance_only_counts_the_extra_ce
     found = mine_valid(region, spec)
     assert not found.ok and found.detail == "1 undeclared opening cells" and found.entrances_found == 1
     assert found.data["undeclared"] == [(10, 5, 0)]
+
+
+UNMAPPED = "a block the core does not map (minecraft:info_update)"
+
+
+def test_an_unmapped_floor_or_platform_block_is_named(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(5, 1, 6, "minecraft:info_update")
+    found = mine_valid(region, spec)
+    assert not found.ok and found.detail == f"1 floor cells are {UNMAPPED}" and found.coords == [(5, 1, 6)]
+    assert found.data["floor_unmapped"] == 1 and found.data["floor_missing"] == 0
+    region.set(5, 1, 6, "minecraft:stone")
+    region.set(10, 1, -3, "minecraft:info_update")
+    region.set(10, 1, -2, AIR)
+    found = mine_valid(region, spec)
+    assert not found.ok and found.detail == f"1 exit platform cells missing; 1 exit platform cells are {UNMAPPED}"
+    assert found.coords == [(10, 1, -2), (10, 1, -3)] and found.data["platform_unmapped"] == 1

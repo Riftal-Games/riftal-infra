@@ -909,3 +909,15 @@ note, with `path` that route and `coords` its unmapped floor cells, and `travel_
 same. A route that walks round an unmapped floor passes. Letting the route through and naming its
 cells in `data` was rejected: `entity_clear` already refuses a player standing on one, and a check
 that passes reads as walkable to a designer who never opens `data` (#669).
+
+## 2026-10-06 `no_holes` and `mine_valid` name an unmapped floor instead of passing it
+
+An unmapped block classes SOLID (#664), so a walkway, mine floor or exit platform over one passed
+both checks. `no_holes` fails it last, after any real hole, as `walkway floor cells are a block the
+core does not map (minecraft:info_update)`, with `coords` those floor cells; `data["unmapped"]`
+counts them even when a hole fails first. `mine_valid` adds two rules beside the missing ones,
+`floor cells are` and `exit platform cells are` the same note, with `floor_unmapped` and
+`platform_unmapped` in `data` and their cells in `coords` after the missing cells of the same
+surface. Counting them as holes was rejected: a hole is fixed by placing a block, while an
+unmapped one needs a look at what the world really holds there, so the designer reads the same
+note `entity_clear`, `warp_safe` and `path_exists` give (#667).

@@ -437,7 +437,10 @@ def no_holes(region: Region, floor_y: int, walkway_mask: np.ndarray) -> Check:
     ``floor_y`` is not passable, so a missing floor block, a lava or water
     floor, a wall across the walkway and a puddle in it all count. ``coords``
     holds up to ``HOLES_REPORTED`` offending cells, the floor cell for a gap
-    and the walkway cell for an obstruction; ``data`` the total.
+    and the walkway cell for an obstruction; ``data`` the total. With no hole,
+    a floor block the core does not map (``unmapped``) fails as ``walkway floor
+    cells are`` that note, ``coords`` up to ``HOLES_REPORTED`` of them;
+    ``data["unmapped"]`` counts them either way.
     """
     y0, y1 = region.bounds.min[1], region.bounds.max[1]
     if not y0 < floor_y <= y1:
@@ -448,15 +451,20 @@ def no_holes(region: Region, floor_y: int, walkway_mask: np.ndarray) -> Check:
     iy = floor_y - y0
     gap = walkway & (region.classes()[iy - 1] != BlockClass.SOLID)
     blocked = walkway & ~region.passable()[iy]
+    unmapped = walkway & region.unmapped()[iy - 1]
     holes = gap | blocked
     count = int(holes.sum())
-    if not count:
-        return Check(True, "no holes", [], {"holes": 0})
-    coords = [
-        _world(region.bounds, (iy - 1 if gap[iz, ix] else iy, iz, ix))
-        for iz, ix in np.argwhere(holes)[:HOLES_REPORTED]
-    ]
-    return Check(False, f"{count} holes in the walkway", coords, {"holes": count})
+    data = {"holes": count, "unmapped": int(unmapped.sum())}
+    if count:
+        coords = [
+            _world(region.bounds, (iy - 1 if gap[iz, ix] else iy, iz, ix))
+            for iz, ix in np.argwhere(holes)[:HOLES_REPORTED]
+        ]
+        return Check(False, f"{count} holes in the walkway", coords, data)
+    if data["unmapped"]:
+        coords = [_world(region.bounds, (iy - 1, iz, ix)) for iz, ix in np.argwhere(unmapped)[:HOLES_REPORTED]]
+        return Check(False, f"{data['unmapped']} walkway floor cells are {UNMAPPED_NOTE}", coords, data)
+    return Check(True, "no holes", [], data)
 
 
 def _flood(open_: np.ndarray, seed: tuple[Any, ...], stop: np.ndarray) -> np.ndarray:
@@ -525,8 +533,10 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     table lacks, counts as unnamed even under a key spelling its whole name. Every interior cell is air or a block named in ``ores``, with no tolerance: a
     reset refills only from ``ores``, so any other block there would break into an item nobody mined (ADR 014
     item 7), and a name only in ``ore_layers`` fails for the same reason. ``detail`` names every failing rule
-    and those interior cells; ``coords`` holds leaks, undeclared cells, missing floor cells, missing platform
-    cells, blocked lane cells, then those interior cells, ``LEAKS_REPORTED`` of each.
+    and those interior cells. A floor or platform block the core does not map classes solid but fails as ``floor
+    cells are`` or ``exit platform cells are`` that note, since it may be water or kelp in the world. ``coords``
+    holds leaks, undeclared cells, missing floor cells, unmapped floor cells, missing platform cells, unmapped
+    platform cells, blocked lane cells, then those interior cells, ``LEAKS_REPORTED`` of each.
     """
     geo = spec.geometry()
     if region.world != spec.world:
@@ -571,8 +581,12 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     strays = [_world(geo.interior, at) for at in np.argwhere(stray)[:LEAKS_REPORTED]]
 
     _, zs, xs = region.bounds.slices(geo.interior)
-    missing = region.classes()[spec.floor_y - 1 - region.bounds.min[1], zs, xs] != BlockClass.SOLID
+    fy = spec.floor_y - 1 - region.bounds.min[1]
+    missing = region.classes()[fy, zs, xs] != BlockClass.SOLID
     gaps = [_world(geo.interior, (-1, iz, ix)) for iz, ix in np.argwhere(missing)[:LEAKS_REPORTED]]
+    unmapped_at = region.unmapped()
+    floor_unmapped = unmapped_at[fy, zs, xs]
+    floor_odd = [_world(geo.interior, (-1, iz, ix)) for iz, ix in np.argwhere(floor_unmapped)[:LEAKS_REPORTED]]
 
     door_axis, _ = SIDES[spec.entrance.side]
     lateral = 2 if door_axis == "x" else 0
@@ -588,6 +602,8 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     platform_missing = classes[py, pzs, pxs] != BlockClass.SOLID
     platform_blocked = ~passable[py + 1:py + 3, lzs, lxs]
     platform_gaps = [_world(geo.exit_platform, (0, iz, ix)) for iz, ix in np.argwhere(platform_missing)[:LEAKS_REPORTED]]
+    platform_unmapped = unmapped_at[py, pzs, pxs]
+    platform_odd = [_world(geo.exit_platform, (0, iz, ix)) for iz, ix in np.argwhere(platform_unmapped)[:LEAKS_REPORTED]]
     platform_obstructed = [_world(lane, (1 + iy, iz, ix)) for iy, iz, ix in np.argwhere(platform_blocked)[:LEAKS_REPORTED]]
 
     failing = [
@@ -597,17 +613,20 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
             ("composition off", any(d > tolerance for d in deviations.values())),
             (f"{int(stray.sum())} interior cells neither air nor in ores {strays}", strays),
             (f"{int(missing.sum())} floor cells missing", gaps),
+            (f"{int(floor_unmapped.sum())} floor cells are {UNMAPPED_NOTE}", floor_odd),
             (f"{int(platform_missing.sum())} exit platform cells missing", platform_gaps),
+            (f"{int(platform_unmapped.sum())} exit platform cells are {UNMAPPED_NOTE}", platform_odd),
             (f"{int(platform_blocked.sum())} exit platform cells blocked above", platform_obstructed),
         ) if bad
     ]
     data = {
         "undeclared": undeclared[:LEAKS_REPORTED], "floor_missing": int(missing.sum()),
-        "platform_missing": int(platform_missing.sum()), "platform_blocked": int(platform_blocked.sum()),
+        "floor_unmapped": int(floor_unmapped.sum()), "platform_missing": int(platform_missing.sum()),
+        "platform_unmapped": int(platform_unmapped.sum()), "platform_blocked": int(platform_blocked.sum()),
     }
     return MineResult(
         not failing, "; ".join(failing) or "mine valid",
-        leaks + data["undeclared"] + gaps + platform_gaps + platform_obstructed + strays, data,
+        leaks + data["undeclared"] + gaps + floor_odd + platform_gaps + platform_odd + platform_obstructed + strays, data,
         leaks=leaks, entrances_found=components, composition=_fractions(inner, names), deviations=deviations,
     )
 
