@@ -34,16 +34,17 @@ if [ -n "$left" ]; then
   done
 fi
 
-nets_out="$(query network ls -q)" || exit 1
-if [ -n "$nets_out" ]; then
-  mapfile -t nets <<<"$nets_out"
-  for net in "${nets[@]}"; do
-    docker network rm "$net" >/dev/null 2>&1 || true
-  done
-fi
-
-# --rm removal finishes asynchronously after the stop returns.
+# --rm removal finishes asynchronously after the stop returns, and a network
+# refuses removal while any container is still attached, so every pass retries
+# the networks rather than only waiting on them.
 for _ in $(seq 1 30); do
+  networks="$(query network ls -q)" || exit 1
+  if [ -n "$networks" ]; then
+    mapfile -t nets <<<"$networks"
+    for net in "${nets[@]}"; do
+      docker network rm "$net" >/dev/null 2>&1 || true
+    done
+  fi
   containers="$(query ps -aq)" || exit 1
   networks="$(query network ls -q)" || exit 1
   remaining="$containers$networks"

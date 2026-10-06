@@ -26,7 +26,12 @@ check() {
     failures=$((failures + 1))
   fi
 }
-cleanup() { docker rm -v -f "$own" "$other" >/dev/null 2>&1 || true; }
+net="riftal_smoke_sweep_net_${GITHUB_RUN_ID}_$$"
+holder="riftal_smoke_sweep_holder_${GITHUB_RUN_ID}_$$"
+cleanup() {
+  docker rm -v -f "$own" "$other" "$holder" >/dev/null 2>&1 || true
+  docker network rm "$net" >/dev/null 2>&1 || true
+}
 trap cleanup EXIT
 
 if DOCKER_HOST=unix:///nonexistent.sock bash "$sweep" >/dev/null 2>&1; then
@@ -53,6 +58,23 @@ gone="$(docker ps -aq --filter "name=^/${own}\$")"
 check "$([ -z "$gone" ] && echo ok)" "sweep removed this job's container"
 running="$(docker inspect -f '{{.State.Running}}' "$other" 2>/dev/null)"
 check "$([ "$running" = true ] && echo ok)" "another job's container is still running (got '$running')"
+
+# A container outside this job's label holds this job's network for its first
+# seconds, so the sweep's first removal of it is refused, the way a --rm
+# container still being removed refuses it. Only a sweep that retries the
+# network inside its wait loop finishes clean.
+docker network create "$net" >/dev/null || exit 1
+GITHUB_RUN_ID='' start --name "$holder" --network "$net" \
+  --label riftal.ci.job=selftest-other-job || exit 1
+(sleep 5; docker stop -t 10 "$holder" >/dev/null 2>&1) &
+releaser=$!
+out="$(bash "$sweep")"
+rc=$?
+wait "$releaser"
+printf '%s\n' "$out" | sed 's/^/  sweep | /'
+check "$([ "$rc" -eq 0 ] && echo ok)" "sweep exits 0 once a held network is released (got $rc)"
+held="$(docker network ls -q --filter "name=^${net}\$")"
+check "$([ -z "$held" ] && echo ok)" "sweep removed this job's network after its first removal was refused"
 
 [ "$failures" -eq 0 ] || exit 1
 printf 'label shim and sweep proven on this engine\n'
