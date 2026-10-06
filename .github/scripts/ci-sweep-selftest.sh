@@ -13,10 +13,14 @@ other="riftal_smoke_sweep_other_${GITHUB_RUN_ID}_$$"
 failures=0
 
 # A sleep as PID 1 ignores SIGTERM, which would hold the sweep's stop for its
-# full 60 seconds.
+# full 60 seconds. The first argument is the container's lifetime in seconds: a
+# cancel kills this script before its EXIT trap, and the container then outlives
+# it by whatever is left of that lifetime.
 start() {
+  life="$1"
+  shift
   docker run -d --rm -m 1g --cpus 1 "$@" php:8.3-cli-alpine \
-    sh -c 'trap "exit 0" TERM; sleep 300 & wait' >/dev/null
+    sh -c 'trap "exit 0" TERM; sleep "$1" & wait' sh "$life" >/dev/null
 }
 check() {
   if [ "$1" = ok ]; then
@@ -40,13 +44,14 @@ else
   check ok 'sweep fails when the daemon is unreachable'
 fi
 
-start --name "$own" || exit 1
+# 60 seconds outlasts the first sweep below, which "$other" must survive.
+start 60 --name "$own" || exit 1
 got="$(docker inspect -f '{{index .Config.Labels "riftal.ci.job"}}' "$own")"
 check "$([ "$got" = "$want" ] && echo ok)" "shim labels a run with riftal.ci.job=$want (got '$got')"
 
 # The shim passes through unlabelled without GITHUB_RUN_ID, so the only label
 # this container carries is the other job's.
-GITHUB_RUN_ID='' start --name "$other" --label riftal.ci.job=selftest-other-job || exit 1
+GITHUB_RUN_ID='' start 60 --name "$other" --label riftal.ci.job=selftest-other-job || exit 1
 
 out="$(bash "$sweep")"
 rc=$?
@@ -63,8 +68,13 @@ check "$([ "$running" = true ] && echo ok)" "another job's container is still ru
 # seconds, so the sweep's first removal of it is refused, the way a --rm
 # container still being removed refuses it. Only a sweep that retries the
 # network inside its wait loop finishes clean.
+#
+# The holder is outside the label, so after a cancel the job's own sweep cannot
+# stop it and only its lifetime frees the network. 20 seconds ends it inside
+# that sweep's 30-second network window, and still leaves 15 seconds past the
+# release below for a slow engine to start the stop.
 docker network create "$net" >/dev/null || exit 1
-GITHUB_RUN_ID='' start --name "$holder" --network "$net" \
+GITHUB_RUN_ID='' start 20 --name "$holder" --network "$net" \
   --label riftal.ci.job=selftest-other-job || exit 1
 (sleep 5; docker stop -t 10 "$holder" >/dev/null 2>&1) &
 releaser=$!
