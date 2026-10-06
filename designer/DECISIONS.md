@@ -921,3 +921,15 @@ counts them even when a hole fails first. `mine_valid` adds two rules beside the
 surface. Counting them as holes was rejected: a hole is fixed by placing a block, while an
 unmapped one needs a look at what the world really holds there, so the designer reads the same
 note `entity_clear`, `warp_safe` and `path_exists` give (#667).
+
+## 2026-10-06 `mine_valid` names an unmapped wall block instead of reading it as sealed
+
+The enclosure flood treated an unmapped block as wall, so a hole through the shell plugged by one
+passed, although the world may hold water or air there. `mine_valid` fails it as `wall cells are`
+the same note, after the undeclared openings, with `wall_unmapped` in `data` and the cells in
+`coords` after the undeclared ones. A shell or padding cell counts when it lies on the shell's
+surface or when the flood, letting unmapped blocks through, reaches it from the interior; one
+sealed inside the wall by mapped solid blocks cannot leak and passes. Interior, entrance, floor
+and exit platform cells are left to the rules that already name them, so no cell gets two notes.
+Failing every unmapped block anywhere in the padding was rejected: a wall chunk pasted from the
+world would fail over a block that can never reach the mine (#741).
