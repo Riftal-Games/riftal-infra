@@ -96,6 +96,9 @@ def load(path: Path) -> Snapshot:
         # save writes int16; a cast from anything else would truncate floats or wrap large indices.
         if blocks.dtype != np.int16:
             raise ValueError(f"{path} blocks are {blocks.dtype}, expected int16")
+        # restore indexes the palette with each value and reads a negative one as a cell to leave alone.
+        if blocks.size and (blocks.min() < 0 or blocks.max() >= len(palette)):
+            raise ValueError(f"{path} blocks span {blocks.min()}..{blocks.max()}, expected 0..{len(palette) - 1}")
         region = Region(meta["world"], bounds, np.ascontiguousarray(blocks), palette)
     return Snapshot(Path(path), meta["world"], bounds, meta["label"], meta["timestamp"], region)
 
