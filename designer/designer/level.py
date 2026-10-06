@@ -159,6 +159,8 @@ def scan(bridge: Bridge, zone: str) -> int:
 
 
 def _comparable(entry: Location | NamedRegion) -> dict[str, Any]:
+    if not isinstance(entry.tags, list):
+        raise LevelError(f"{entry.name!r} has tags that are not a list: {entry.tags!r}")
     if bad := [t for t in entry.tags if not isinstance(t, str)]:
         raise LevelError(f"{entry.name!r} has a tag that is not a string: {bad[0]!r}")
     # Tags are only ever tested for membership and are saved in the order given, so their order does not matter.
