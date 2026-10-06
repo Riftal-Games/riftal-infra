@@ -74,7 +74,11 @@ def _corner(path: Path, name: str, value: Any) -> tuple[int, int, int]:
 
 def load(path: Path) -> Snapshot:
     """Read a snapshot ``save`` wrote; any member of the wrong shape or type is a ``ValueError``."""
-    with np.load(path) as data:
+    data = np.load(path)
+    # np.load picks its reader from the file's first bytes, so a plain .npy file here returns an ndarray.
+    if not isinstance(data, np.lib.npyio.NpzFile):
+        raise ValueError(f"{path} is not an npz archive")
+    with data:
         raw = data["meta"].item()
         meta = json.loads(raw) if isinstance(raw, str) else None
         if not isinstance(meta, dict):
@@ -88,7 +92,11 @@ def load(path: Path) -> Snapshot:
         palette = data["palette"].tolist()
         if not (isinstance(palette, list) and palette and all(isinstance(name, str) for name in palette)):
             raise ValueError(f"{path} palette is {palette!r}, expected a non-empty list of strings")
-        region = Region(meta["world"], bounds, np.ascontiguousarray(data["blocks"], dtype=np.int16), palette)
+        blocks = data["blocks"]
+        # save writes int16; a cast from anything else would truncate floats or wrap large indices.
+        if blocks.dtype != np.int16:
+            raise ValueError(f"{path} blocks are {blocks.dtype}, expected int16")
+        region = Region(meta["world"], bounds, np.ascontiguousarray(blocks), palette)
     return Snapshot(Path(path), meta["world"], bounds, meta["label"], meta["timestamp"], region)
 
 
