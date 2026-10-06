@@ -842,6 +842,18 @@ top layer standable, and `entity_clear` lets it pass, as it does a head cell (20
 Classing these blocks by their box top like snow layers was rejected: they are still SOLID to
 stand on; only the headroom changes (#469).
 
+## 2026-10-06 An open fence gate is PASSABLE, a closed one SOLID
+
+An open gate has no collision box (`FenceGate.php:70`), so a player walks through it and falls
+through it. `blocks.classify` reads Bedrock's `open_bit` state (`BlockStateNames::OPEN_BIT`) on
+any base ending `fence_gate`: `true` is PASSABLE, anything else SOLID, the same test
+`is_tall_floor` uses, so a gate with no states stays a 1.5-tall floor. Every class consumer
+follows: `stand_mask` and `path_exists` neither stand on an open gate nor are stopped by one,
+`entity_clear` looks through it to the floor beneath, `warp_safe` finds no landing in it,
+`verify_mine` counts it as an opening, the ASCII class render draws it `,`, and a `ground`
+heightmap looks through it. Leaving it SOLID and special-casing `stand_mask` was rejected: it
+would still read an open gate in a hitbox as blocked (#675).
+
 ## 2026-09-30 Kelp and seagrass are LIQUID
 
 Both always stand in water in Bedrock, but DesignBridge's region read takes each cell from the
