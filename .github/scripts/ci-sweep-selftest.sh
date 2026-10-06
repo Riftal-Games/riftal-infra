@@ -41,6 +41,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The other job's volume carries a label no sweep matches, so a cancel that
+# kills this script before its EXIT trap leaves it for the next run on this
+# engine to remove. The job times out at 10 minutes, so a volume older than 20
+# belongs to a run that has ended, and a younger one may be a concurrent run's
+# still waiting on its assertion.
+reap_before="$(($(date +%s) - 1200))"
+stale="$(docker volume ls -q --filter label=riftal.ci.job=selftest-other-job)" || exit 1
+for vol in $stale; do
+  case "$vol" in
+    riftal_smoke_sweep_other_vol_*) ;;
+    *) continue ;;
+  esac
+  # A volume gone since the list was removed by its own run or by another's.
+  created="$(docker volume inspect -f '{{.CreatedAt}}' "$vol" 2>/dev/null)" || continue
+  if ! epoch="$(date -d "$created" +%s)"; then
+    check fail "unreadable creation time '$created' on $vol"
+    continue
+  fi
+  [ "$epoch" -lt "$reap_before" ] || continue
+  docker volume rm "$vol" >/dev/null 2>&1
+  left="$(docker volume ls -q --filter "name=^${vol}\$")"
+  check "$([ -z "$left" ] && echo ok)" "removed $vol, left by a cancelled run"
+done
+
 if DOCKER_HOST=unix:///nonexistent.sock bash "$sweep" >/dev/null 2>&1; then
   check fail 'sweep exited 0 with no reachable daemon'
 else
