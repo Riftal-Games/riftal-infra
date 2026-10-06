@@ -8,6 +8,7 @@ from designer.builders.base import Palette
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
+from designer.edits import EditList, Fill
 from designer.region import Region
 from designer.verify import mine_valid, travel_time
 
@@ -71,6 +72,20 @@ def test_to_region_passes_mine_valid(spec: MineSpec, palette: Palette) -> None:
     _, region = _built_region(spec, palette)
     found = mine_valid(region, spec)
     assert found.ok and found.detail == "mine valid", found.detail
+
+
+@pytest.mark.parametrize("name", ["mine_a", "lumber"])
+def test_a_mine_buried_in_stone_keeps_its_exit_lane_walkable(name: str, palette: Palette) -> None:
+    buried = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / f"{name}.json").read_text(encoding="utf-8")))
+    geo = buried.geometry()
+    box = geo.padding.union(geo.exit_platform).expand(2, "y")
+    stone = EditList(buried.world, [Fill(box, "minecraft:stone")]).to_region(Region.empty(buried.world, box))
+    edits = build_mine(buried, palette)
+    region = edits.to_region(stone)
+    found = mine_valid(region, buried)
+    assert found.ok, found.detail
+    walk = travel_time(region, _location(edits, f"{name}_spawn"), _location(edits, f"{name}_exit"))
+    assert walk.ok, walk.detail
 
 
 def test_travel_time_from_spawn_to_exit_is_under_ten_seconds(spec: MineSpec, palette: Palette) -> None:
