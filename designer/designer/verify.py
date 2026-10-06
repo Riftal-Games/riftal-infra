@@ -136,7 +136,9 @@ def path_exists(
     ``WEB_COST`` onto a cell with a web at the feet or head, plus ``STEP_UP``
     per block climbed and ``DROP`` per block fallen, so ``length`` is in
     blocks of open walking. The heuristic charges the open-ground rates, so it
-    never overestimates.
+    never overestimates. A step up onto a fence, wall or closed fence gate
+    (``is_tall_floor``) is open only from another such floor, with the third
+    cell above the feet clear for the head.
     """
     mask = stand_mask(region)
     start = _snap(mask, region.bounds, a, snap_radius)
@@ -158,7 +160,8 @@ def path_exists(
     plane = nz * nx
     stand = mask[at].ravel().tolist()
     passable = region.passable()[at].ravel().tolist()
-    step = np.where(region.web_mask()[at], WEB_COST, 1.0).ravel().tolist()
+    tall = region.on_tall_floor()[at].ravel().tolist()
+    step =np.where(region.web_mask()[at], WEB_COST, 1.0).ravel().tolist()
     g = np.full(ny * plane, np.inf, dtype=np.float32)
     closed = np.zeros(ny * plane, dtype=bool)
     parent = np.full(ny * plane, -1, dtype=np.int32)
@@ -199,7 +202,11 @@ def path_exists(
                 continue
             col = z2 * nx + x2
             steps = [(y, base)]
-            if y + 2 < ny and passable[(y + 2) * plane + z * nx + x]:
+            # A jump rises about 1.25 blocks (Living.php jumpVelocity 0.42). A 1.5-tall floor one block up
+            # is a 1.5 climb from an ordinary floor, out of reach, but a 1.0 climb from another tall floor,
+            # where the jump lifts the head into the third cell above the feet.
+            head = y + 3 if tall[cur] else y + 2
+            if head < ny and passable[head * plane + z * nx + x] and (tall[cur] or not tall[(y + 1) * plane + col]):
                 steps.append((y + 1, base + STEP_UP))
             # The head enters the neighbour column before the feet leave the ledge.
             if passable[(y + 1) * plane + col]:

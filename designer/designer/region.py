@@ -295,10 +295,19 @@ class Region:
             # region the spot is treated as blocked.
             third = np.zeros(classes.shape, dtype=bool)
             third[:-3] = passable[3:]
-            mask[1:-1] &= ~tall_floor_lut(self.palette)[self.blocks][:-2] | third[:-2]
+            mask[1:-1] &= ~self.on_tall_floor()[1:-1] | third[:-2]
         if self._parent is None:
             self._stand = mask
         return mask
+
+    def on_tall_floor(self) -> np.ndarray:
+        """Bool ``[y][z][x]``: the block under the cell is a floor taller than one block (``is_tall_floor``).
+
+        The bottom layer is always false, its floor being outside the region.
+        """
+        tall = np.zeros(self.blocks.shape, dtype=bool)
+        tall[1:] = tall_floor_lut(self.palette)[self.blocks[:-1]]
+        return tall
 
     def web_mask(self) -> np.ndarray:
         """Bool ``[y][z][x]``: a player with feet in the cell has a web at the feet or the head.

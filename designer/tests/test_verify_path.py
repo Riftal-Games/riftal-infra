@@ -142,7 +142,55 @@ def test_drop_needs_head_room_at_take_off() -> None:
     assert path_exists(region, (1, 1, 0), (0, 2, 0)).detail == "no path"
 
 
-def _lane(web_at: tuple[int, int, int] | None) -> Region:
+TALL_FLOORS = ["minecraft:oak_fence", "minecraft:cobblestone_wall", "minecraft:fence_gate"]
+
+
+def _fenced_lane(tall: str) -> Region:
+    region = Region.empty("fenced lane", Bounds((0, 0, 0), (9, 6, 0)))
+    region.fill(Bounds((0, 0, 0), (9, 0, 0)), "minecraft:stone")
+    region.set(5, 1, 0, tall)
+    return region
+
+
+@pytest.mark.parametrize("tall", TALL_FLOORS)
+def test_no_step_up_onto_a_fence_wall_or_closed_gate(tall: str) -> None:
+    region = _fenced_lane(tall)
+    assert stand_mask(region)[2, 0, 5]
+    found = path_exists(region, (0, 1, 0), (9, 1, 0))
+    assert not found.ok and found.detail == "no path"
+    assert not travel_time(region, (0, 1, 0), (9, 1, 0)).ok
+    assert path_exists(region, (5, 2, 0), (9, 1, 0)).ok
+
+
+@pytest.mark.parametrize("tall", TALL_FLOORS)
+def test_level_step_onto_a_flush_tall_floor_walks(tall: str) -> None:
+    region = _fenced_lane(tall)
+    region.fill(Bounds((0, 1, 0), (4, 1, 0)), "minecraft:stone")
+    found = path_exists(region, (0, 2, 0), (5, 2, 0))
+    assert found.ok and found.length == pytest.approx(5)
+
+
+def _fence_stair(ceiling: bool) -> Region:
+    region = _fenced_lane("minecraft:oak_fence")
+    region.set(6, 1, 0, "minecraft:oak_fence")
+    region.set(6, 2, 0, "minecraft:oak_fence")
+    if ceiling:
+        region.set(5, 5, 0, "minecraft:stone")
+    return region
+
+
+def test_step_up_from_one_tall_floor_to_another_climbs() -> None:
+    found = path_exists(_fence_stair(False), (5, 2, 0), (6, 3, 0))
+    assert found.ok and found.path == [(5, 2, 0), (6, 3, 0)]
+
+
+def test_step_up_from_a_tall_floor_needs_the_third_cell_for_the_head() -> None:
+    region = _fence_stair(True)
+    assert stand_mask(region)[2, 0, 5]
+    assert path_exists(region, (5, 2, 0), (6, 3, 0), snap_radius=0).detail == "no path"
+
+
+def _lane(web_at:tuple[int, int, int] | None) -> Region:
     region = Region.empty("lane", Bounds((0, 0, 0), (9, 3, 0)))
     region.fill(Bounds((0, 0, 0), (9, 0, 0)), "minecraft:stone")
     if web_at is not None:
