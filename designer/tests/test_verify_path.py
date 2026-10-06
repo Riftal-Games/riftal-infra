@@ -190,7 +190,17 @@ def test_step_up_from_a_tall_floor_needs_the_third_cell_for_the_head() -> None:
     assert path_exists(region, (5, 2, 0), (6, 3, 0), snap_radius=0).detail == "no path"
 
 
-def _lane(web_at:tuple[int, int, int] | None) -> Region:
+def test_step_up_from_a_tall_floor_onto_ordinary_ground_leaves_the_third_cell_alone() -> None:
+    region = _fenced_lane("minecraft:oak_fence")
+    region.set(6, 1, 0, "minecraft:stone")
+    region.set(6, 2, 0, "minecraft:stone")
+    region.set(5, 5, 0, "minecraft:stone")
+    assert stand_mask(region)[2, 0, 5]
+    found = path_exists(region, (5, 2, 0), (6, 3, 0), snap_radius=0)
+    assert found.ok and found.path == [(5, 2, 0), (6, 3, 0)]
+
+
+def _lane(web_at: tuple[int, int, int] | None) -> Region:
     region = Region.empty("lane", Bounds((0, 0, 0), (9, 3, 0)))
     region.fill(Bounds((0, 0, 0), (9, 0, 0)), "minecraft:stone")
     if web_at is not None:
