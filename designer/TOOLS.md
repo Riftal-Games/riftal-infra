@@ -297,7 +297,7 @@ Returns: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
 
 Put a snapshot back by path or undo id, sending only the cells that differ; what it overwrites is pushed as a ``restore`` entry.
 
-A snapshot file that is missing or cannot be read fails with code ``snapshot_unreadable`` before anything is sent.
+A snapshot file that is missing or cannot be read, or an undo id whose snapshot names a level other than the one its entry recorded, fails with code ``snapshot_unreadable`` before anything is sent.
 
 ```json
 {"properties": {"dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "snapshot": {"anyOf": [{"type": "string"}, {"type": "integer"}], "title": "Snapshot"}}, "required": ["snapshot"], "title": "restoreArguments", "type": "object"}
