@@ -56,7 +56,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=25
+EXPECTED_ASSERTIONS=26
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -180,6 +180,19 @@ if [ "$dead_rc" -eq 1 ] \
 else
   fail "expected exit 1, the GET_LOCK error and no unbound variable, got exit $dead_rc"
   cat "$LOGS"/out-deadlock.log
+fi
+
+section "a run whose lock session dies mid-run fails"
+lost_rc=0
+run_migrations "$FIXTURES/lostlock" riftal_selftest_race selftest-lost-lock \
+  >"$LOGS"/out-lostlock.log 2>&1 || lost_rc=$?
+if [ "$lost_rc" -eq 1 ] \
+   && grep -q "lost the migration lock 'selftest-lost-lock'" "$LOGS"/out-lostlock.log \
+   && ! grep -q 'unbound variable' "$LOGS"/out-lostlock.log; then
+  pass "a lock lost mid-run exits 1 and says the lock was lost"
+else
+  fail "expected exit 1 and a lost-lock error, got exit $lost_rc"
+  cat "$LOGS"/out-lostlock.log
 fi
 
 section "provisioning on an existing schema creates the login with its role"

@@ -96,31 +96,37 @@ coproc LOCKCONN {
 }
 lock_pid="$LOCKCONN_PID"
 
-released=0
+lock_held=0
 release_lock() {
+  local rc=$? release_result=""
   # Once bash reaps a dead coprocess it unsets LOCKCONN and closes both of its
   # descriptors, so an empty value means the lock session is already over.
-  # MySQL releases a named lock when the session holding it ends, so there is
-  # then nothing left to release or close.
-  local lock_fd="${LOCKCONN[1]-}"
-  if [ -z "$lock_fd" ]; then
-    wait "$lock_pid" 2>/dev/null || true
-    return 0
-  fi
+  local lock_fd="${LOCKCONN[1]-}" lock_out="${LOCKCONN[0]-}"
   # A coprocess that has exited but is not yet reaped still has its pipe, and
   # writing to a pipe with no reader raises SIGPIPE, which would end this
   # trap before the close and wait below. Ignored, the write just fails.
   trap '' PIPE
-  if [ "$released" -eq 0 ]; then
-    released=1
-    if kill -0 "$lock_pid" 2>/dev/null; then
-      printf "SELECT RELEASE_LOCK('%s');\n" "$LOCK_NAME" >&"$lock_fd" 2>/dev/null || true
+  if [ -n "$lock_fd" ]; then
+    # Only a 1 proves the lock was still held by this session. A session
+    # killed mid-run answers with an error, or, if the client reconnected,
+    # with NULL from a fresh session that never held it.
+    if printf "SELECT RELEASE_LOCK('%s');\n" "$LOCK_NAME" >&"$lock_fd" 2>/dev/null; then
+      IFS= read -r -t 30 release_result <&"$lock_out" 2>/dev/null || true
+    fi
+    # Closing the write side is what lets the held mysql session see EOF and
+    # exit; without it "wait" below blocks forever, success or failure alike.
+    eval "exec $lock_fd>&-" 2>/dev/null || true
+  fi
+  wait "$lock_pid" 2>/dev/null || true
+  # MySQL drops a named lock when its session ends, so a session that ended
+  # before the run did left a window where another runner could take the lock
+  # and apply the same files concurrently. That run cannot count as a success.
+  if [ "$lock_held" -eq 1 ] && [ "$release_result" != "1" ]; then
+    echo "lost the migration lock '$LOCK_NAME' before the run finished, so another runner may have migrated concurrently" >&2
+    if [ "$rc" -eq 0 ]; then
+      exit 1
     fi
   fi
-  # Closing the write side is what lets the held mysql session see EOF and
-  # exit; without it "wait" below blocks forever, success or failure alike.
-  eval "exec $lock_fd>&-" 2>/dev/null || true
-  wait "$lock_pid" 2>/dev/null || true
 }
 trap release_lock EXIT
 
@@ -133,6 +139,7 @@ if [ "$lock_result" != "1" ]; then
   echo "could not acquire lock '$LOCK_NAME' within ${LOCK_TIMEOUT}s (GET_LOCK returned: $lock_result)" >&2
   exit 1
 fi
+lock_held=1
 echo "acquired lock '$LOCK_NAME'"
 
 run_sql <<'SQL'
