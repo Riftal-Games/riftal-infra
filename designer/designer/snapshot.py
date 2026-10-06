@@ -219,10 +219,12 @@ UNREADABLE = (OSError, ValueError, EOFError, KeyError, RuntimeError, zipfile.Bad
 
 
 def _load_entry(entry: dict[str, Any]) -> Snapshot:
-    """The entry's snapshot, refused unless it names the level the entry recorded.
+    """The entry's snapshot, refused unless it names the level and bounds the entry recorded.
 
-    ``restore`` writes into the level the file names, so a snapshot that names another
-    level would paint that level's cells, which this entry never touched.
+    ``restore`` writes into the level and bounds the file names, so a snapshot that names another
+    level, or other bounds in the same level, would paint cells this entry never touched. Every
+    snapshot-backed entry has recorded its bounds since the manifest began, so one without them
+    was not written by ``UndoStack`` and is refused rather than trusted.
     """
     try:
         snap = load(Path(entry["path"]))
@@ -231,6 +233,10 @@ def _load_entry(entry: dict[str, Any]) -> Snapshot:
     if snap.world != entry.get("world"):
         raise SnapshotLoadError(
             f"undo entry {entry.get('id')}: snapshot {entry.get('path')} is of level {snap.world!r}, the entry recorded {entry.get('world')!r}"
+        )
+    if snap.bounds.to_json() != entry.get("bounds"):
+        raise SnapshotLoadError(
+            f"undo entry {entry.get('id')}: snapshot {entry.get('path')} covers {snap.bounds.to_json()}, the entry recorded {entry.get('bounds')}"
         )
     return snap
 
