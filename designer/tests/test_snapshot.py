@@ -212,7 +212,7 @@ def test_undo_of_a_snapshot_damaged_inside_the_archive_still_returns_the_entries
 
 def test_every_single_byte_corruption_of_a_snapshot_loads_or_is_a_snapshot_load_error(bridge: Bridge, snapshots_dir: Path) -> None:
     snap = take(bridge, WORLD, BOX, "fill")
-    entry = {"id": 1, "path": str(snap.path)}
+    entry = {"id": 1, "world": WORLD, "path": str(snap.path)}
     good = snap.path.read_bytes()
     refused: set[type] = set()
     for offset in range(len(good)):
@@ -279,6 +279,8 @@ def _meta(**fields: object) -> str:
     {"meta": _meta(world=3)},
     {"meta": _meta(label=None)},
     {"meta": _meta(timestamp=1700000000)},
+    {"meta": _meta(world="../design")},
+    {"meta": _meta(label="no spaces")},
     {"bmin": np.int64(0)},
     {"bmax": np.array([15, 66])},
     {"bmin": np.array([0.5, 60, 0])},
@@ -289,7 +291,7 @@ def _meta(**fields: object) -> str:
     {"blocks": np.full(BOX.shape, 32768, dtype=np.int32)},
     {"blocks": np.zeros((7, 16), dtype=np.int16)},
 ], ids=[
-    "meta_list", "meta_string", "meta_number", "world_number", "label_null", "timestamp_number",
+    "meta_list", "meta_string", "meta_number", "world_number", "label_null", "timestamp_number", "world_path", "label_space",
     "bmin_scalar", "bmax_short", "bmin_float", "bmax_nested", "palette_scalar", "palette_int_entries",
     "blocks_float", "blocks_past_int16", "blocks_short",
 ])
@@ -333,6 +335,21 @@ def test_undo_of_a_plain_npy_file_at_the_snapshot_path_is_a_snapshot_load_error(
     [result] = stack.undo(bridge)
     assert result.ok is False and isinstance(result.errors[0], SnapshotLoadError)
     assert type(result.errors[0].__cause__) is ValueError
+
+
+def test_undo_refuses_a_snapshot_of_another_level_and_writes_nothing(fake: FakeBridge, bridge: Bridge, snapshots_dir: Path) -> None:
+    snap = take(bridge, WORLD, BOX, "fill")
+    stack = UndoStack(session="s1")
+    stack.push(snap, "fill")
+    stray = save(Region.empty("other", BOX, STONE), "fill")
+    entries = stack.entries()
+    entries[0]["path"] = str(stray)
+    stack._write(entries)
+    fake.requests.clear()
+    [result] = stack.undo(bridge)
+    assert result.ok is False and isinstance(result.errors[0], SnapshotLoadError)
+    assert "'other'" in str(result.errors[0]) and f"'{WORLD}'" in str(result.errors[0])
+    assert fake.requests == [] and stack.entries()[0]["restored"] is False
 
 
 def test_an_entry_without_a_path_or_id_is_reported_rather_than_raising_from_the_handler() -> None:
