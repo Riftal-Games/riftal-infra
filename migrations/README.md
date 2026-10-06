@@ -68,17 +68,17 @@ A migration that creates a procedure, such as riftal-game's
 `0010_add_gang_founded_marker.sql`), leaves MySQL's default
 `SQL SECURITY DEFINER` in place, per ADR 008. Its definer is the account this
 runner connected as: `MYSQL_USER`, which defaults to `root`, reached over the
-container network, so `root`@`%`. Three things follow, and `selftest.sh`
-proves each one against a fixture procedure.
+container network, so `root`@`%`. Three things follow. `selftest.sh` proves
+each against a fixture procedure, and `../deploy/restore-selftest.sh` proves
+the third through the real backup and restore scripts.
 
 **A login needs only `EXECUTE`.** The procedure body runs with the definer's
 privileges, so a plugin role holds `EXECUTE` on the procedure and nothing on
 the columns it writes. A direct `UPDATE` by the same login is refused. The
 gangs line is `GRANT EXECUTE ON PROCEDURE gangs_ledger_contribute TO
-riftal_role_gangs` in riftal-game's `grants.sql`, which reaches `main` with
-riftal-game PR 454. Until it does, no provisioned login can call the
-procedure. Grants are reapplied on every run, so a restore rebuilds this one
-too.
+riftal_role_gangs` in riftal-game's `grants.sql` (ADR 008, item 2). Without
+it, no provisioned login can call the procedure. Grants are reapplied on every
+run, so a restore rebuilds this one too.
 
 **The definer account is never dropped or renamed.** MySQL resolves the
 definer on every call. Once `root`@`%` is gone, every call fails with
@@ -93,8 +93,9 @@ given `--routines`. Without them, a restore carries `schema_migrations` saying
 `0009` and `0010` ran and no procedure, and this runner never recreates it.
 `../deploy/backup.sh` passes `--routines --triggers`. The dump writes each
 procedure as ``CREATE DEFINER=`root`@`%` PROCEDURE``, so the server restored
-into must have that account before the first call, and `../deploy/restore.sh`
-runs as `root`, which may create a routine under any definer.
+into must have that account before the first call. `../deploy/restore.sh`
+loads the dump as `MYSQL_USER`, default `root`, which must be `root` or another
+account allowed to create a routine under any definer.
 
 ## Running it locally, via `wslc`
 
@@ -139,10 +140,9 @@ the same lock name applying a pending migration exactly once, and login
 provisioning against `fixtures/grants/`: a login created on an existing
 schema, an idempotent second run, rotation, a restore onto a fresh server,
 and the loud refusals, and the DEFINER procedure checks above. It calls
-`docker` directly,
-the same way `.github/workflows/ci.yml`'s PHP lint step does, so it runs in
-CI and, on Nasir's Windows machine, under the Docker inside the WSL distro that
-hosts the CI runners:
+`docker` directly, the same way `.github/workflows/ci.yml`'s PHP lint step
+does, so it runs in CI and, on Nasir's Windows machine, under the Docker
+inside the WSL distro that hosts the CI runners:
 
 ```sh
 wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/Users/nasir/riftal-games/riftal-infra/migrations/selftest.sh
