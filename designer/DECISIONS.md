@@ -958,3 +958,13 @@ counts as blocked, as in `stand_mask`. A step up follows #659 and #726, which ch
 above the origin, and between two tall floors `stand_mask` holds both third cells. Leaving these
 moves to `stand_mask` was rejected: it checks only the cell a player ends in, so a fence edge under
 a low ceiling read as a path no player can take (#747).
+
+## 2026-10-07 `restore` answers a damaged snapshot with `snapshot_unreadable`
+
+`restore` reads one named snapshot, so a damaged file is the whole answer, not one skipped frame as
+in `timelapse`. It catches the same `snapshot.UNREADABLE` errors `_load_entry` catches for `undo`
+and raises `SnapshotLoadError`, so the same damage carries the same code whichever tool meets it,
+and the refusal comes before anything reaches the bridge. A missing file counts, as it does for
+`undo`. An undo id with no entry and a path outside the snapshots directory refuse the reference,
+not a file, and keep no code. A `TypeError` or `AttributeError` from `load` is a bug and is not
+caught (#626).

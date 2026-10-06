@@ -61,7 +61,7 @@ def save(region: Region, label: str, *, ts: datetime | None = None) -> Path:
 
 
 class SnapshotLoadError(Exception):
-    """An undo entry's snapshot file is missing, unreadable, or not one ``load`` accepts."""
+    """A snapshot file that ``undo`` or ``restore`` needs is missing, unreadable, or not one ``load`` accepts."""
 
     code = "snapshot_unreadable"
 

@@ -465,6 +465,37 @@ def test_restore_by_manifest_id_and_by_path(server: FakeBridge) -> None:
     assert [(e["id"], e["op"]) for e in call("list_undo")["entries"]] == [(2, "restore"), (1, "fill")]
 
 
+@pytest.mark.parametrize("by_id", [True, False], ids=["id", "path"])
+@pytest.mark.parametrize("damage", [None, b"", b"not a snapshot", b"PK\x03\x04truncated", _break_deflate], ids=["missing", "empty", "garbage", "zip", "deflate"])
+def test_restore_of_a_damaged_snapshot_answers_snapshot_unreadable_as_undo_does(server: FakeBridge, damage: Any, by_id: bool) -> None:
+    first = call("fill", **MUTATING["fill"])
+    damaged = Path(first["snapshot"])
+    if damage is None:
+        damaged.unlink()
+    elif callable(damage):
+        damage(damaged)
+    else:
+        damaged.write_bytes(damage)
+    writes = _writes(server)
+    result = call("restore", snapshot=1 if by_id else str(damaged))
+    assert result["ok"] is False and result["code"] == "snapshot_unreadable" and str(damaged) in result["error"]
+    assert _writes(server) == writes and [e["id"] for e in call("list_undo")["entries"]] == [1]
+
+
+def test_restore_reports_a_bug_in_load_as_itself_not_as_an_unreadable_snapshot(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(path: Path) -> None:
+        raise TypeError("load bug")
+
+    taken = call("snapshot", **MUTATING["snapshot"])
+    monkeypatch.setattr(mcp_server.snapshots, "load", broken)
+    result = call("restore", snapshot=taken["path"])
+    assert result == {"ok": False, "error": "load bug", "code": None}
+
+
+def test_restore_of_an_unknown_undo_id_is_not_an_unreadable_snapshot(server: FakeBridge) -> None:
+    assert call("restore", snapshot=99) == {"ok": False, "error": "no undo entry with id 99", "code": None}
+
+
 def test_restore_refuses_a_path_outside_the_snapshots_dir(server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     taken = call("snapshot", **MUTATING["snapshot"])
     outside = Path(shutil.copy(taken["path"], tmp_path / "outside.npz"))
