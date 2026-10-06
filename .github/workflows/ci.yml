@@ -91,6 +91,9 @@ jobs:
       - name: Dev bots admission guard self-test
         run: bash images/plugins/selftest.sh
 
+      - name: Pinned core image self-test
+        run: bash images/core-image-selftest.sh
+
       - name: Dev bots join order self-test
         run: bash images/plugins/join-order/selftest.sh
 
