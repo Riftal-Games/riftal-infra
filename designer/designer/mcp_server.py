@@ -750,9 +750,15 @@ def snapshot(target: str | dict[str, Any], label: str, world: str | None = None)
 def restore(snapshot: str | int, dry_run: bool = False) -> dict[str, Any]:
     """Put a snapshot back by path or undo id, sending only the cells that differ; what it overwrites is pushed as a ``restore`` entry.
 
+    A snapshot file that is missing or cannot be read fails with code ``snapshot_unreadable`` before anything is sent.
+
     RETURNS: world, bounds, restored, dry_run, blocks, snapshot, undo_id, jobs.
     """
-    snap = snapshots.load(_snapshot_path(snapshot))
+    path = _snapshot_path(snapshot)
+    try:
+        snap = snapshots.load(path)
+    except snapshots.UNREADABLE as exc:
+        raise snapshots.SnapshotLoadError(f"cannot load snapshot {path}: {exc}") from exc
     result = snapshots.restore(bridge(), snap, dry_run=dry_run)
     out: dict[str, Any] = {
         "world": snap.world, "bounds": snap.bounds.to_json(), "restored": str(snap.path), "dry_run": dry_run,
