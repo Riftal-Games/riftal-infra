@@ -264,15 +264,16 @@ def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     Feet and head must be passable; a danger block there fails as ``hitbox in
     danger``, else a liquid as ``hitbox in liquid``, any other obstruction as
     ``hitbox blocked``, or ``hitbox blocked by`` an unmapped block when one is
-    among them. The support is the first block below the
-    feet that is neither air nor passable, and it must be solid and mapped, because a
-    player over liquid sinks and over danger burns. A column with no support
-    inside the region obstructs nothing here; ``warp_safe`` is the check that
-    demands a landing. On a floor taller than one block directly under the feet, the cell two above the feet
-    must be passable too. ``coords`` names the offending cells. A fractional
-    ``pos`` means the block it falls in, each coordinate floored. ``pos``
-    outside the region is a failed check, not a crash, for a caller that did
-    not fetch around it first.
+    among them. The support is the first block below the feet that is neither
+    air nor passable, and it must be solid and mapped, because a player over
+    liquid sinks and over danger burns. A column with no support inside the
+    region obstructs nothing here; ``warp_safe`` is the check that demands a
+    landing. On a floor taller than one block directly under the feet, the
+    cell two above the feet must be passable too, and passes when it is
+    outside the region, as the head cell does. ``coords`` names the offending
+    cells. A fractional ``pos`` means the block it falls in, each coordinate
+    floored. ``pos`` outside the region is a failed check, not a crash, for a
+    caller that did not fetch around it first.
     """
     at = _block(pos)
     if not region.bounds.contains(at):

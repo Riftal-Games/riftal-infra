@@ -276,8 +276,9 @@ class Region:
     def stand_mask(self) -> np.ndarray:
         """Bool ``[y][z][x]``: a player can stand with feet in the cell.
 
-        Solid floor below, the cell and the one above passable, and the one above that too on a floor taller
-        than one block (``is_tall_floor``). The top and
+        Solid floor below, the cell and the one above passable, and the one
+        above that too on a floor taller than one block (``is_tall_floor``),
+        which counts as blocked when it is outside the region. The top and
         bottom layers are never standable because their floor or head cell is
         outside the region. The mask depends on nothing but the blocks, so the
         root region caches it beside ``classes`` and ``_invalidate`` clears
