@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=23
+EXPECTED_ASSERTIONS=29
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -208,6 +208,12 @@ section "container cleanup takes the anonymous volumes with every container"
 expect_cleanup "$FIXTURES/good/cleanup.sh" ""
 expect_cleanup "$FIXTURES/bad/cleanup-rm.sh" "5: a container removed without -v"
 expect_cleanup "$FIXTURES/bad/cleanup-run.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-create.sh" "4: a container created without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-comment.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-separator.sh" "4: a container removed without -v"
+expect_cleanup "$FIXTURES/bad/cleanup-indirect.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-reason.sh" "4: a container-cleanup opt-out without a reason"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-unused.sh" "4: a container-cleanup opt-out with no container under it to keep"
 expect_real_cleanup
 
 section "hadolint, through scan.sh's own check_dockerfiles"
