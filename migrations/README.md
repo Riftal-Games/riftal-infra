@@ -74,11 +74,11 @@ the third through the real backup and restore scripts.
 
 **A login needs only `EXECUTE`.** The procedure body runs with the definer's
 privileges, so a plugin role holds `EXECUTE` on the procedure and nothing on
-the columns it writes. A direct `UPDATE` by the same login is refused. The
-gangs line is `GRANT EXECUTE ON PROCEDURE gangs_ledger_contribute TO
-riftal_role_gangs` in riftal-game's `grants.sql` (ADR 008, item 2). Without
-it, no provisioned login can call the procedure. Grants are reapplied on every
-run, so a restore rebuilds this one too.
+the columns it writes. A direct `UPDATE` by the same login is refused.
+riftal-game's `grants.sql` (riftal-game#259) must carry `GRANT EXECUTE ON
+PROCEDURE gangs_ledger_contribute TO riftal_role_gangs` (ADR 008, item 2).
+Until it does, no provisioned login can call the procedure. Grants are
+reapplied on every run, so a restore rebuilds this one too.
 
 **The definer account is never dropped or renamed.** MySQL resolves the
 definer on every call. Once `root`@`%` is gone, every call fails with
