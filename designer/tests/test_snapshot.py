@@ -268,6 +268,47 @@ def test_undo_lets_a_bug_inside_load_keep_its_identity(bridge: Bridge, snapshots
         stack.undo(bridge)
 
 
+def _meta(**fields: object) -> str:
+    return json.dumps({"world": WORLD, "timestamp": "t", "label": "fill", "order": "yzx", **fields})
+
+
+@pytest.mark.parametrize("member", [
+    {"meta": json.dumps([1, 2])},
+    {"meta": json.dumps("a string")},
+    {"meta": np.int64(7)},
+    {"meta": _meta(world=3)},
+    {"meta": _meta(label=None)},
+    {"meta": _meta(timestamp=1700000000)},
+    {"bmin": np.int64(0)},
+    {"bmax": np.array([15, 66])},
+    {"bmin": np.array([0.5, 60, 0])},
+    {"bmax": np.array([["a", "b", "c"]])},
+    {"palette": np.int64(7)},
+    {"palette": np.array([0, 1])},
+], ids=[
+    "meta_list", "meta_string", "meta_number", "world_number", "label_null", "timestamp_number",
+    "bmin_scalar", "bmax_short", "bmin_float", "bmax_nested", "palette_scalar", "palette_int_entries",
+])
+def test_undo_of_a_well_formed_archive_with_malformed_members_is_a_snapshot_load_error(
+    bridge: Bridge, snapshots_dir: Path, member: dict[str, object],
+) -> None:
+    snap = take(bridge, WORLD, BOX, "fill")
+    stack = UndoStack(session="s1")
+    stack.push(snap, "fill")
+    with np.load(snap.path) as data:
+        members = {name: data[name] for name in data.files}
+    np.savez_compressed(snap.path, **{**members, **member})
+    [result] = stack.undo(bridge)
+    assert result.ok is False and isinstance(result.errors[0], SnapshotLoadError)
+    assert type(result.errors[0].__cause__) is ValueError
+
+
+def test_an_entry_without_a_path_or_id_is_reported_rather_than_raising_from_the_handler() -> None:
+    with pytest.raises(SnapshotLoadError, match="undo entry None: cannot load snapshot None") as caught:
+        snapshot._load_entry({})
+    assert type(caught.value.__cause__) is KeyError
+
+
 def test_restore_of_an_unchanged_region_sends_nothing_and_only_changed_off_sends_every_cell(fake: FakeBridge, bridge: Bridge) -> None:
     snap = take(bridge, WORLD, BOX, "pre")
     fake.requests.clear()

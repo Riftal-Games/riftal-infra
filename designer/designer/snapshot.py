@@ -66,13 +66,29 @@ class SnapshotLoadError(Exception):
     code = "snapshot_unreadable"
 
 
+def _corner(path: Path, name: str, value: Any) -> tuple[int, int, int]:
+    if not (isinstance(value, list) and len(value) == 3 and all(type(c) is int for c in value)):
+        raise ValueError(f"{path} {name} is {value!r}, expected three integers")
+    return tuple(value)
+
+
 def load(path: Path) -> Snapshot:
+    """Read a snapshot ``save`` wrote; any member of the wrong shape or type is a ``ValueError``."""
     with np.load(path) as data:
-        meta = json.loads(data["meta"].item())
+        raw = data["meta"].item()
+        meta = json.loads(raw) if isinstance(raw, str) else None
+        if not isinstance(meta, dict):
+            raise ValueError(f"{path} meta is not a JSON object")
         if meta.get("order") != "".join(RLE_ORDER):
             raise ValueError(f"{path} was written in order {meta.get('order')!r}, expected {''.join(RLE_ORDER)!r}")
-        bounds = Bounds(tuple(data["bmin"].tolist()), tuple(data["bmax"].tolist()))
-        region = Region(meta["world"], bounds, np.ascontiguousarray(data["blocks"], dtype=np.int16), data["palette"].tolist())
+        for key in ("world", "label", "timestamp"):
+            if not isinstance(meta.get(key), str):
+                raise ValueError(f"{path} meta {key} is {meta.get(key)!r}, expected a string")
+        bounds = Bounds(_corner(path, "bmin", data["bmin"].tolist()), _corner(path, "bmax", data["bmax"].tolist()))
+        palette = data["palette"].tolist()
+        if not (isinstance(palette, list) and palette and all(isinstance(name, str) for name in palette)):
+            raise ValueError(f"{path} palette is {palette!r}, expected a non-empty list of strings")
+        region = Region(meta["world"], bounds, np.ascontiguousarray(data["blocks"], dtype=np.int16), palette)
     return Snapshot(Path(path), meta["world"], bounds, meta["label"], meta["timestamp"], region)
 
 
@@ -192,7 +208,7 @@ def _load_entry(entry: dict[str, Any]) -> Snapshot:
     try:
         return load(Path(entry["path"]))
     except UNREADABLE as exc:
-        raise SnapshotLoadError(f"undo entry {entry['id']}: cannot load snapshot {entry['path']}: {exc}") from exc
+        raise SnapshotLoadError(f"undo entry {entry.get('id')}: cannot load snapshot {entry.get('path')}: {exc}") from exc
 
 
 class UndoStack:
