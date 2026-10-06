@@ -64,10 +64,27 @@ def test_from_dict_refuses_ores_keys_one_block_can_satisfy_both_of(ores: dict[st
         MineSpec.from_dict({**data, "ores": ores})
 
 
-def test_from_dict_accepts_ores_keys_on_disjoint_states_of_one_base() -> None:
+@pytest.mark.parametrize("ores", [
+    {f"{LOG}[pillar_axis=y]": 1.0, f"{LOG}[pillar_axis=x]": 0.5},
+    {f"{LOG}[pillar_axis=x]": 1.0},
+    {"minecraft:stone": 1.0, "riftal:stone": 0.5},
+])
+def test_from_dict_refuses_an_ores_key_the_reset_cannot_resolve(ores: dict[str, float]) -> None:
     data = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
-    ores = {f"{LOG}[pillar_axis=y]": 1.0, f"{LOG}[pillar_axis=x]": 0.5}
-    assert MineSpec.from_dict({**data, "ores": ores}).ores == ores
+    with pytest.raises(ValueError, match="which the mine reset cannot resolve"):
+        MineSpec.from_dict({**data, "ores": ores})
+
+
+def test_from_dict_refuses_an_ore_layer_key_the_reset_cannot_resolve() -> None:
+    data = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    layer = {"y_from": data["floor_y"], "y_to": data["floor_y"], "ores": {f"{LOG}[pillar_axis=y]": 1.0}}
+    with pytest.raises(ValueError, match="ore_layers names .*which the mine reset cannot resolve"):
+        MineSpec.from_dict({**data, "ore_layers": [layer]})
+
+
+def test_from_dict_accepts_a_bare_id_with_or_without_its_namespace() -> None:
+    data = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    assert MineSpec.from_dict({**data, "ores": {"oak_log": 1.0, "minecraft:stone": 0.5}}).ores == {LOG: 1.0, "minecraft:stone": 0.5}
 
 
 def test_from_dict_refuses_an_ores_key_spelling_the_not_reset_marker() -> None:
