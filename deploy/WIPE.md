@@ -128,5 +128,3 @@ Locally, under the Docker in the WSL distro that hosts the CI runners:
 MSYS_NO_PATHCONV=1 wsl -d Ubuntu-26.04 -u runner --exec bash \
   /mnt/c/Users/nasir/riftal-games/riftal-infra/deploy/wipe-selftest.sh
 ```
-
-`README.md` links here once #490 lands.
