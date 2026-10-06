@@ -529,20 +529,26 @@ def _apply(edits: EditList, op: str, dry_run: bool, ctx: Context | None) -> dict
         out["blocks"] = done.result.blocks
     return _finish(out, done.result)
 
-def _snapshot_path(ref: str | int) -> Path:
-    """A manifest id, or a path that must resolve under ``SNAPSHOTS_DIR``; a relative path is rooted there, not at the cwd."""
+def _load_snapshot(ref: str | int) -> snapshots.Snapshot:
+    """A manifest id, held to the level its entry recorded, or a path that must resolve under ``SNAPSHOTS_DIR``.
+
+    A relative path is rooted at ``SNAPSHOTS_DIR``, not at the cwd.
+    """
     if isinstance(ref, int) or ref.isdigit():
         for entry in UndoStack().entries():
             if entry["id"] == int(ref) and entry["path"] is None:
                 raise ValueError(f"undo entry {ref} is floating text with no snapshot; undo removes it")
             if entry["id"] == int(ref):
-                return Path(entry["path"])
+                return snapshots._load_entry(entry)
         raise KeyError(f"no undo entry with id {ref}")
     root = config.SNAPSHOTS_DIR.resolve()
     path = (root / ref).resolve()
     if not path.is_relative_to(root):
         raise ValueError(f"{ref!r} resolves outside the snapshots directory {root}")
-    return path
+    try:
+        return snapshots.load(path)
+    except snapshots.UNREADABLE as exc:
+        raise snapshots.SnapshotLoadError(f"cannot load snapshot {path}: {exc}") from exc
 
 def _entry_id(path: Path) -> int | None:
     ids = [e["id"] for e in UndoStack().entries() if e["path"] == str(path)]
@@ -750,15 +756,11 @@ def snapshot(target: str | dict[str, Any], label: str, world: str | None = None)
 def restore(snapshot: str | int, dry_run: bool = False) -> dict[str, Any]:
     """Put a snapshot back by path or undo id, sending only the cells that differ; what it overwrites is pushed as a ``restore`` entry.
 
-    A snapshot file that is missing or cannot be read fails with code ``snapshot_unreadable`` before anything is sent.
+    A snapshot file that is missing or cannot be read, or an undo id whose snapshot names a level other than the one its entry recorded, fails with code ``snapshot_unreadable`` before anything is sent.
 
     RETURNS: world, bounds, restored, dry_run, blocks, snapshot, undo_id, jobs.
     """
-    path = _snapshot_path(snapshot)
-    try:
-        snap = snapshots.load(path)
-    except snapshots.UNREADABLE as exc:
-        raise snapshots.SnapshotLoadError(f"cannot load snapshot {path}: {exc}") from exc
+    snap = _load_snapshot(snapshot)
     result = snapshots.restore(bridge(), snap, dry_run=dry_run)
     out: dict[str, Any] = {
         "world": snap.world, "bounds": snap.bounds.to_json(), "restored": str(snap.path), "dry_run": dry_run,
