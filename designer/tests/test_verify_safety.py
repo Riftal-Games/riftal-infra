@@ -219,14 +219,31 @@ def test_a_tall_floor_needs_a_third_clear_cell_for_stand_mask_and_entity_clear(f
     assert (found.ok, found.detail, found.coords) == (False, "hitbox blocked", [(0, 3, 0)])
 
 
-def test_a_one_block_floor_and_an_open_gate_still_need_only_two_clear_cells() -> None:
-    for floor in ("minecraft:stone", "minecraft:oak_fence_gate[open_bit=true]", "minecraft:wall_torch"):
-        region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
-        region.set(0, 0, 0, "minecraft:stone")
-        region.set(0, 3, 0, "minecraft:stone")
-        if floor != "minecraft:stone":
-            assert not is_tall_floor(floor)
-        assert region.stand_mask()[1, 0, 0] and entity_clear(region, (0, 1, 0)).ok
+@pytest.mark.parametrize("floor", ["minecraft:stone"])
+def test_a_one_block_floor_still_needs_only_two_clear_cells(floor: str) -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+    region.set(0, 0, 0, floor)
+    region.set(0, 3, 0, "minecraft:stone")
+    assert not is_tall_floor(floor)
+    assert region.stand_mask()[1, 0, 0] and entity_clear(region, (0, 1, 0)).ok
+
+
+# An open gate has no collision box in the core (FenceGate.php), so a player falls through it.
+# The case pins only that it is not tall, and claims nothing about standing on it.
+def test_an_open_fence_gate_is_not_a_tall_floor() -> None:
+    assert not is_tall_floor("minecraft:oak_fence_gate[open_bit=true]")
+    assert not is_tall_floor("minecraft:fence_gate[open_bit=true]")
+
+
+# A torch is passable, so under the feet it is no floor at all: nothing to stand on, and nothing
+# below it for entity_clear to judge. The case pins that a name merely containing "wall" is not tall.
+def test_a_wall_torch_is_neither_a_tall_floor_nor_a_floor() -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+    region.set(0, 0, 0, "minecraft:wall_torch")
+    region.set(0, 3, 0, "minecraft:stone")
+    assert not is_tall_floor("minecraft:wall_torch")
+    assert not region.stand_mask()[1, 0, 0]
+    assert entity_clear(region, (0, 1, 0)).ok
 
 
 def test_a_tall_floor_whose_third_cell_is_outside_the_region_is_not_standable_but_does_not_offend() -> None:
