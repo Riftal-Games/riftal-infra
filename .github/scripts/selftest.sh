@@ -115,7 +115,7 @@ expect_not_listed() {
 # own exit status). This runs the exact prescribed pattern so a future edit
 # back toward any of those shapes turns this red on the same commit.
 run_php_lint_batch() {
-  docker run --rm -v "$1:/plugins:ro" php:8.3-cli-alpine sh -c '
+  docker run --rm -m 1g --cpus 1 -v "$1:/plugins:ro" php:8.3-cli-alpine sh -c '
     status=0
     for f in /plugins/*.php; do
       php -l "$f" || status=1
