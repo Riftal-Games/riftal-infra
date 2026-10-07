@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=135
+EXPECTED_ASSERTIONS=136
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -160,20 +160,39 @@ expect_dockerfile_found() {
 # sort, and it differs from a locale-aware collation: uppercase before
 # underscore before lowercase, space before dot, and b.Dockerfile before
 # b/Dockerfile.
+#
+# The runner's LANG is C.UTF-8, which orders ASCII exactly as C does, so the
+# scan runs under COLLATING_LOCALE: a bare sort in scan.sh inherits it, and
+# only scan.sh pinning its own LC_ALL=C gives the expected list. That locale
+# is not in the runner's `locale -a`. It collates anyway because the runner's
+# sort is uutils, which collates any non-C locale name itself; GNU sort would
+# fall back to C order for a locale that is not installed. The first check
+# proves the locale collates with the sort this machine has, so the order
+# check fails loudly instead of passing for the same reason C.UTF-8 would.
+COLLATING_LOCALE=en_US.UTF-8
+
 expect_dockerfiles_sorted() {
-  local dir name out status got want
+  local dir name out status got want collated
   dir="$(mktemp -d)"
   mkdir "$dir/b"
   for name in a.Dockerfile b/Dockerfile Dockerfile _.Containerfile dockerfile.dev \
     Z.Dockerfile 'a b.Dockerfile' Containerfile b.Dockerfile; do
     printf 'FROM ubuntu:24.04\n' > "$dir/$name"
   done
-  out="$(HADOLINT=true bash "$SCAN" dockerfiles "$dir" 2>&1)"
+  collated="$(find "$dir" -type f -print0 | LC_ALL="$COLLATING_LOCALE" sort -z \
+    | tr '\0' '\n' | sed "s#^$dir/##")"
+  out="$(HADOLINT=true LC_ALL="$COLLATING_LOCALE" bash "$SCAN" dockerfiles "$dir" 2>&1)"
   status=$?
   rm -rf "$dir"
   got="$(printf '%s\n' "$out" | sed -n "s#^checking $dir/##p")"
   want="$(printf '%s\n' Containerfile Dockerfile Z.Dockerfile _.Containerfile \
     'a b.Dockerfile' a.Dockerfile b.Dockerfile b/Dockerfile dockerfile.dev)"
+  if [ -n "$collated" ] && [ "$collated" != "$want" ]; then
+    pass "a bare sort under $COLLATING_LOCALE orders the fixture names differently from C"
+  else
+    fail "a bare sort under $COLLATING_LOCALE orders the fixture names as C does, so the order check below cannot tell a bare sort from LC_ALL=C sort"
+    printf '%s\n' "$collated"
+  fi
   if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'found 9 ' && [ "$got" = "$want" ]; then
     pass "Dockerfile discovery checks files in LC_ALL=C order"
   else
