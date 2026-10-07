@@ -176,6 +176,28 @@ is_applied() {
   return 1
 }
 
+# A pending file that sorts below one already applied would run after it here
+# but before it on a fresh database, so the two could end with different
+# schemas. The applied list was read under the lock, so no other runner can
+# move the highest applied file while this is decided. Both sides go through
+# the same sort as the file list.
+highest=""
+if [ "${#applied[@]}" -gt 0 ]; then
+  highest="$(printf '%s\n' "${applied[@]}" | sort | tail -n 1)"
+fi
+out_of_order=()
+for f in "${files[@]+"${files[@]}"}"; do
+  id="$(basename "$f")"
+  if [ -n "$highest" ] && ! is_applied "$id" \
+     && [ "$(printf '%s\n' "$id" "$highest" | sort | head -n 1)" = "$id" ]; then
+    out_of_order+=("$id")
+  fi
+done
+if [ "${#out_of_order[@]}" -gt 0 ]; then
+  echo "pending migration(s) ${out_of_order[*]} sort below $highest, the highest already applied, so nothing was applied" >&2
+  exit 1
+fi
+
 pending=0
 for f in "${files[@]+"${files[@]}"}"; do
   id="$(basename "$f")"
