@@ -15,8 +15,33 @@ checks:
   - check: entity_clear
     at: sell_npc_a
   - check: mine_valid
+    zone: mine_a
     region: mine_a
     spec: specs/mine_a.json
+  - check: mine_valid
+    zone: mine_b
+    region: mine_b
+    spec: specs/mine_b.json
+  - check: mine_valid
+    zone: mine_c
+    region: mine_c
+    spec: specs/mine_c.json
+  - check: mine_valid
+    zone: lumber
+    region: lumber
+    spec: specs/lumber.json
+  - check: offdisk_clear
+    zone: mine_a
+    world: mine_a
+  - check: offdisk_clear
+    zone: mine_b
+    world: mine_b
+  - check: offdisk_clear
+    zone: mine_c
+    world: mine_c
+  - check: offdisk_clear
+    zone: lumber
+    world: lumber
   - check: no_holes
     region: plots_0_0
     floor_y: 65

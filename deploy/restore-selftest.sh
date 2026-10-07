@@ -38,8 +38,13 @@ cleanup() {
 trap cleanup EXIT
 
 docker network create "$NETWORK" >/dev/null
+# Created before any `run -v` names them, so CI's label shim stamps them for
+# the job's sweep, which is all that removes them when a cancel skips the trap.
+docker volume create "$BACKUPS_VOL" >/dev/null
+docker volume create "$WORLD_A_VOL" >/dev/null
+docker volume create "$WORLD_B_VOL" >/dev/null
 
-docker run -d -m 1g --cpus 1 --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
+docker run -d --rm -m 1g --cpus 1 --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
   mysql:8 >/dev/null
 
@@ -69,8 +74,12 @@ exec_sql() {
 # named after this test rather than after the concept, so a wrong-database
 # or wrong-volume restore reads as an obviously wrong value below.
 exec_sql 'CREATE TABLE riftal_selftest.accounts (id INT PRIMARY KEY, balance INT);
-          INSERT INTO riftal_selftest.accounts VALUES (1, 500);
-          CREATE PROCEDURE riftal_selftest.selftest_proc() SELECT 42;'
+          INSERT INTO riftal_selftest.accounts VALUES (1, 500);'
+# restore.sh drops the database, and its procedures with it, so this one
+# exists after the restore only if backup.sh dumped routines, which the
+# read-only backup login can do only through SHOW_ROUTINE.
+exec_sql 'CREATE PROCEDURE riftal_selftest.balance_of_1()
+          SELECT balance FROM riftal_selftest.accounts WHERE id = 1'
 docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo 17 > /world/blocks_broken_mine_a.txt' >/dev/null
 docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
@@ -152,13 +161,13 @@ restored_balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE id
   && pass "the account balance matches the backup-time value, not the drifted one" \
   || fail "expected the restored balance 500, got $restored_balance"
 
-# The restore drops the schema first, so the procedure is back only if the
-# backup login could read its body.
-restored_procs="$(query riftal_selftest "SELECT COUNT(*) FROM information_schema.ROUTINES
-  WHERE ROUTINE_SCHEMA = 'riftal_selftest' AND ROUTINE_NAME = 'selftest_proc'")"
-[ "$restored_procs" = "1" ] \
-  && pass "the stored procedure survives a backup taken by the read-only login" \
-  || fail "expected selftest_proc restored from the backup login's dump, found $restored_procs"
+restored_call="$(query riftal_selftest 'CALL balance_of_1()' 2>"$LOGS"/out-call.log || true)"
+if [ "$restored_call" = "500" ]; then
+  pass "a stored procedure survives a backup taken by the read-only login and still runs"
+else
+  fail "expected CALL balance_of_1() to return 500 after a restore from the backup login's dump, got '$restored_call'"
+  cat "$LOGS"/out-call.log
+fi
 
 restored_blocks="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
 [ "$restored_blocks" = "17" ] \
@@ -238,4 +247,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup by the read-only login with its procedure, drift, restore to the backup-time state across the database and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the read-only login, drift, restore to the backup-time state across the database, its stored procedures and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"

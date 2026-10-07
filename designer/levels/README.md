@@ -32,6 +32,14 @@ read and written by `designer/level.py`.
 - A check belongs to a zone when its `checks.yaml` entry carries `zone: <zone>`. The
   build runs only those, and needs at least one. Each must resolve against the built
   index, read the zone's world and pass. A check with no `zone` never gates a build.
+- A zone listed under `worlds:` in riftal-game `mines/resources/config.yml` is built
+  only when `checks.yaml` has a `mine_valid` with its `zone` on a spec one of the
+  recipe's `mine` steps builds (ADR 014 item 7). The file is read from
+  `$RIFTAL_GAME_DIR`, else the `riftal-game` checkout beside this repository;
+  `build_level(mines_config=...)` takes another path. With it absent or unreadable
+  every zone is refused. Both refusals come before any engine call.
+- After the checks, a chorus flower anywhere in `bounds` outside every `mine` step's
+  interior refuses the build: a projectile breaks one with no cancellable event.
 
 ## Lock, `<zone>.lock.json`
 

@@ -10,14 +10,17 @@ under containers, not less (CLAUDE.md hard rule 5).
 1. Acquires `GET_LOCK('riftal_schema_migrations', <timeout>)` over a
    connection it holds for the whole run, and releases it on the way out,
    success or failure.
-2. Reads `*.sql` files from `MIGRATIONS_DIR`, sorted by filename, and applies
+2. Refuses, before writing anything, a server whose `VERSION()` is below
+   MySQL 8.0.30, the floor ADR 008 sets because `grants.sql` may use
+   `REVOKE IF EXISTS`. The `mysql:8` tag floats, so the server is asked.
+3. Reads `*.sql` files from `MIGRATIONS_DIR`, sorted by filename, and applies
    the ones not already recorded in a `schema_migrations` bookkeeping table.
    A missing or empty directory is nothing pending, not a fault: there is no
    table to migrate until `riftal-game` ships one.
-3. Stops on the first migration that errors, with a nonzero exit and that
+4. Stops on the first migration that errors, with a nonzero exit and that
    file left unrecorded. A later run retries it and everything after it.
-4. Is a no-op success when nothing is pending, so running it twice is safe.
-5. Provisions the per-plugin MySQL logins of ADR 008 (riftal-pm
+5. Is a no-op success when nothing is pending, so running it twice is safe.
+6. Provisions the per-plugin MySQL logins of ADR 008 (riftal-pm
    `docs/decisions/008-per-plugin-mysql-users.md`) on every run, still under
    the same lock. See Provisioning logins below.
 
@@ -64,6 +67,42 @@ a login whose `riftal_role_<name>` does not exist as a role. No password is ever
 printed. It is not a `/docker-entrypoint-initdb.d` script: it runs wherever
 migrations run, including after every `../deploy/restore.sh`.
 
+## Stored procedures and their definer
+
+A migration that creates a procedure, such as riftal-game's
+`gangs_ledger_contribute` (`0009_create_gang_ledger.sql`, redefined in
+`0010_add_gang_founded_marker.sql`), leaves MySQL's default
+`SQL SECURITY DEFINER` in place, per ADR 008. Its definer is the account this
+runner connected as: `MYSQL_USER`, which defaults to `root`, reached over the
+container network, so `root`@`%`. Three things follow. `selftest.sh` proves
+each against a fixture procedure, and `../deploy/restore-selftest.sh` proves
+the third through the real backup and restore scripts.
+
+**A login needs only `EXECUTE`.** The procedure body runs with the definer's
+privileges, so a plugin role holds `EXECUTE` on the procedure and nothing on
+the columns it writes. A direct `UPDATE` by the same login is refused.
+riftal-game's `grants.sql` (riftal-game#259) must carry `GRANT EXECUTE ON
+PROCEDURE gangs_ledger_contribute TO riftal_role_gangs` (ADR 008, item 2).
+Until it does, no provisioned login can call the procedure. Grants are
+reapplied on every run, so a restore rebuilds this one too.
+
+**The definer account is never dropped or renamed.** MySQL resolves the
+definer on every call. Once `root`@`%` is gone, every call fails with
+`ERROR 1449 ... The user specified as a definer ('root'@'%') does not exist`,
+on every instance at once. `root`@`localhost` is a separate account and does
+not stand in for it. Running migrations as a different account later does not
+move an existing procedure: it keeps its definer until a new migration drops
+and recreates it, so the old account stays until then.
+
+**Backups keep routines.** `mysqldump` leaves procedures out unless it is
+given `--routines`. Without them, a restore carries `schema_migrations` saying
+`0009` and `0010` ran and no procedure, and this runner never recreates it.
+`../deploy/backup.sh` passes `--routines --triggers`. The dump writes each
+procedure as ``CREATE DEFINER=`root`@`%` PROCEDURE``, so the server restored
+into must have that account before the first call. `../deploy/restore.sh`
+loads the dump as `MYSQL_USER`, default `root`, which must be `root` or another
+account allowed to create a routine under any definer.
+
 ## Running it locally, via `wslc`
 
 Same `mysql:8` image the dev stack already runs, so nothing new to pull.
@@ -104,14 +143,14 @@ before failing loudly, and a hung `wslc` call otherwise gives no signal.
 container using the fixtures in `fixtures/`: no-op on an empty directory,
 ordered apply with both files recorded, a no-op second run, a broken
 migration halting the run without being recorded, and two invocations racing
-the same lock name applying a pending migration exactly once, and login
+the same lock name applying a pending migration exactly once, a server
+reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass, and login
 provisioning against `fixtures/grants/`: a login created on an existing
 schema, an idempotent second run, rotation, a restore onto a fresh server,
-and the loud refusals. It calls
-`docker` directly,
-the same way `.github/workflows/ci.yml`'s PHP lint step does, so it runs in
-CI and, on Nasir's Windows machine, under the Docker inside the WSL distro that
-hosts the CI runners:
+and the loud refusals, and the DEFINER procedure checks above. It calls
+`docker` directly, the same way `.github/workflows/ci.yml`'s PHP lint step
+does, so it runs in CI and, on Nasir's Windows machine, under the Docker
+inside the WSL distro that hosts the CI runners:
 
 ```sh
 wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/Users/nasir/riftal-games/riftal-infra/migrations/selftest.sh

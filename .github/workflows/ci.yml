@@ -24,10 +24,21 @@ jobs:
   checks:
     name: lint and validate
     runs-on: [self-hosted, linux, riftal]
+    # ci-sweep-selftest.sh removes the self-test's other-job volumes once they
+    # are 20 minutes old, as left by a run that has ended. A timeout past 20
+    # would let it remove a live run's.
     timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
+
+      # Before any step that starts a container, so every one of them carries
+      # this job's label for the sweep at the end.
+      - name: Label this job's containers
+        run: bash .github/scripts/ci-docker-label.sh
+
+      - name: Self-test, prove the label and the sweep
+        run: bash .github/scripts/ci-sweep-selftest.sh
 
       - name: Install hadolint
         # /usr/local/bin is root-owned on the self-hosted runner, unlike the
@@ -57,6 +68,9 @@ jobs:
       - name: Validate compose files
         run: bash .github/scripts/scan.sh compose
 
+      - name: Containers leave no anonymous volumes
+        run: bash .github/scripts/container-cleanup.sh
+
       # No PHP on the runner is confirmed, so the check runs inside a pinned
       # php:8.3-cli-alpine container instead of assuming a host binary.
       - name: Lint PHP plugins
@@ -68,7 +82,7 @@ jobs:
             printf 'no PHP plugin files to lint\n'
             exit 0
           fi
-          docker run --rm -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
+          docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
               for f in /plugins/*.php /plugins/join-order/*.php; do
@@ -88,6 +102,9 @@ jobs:
       - name: Dev bots admission guard self-test
         run: bash images/plugins/selftest.sh
 
+      - name: Pinned core image self-test
+        run: bash images/core-image-selftest.sh
+
       - name: Dev bots join order self-test
         run: bash images/plugins/join-order/selftest.sh
 
@@ -103,6 +120,18 @@ jobs:
       - name: Restore drill self-test
         run: bash deploy/restore-selftest.sh
 
+      - name: Binlog retention check self-test
+        run: bash deploy/binlog-selftest.sh
+
+      - name: Wipe self-test
+        run: bash deploy/wipe-selftest.sh
+
+      # Runs before the host-side sync below, which writes designer/.venv. The
+      # script mounts the project read-only, so a container run that tried to
+      # put its environment in the checkout fails here instead of leaving one.
+      - name: Designer toolkit tests in a container
+        run: sh designer/container-test.sh
+
       # --locked fails when uv.lock no longer matches pyproject.toml, where
       # --frozen would install the stale lock as-is. Once this sync has
       # validated the lock, the later uv run calls can stay --frozen.
@@ -116,3 +145,9 @@ jobs:
       - name: TOOLS.md matches the registered tools
         working-directory: designer
         run: uv run --frozen python -m designer.tools_doc --check
+
+      # always() rather than failure(): a cancelled run is the case that leaks,
+      # because the runner kills a self-test before its EXIT trap fires.
+      - name: Remove this job's containers
+        if: always()
+        run: bash .github/scripts/ci-container-sweep.sh

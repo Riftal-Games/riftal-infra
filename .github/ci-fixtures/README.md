@@ -17,7 +17,8 @@ red. That is the intended behaviour.
 `good/` is not decoration. A check that rejects a correct file is as broken as
 one that accepts a wrong file, because the first person it blocks weakens it.
 
-Each bad fixture carries exactly one defect and is asserted at exactly one site.
+Each bad fixture carries exactly one defect and is asserted at the line or lines
+that defect is reported on.
 A fixture that trips several rules at once stays red when the rule it was
 written for is switched off, so it keeps looking like coverage while pinning
 nothing.
@@ -42,6 +43,60 @@ valid companions, so the self-test can assert both that the broken file is named
 failure and that the companion on the far side of it still gets its own clean result.
 Three implementation rounds on this check each held for one position and broke on
 another; that is why all three positions are pinned.
+
+`good/cleanup.sh` and every `bad/cleanup-*.sh` drive
+`.github/scripts/container-cleanup.sh`, which refuses a `docker run` or
+`docker create` without `--rm` and a `docker rm` without `-v`, because either
+leaves `mysql:8`'s anonymous volume on the shared engine. `bad/cleanup-run.sh`
+puts a second run with `--rm` on the same line, so a check that reads past the
+end of a command goes red.
+
+The scanner matches through alternatives: two forms of create, four variable
+spellings of docker, five shell separators, the next `docker`, and a verb that
+ends its line. Each has its own bad fixture, because a fixture that one
+alternative alone rejects is the only thing that goes red when that alternative
+is deleted. `bad/cleanup-quoted-comment.sh` and `bad/cleanup-argcount.sh` put a
+`#` that starts no comment before a run, so a scanner that drops everything
+after any `#` goes red. `bad/cleanup-continued-hash.sh` puts a run on a line
+that starts with `#` yet is no comment, because a continuation joins it to the
+word above. `bad/cleanup-eof-continued/` is a directory of two files that each
+end on a continued run, so whichever is read first loses its run at the next
+file's first line and the other at the end of input, and a scanner that checks
+the pending command at only one of those two points names only one file.
+
+A run or create reads its options only up to the image, so
+`bad/cleanup-rm-after-image.sh` puts each `--rm` after the image, behind a
+short, a long, a clustered, an attached and an `=` option in turn, so a scanner
+that lets any of those swallow the image goes red. `good/cleanup.sh` puts its
+`--rm` behind options that take a value in each form docker reads one, so a
+scanner that stops at a value as if it were the image goes red there.
+`bad/cleanup-rm-quoted-value.sh` hides each `--rm` inside a single or double
+quoted value, so a scanner that splits words on blanks without reading quotes
+goes red, and `good/cleanup.sh` follows quoted values holding a blank, a
+backslash and the other quote with a real `--rm`.
+
+A flag after a trailing `#` lends a command nothing, but the scanner never
+deletes the text after a `#`: it only stops looking for that command's flags
+there, so a `#` it misreads can report a command and never hide one.
+`bad/cleanup-comment*.sh` and `bad/cleanup-continued-comment.sh` put the flag
+in a comment, and `bad/cleanup-comment-twice.sh` follows the flag with a second
+`#`, so a scanner that cuts at the last `#` goes red. Every `bad/cleanup-hash-*.sh` puts a `#` that a shell reads as
+text, inside quotes, a here-document, a parameter expansion or a word, ahead of
+or beside a leaking run, so a scanner that strips comments wrongly goes red.
+
+Every `bad/cleanup-optout-*.sh` fixture holds one way a
+`# container-cleanup: keep <reason>` line fails to excuse the container under
+it. Four are lines that are not `keep <reason>`, each a different loosening of
+that pattern. Where both the unused opt-out and the leaking command are
+reported, both are asserted, each at its own line: a scanner that drops the
+opt-out silently, or reports it yet still lets it excuse the run, gets only one
+of them right. `bad/cleanup-optout-carry/` is a directory because only a second
+file can show an opt-out carrying across the boundary.
+`bad/cleanup-optout-after-rm.sh` indents its line and opens it with a removal
+that uses up no keep, so a scanner that measures what precedes the second
+command from the start of the line, rather than from the end of the first
+command, reads only indentation there and lets the opt-out keep that run. The good opt-outs
+indented with spaces and with tabs go red when a blank stops meaning either.
 
 The real scans exclude this directory. If they ever stop excluding it, CI is red
 forever and the reason is here.
