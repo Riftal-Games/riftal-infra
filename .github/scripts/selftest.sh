@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=134
+EXPECTED_ASSERTIONS=135
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -150,6 +150,34 @@ expect_dockerfile_found() {
     pass "Dockerfile discovery finds $1"
   else
     fail "$1 is a Dockerfile or Containerfile name and must be handed to hadolint, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+# Created neither in C order nor its reverse, so neither a filesystem that
+# lists by creation time nor one that lists newest first hands find(1) the
+# expected order. The expected list is written out rather than computed with
+# sort, and it differs from a locale-aware collation: uppercase before
+# underscore before lowercase, space before dot, and b.Dockerfile before
+# b/Dockerfile.
+expect_dockerfiles_sorted() {
+  local dir name out status got want
+  dir="$(mktemp -d)"
+  mkdir "$dir/b"
+  for name in a.Dockerfile b/Dockerfile Dockerfile _.Containerfile dockerfile.dev \
+    Z.Dockerfile 'a b.Dockerfile' Containerfile b.Dockerfile; do
+    printf 'FROM ubuntu:24.04\n' > "$dir/$name"
+  done
+  out="$(HADOLINT=true bash "$SCAN" dockerfiles "$dir" 2>&1)"
+  status=$?
+  rm -rf "$dir"
+  got="$(printf '%s\n' "$out" | sed -n "s#^checking $dir/##p")"
+  want="$(printf '%s\n' Containerfile Dockerfile Z.Dockerfile _.Containerfile \
+    'a b.Dockerfile' a.Dockerfile b.Dockerfile b/Dockerfile dockerfile.dev)"
+  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'found 9 ' && [ "$got" = "$want" ]; then
+    pass "Dockerfile discovery checks files in LC_ALL=C order"
+  else
+    fail "expected Dockerfile discovery to check its 9 files in LC_ALL=C order, exit $status"
     printf '%s\n' "$out"
   fi
 }
@@ -549,6 +577,9 @@ expect_dockerfile_skipped Dockerfile_old
 expect_dockerfile_found containerfile
 expect_dockerfile_skipped AppContainerfile
 expect_dockerfile_skipped Containerfile_old
+
+section "Dockerfile discovery reports in LC_ALL=C order, as compose discovery does"
+expect_dockerfiles_sorted
 
 section "compose discovery, by content and not by filename"
 expect_listed "$FIXTURES/good" compose.yaml
