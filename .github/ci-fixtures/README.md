@@ -75,6 +75,16 @@ quoted value, so a scanner that splits words on blanks without reading quotes
 goes red, and `good/cleanup.sh` follows quoted values holding a blank, a
 backslash and the other quote with a real `--rm`.
 
+The last `--rm` before the image decides, as docker reads it.
+`bad/cleanup-rm-false.sh` turns an earlier `--rm` off with `--rm=false` and
+`--rm=f`, sets `--rm=false` and `--rm=0` alone, spells a value docker refuses,
+and quotes a value, which the scanner does not unquote and so reports, so a
+scanner that counts the first `--rm`, or any `--rm=` word, goes red.
+`good/cleanup.sh` turns a false `--rm` back on and spells true in the forms
+docker accepts, so a scanner that stops at the first `--rm=` or reads only
+`true` goes red there. Each unquoted spelling was checked against the
+`AutoRemove` docker 29.1.3 records.
+
 A flag after a trailing `#` lends a command nothing, but the scanner never
 deletes the text after a `#`: it only stops looking for that command's flags
 there, so a `#` it misreads can report a command and never hide one.
