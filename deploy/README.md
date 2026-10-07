@@ -47,13 +47,13 @@ the binlog on, as `binlog-check.sh` requires, MySQL refuses only
 a `SIGNAL` trigger can block writers. `../migrations/selftest.sh` pins each
 of these: the refused create, the accepted drop, and the create once the
 guard is lifted.
-Like any MySQL login, `backup` can change its own password and default role,
-take shared row locks (`SELECT ... FOR SHARE`) and take named locks
-(`GET_LOCK`), including the runner's `riftal_schema_migrations`; no grant
-removes these, and their effect is on availability only: backups or
-migrations stop, or writers wait, until the login is reprovisioned or its
-session ends.
-`restore.sh` still runs as the admin account, because it drops and recreates
+`backup` can change its own password and default role and take named locks
+(`GET_LOCK`), including the runner's `riftal_schema_migrations`, because
+those need no privilege. It can take shared row locks
+(`SELECT ... FOR SHARE`), because they come with the `SELECT` the dump needs.
+Their effect is on availability only: backups or migrations stop, or writers
+wait, until the login is reprovisioned or its session ends.
+`restore.sh` runs as the admin account, because it drops and recreates
 the schema and recreates each procedure under its original `DEFINER`.
 
 ## Retention

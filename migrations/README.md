@@ -147,7 +147,14 @@ the same lock name applying a pending migration exactly once, a server
 reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass, and login
 provisioning against `fixtures/grants/`: a login created on an existing
 schema, an idempotent second run, rotation, a restore onto a fresh server,
-and the loud refusals, and the DEFINER procedure checks above. It calls
+and the loud refusals, and the DEFINER procedure checks above. Its
+backup-login section checks that a run with no grants file provisions
+`backup`, which reads `widgets`; that `backup` is denied `INSERT`, `UPDATE`,
+`DELETE`, `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`, `LOCK TABLES`,
+`CREATE EVENT`, `CREATE USER` and `GRANT` with the row count unchanged; and,
+with the binlog on, that `backup`'s `CREATE TRIGGER` is refused and its
+`DROP TRIGGER` accepted, and that its `CREATE TRIGGER` is accepted once
+`log_bin_trust_function_creators` is set. It calls
 `docker` directly, the same way `.github/workflows/ci.yml`'s PHP lint step
 does, so it runs in CI and, on Nasir's Windows machine, under the Docker
 inside the WSL distro that hosts the CI runners:
