@@ -27,8 +27,9 @@ nothing.
 `bad/Dockerfile` again under the OCI-neutral name, so a discovery regression
 that stops matching `Containerfile` goes red here instead of shipping silently.
 `bad/lowercase/` holds both again under all-lowercase names, and
-`good/uppercase-extension.YAML` is compose under an uppercase extension, so
-discovery that matches a name case-sensitively goes red. `bad/lowercase/` is a
+`good/uppercase-extension.YAML` and `good/uppercase-extension.YML` are compose
+under each uppercase extension, so discovery that matches a name
+case-sensitively goes red. `bad/lowercase/` is a
 directory because a case-insensitive checkout cannot hold `dockerfile` beside
 `Dockerfile`.
 
