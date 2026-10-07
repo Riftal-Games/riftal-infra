@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=125
+EXPECTED_ASSERTIONS=134
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -133,9 +133,10 @@ expect_dockerfile_skipped() {
   fi
 }
 
-# Each dotted name form is its own -name alternative in scan.sh, so each needs
+# Each dotted name form is its own -iname alternative in scan.sh, so each needs
 # its own case: dropping one alternative leaves the bare names and every other
-# form still found.
+# form still found. Each form also needs a spelling only a case-insensitive
+# match finds, or narrowing one alternative to -name leaves every case green.
 expect_dockerfile_found() {
   local dir out status
   dir="$(mktemp -d)"
@@ -529,15 +530,23 @@ section "hadolint reaches Containerfile, not only Dockerfile"
 expect_scan_ok dockerfiles "$FIXTURES/good/Containerfile"
 expect_scan_bad dockerfiles "$FIXTURES/bad/Containerfile" DL3007
 
+section "hadolint reaches a name in any case"
+expect_scan_bad dockerfiles "$FIXTURES/bad/lowercase/dockerfile" DL3007
+expect_scan_bad dockerfiles "$FIXTURES/bad/lowercase/containerfile" DL3007
+
 section "Dockerfile discovery, every dotted name form found, near misses skipped"
 expect_dockerfile_found Dockerfile.dev
 expect_dockerfile_found app.Dockerfile
 expect_dockerfile_found Containerfile.dev
 expect_dockerfile_found app.Containerfile
-expect_dockerfile_skipped dockerfile
+expect_dockerfile_found dockerfile.dev
+expect_dockerfile_found app.dockerfile
+expect_dockerfile_found containerfile.dev
+expect_dockerfile_found app.CONTAINERFILE
+expect_dockerfile_found dockerfile
 expect_dockerfile_skipped MyDockerfile
 expect_dockerfile_skipped Dockerfile_old
-expect_dockerfile_skipped containerfile
+expect_dockerfile_found containerfile
 expect_dockerfile_skipped AppContainerfile
 expect_dockerfile_skipped Containerfile_old
 
@@ -545,10 +554,13 @@ section "compose discovery, by content and not by filename"
 expect_listed "$FIXTURES/good" compose.yaml
 expect_listed "$FIXTURES/good" stack.yaml
 expect_not_listed "$FIXTURES/good" rollout.yml
+expect_listed "$FIXTURES/good" uppercase-extension.YAML
+expect_listed "$FIXTURES/good" uppercase-extension.YML
 
 section "compose validation, through scan.sh's own check_compose"
 expect_scan_ok compose "$FIXTURES/good/compose.yaml"
 expect_scan_ok compose "$FIXTURES/good/stack.yaml"
+expect_scan_ok compose "$FIXTURES/good/uppercase-extension.YAML"
 expect_scan_bad compose "$FIXTURES/bad/schema.compose.yaml" ports
 expect_scan_bad compose "$FIXTURES/bad/unparseable.compose.yml" yaml
 
