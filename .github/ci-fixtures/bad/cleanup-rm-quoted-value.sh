@@ -6,3 +6,4 @@ docker run --health-cmd 'x --rm y' mysql:8
 docker run --env="X --rm Y" mysql:8 true
 docker run -e'X --rm Y' mysql:8 true
 docker run -e "X \" --rm Y" mysql:8 true
+docker run -e $'X \' --rm Y' mysql:8 true

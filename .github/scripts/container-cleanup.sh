@@ -58,10 +58,13 @@ awk '
     for (i in names) takes_value[names[i]] = 1
     short_value = "acehlmpuvw"
   }
-  # Splits s into shell words as the shell would before expansion, so a quoted
-  # value such as -e "X --rm Y" is one word and the --rm in it is not a flag.
-  # A quote still open where the command was cut, at a separator, a # or a
-  # docker inside it, runs to the end, so no word after it can be a flag.
+  # Splits s into words at blanks outside quotes, reading backslash escapes and
+  # the quotes '...', "..." and $'...', in which a backslash escapes the next
+  # character, so a quoted value such as -e "X --rm Y" is one word and the
+  # --rm in it is not a flag. $(...) and backticks are not parsed, so a quote
+  # nested inside one is read as if it stood alone. A quote still open where
+  # the command was cut, at a separator, a # or a docker inside it, runs to
+  # the end, so no word after it can be a flag.
   function shell_words(s, w,    n, i, ch, q, cur) {
     n = 0
     q = ""
@@ -70,10 +73,16 @@ awk '
       ch = substr(s, i, 1)
       if (q == "\047") {
         if (ch == q) q = ""
+      } else if (q == "$") {
+        if (ch == "\\") ch = substr(s, i++, 2)
+        else if (ch == "\047") q = ""
       } else if (ch == "\\") {
         ch = substr(s, i++, 2)
       } else if (q == "\"") {
         if (ch == q) q = ""
+      } else if (ch == "$" && substr(s, i + 1, 1) == "\047") {
+        ch = substr(s, i++, 2)
+        q = "$"
       } else if (ch == "\"" || ch == "\047") {
         q = ch
       } else if (ch == " " || ch == "\t") {
