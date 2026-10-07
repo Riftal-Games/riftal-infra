@@ -82,7 +82,7 @@ jobs:
             printf 'no PHP plugin files to lint\n'
             exit 0
           fi
-          docker run --rm -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
+          docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
               for f in /plugins/*.php /plugins/join-order/*.php; do
