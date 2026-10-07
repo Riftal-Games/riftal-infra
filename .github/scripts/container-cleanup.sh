@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Fails on any `docker run` without --rm and any `docker rm` without -v in the
-# repo's shell scripts and workflows.
+# Fails on any `docker run` or `docker create` without --rm and any `docker rm`
+# without -v in the repo's shell scripts and workflows.
 #
 # mysql:8 declares VOLUME /var/lib/mysql, so every container started from it
 # gets an anonymous volume that a plain `docker rm` leaves behind. The CI
-# runners and every lane share one docker engine, where those volumes piled up
-# by the thousand (riftal-infra#645). --rm also covers the run whose EXIT trap
-# never fires: its container is removed with its volumes once it stops.
+# runners and every lane share one docker engine, so a volume one job leaves
+# behind is disk that no later job on any lane gets back. --rm also covers the
+# run whose EXIT trap never fires: its container is removed with its volumes
+# once it stops.
 set -euo pipefail
 
 root="${1:-.}"
@@ -22,20 +23,26 @@ if [ "${#files[@]}" -eq 0 ]; then
 fi
 
 # Backslash continuations are joined first, so a flag several lines below its
-# `docker run` still counts. Each command is read up to the next `docker`, so
-# a later command on the same line cannot lend it a flag.
+# `docker run` still counts. A comment is dropped before the join, because the
+# shell never passes it to docker. `$DOCKER`, `${DOCKER}` and their quoted
+# forms are read as `docker`. Each command is read only up to the next `docker`
+# or the next `;`, `&`, `&&`, `|` or `||`, so a later command on the same line
+# cannot lend it a flag.
 awk '
-  function check(cmd, at,    rest, seg, n) {
+  function check(cmd, at,    rest, head, seg, n) {
     rest = cmd
-    while (match(rest, /docker[ \t]+(container[ \t]+)?(run|rm)([ \t]|$)/)) {
-      seg = substr(rest, RSTART + 6)
+    while (match(rest, /docker[ \t]+(container[ \t]+)?(run|rm|create)[ \t]/)) {
+      head = substr(rest, RSTART, RLENGTH)
+      seg = substr(rest, RSTART + RLENGTH - 1)
       rest = seg
       n = match(seg, /[ \t]docker[ \t]/)
       if (n) seg = substr(seg, 1, n)
+      n = match(seg, /[;&|]/)
+      if (n) seg = substr(seg, 1, n - 1)
       seg = seg " "
-      if (seg ~ /^[ \t]+(container[ \t]+)?run[ \t]/) {
+      if (head !~ /rm[ \t]$/) {
         if (seg !~ /[ \t]--rm[ \t]/) {
-          printf "%s:%d: a container started without --rm\n", FILENAME, at
+          printf "%s:%d: a container %s without --rm\n", FILENAME, at, (head ~ /create/ ? "created" : "started")
           bad = 1
         }
       } else if (seg !~ /[ \t](--volumes|-[A-Za-z]*v[A-Za-z]*)[ \t]/) {
@@ -47,7 +54,8 @@ awk '
   FNR == 1 { cmd = ""; at = 0 }
   {
     line = $0
-    if (cmd == "" && line ~ /^[ \t]*#/) next
+    sub(/(^|[ \t])#.*$/, "", line)
+    gsub(/"[$][{]DOCKER[}]"|"[$]DOCKER"|[$][{]DOCKER[}]|[$]DOCKER/, "docker", line)
     if (cmd == "") at = FNR
     if (line ~ /\\$/) {
       cmd = cmd substr(line, 1, length(line) - 1) " "
