@@ -10,14 +10,17 @@ under containers, not less (CLAUDE.md hard rule 5).
 1. Acquires `GET_LOCK('riftal_schema_migrations', <timeout>)` over a
    connection it holds for the whole run, and releases it on the way out,
    success or failure.
-2. Reads `*.sql` files from `MIGRATIONS_DIR`, sorted by filename, and applies
+2. Refuses, before writing anything, a server whose `VERSION()` is below
+   MySQL 8.0.30, the floor ADR 008 sets because `grants.sql` may use
+   `REVOKE IF EXISTS`. The `mysql:8` tag floats, so the server is asked.
+3. Reads `*.sql` files from `MIGRATIONS_DIR`, sorted by filename, and applies
    the ones not already recorded in a `schema_migrations` bookkeeping table.
    A missing or empty directory is nothing pending, not a fault: there is no
    table to migrate until `riftal-game` ships one.
-3. Stops on the first migration that errors, with a nonzero exit and that
+4. Stops on the first migration that errors, with a nonzero exit and that
    file left unrecorded. A later run retries it and everything after it.
-4. Is a no-op success when nothing is pending, so running it twice is safe.
-5. Provisions the per-plugin MySQL logins of ADR 008 (riftal-pm
+5. Is a no-op success when nothing is pending, so running it twice is safe.
+6. Provisions the per-plugin MySQL logins of ADR 008 (riftal-pm
    `docs/decisions/008-per-plugin-mysql-users.md`) on every run, still under
    the same lock. See Provisioning logins below.
 
@@ -136,7 +139,8 @@ before failing loudly, and a hung `wslc` call otherwise gives no signal.
 container using the fixtures in `fixtures/`: no-op on an empty directory,
 ordered apply with both files recorded, a no-op second run, a broken
 migration halting the run without being recorded, and two invocations racing
-the same lock name applying a pending migration exactly once, and login
+the same lock name applying a pending migration exactly once, a server
+reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass, and login
 provisioning against `fixtures/grants/`: a login created on an existing
 schema, an idempotent second run, rotation, a restore onto a fresh server,
 and the loud refusals, and the DEFINER procedure checks above. It calls

@@ -55,10 +55,12 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
   'CREATE DATABASE IF NOT EXISTS riftal_selftest_race' >/dev/null
 docker exec "$CONTAINER" mysql -uroot -pselftest -e \
   'CREATE DATABASE IF NOT EXISTS riftal_selftest_definer' >/dev/null
+docker exec "$CONTAINER" mysql -uroot -pselftest -e \
+  'CREATE DATABASE IF NOT EXISTS riftal_selftest_floor' >/dev/null
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=32
+EXPECTED_ASSERTIONS=35
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -195,6 +197,35 @@ if [ "$lost_rc" -eq 1 ] \
 else
   fail "expected exit 1 and a lost-lock error, got exit $lost_rc"
   cat "$LOGS"/out-lostlock.log
+fi
+
+section "a server below MySQL 8.0.30 is refused before anything is applied"
+at_version() {
+  run_migrations "$FIXTURES/good" riftal_selftest_floor "selftest-floor-$SUFFIX" \
+    -v "$FIXTURES/version-floor:/version-floor:ro" \
+    -e BASH_ENV=/version-floor/fake-version.bash -e SELFTEST_MYSQL_VERSION="$1"
+}
+below_rc=0
+at_version 8.0.29-log >"$LOGS"/out-floor-below.log 2>&1 || below_rc=$?
+floor_tables="$(query riftal_selftest_floor \
+  "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='riftal_selftest_floor'")"
+if [ "$below_rc" -eq 1 ] && [ "$floor_tables" = "0" ] \
+   && grep -q 'MySQL 8.0.29-log is below the 8.0.30 floor' "$LOGS"/out-floor-below.log; then
+  pass "8.0.29 exits 1, names the floor and creates no table"
+else
+  fail "expected 8.0.29 refused with no table created, got exit $below_rc, tables=$floor_tables"
+  cat "$LOGS"/out-floor-below.log
+fi
+if at_version 8.0.30 >"$LOGS"/out-floor-at.log 2>&1; then
+  pass "8.0.30, the floor itself, applies cleanly"
+else
+  fail "8.0.30 should pass the floor"; cat "$LOGS"/out-floor-at.log
+fi
+# A comparison that read only the patch number would refuse this one.
+if at_version 8.1.0 >"$LOGS"/out-floor-above.log 2>&1; then
+  pass "8.1.0 passes the floor"
+else
+  fail "8.1.0 should pass the floor"; cat "$LOGS"/out-floor-above.log
 fi
 
 section "provisioning on an existing schema creates the login with its role"
@@ -425,4 +456,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, login provisioning, DEFINER procedures.\n' "$PASSES"
+printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
