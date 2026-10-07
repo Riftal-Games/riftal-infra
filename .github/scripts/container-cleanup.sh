@@ -23,12 +23,10 @@ if [ "${#files[@]}" -eq 0 ]; then
 fi
 
 # Backslash continuations are joined first, so a flag several lines below its
-# `docker run` still counts. A comment is dropped before the join, because the
-# shell never passes it to docker. As in the shell, only a `#` outside quotes
-# and after a blank starts one, so `"step #1"` and `$#` hide nothing.
-# `$DOCKER`, `${DOCKER}` and their quoted forms are read as `docker`. Each command is read only up to the next `docker`
-# or the next `;`, `&`, `&&`, `|` or `||`, so a later command on the same line
-# cannot lend it a flag.
+# `docker run` still counts. `$DOCKER`, `${DOCKER}` and their quoted forms are
+# read as `docker`. Each command is read only up to the next `docker` or the
+# next `;`, `&`, `&&`, `|` or `||`, so a later command on the same line cannot
+# lend it a flag.
 awk '
   function check(cmd, at,    rest, head, seg, n) {
     rest = cmd
@@ -52,26 +50,10 @@ awk '
       }
     }
   }
-  function uncomment(s,    i, c, q, prev) {
-    q = ""
-    prev = " "
-    for (i = 1; i <= length(s); i++) {
-      c = substr(s, i, 1)
-      if (q == "" && c == "#" && prev ~ /[ \t]/) return substr(s, 1, i - 1)
-      if (c == "\\" && q != "'\''") {
-        i++
-        prev = "x"
-        continue
-      }
-      if (q == "" && (c == "\"" || c == "'\''")) q = c
-      else if (c == q) q = ""
-      prev = c
-    }
-    return s
-  }
   FNR == 1 { cmd = ""; at = 0 }
   {
-    line = uncomment($0)
+    line = $0
+    if (cmd == "" && line ~ /^[ \t]*#/) next
     gsub(/"[$][{]DOCKER[}]"|"[$]DOCKER"|[$][{]DOCKER[}]|[$]DOCKER/, "docker", line)
     if (cmd == "") at = FNR
     if (line ~ /\\$/) {
