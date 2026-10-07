@@ -50,13 +50,11 @@ jobs:
           sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
           hadolint --version
 
-      # Runs before the real scans on purpose. Outside the fixtures the tree
-      # holds no Dockerfile or Containerfile, so the Dockerfile scan below goes
-      # green by finding nothing, and a compose scan whose discovery missed
-      # every file would go green the same way. This step feeds every check a
-      # fixture it must reject and a fixture it must accept, so the checks are
-      # known to discriminate on this commit and not only on the day they were
-      # written.
+      # Runs before the real scans on purpose. A scan that finds nothing exits
+      # 0, so a green scan alone cannot tell a clean tree from a check that
+      # never ran. This step feeds every check a fixture it must reject and a
+      # fixture it must accept, so the checks are known to discriminate on
+      # this commit.
       - name: Self-test, prove every check can fail
         run: bash .github/scripts/selftest.sh
 
