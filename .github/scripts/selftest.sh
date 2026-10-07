@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=39
+EXPECTED_ASSERTIONS=60
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -187,6 +187,25 @@ expect_cleanup() {
   fi
 }
 
+# find(1) lists a directory in no fixed order, so each file opens with a run
+# under the other's closing opt-out, and whichever is read second shows
+# whether an opt-out carries into the next file.
+expect_cleanup_carry() {
+  local dir="$FIXTURES/bad/cleanup-optout-carry" out status
+  out="$(bash "$CLEANUP" "$dir" 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ] \
+    && printf '%s' "$out" | grep -qF "$dir/a.sh:1: a container started without --rm" \
+    && printf '%s' "$out" | grep -qF "$dir/b.sh:1: a container started without --rm" \
+    && printf '%s' "$out" | grep -qF "$dir/a.sh:2: a container-cleanup opt-out with no container" \
+    && printf '%s' "$out" | grep -qF "$dir/b.sh:2: a container-cleanup opt-out with no container"; then
+    pass "$(rel "$dir") keeps no opt-out across a file boundary"
+  else
+    fail "expected container-cleanup.sh on $(rel "$dir") to name both files' run and opt-out, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
 expect_real_cleanup() {
   local out status
   mkdir -p "$PLANTED_DIR"
@@ -224,6 +243,27 @@ expect_cleanup "$FIXTURES/bad/cleanup-nosep.sh" "4: a container started without 
 expect_cleanup "$FIXTURES/bad/cleanup-eol.sh" "4: a container removed without -v"
 expect_cleanup "$FIXTURES/bad/cleanup-quoted-comment.sh" "4: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-argcount.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-reason.sh" "4: a container-cleanup line that is not keep <reason>"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-keepword.sh" "4: a container-cleanup line that is not keep <reason>"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-notkeep.sh" "4: a container-cleanup line that is not keep <reason>"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-nospace.sh" "4: a container-cleanup line that is not keep <reason>"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-eof.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-twice.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-comment.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-comment.sh" "6: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-command.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-command.sh" "6: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-sameline.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-sameline.sh" "5: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-two-commands.sh" "5: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-rm.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-rm.sh" "5: a container removed without -v"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-after-rm.sh" "4: a container-cleanup opt-out with no container under it to keep"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-after-rm.sh" "5: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-inline.sh" "5: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-optout-unspaced.sh" "5: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-continued-hash.sh" "4: a container started without --rm"
+expect_cleanup_carry
 expect_real_cleanup
 
 section "hadolint, through scan.sh's own check_dockerfiles"

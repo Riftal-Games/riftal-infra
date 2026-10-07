@@ -8,6 +8,17 @@
 # behind is disk that no later job on any lane gets back. --rm also covers the
 # run whose EXIT trap never fires: its container is removed with its volumes
 # once it stops.
+#
+# A container that must outlive its process, such as a `--restart` service,
+# cannot take --rm. It is admitted only under a whole comment line directly
+# above it that gives the reason:
+#
+#   # container-cleanup: keep <why this container is long-lived>
+#
+# That excuses the missing --rm of the command that opens the line below it
+# and nothing else: not a second command on that line, not its later
+# `docker rm`, which still needs -v. An opt-out that excuses nothing is itself reported, so one
+# can never be left waiting for whatever command is written under it next.
 set -euo pipefail
 
 root="${1:-.}"
@@ -28,9 +39,19 @@ fi
 # next `;`, `&`, `&&`, `|` or `||`, so a later command on the same line cannot
 # lend it a flag.
 awk '
+  # keep_file is the file the pending opt-out was read in, which FILENAME no
+  # longer names once the next file has started.
+  function drop_keep() {
+    if (keep_at) {
+      printf "%s:%d: a container-cleanup opt-out with no container under it to keep\n", keep_file, keep_at
+      bad = 1
+    }
+    keep_at = 0
+  }
   function check(cmd, at,    rest, head, seg, n) {
     rest = cmd
     while (match(rest, /docker[ \t]+(container[ \t]+)?(run|rm|create)([ \t]|$)/)) {
+      if (substr(rest, 1, RSTART - 1) !~ /^[ \t]*$/) drop_keep()
       head = substr(rest, RSTART, RLENGTH)
       seg = substr(rest, RSTART + RLENGTH - 1)
       rest = seg
@@ -41,19 +62,36 @@ awk '
       seg = seg " "
       if (head !~ /rm[ \t]?$/) {
         if (seg !~ /[ \t]--rm[ \t]/) {
-          printf "%s:%d: a container %s without --rm\n", FILENAME, at, (head ~ /create/ ? "created" : "started")
-          bad = 1
+          if (keep_at) {
+            keep_at = 0
+          } else {
+            printf "%s:%d: a container %s without --rm\n", FILENAME, at, (head ~ /create/ ? "created" : "started")
+            bad = 1
+          }
         }
       } else if (seg !~ /[ \t](--volumes|-[A-Za-z]*v[A-Za-z]*)[ \t]/) {
         printf "%s:%d: a container removed without -v\n", FILENAME, at
         bad = 1
       }
     }
+    drop_keep()
   }
-  FNR == 1 { cmd = ""; at = 0 }
+  FNR == 1 { drop_keep(); cmd = ""; at = 0 }
   {
     line = $0
-    if (cmd == "" && line ~ /^[ \t]*#/) next
+    if (cmd == "" && line ~ /^[ \t]*#/) {
+      drop_keep()
+      if (sub(/^[ \t]*# container-cleanup:/, "", line)) {
+        if (line ~ /^ keep[ \t]+[^ \t]/) {
+          keep_at = FNR
+          keep_file = FILENAME
+        } else {
+          printf "%s:%d: a container-cleanup line that is not keep <reason>\n", FILENAME, FNR
+          bad = 1
+        }
+      }
+      next
+    }
     gsub(/"[$][{]DOCKER[}]"|"[$]DOCKER"|[$][{]DOCKER[}]|[$]DOCKER/, "docker", line)
     if (cmd == "") at = FNR
     if (line ~ /\\$/) {
@@ -63,5 +101,5 @@ awk '
     check(cmd line, at)
     cmd = ""
   }
-  END { exit bad }
+  END { drop_keep(); exit bad }
 ' "${files[@]}"
