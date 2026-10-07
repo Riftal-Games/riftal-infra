@@ -22,7 +22,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=40
+EXPECTED_ASSERTIONS=41
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -117,8 +117,9 @@ printf '\n== start-instance.sh keeps what start-pocketmine does for instance-b\n
 # scratch root and php and wget stubbed, so nothing boots and nothing is
 # fetched. $1 is the uid the ownership check treats as pocketmine; the rest
 # are environment assignments. The shared /plugins starts with Cached.phar.
-# With MINES set, RiftalMines.phar is built and a config rendered by hand
-# with a password no stack has sits next to it.
+# With MINES set, RiftalMines.phar is built, contracts.phar too unless
+# NO_CONTRACTS is set, and a config rendered by hand with a password no stack
+# has sits next to it.
 boot() {
   local owner="$1" root="$work/boot"
   shift
@@ -128,6 +129,7 @@ boot() {
   cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$root/"
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
+    if [ -z "${NO_CONTRACTS:-}" ]; then : > "$root/contracts.phar"; fi
     MYSQL_ROOT_PASSWORD=stale bash "$root/render-config.sh" "$root/RiftalMines.config.yml"
   fi
   sed -e "s#/plugins#$root/plugins#g; s#/data#$root/data#g" \
@@ -177,7 +179,11 @@ printf '\n== RiftalMines gets the password its container boots with (riftal-infr
 mines_config="$b/data/plugin_data/RiftalMines/config.yml"
 check "the config on the volume carries MYSQL_ROOT_PASSWORD, not the stale rendered file" \
   'MINES=1 boot "$me" MYSQL_ROOT_PASSWORD="$password" &&
-    [ "$(db password "$mines_config")" = "$password" ] && grep -qx RiftalMines.phar "$b/roster"'
+    [ "$(db password "$mines_config")" = "$password" ] && grep -qx RiftalMines.phar "$b/roster" &&
+    grep -qx contracts.phar "$b/roster"'
+check "RiftalMines without contracts.phar stops the boot before php, naming it" \
+  '! MINES=1 NO_CONTRACTS=1 boot "$me" MYSQL_ROOT_PASSWORD="$password" && [ ! -e "$b/args" ] &&
+    grep -q "contracts.phar is not" "$b/out"'
 check "an unset MYSQL_ROOT_PASSWORD stops the boot before php, naming it" \
   '! MINES=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "MYSQL_ROOT_PASSWORD is not set" "$b/out"'
 
