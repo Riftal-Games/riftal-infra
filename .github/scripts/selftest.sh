@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=110
+EXPECTED_ASSERTIONS=114
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -124,6 +124,26 @@ expect_dockerfile_skipped() {
     pass "Dockerfile discovery skips $1"
   else
     fail "$1 is not a Dockerfile or Containerfile name and must not be handed to hadolint, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+# Each dotted name form is its own -name alternative in scan.sh, so each needs
+# its own case: dropping one alternative leaves the bare names and every other
+# form still found.
+expect_dockerfile_found() {
+  local dir out status
+  dir="$(mktemp -d)"
+  printf 'FROM ubuntu:24.04\n' > "$dir/$1"
+  out="$(HADOLINT=true bash "$SCAN" dockerfiles "$dir" 2>&1)"
+  status=$?
+  rm -rf "$dir"
+  if [ "$status" -eq 0 ] \
+    && printf '%s' "$out" | grep -qF 'found 1 ' \
+    && printf '%s' "$out" | grep -qF "checking $dir/$1"; then
+    pass "Dockerfile discovery finds $1"
+  else
+    fail "$1 is a Dockerfile or Containerfile name and must be handed to hadolint, exit $status"
     printf '%s\n' "$out"
   fi
 }
@@ -355,7 +375,11 @@ section "hadolint reaches Containerfile, not only Dockerfile"
 expect_scan_ok dockerfiles "$FIXTURES/good/Containerfile"
 expect_scan_bad dockerfiles "$FIXTURES/bad/Containerfile" DL3007
 
-section "Dockerfile discovery, by exact name form and case"
+section "Dockerfile discovery, every dotted name form found, near misses skipped"
+expect_dockerfile_found Dockerfile.dev
+expect_dockerfile_found app.Dockerfile
+expect_dockerfile_found Containerfile.dev
+expect_dockerfile_found app.Containerfile
 expect_dockerfile_skipped dockerfile
 expect_dockerfile_skipped MyDockerfile
 expect_dockerfile_skipped Dockerfile_old
