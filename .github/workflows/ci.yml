@@ -69,6 +69,9 @@ jobs:
       - name: Validate compose files
         run: bash .github/scripts/scan.sh compose
 
+      - name: Every action is pinned by commit sha or image digest
+        run: bash .github/scripts/action-pins.sh
+
       - name: Containers leave no anonymous volumes
         run: bash .github/scripts/container-cleanup.sh
 

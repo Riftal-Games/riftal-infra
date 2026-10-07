@@ -104,5 +104,18 @@ command from the start of the line, rather than from the end of the first
 command, reads only indentation there and lets the opt-out keep that run. The good opt-outs
 indented with spaces and with tabs go red when a blank stops meaning either.
 
+`good/action-pins/` and `bad/action-pins/` drive `.github/scripts/action-pins.sh`.
+Each workflow sits under its own `.github/workflows/`, and the composite action is
+named `action.yml`, so the same discovery the real tree gets finds them. The good
+workflow is asserted with its exact count of `uses:` lines checked, because a check
+that stops recognising one spelling of the key passes a good file just as well.
+`bad/action-pins/` has one bad file per way a ref fails to pin: a tag quoted each
+way, a branch, a short, long or uppercase sha, a sha only in the trailing comment,
+a word after the sha that YAML reads into the ref, a URL ending in a sha, no ref at
+all and a `docker://` tag, and the list, mapping and spaced-key forms of the key
+are spread across them. The URL is there for the pattern's start anchor and the
+trailing word for the check on what follows the value: without either, a sha at
+the end of the line passes.
+
 The real scans exclude this directory. If they ever stop excluding it, CI is red
 forever and the reason is here.

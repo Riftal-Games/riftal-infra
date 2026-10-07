@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=136
+EXPECTED_ASSERTIONS=152
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -628,6 +628,73 @@ section "the exact invocation ci.yml uses: a kind, no root, no prune argument"
 expect_real_scan dockerfiles "$FIXTURES/bad/Dockerfile"
 expect_real_scan compose "$FIXTURES/bad/schema.compose.yaml"
 
+PINS="$REPO_ROOT/.github/scripts/action-pins.sh"
+PIN_WORKFLOWS="$FIXTURES/bad/action-pins/.github/workflows"
+
+# The checked count is asserted because a good file passes just as well when
+# the check stops recognising a uses: line at all.
+expect_pins_clean() {
+  local file="$1" count="$2" out status
+  out="$(bash "$PINS" "$file" 2>&1)"
+  status=$?
+  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'found 1 ' \
+    && printf '%s' "$out" | grep -qxF "checked $count uses: line(s)"; then
+    pass "$(rel "$file") passes action-pins.sh with $count uses: lines checked"
+  else
+    fail "expected $(rel "$file") to pass action-pins.sh with $count uses: lines checked, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+# Exactly one line reported, and it is the fixture's one defect.
+expect_pins_bad() {
+  local file="$1" line="$2" out status
+  out="$(bash "$PINS" "$file" 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qF "$file:$line: " \
+    && [ "$(printf '%s\n' "$out" | grep -c ': an action not pinned')" = 1 ]; then
+    pass "$(rel "$file") rejected by action-pins.sh at line $line only"
+  else
+    fail "expected action-pins.sh to reject $(rel "$file") at line $line and nowhere else, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+expect_real_pins() {
+  local planted="$PLANTED_DIR/.github/workflows" out status
+  mkdir -p "$planted"
+  cp "$PIN_WORKFLOWS/tag.yml" "$planted/tag.yml"
+  out="$(cd "$REPO_ROOT" && bash "$PINS" 2>&1)"
+  status=$?
+  rm -rf "$PLANTED_DIR"
+  if [ "$status" -ne 0 ] \
+    && printf '%s' "$out" | grep -qF './.ci-realscan-planted/.github/workflows/tag.yml:8: ' \
+    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    pass "the real action-pins.sh invocation finds a planted workflow and excludes ci-fixtures"
+  else
+    fail "expected the real action-pins.sh invocation to flag the planted workflow and skip ci-fixtures, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+section "every uses: names a commit sha, a local path or an image digest"
+expect_pins_clean "$FIXTURES/good/action-pins/.github/workflows/pinned.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/tag.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/short-sha.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/long-sha.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/uppercase-sha.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/double-quoted-tag.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/single-quoted-tag.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/sha-in-comment.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/trailing-word.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/url.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/no-ref.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/docker-tag.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/spaced-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/reusable-branch.yml" 10
+expect_pins_bad "$FIXTURES/bad/action-pins/composite/action.yml" 8
+expect_real_pins
+
 printf '\n'
 ran=$((PASSES + FAILURES))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
@@ -639,5 +706,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed. A check has stopped discriminating.\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed, both sides for hadolint, discovery, compose, php lint and container cleanup.\n' "$PASSES"
+printf 'all %s assertions passed, both sides for hadolint, discovery, compose, php lint, container cleanup and action pins.\n' "$PASSES"
 printf 'scan.sh itself is exercised end to end: discovery, both check functions, the loop, and the exact no-argument invocation ci.yml uses.\n'
