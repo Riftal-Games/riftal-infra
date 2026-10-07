@@ -22,8 +22,8 @@ load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
 fails on either.
 
 `*.phar` is gitignored by the repo root's `.gitignore`, and
-`RiftalMines.config.yml` by this folder's own, since a copy rendered by hand
-carries a real database password. Only `RiftalMines.config.yml.template` is
+`RiftalMines.config.yml` by this folder's own, so a copy edited by hand to
+hold a database password is never committed. Only `RiftalMines.config.yml.template` is
 tracked.
 
 ## Build `RiftalMines.phar`
@@ -83,22 +83,36 @@ catch a boot that silently never had the plugin at all.
 
 With `RiftalMines.phar` present, `start-instance.sh` runs `render-config.sh`
 on every boot, writing the template to
-`/data/plugin_data/RiftalMines/config.yml` with the container's own
-`MYSQL_ROOT_PASSWORD`. Compose passes `instance` the same `images/.env` value
-it passes `mysql`, so the two cannot disagree; a `wslc run` of `instance`
-needs `-e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD"` for the same reason.
-Unset, the boot stops before PocketMine starts and names the variable. No
-file rendered into this folder is read.
+`/data/plugin_data/RiftalMines/config.yml`. No file rendered into this folder
+is read, and any config an earlier boot left on the volume is replaced.
+
+It connects as the `mines` login of ADR 008, never as root, and the file
+carries no password: `DatabaseSettings` reads it from
+`RIFTAL_DB_PASSWORD_MINES`, which compose passes `instance` from
+`images/.env`, and throws if the file holds one too. So no credential is on
+the `riftal-world` volume or in a backup set's tar of it. A `wslc run` of
+`instance` needs a name-only `-e RIFTAL_DB_PASSWORD_MINES`, exported first,
+for the same reason. Unset, the boot stops before PocketMine starts and names
+the variable. `instance` is never given `MYSQL_ROOT_PASSWORD`.
+
+The login itself is made by the migration runner, not by the instance. Run it
+before `instance`, with `grants.sql` mounted and `-e RIFTAL_DB_PASSWORD_MINES`
+exported from the same `images/.env`, as `../../../migrations/README.md`
+shows under "Running it locally". The runner creates `mines`, grants it
+`riftal_role_mines`, and resets its password to that value on every run, so
+after editing it in `images/.env` run the runner again before the next boot.
+A boot before the runner has made the login fails with
+`Access denied for user 'mines'`, and a grant `mines` lacks surfaces as
+ERROR 1142, which is the point.
 
 ## Why an override is required, not optional
 
-`mines/resources/config.yml`'s shipped default (`host: riftal-mysql, schema:
-riftal, username: mines`) matches nothing on this stack under compose: the
-`mysql` service sets no `container_name`, so on `riftal-dev` it answers to
-`mysql` and not to `riftal-mysql` (checked 2026-10-06 with `getent hosts` on
-a throwaway compose network of the same shape), the database compose creates
-is `riftal_dev`, and no `mines` MySQL user has ever been provisioned here.
-Under the `wslc run` form, the database container is named `riftal-mysql`
+`mines/resources/config.yml`'s shipped default (`host: mysql, schema:
+riftal, username: mines`) names a schema this stack does not have: the
+database compose creates is `riftal_dev`. The `mysql` service sets no
+`container_name`, so on `riftal-dev` it answers to `mysql` and not to
+`riftal-mysql` (checked 2026-10-06 with `getent hosts` on a throwaway compose
+network of the same shape). Under the `wslc run` form, the database container is named `riftal-mysql`
 on `riftal-dev` and is started with `--network-alias mysql`, which is meant
 to make it answer to `mysql` as the compose service does. Whether either
 name resolves there has not been checked (riftal-infra#265). The template
@@ -109,9 +123,9 @@ Loading the phar without this override does not fail the plugin alone:
 connects synchronously, so a `SqlError` there is uncaught and takes the
 whole server down within 4 seconds of boot (verified
 2026-09-28: `SQL CONNECT error: ... getaddrinfo for riftal-mysql failed`).
-A config rendered with a password `mysql` does not have fails the same way,
-with `Access denied for user 'root'`, which is why it is rendered at boot
-rather than kept here (riftal-infra#266).
+A `mines` login the runner has not provisioned, or a
+`RIFTAL_DB_PASSWORD_MINES` it was not run with, fails the same way, with
+`Access denied for user 'mines'`.
 
 The phar is gitignored, so a clone that has not built it is the
 default state `compose.yaml` has to tolerate. Verified 2026-09-28, each on a

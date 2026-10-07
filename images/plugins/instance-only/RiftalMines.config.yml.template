@@ -1,4 +1,4 @@
-# start-instance.sh renders this to /data/plugin_data/RiftalMines/config.yml
+# start-instance.sh writes this to /data/plugin_data/RiftalMines/config.yml
 # with render-config.sh on every boot, so this template stays authoritative;
 # PluginBase::saveDefaultConfig() never overwrites a file that already exists
 # there.
@@ -7,21 +7,20 @@
 # own shipped default (riftal-game/mines/resources/config.yml), which the
 # plugin throws without and selftest.sh compares to that file. `worlds` names
 # only lumber: the shipped mine_a to mine_c entries have no built mine on this
-# stack, and mine_a here is a plain generated world. The database section
-# differs because that file's defaults name a schema and user this stack
-# never provisions, and a host the compose mysql service does not answer to:
-# MYSQL_DATABASE is riftal_dev (images/compose.yaml), and the dev stack has
-# never provisioned a separate "mines" MySQL user, so this uses the same root
-# credentials the backup service already uses rather than inventing a second,
-# equally dev-only credential. "mysql" is the compose service name, which
-# resolves on riftal-dev; "riftal-mysql" (the plugin's shipped default) does
-# not under compose. Name resolution under the wslc bring-up form is
-# unverified; see instance-only/README.md.
+# stack, and mine_a here is a plain generated world. The schema is the one
+# compose creates, riftal_dev (images/compose.yaml), not the shipped riftal.
+# The login is the mines user of ADR 008, never root, and the password stays
+# empty: RiftalGames\Lib\Database\DatabaseSettings reads it from
+# RIFTAL_DB_PASSWORD_MINES in the instance's environment and throws if this
+# file holds one too, so no credential ever lands on the world volume or in a
+# backup of it. "mysql" is the compose service name, which resolves on
+# riftal-dev. Name resolution under the wslc bring-up form is unverified; see
+# instance-only/README.md.
 database:
   host: "mysql"
   schema: "riftal_dev"
-  username: "root"
-  password: "__MYSQL_ROOT_PASSWORD__"
+  username: "mines"
+  password: ""
   port: 3306
   worker-limit: 1
 

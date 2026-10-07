@@ -18,7 +18,9 @@ command -v jq >/dev/null || { printf '::error::jq is required\n'; exit 1; }
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\n' > "$work/env"
+MINES_PW=selftestMinesPassword0001
+printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_MINES=%s\n' \
+  "$MINES_PW" > "$work/env"
 
 FAILURES=0
 PASSES=0
@@ -84,32 +86,27 @@ check "--auto-report.enabled=false, which PocketMine reads as true, is caught" \
 check "a service without the flag is caught" \
   '[ "$(uploaders "$(edited "0,/--auto-report.enabled=0/{/--auto-report.enabled=0/d}")")" = instance ]'
 
-printf '\n== the rendered config points at this stack\n'
+printf '\n== the rendered config points at this stack as the mines login (ADR 008)\n'
 cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$work/"
 rendered="$work/RiftalMines.config.yml"
-check "rendering refuses an unset password and writes nothing" \
-  '! env -u MYSQL_ROOT_PASSWORD bash "$work/render-config.sh" "$rendered" 2>/dev/null && [ ! -e "$rendered" ]'
-
-# Base64 output, a common way to generate the password, carries / and +.
-password='a/b+c&d='
-check "a password holding / + & renders" \
-  'MYSQL_ROOT_PASSWORD="$password" bash "$work/render-config.sh" "$rendered"'
-check "a password that would break the YAML string is refused" \
-  '! MYSQL_ROOT_PASSWORD="a\"b" bash "$work/render-config.sh" "$rendered" 2>/dev/null'
-check "a password holding a backslash is refused" \
-  '! MYSQL_ROOT_PASSWORD="a\\b" bash "$work/render-config.sh" "$rendered" 2>/dev/null'
+TEMPLATE="$DIR/RiftalMines.config.yml.template"
+check "rendering needs no password in the environment and writes the template as is" \
+  'env -i PATH="$PATH" bash "$work/render-config.sh" "$rendered" && cmp -s "$TEMPLATE" "$rendered"'
 db() { sed -n "s/^  $1: \"\(.*\)\"\$/\1/p" "${2:-$rendered}"; }
-check "the password renders verbatim and no placeholder is left" \
-  '[ "$(db password)" = "$password" ] && ! grep -q __ "$rendered"'
+check "the rendered config logs in as the mines login, never root" \
+  '[ "$(db username)" = mines ] && [ "$(grep -c "^ *username:" "$rendered")" = 1 ]'
+check "the rendered config holds an empty password and no placeholder" \
+  'grep -qx "  password: \"\"" "$rendered" && [ "$(grep -c "^ *password:" "$rendered")" = 1 ] && ! grep -q __ "$rendered"'
 check "the host is the compose mysql service" \
   '[ "$(db host)" = mysql ] && jq -e ".services.mysql" <<<"$real" >/dev/null'
 check "the schema is the one compose creates" \
   '[ "$(db schema)" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ]'
 check "the registered world is the lumber spec's world" \
   'grep -q "^  $(jq -r .world "$SPEC"): \"worlds/$(jq -r .world "$SPEC").json\"\$" "$rendered"'
-check "instance gets mysql's password and instance-b gets none" \
-  'jq -e ".services | .instance.environment.MYSQL_ROOT_PASSWORD == .mysql.environment.MYSQL_ROOT_PASSWORD
-    and .instance.environment.MYSQL_ROOT_PASSWORD != null
+check "instance gets RIFTAL_DB_PASSWORD_MINES and never the root password, instance-b neither" \
+  'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_MINES == \"$MINES_PW\"
+    and .instance.environment.MYSQL_ROOT_PASSWORD == null
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_MINES == null
     and .[\"instance-b\"].environment.MYSQL_ROOT_PASSWORD == null" <<<"$real" >/dev/null'
 
 printf '\n== start-instance.sh keeps what start-pocketmine does for instance-b\n'
@@ -117,8 +114,9 @@ printf '\n== start-instance.sh keeps what start-pocketmine does for instance-b\n
 # scratch root and php and wget stubbed, so nothing boots and nothing is
 # fetched. $1 is the uid the ownership check treats as pocketmine; the rest
 # are environment assignments. The shared /plugins starts with Cached.phar.
-# With MINES set, RiftalMines.phar is built and a config rendered by hand
-# with a password no stack has sits next to it.
+# With MINES set, RiftalMines.phar is built, a config rendered by hand sits
+# next to it, and the volume holds one an earlier boot rendered as root.
+ROOT_PW=rootPasswordFromAnEarlierBoot
 boot() {
   local owner="$1" root="$work/boot"
   shift
@@ -128,7 +126,9 @@ boot() {
   cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$root/"
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
-    MYSQL_ROOT_PASSWORD=stale bash "$root/render-config.sh" "$root/RiftalMines.config.yml"
+    mkdir -p "$root/data/plugin_data/RiftalMines"
+    printf 'database:\n  username: "root"\n  password: "%s"\n' "$ROOT_PW" |
+      tee "$root/RiftalMines.config.yml" > "$root/data/plugin_data/RiftalMines/config.yml"
   fi
   sed -e "s#/plugins#$root/plugins#g; s#/data#$root/data#g" \
     -e "s#/opt/pocketmine#$root/pm#g; s#-user pocketmine#-user $owner#g" \
@@ -173,13 +173,20 @@ check "a file in /plugins not owned by pocketmine is warned about" \
 check "no ownership warning when pocketmine owns everything" \
   'boot "$me" && ! grep -q WARNING "$b/out"'
 
-printf '\n== RiftalMines gets the password its container boots with (riftal-infra#266)\n'
+printf '\n== RiftalMines logs in as mines, its password only in the environment (riftal-infra#246)\n'
 mines_config="$b/data/plugin_data/RiftalMines/config.yml"
-check "the config on the volume carries MYSQL_ROOT_PASSWORD, not the stale rendered file" \
-  'MINES=1 boot "$me" MYSQL_ROOT_PASSWORD="$password" &&
-    [ "$(db password "$mines_config")" = "$password" ] && grep -qx RiftalMines.phar "$b/roster"'
-check "an unset MYSQL_ROOT_PASSWORD stops the boot before php, naming it" \
-  '! MINES=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "MYSQL_ROOT_PASSWORD is not set" "$b/out"'
+# Files under the volume holding either password.
+leaked() { grep -rlF -e "$MINES_PW" -e "$ROOT_PW" "$b/data" || true; }
+check "the template replaces the root config on the volume, not the hand-rendered copy" \
+  'MINES=1 boot "$me" RIFTAL_DB_PASSWORD_MINES="$MINES_PW" &&
+    cmp -s "$TEMPLATE" "$mines_config" && grep -qx RiftalMines.phar "$b/roster"'
+check "after that boot no file on the volume holds the mines or the root password" \
+  'MINES=1 boot "$me" RIFTAL_DB_PASSWORD_MINES="$MINES_PW" && [ -z "$(leaked)" ]'
+check "a password left on the volume is caught" \
+  'printf "%s\n" "$MINES_PW" > "$b/data/stray" && [ "$(leaked)" = "$b/data/stray" ]'
+check "an unset RIFTAL_DB_PASSWORD_MINES stops the boot before php, naming it, root password or not" \
+  '! MINES=1 boot "$me" MYSQL_ROOT_PASSWORD="$ROOT_PW" && [ ! -e "$b/args" ] &&
+    grep -q "RIFTAL_DB_PASSWORD_MINES is not set" "$b/out"'
 
 printf '\n== the world index reaches every plugin that reads it (riftal-infra#293)\n'
 INDEX="$DIR/../../../designer/world_index.json"
@@ -233,7 +240,6 @@ printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#26
 # token for the private riftal-game, so there the comparison is reported as
 # skipped rather than passed.
 SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/mines/resources/config.yml"
-TEMPLATE="$DIR/RiftalMines.config.yml.template"
 SKIPPED=0
 # Each assertion here is counted as skipped rather than dropped when the
 # shipped file is absent, so the assertion count still sees one deleted.
