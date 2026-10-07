@@ -17,7 +17,8 @@ red. That is the intended behaviour.
 `good/` is not decoration. A check that rejects a correct file is as broken as
 one that accepts a wrong file, because the first person it blocks weakens it.
 
-Each bad fixture carries exactly one defect and is asserted at exactly one site.
+Each bad fixture carries exactly one defect and is asserted at the line or lines
+that defect is reported on.
 A fixture that trips several rules at once stays red when the rule it was
 written for is switched off, so it keeps looking like coverage while pinning
 nothing.
@@ -56,7 +57,19 @@ ends its line. Each has its own bad fixture, because a fixture that one
 alternative alone rejects is the only thing that goes red when that alternative
 is deleted. `bad/cleanup-quoted-comment.sh` and `bad/cleanup-argcount.sh` put a
 `#` that starts no comment before a run, so a scanner that drops everything
-after any `#` goes red.
+after any `#` goes red. `bad/cleanup-continued-hash.sh` puts a run on a line
+that starts with `#` yet is no comment, because a continuation joins it to the
+word above.
+
+Every `bad/cleanup-optout-*.sh` fixture holds one way a
+`# container-cleanup: keep <reason>` line fails to excuse the container under
+it. Four are lines that are not `keep <reason>`, each a different loosening of
+that pattern. Where both the unused opt-out and the leaking command are
+reported, both are asserted, each at its own line: a scanner that drops the
+opt-out silently, or reports it yet still lets it excuse the run, gets only one
+of them right. `bad/cleanup-optout-carry/` is a directory because only a second
+file can show an opt-out carrying across the boundary. The good opt-outs
+indented with spaces and with tabs go red when a blank stops meaning either.
 
 The real scans exclude this directory. If they ever stop excluding it, CI is red
 forever and the reason is here.
