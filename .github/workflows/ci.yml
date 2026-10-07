@@ -47,14 +47,9 @@ jobs:
         run: bash .github/scripts/ci-sweep-selftest.sh
 
       - name: Install hadolint
-        # /usr/local/bin is root-owned on the self-hosted runner, unlike the
-        # hosted image where the runner user already owns it.
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/hadolint \
-            "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
-          printf '%s  /tmp/hadolint\n' "$HADOLINT_SHA256" | sha256sum -c -
-          sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
+          bash .github/scripts/install-hadolint.sh
           hadolint --version
 
       # Runs before the real scans on purpose. A scan that finds nothing exits
