@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=114
+EXPECTED_ASSERTIONS=120
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -279,6 +279,79 @@ expect_real_cleanup() {
     printf '%s\n' "$out"
   fi
 }
+
+INSTALL_HADOLINT="$REPO_ROOT/.github/scripts/install-hadolint.sh"
+
+# A stub stands in for the release asset, served over file:// so no case
+# touches the network. sha256sum -c names the file it checked, which is how
+# each run's download directory is read back.
+expect_install_hadolint() {
+  local scratch stub good_sha bad_sha out_a out_b out_c status_c dir_a dir_b dir_c
+  scratch="$(mktemp -d)"
+  mkdir -p "$scratch/runner_temp" "$scratch/bin"
+  stub="$scratch/hadolint-stub"
+  printf '#!/bin/sh\necho stub\n' > "$stub"
+  good_sha="$(sha256sum "$stub" | cut -d' ' -f1)"
+  bad_sha="0${good_sha#?}"
+  [ "$bad_sha" = "$good_sha" ] && bad_sha="1${good_sha#?}"
+  run_install() {
+    RUNNER_TEMP="$scratch/runner_temp" HADOLINT_URL="file://$stub" \
+      HADOLINT_SHA256="$1" HADOLINT_TARGET="$scratch/bin/$2" \
+      bash "$INSTALL_HADOLINT" 2>&1
+  }
+  checked_dir() { printf '%s\n' "$1" | sed -n 's#^\(.*\)/hadolint: \(OK\|FAILED\)$#\1#p' | head -n 1; }
+
+  out_a="$(run_install "$good_sha" a)"
+  out_b="$(run_install "$good_sha" b)"
+  out_c="$(run_install "$bad_sha" c)"
+  status_c=$?
+  dir_a="$(checked_dir "$out_a")"
+  dir_b="$(checked_dir "$out_b")"
+  dir_c="$(checked_dir "$out_c")"
+
+  if [ -n "$dir_a" ] && [ -n "$dir_b" ] && [ "$dir_a" != "$dir_b" ]; then
+    pass "two hadolint installs download into two different directories"
+  else
+    fail "expected two hadolint installs to download into two different directories, got '$dir_a' and '$dir_b'"
+    printf '%s\n%s\n' "$out_a" "$out_b"
+  fi
+  if [ "$dir_a/hadolint" = /tmp/hadolint ] || [ "$dir_b/hadolint" = /tmp/hadolint ]; then
+    fail "a hadolint install downloaded to the shared /tmp/hadolint"
+  elif [ "${dir_a#"$scratch/runner_temp/hadolint."}" != "$dir_a" ] \
+    && [ "${dir_b#"$scratch/runner_temp/hadolint."}" != "$dir_b" ]; then
+    pass "neither hadolint download is /tmp/hadolint, both are in mktemp directories under RUNNER_TEMP"
+  else
+    fail "expected both hadolint download directories under RUNNER_TEMP, got '$dir_a' and '$dir_b'"
+  fi
+
+  if [ "$status_c" -ne 0 ] && [ -n "$dir_c" ]; then
+    pass "a wrong hadolint hash fails the install at the checksum"
+  else
+    fail "expected a wrong hadolint hash to fail at the checksum, exit $status_c"
+    printf '%s\n' "$out_c"
+  fi
+  if [ ! -e "$scratch/bin/c" ]; then
+    pass "a wrong hadolint hash installs nothing"
+  else
+    fail "a wrong hadolint hash still installed $scratch/bin/c"
+  fi
+  if cmp -s "$stub" "$scratch/bin/a" && [ -x "$scratch/bin/a" ]; then
+    pass "a right hadolint hash installs the checked file, executable"
+  else
+    fail "expected a right hadolint hash to install the checked file, executable"
+    printf '%s\n' "$out_a"
+  fi
+  if [ -z "$(ls -A "$scratch/runner_temp")" ] \
+    && [ -n "$dir_a" ] && [ ! -e "$dir_a" ] && [ -n "$dir_c" ] && [ ! -e "$dir_c" ]; then
+    pass "every hadolint install, right hash or wrong, removes its download directory"
+  else
+    fail "expected no hadolint download directory left behind, RUNNER_TEMP holds: $(ls -A "$scratch/runner_temp")"
+  fi
+  rm -rf "$scratch"
+}
+
+section "hadolint install, a per-run download directory, gated on the hash"
+expect_install_hadolint
 
 section "container cleanup takes the anonymous volumes with every container"
 expect_cleanup "$FIXTURES/good/cleanup.sh" ""
