@@ -51,8 +51,9 @@ puts a second run with `--rm` on the same line, so a check that reads past the
 end of a command goes red.
 
 The scanner matches through alternatives: two forms of create, four variable
-spellings of docker, five shell separators, the next `docker`, and a trailing
-comment. Each has its own bad fixture, because a fixture that one alternative
+spellings of docker, five shell separators, the next `docker`, a verb that
+ends its line, and a trailing comment, which only a `#` outside quotes and
+after a blank starts. Each has its own bad fixture, because a fixture that one alternative
 alone rejects is the only thing that goes red when that alternative is deleted.
 
 The real scans exclude this directory. If they ever stop excluding it, CI is red
