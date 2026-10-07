@@ -62,4 +62,5 @@ EOF
 chmod 0755 "$dir/docker"
 
 printf '%s\n' "$dir" >>"${GITHUB_PATH:?}"
+# container-limits: exempt prints the shim's path, which runs nothing here
 printf 'docker shim at %s wraps %s\n' "$dir/docker" "$real"
