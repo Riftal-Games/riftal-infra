@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=89
+EXPECTED_ASSERTIONS=90
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -206,6 +206,22 @@ expect_cleanup_carry() {
   fi
 }
 
+# Each file ends on a continued run, so one is read before the other file
+# starts and the other before the input ends, in whichever order find(1) gives.
+expect_cleanup_eof_continued() {
+  local dir="$FIXTURES/bad/cleanup-eof-continued" out status
+  out="$(bash "$CLEANUP" "$dir" 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ] \
+    && printf '%s' "$out" | grep -qF "$dir/a.sh:4: a container started without --rm" \
+    && printf '%s' "$out" | grep -qF "$dir/b.sh:4: a container started without --rm"; then
+    pass "$(rel "$dir") checks a run still continued when its file ends"
+  else
+    fail "expected container-cleanup.sh on $(rel "$dir") to name the continued run in both files, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
 expect_real_cleanup() {
   local out status
   mkdir -p "$PLANTED_DIR"
@@ -293,6 +309,7 @@ expect_cleanup "$FIXTURES/bad/cleanup-hash-in-word.sh" "6: a container started w
 expect_cleanup "$FIXTURES/bad/cleanup-hash-in-word.sh" "7: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-image-rm.sh" "4: a container started without --rm"
 expect_cleanup_carry
+expect_cleanup_eof_continued
 expect_real_cleanup
 
 section "hadolint, through scan.sh's own check_dockerfiles"
