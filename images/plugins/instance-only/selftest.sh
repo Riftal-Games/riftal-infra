@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
-# and for start-instance.sh, the script that loads it. Also pins crash
-# auto-report off on every PocketMine service, designer/stack's included, and
-# covers deliver-world-index.sh and the index mount both instances boot with
-# (riftal-infra#293).
+# and RiftalRanks (riftal-infra#558), and for start-instance.sh, the script
+# that loads both. Also pins crash auto-report off on every PocketMine
+# service, designer/stack's included, and covers deliver-world-index.sh and
+# the index mount both instances boot with (riftal-infra#293).
 #
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
 # stubbed. It starts no container, so it needs neither the dev stack nor a
-# built RiftalMines.phar.
+# built RiftalMines.phar or RiftalRanks.phar.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=46
+EXPECTED_ASSERTIONS=48
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -287,9 +287,21 @@ RANKS_SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/ranks/resources/
 drift "riftal-game's ranks config.yml has no top-level key or scalar value the ranks config lacks" \
   '[ -n "$(keys "$RANKS_SHIPPED")" ] && [ -z "$(comm -23 <(keys "$RANKS_SHIPPED") <(keys "$RANKS_CONFIG"))" ] &&
     [ "$(tuning "$RANKS_SHIPPED")" = "$(tuning "$RANKS_CONFIG")" ]' "$RANKS_SHIPPED"
+# The lines inside the top-level database section, comments dropped, schema
+# excepted: the one line the ranks config overrides on purpose.
+dbsection() {
+  sed -n '/^database:/,/^[^[:space:]]/{/^[[:space:]]/p}' "$1" |
+    grep -vE '^[[:space:]]*(#|schema:)' | sed 's/[[:space:]]*$//'
+}
+drift "every database line in riftal-game's ranks config.yml but the schema matches the ranks config" \
+  '[ -n "$(dbsection "$RANKS_SHIPPED")" ] && [ "$(dbsection "$RANKS_SHIPPED")" = "$(dbsection "$RANKS_CONFIG")" ]' \
+  "$RANKS_SHIPPED"
+drift "a shipped database.port the ranks config does not carry is caught" \
+  'sed "s/^  port:.*/  port: 3307/" "$RANKS_SHIPPED" > "$mutated" &&
+    [ "$(dbsection "$mutated")" != "$(dbsection "$RANKS_CONFIG")" ]' "$RANKS_SHIPPED"
 if [ "$SKIPPED" -ne 0 ]; then
-  printf '::warning::%s assertions skipped: no riftal-game mines config at %s; set RIFTAL_GAME_DIR\n' \
-    "$SKIPPED" "$SHIPPED"
+  printf '::warning::%s assertions skipped: no riftal-game config at %s or %s; set RIFTAL_GAME_DIR\n' \
+    "$SKIPPED" "$SHIPPED" "$RANKS_SHIPPED"
 fi
 
 printf '\n'

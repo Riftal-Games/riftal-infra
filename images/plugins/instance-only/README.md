@@ -23,8 +23,10 @@ fails on either.
 
 `*.phar` is gitignored by the repo root's `.gitignore`, and
 `RiftalMines.config.yml` by this folder's own, since a copy rendered by hand
-carries a real database password. Only `RiftalMines.config.yml.template` is
-tracked.
+carries a real database password. Two config files are tracked:
+`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml`, which holds
+no password because the `ranks` login's comes from the environment (see
+below).
 
 ## Build `RiftalMines.phar`
 
@@ -114,8 +116,8 @@ before `instance`, with `grants.sql` mounted and
 `../../../migrations/README.md` shows under "Running it locally". The runner
 creates `ranks`, grants it `riftal_role_ranks`, and resets its password to
 that value on every run, so after editing it in `images/.env` run the
-runner again before the next boot. A grant `ranks` lacks surfaces on this stack as ERROR 1142,
-which is the point.
+runner again before the next boot. A grant `ranks` lacks surfaces on this
+stack as ERROR 1142, which is the point.
 
 ## Why an override is required, not optional
 

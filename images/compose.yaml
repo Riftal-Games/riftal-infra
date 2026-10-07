@@ -48,9 +48,11 @@ services:
       # Outside /data for the same root-mountpoint reason given below;
       # deliver-world-index.sh copies it into each consuming plugin's folder.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
-    # RiftalMines resets the worlds this instance hosts and no others, so it
-    # loads here alone. start-instance.sh adds it to this container's own copy of
-    # the plugin roster rather than mounting a file into ./plugins or /data,
+    # RiftalMines resets the worlds this instance hosts and no others, and
+    # RiftalRanks connects to MySQL, which no plugin on instance-b does, so
+    # both load here alone. start-instance.sh adds them to this container's
+    # own copy of the plugin roster rather than mounting a file into
+    # ./plugins or /data,
     # where Docker would create the mountpoint as root: in the ./plugins that
     # instance-b loads from, or as a /data/plugin_data PocketMine then cannot
     # write to. See plugins/instance-only/README.md.
