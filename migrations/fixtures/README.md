@@ -26,3 +26,6 @@ only real source of those; these exist only so `selftest.sh` can prove
 - `definer-grants/` creates `riftal_role_tally` with `SELECT` on `tallies` and
   `EXECUTE` on `tallies_bump`, and no `UPDATE`, so the self-test can show a
   login writing the table only through the procedure.
+- `version-floor/` holds a shell function, sourced through `BASH_ENV`, that
+  makes the runner's `VERSION()` query report a chosen version, so the
+  self-test can show a server below 8.0.30 refused without one.

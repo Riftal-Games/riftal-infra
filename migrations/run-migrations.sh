@@ -142,6 +142,19 @@ fi
 lock_held=1
 echo "acquired lock '$LOCK_NAME'"
 
+# grants.sql may use REVOKE IF EXISTS, which needs MySQL 8.0.30 (ADR 008), and
+# the mysql:8 tag floats, so the server's own answer decides, before anything
+# is written.
+server_version="$(run_sql -e 'SELECT VERSION()')"
+if [[ ! "$server_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+  echo "could not read a MySQL version from VERSION(), which answered '$server_version'" >&2
+  exit 1
+fi
+if [ $((10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]})) -lt 8000030 ]; then
+  echo "MySQL $server_version is below the 8.0.30 floor of ADR 008, so nothing was applied" >&2
+  exit 1
+fi
+
 run_sql <<'SQL'
 CREATE TABLE IF NOT EXISTS schema_migrations (
   id VARCHAR(255) NOT NULL PRIMARY KEY,
