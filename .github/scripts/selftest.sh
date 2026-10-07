@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=150
+EXPECTED_ASSERTIONS=152
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -686,6 +686,8 @@ expect_pins_bad "$PIN_WORKFLOWS/uppercase-sha.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/double-quoted-tag.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/single-quoted-tag.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/sha-in-comment.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/trailing-word.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/url.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/no-ref.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/docker-tag.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/spaced-key.yml" 9
