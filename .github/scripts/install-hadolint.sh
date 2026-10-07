@@ -2,10 +2,13 @@
 # Installs hadolint after checking HADOLINT_SHA256 against the exact file it
 # then installs, and points this job's later steps at that file.
 #
-# Everything lands under RUNNER_TEMP, which belongs to this job alone. The
-# download goes to a fresh mktemp directory and the binary to RUNNER_TEMP/bin,
-# never a host-wide path like /usr/local/bin, where another job on the same
-# self-hosted host could replace the checked binary before the scans run it.
+# Everything lands under RUNNER_TEMP, a directory no other job writes in normal
+# operation. The download goes to a fresh mktemp directory and the binary to
+# RUNNER_TEMP/bin, never a host-wide path like /usr/local/bin, where a
+# concurrent job's install on the same self-hosted host could replace the
+# checked binary before the scans run it. Every runner on that host is the same
+# `runner` user, so this keeps jobs from clashing by accident; it does not stop
+# a hostile job.
 # The scans find it through HADOLINT in GITHUB_ENV, not a PATH lookup that a
 # shared directory could win. HADOLINT_URL exists so selftest.sh can drive this
 # with a local fixture, without the network.

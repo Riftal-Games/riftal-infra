@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=124
+EXPECTED_ASSERTIONS=125
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -334,11 +334,9 @@ expect_install_hadolint() {
     fail "expected two hadolint installs to download into two different directories, got '$dir_a' and '$dir_b'"
     printf '%s\n%s\n' "$out_a" "$out_b"
   fi
-  if [ "$dir_a/hadolint" = /tmp/hadolint ] || [ "$dir_b/hadolint" = /tmp/hadolint ]; then
-    fail "a hadolint install downloaded to the shared /tmp/hadolint"
-  elif [ "${dir_a#"$scratch/ab/hadolint."}" != "$dir_a" ] \
+  if [ "${dir_a#"$scratch/ab/hadolint."}" != "$dir_a" ] \
     && [ "${dir_b#"$scratch/ab/hadolint."}" != "$dir_b" ]; then
-    pass "neither hadolint download is /tmp/hadolint, both are in mktemp directories under RUNNER_TEMP"
+    pass "both hadolint downloads are in mktemp directories under RUNNER_TEMP"
   else
     fail "expected both hadolint download directories under RUNNER_TEMP, got '$dir_a' and '$dir_b'"
   fi
@@ -408,9 +406,33 @@ expect_scan_needs_hadolint() {
   fi
 }
 
+# Every other dockerfiles case passes the same with a working hadolint on PATH
+# as with HADOLINT, so only this one tells the two apart: each prints its own
+# marker, and the lint must come from HADOLINT.
+expect_scan_runs_hadolint() {
+  local scratch out status
+  scratch="$(mktemp -d)"
+  mkdir -p "$scratch/shim"
+  printf '#!/bin/sh\necho PATH hadolint ran\n' > "$scratch/shim/hadolint"
+  printf '#!/bin/sh\necho HADOLINT binary ran\n' > "$scratch/checked-hadolint"
+  chmod +x "$scratch/shim/hadolint" "$scratch/checked-hadolint"
+  out="$(HADOLINT="$scratch/checked-hadolint" PATH="$scratch/shim:$PATH" \
+    bash "$SCAN" dockerfiles "$FIXTURES/good/Dockerfile" 2>&1)"
+  status=$?
+  rm -rf "$scratch"
+  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'HADOLINT binary ran' \
+    && ! printf '%s' "$out" | grep -qF 'PATH hadolint ran'; then
+    pass "scan.sh dockerfiles lints with the HADOLINT binary, not a hadolint on PATH"
+  else
+    fail "expected scan.sh dockerfiles to run HADOLINT and never the hadolint on PATH, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
 section "hadolint install, per-job, gated on the hash, found by the scans through HADOLINT"
 expect_install_hadolint
 expect_scan_needs_hadolint
+expect_scan_runs_hadolint
 
 section "container cleanup takes the anonymous volumes with every container"
 expect_cleanup "$FIXTURES/good/cleanup.sh" ""
