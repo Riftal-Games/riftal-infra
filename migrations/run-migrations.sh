@@ -221,11 +221,11 @@ fi
 # The role for ../deploy/backup.sh lives here rather than in grants.sql,
 # because it follows the whole schema and not one plugin's tables. Without
 # SHOW_ROUTINE or TRIGGER, mysqldump still exits 0 but leaves every
-# procedure or trigger out of the dump. TRIGGER also covers creating and
-# dropping triggers, and a SIGNAL trigger blocks writers. The binlog that
-# ../deploy/binlog-check.sh requires keeps that shut, since MySQL refuses
-# CREATE TRIGGER without SUPER while it is on, but setting
-# log_bin_trust_function_creators opens it. LOCK TABLES and EVENT are
+# procedure or trigger out of the dump. TRIGGER also lets this login drop any
+# existing trigger in the schema, whatever the binlog setting. The binlog that
+# ../deploy/binlog-check.sh requires refuses only CREATE TRIGGER without
+# SUPER; with the binlog off or log_bin_trust_function_creators set, it can
+# create one too, and a SIGNAL trigger blocks writers. LOCK TABLES and EVENT are
 # withheld: --single-transaction takes no table locks and backup.sh passes no
 # --events, while either would let this login block writers or drop an event.
 schema="${MYSQL_DATABASE//\`/\`\`}"

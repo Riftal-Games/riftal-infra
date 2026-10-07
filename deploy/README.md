@@ -35,13 +35,16 @@ any run with that variable set, grants it `riftal_role_backup`, and rotates it
 when the variable changes. The role holds `SELECT`, `SHOW VIEW` and `TRIGGER`
 on the schema and the global `SHOW_ROUTINE`. The last two matter: without
 them `mysqldump` still exits 0 and silently leaves every trigger or stored
-procedure out of the set. It can change no row, table, account or grant.
-`TRIGGER` is the one privilege that reaches past reading, because MySQL ties
-seeing a trigger to being allowed to create and drop one, and a `SIGNAL`
-trigger can block writers. With the binlog on, as `binlog-check.sh` requires,
-MySQL refuses `CREATE TRIGGER` to a login without `SUPER`, so this stays shut
-unless `log_bin_trust_function_creators` is set. `../migrations/selftest.sh`
-pins both halves.
+procedure out of the set. It can change no row, table, account or grant,
+but it is not read-only: MySQL ties seeing a trigger to creating and dropping
+one, so `TRIGGER` lets `backup` drop any existing trigger in the schema,
+whatever the binlog setting, and with it whatever that trigger enforces. With
+the binlog on, as `binlog-check.sh` requires, MySQL refuses only
+`CREATE TRIGGER` to a login without `SUPER`. With the binlog off, or
+`log_bin_trust_function_creators` set, `backup` can create triggers too, and
+a `SIGNAL` trigger can block writers. `../migrations/selftest.sh` pins each
+of these: the refused create, the accepted drop, and the create once the
+guard is lifted.
 `restore.sh` still runs as the admin account, because it drops and recreates
 the schema and recreates each procedure under its original `DEFINER`.
 

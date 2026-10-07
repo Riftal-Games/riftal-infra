@@ -15,7 +15,8 @@ MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
 # A login that can change no row, table or account, provisioned with its role
 # by ../migrations/run-migrations.sh from RIFTAL_DB_PASSWORD_BACKUP. Its one
-# reach past reading is triggers, see README.md, The dump login.
+# reach past reading is dropping or creating triggers, see README.md, The
+# dump login.
 MYSQL_USER="${MYSQL_USER:-backup}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 MYSQL_DATABASE="${MYSQL_DATABASE:?MYSQL_DATABASE is required}"

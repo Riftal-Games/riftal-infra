@@ -60,7 +60,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=39
+EXPECTED_ASSERTIONS=40
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -464,12 +464,14 @@ else
 fi
 # mysqldump needs TRIGGER to see a trigger, and MySQL ties creating and
 # dropping one to the same privilege. With the binlog on, as
-# ../deploy/binlog-check.sh requires, MySQL still refuses CREATE TRIGGER to a
-# login without SUPER, unless log_bin_trust_function_creators is set. Both
-# halves are pinned, so a wider grant or a lifted guard shows up here.
-trigger_sql="CREATE TRIGGER selftest_backup_trg BEFORE INSERT ON widgets FOR EACH ROW SET @x = 1; DROP TRIGGER selftest_backup_trg"
+# ../deploy/binlog-check.sh requires, MySQL refuses only CREATE TRIGGER to a
+# login without SUPER. Each statement runs as its own client call, because a
+# batch stops at its first error and would never reach the DROP. Every
+# outcome is pinned, so a narrower or wider reach shows up here.
+create_trg="CREATE TRIGGER selftest_backup_trg BEFORE INSERT ON widgets FOR EACH ROW SET @x = 1"
+drop_trg="DROP TRIGGER selftest_backup_trg"
 triggers_sql="SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='riftal_selftest'"
-if ! as_login backup "$trigger_sql" "$PW_E" >"$LOGS"/out-prov-backup-trg-binlog.log 2>&1 \
+if ! as_login backup "$create_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-binlog.log 2>&1 \
    && grep -q 'ERROR 1419' "$LOGS"/out-prov-backup-trg-binlog.log \
    && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
   pass "with the binlog on, backup cannot create a trigger"
@@ -477,14 +479,26 @@ else
   fail "expected backup's CREATE TRIGGER refused with ERROR 1419 and no trigger left"
   cat "$LOGS"/out-prov-backup-trg-binlog.log
 fi
+query riftal_selftest "$create_trg"
+drop_rc=0
+as_login backup "$drop_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-drop.log 2>&1 || drop_rc=$?
+if [ "$drop_rc" -eq 0 ] && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
+  pass "known, accepted exception: with the binlog on, backup drops a trigger root created"
+else
+  fail "expected backup to drop root's trigger with the binlog on, got exit $drop_rc"
+  cat "$LOGS"/out-prov-backup-trg-drop.log
+fi
+query riftal_selftest "DROP TRIGGER IF EXISTS selftest_backup_trg"
 query riftal_selftest 'SET GLOBAL log_bin_trust_function_creators = 1'
 trigger_rc=0
-as_login backup "$trigger_sql" "$PW_E" >"$LOGS"/out-prov-backup-trg-trust.log 2>&1 || trigger_rc=$?
+as_login backup "$create_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-trust.log 2>&1 || trigger_rc=$?
 query riftal_selftest 'SET GLOBAL log_bin_trust_function_creators = 0'
-if [ "$trigger_rc" -eq 0 ] && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
-  pass "with log_bin_trust_function_creators set, TRIGGER lets backup create and drop a trigger"
+created="$(query riftal_selftest "$triggers_sql")"
+query riftal_selftest "DROP TRIGGER IF EXISTS selftest_backup_trg"
+if [ "$trigger_rc" -eq 0 ] && [ "$created" = "1" ]; then
+  pass "with log_bin_trust_function_creators set, backup can create a trigger"
 else
-  fail "expected backup to create and drop a trigger once the binlog guard is lifted, got exit $trigger_rc"
+  fail "expected backup to create a trigger once the binlog guard is lifted, got exit $trigger_rc, triggers=$created"
   cat "$LOGS"/out-prov-backup-trg-trust.log
 fi
 
