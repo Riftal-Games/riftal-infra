@@ -26,6 +26,11 @@ nothing.
 `good/Containerfile` and `bad/Containerfile` are `good/Dockerfile` and
 `bad/Dockerfile` again under the OCI-neutral name, so a discovery regression
 that stops matching `Containerfile` goes red here instead of shipping silently.
+`bad/lowercase/` holds both again under all-lowercase names, and
+`good/uppercase-extension.YAML` is compose under an uppercase extension, so
+discovery that matches a name case-sensitively goes red. `bad/lowercase/` is a
+directory because a case-insensitive checkout cannot hold `dockerfile` beside
+`Dockerfile`.
 
 `good/stack.yaml` and `good/rollout.yml` are a pair, and they point in opposite
 directions. One is compose under a name no convention would match, the other is
