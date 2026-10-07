@@ -75,11 +75,14 @@ exec_sql() {
 # or wrong-volume restore reads as an obviously wrong value below.
 exec_sql 'CREATE TABLE riftal_selftest.accounts (id INT PRIMARY KEY, balance INT);
           INSERT INTO riftal_selftest.accounts VALUES (1, 500);'
-# restore.sh drops the database, and its procedures with it, so this one
-# exists after the restore only if backup.sh dumped routines, which the
-# read-only backup login can do only through SHOW_ROUTINE.
+# restore.sh drops the database, and its procedures and triggers with it, so
+# these exist after the restore only if backup.sh dumped them, which the
+# backup login can do only through SHOW_ROUTINE and TRIGGER.
 exec_sql 'CREATE PROCEDURE riftal_selftest.balance_of_1()
           SELECT balance FROM riftal_selftest.accounts WHERE id = 1'
+exec_sql 'CREATE TRIGGER riftal_selftest.accounts_no_negative BEFORE INSERT
+          ON riftal_selftest.accounts FOR EACH ROW
+          SET NEW.balance = GREATEST(NEW.balance, 0)'
 docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo 17 > /world/blocks_broken_mine_a.txt' >/dev/null
 docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
@@ -87,7 +90,7 @@ docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=16
+EXPECTED_ASSERTIONS=17
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -129,7 +132,7 @@ world_a() {
   docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c "$1"
 }
 
-section "a backup is taken by the read-only login while balance is 500 and mine_a shows 17 blocks broken"
+section "a backup is taken by the backup login while balance is 500 and mine_a shows 17 blocks broken"
 if provision_backup_login >"$LOGS"/out-provision.log 2>&1; then
   pass "the migration runner provisions the backup login"
 else
@@ -163,10 +166,17 @@ restored_balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE id
 
 restored_call="$(query riftal_selftest 'CALL balance_of_1()' 2>"$LOGS"/out-call.log || true)"
 if [ "$restored_call" = "500" ]; then
-  pass "a stored procedure survives a backup taken by the read-only login and still runs"
+  pass "a stored procedure survives a backup taken by the backup login and still runs"
 else
   fail "expected CALL balance_of_1() to return 500 after a restore from the backup login's dump, got '$restored_call'"
   cat "$LOGS"/out-call.log
+fi
+
+restored_trigger="$(query riftal_selftest "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='riftal_selftest'")"
+if [ "$restored_trigger" = "accounts_no_negative" ]; then
+  pass "a trigger survives a backup taken by the backup login"
+else
+  fail "expected trigger accounts_no_negative after a restore from the backup login's dump, got '$restored_trigger'"
 fi
 
 restored_blocks="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
@@ -247,4 +257,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup by the read-only login, drift, restore to the backup-time state across the database, its stored procedures and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures and triggers and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"

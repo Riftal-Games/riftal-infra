@@ -2,7 +2,8 @@
 # Applies pending migrations from MIGRATIONS_DIR under a MySQL named lock,
 # then, under the same lock, provisions the per-plugin logins of ADR 008
 # (riftal-pm docs/decisions/008-per-plugin-mysql-users.md, item 4) and the
-# read-only `backup` login ../deploy/backup.sh dumps with.
+# `backup` login ../deploy/backup.sh dumps with (../deploy/README.md, The dump
+# login).
 #
 # The lock exists because more than one instance container can boot at once
 # against the shared database (CLAUDE.md hard rule 5: one shared database
@@ -220,9 +221,13 @@ fi
 # The role for ../deploy/backup.sh lives here rather than in grants.sql,
 # because it follows the whole schema and not one plugin's tables. Without
 # SHOW_ROUTINE or TRIGGER, mysqldump still exits 0 but leaves every
-# procedure or trigger out of the dump. LOCK TABLES and EVENT are withheld:
-# --single-transaction takes no table locks and backup.sh passes no --events,
-# while either would let this login block writers or drop an event.
+# procedure or trigger out of the dump. TRIGGER also covers creating and
+# dropping triggers, and a SIGNAL trigger blocks writers. The binlog that
+# ../deploy/binlog-check.sh requires keeps that shut, since MySQL refuses
+# CREATE TRIGGER without SUPER while it is on, but setting
+# log_bin_trust_function_creators opens it. LOCK TABLES and EVENT are
+# withheld: --single-transaction takes no table locks and backup.sh passes no
+# --events, while either would let this login block writers or drop an event.
 schema="${MYSQL_DATABASE//\`/\`\`}"
 if ! printf '%s\n' \
     "CREATE ROLE IF NOT EXISTS riftal_role_backup;" \

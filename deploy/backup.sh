@@ -13,9 +13,9 @@ set -euo pipefail
 
 MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
-# A read-only login, provisioned with its role by
-# ../migrations/run-migrations.sh from RIFTAL_DB_PASSWORD_BACKUP, so a backup
-# run can never change the database it copies.
+# A login that can change no row, table or account, provisioned with its role
+# by ../migrations/run-migrations.sh from RIFTAL_DB_PASSWORD_BACKUP. Its one
+# reach past reading is triggers, see README.md, The dump login.
 MYSQL_USER="${MYSQL_USER:-backup}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 MYSQL_DATABASE="${MYSQL_DATABASE:?MYSQL_DATABASE is required}"

@@ -29,7 +29,7 @@ adds one line there; the script needs no change, per `CLAUDE.md` hard rule 5.
 
 ## The dump login
 
-`backup.sh` dumps as `backup`, a read-only login whose password is
+`backup.sh` dumps as `backup`, a dump-only login whose password is
 `RIFTAL_DB_PASSWORD_BACKUP`. `../migrations/run-migrations.sh` creates it on
 any run with that variable set, grants it `riftal_role_backup`, and rotates it
 when the variable changes. The role holds `SELECT`, `SHOW VIEW` and `TRIGGER`
@@ -37,7 +37,11 @@ on the schema and the global `SHOW_ROUTINE`. The last two matter: without
 them `mysqldump` still exits 0 and silently leaves every trigger or stored
 procedure out of the set. It can change no row, table, account or grant.
 `TRIGGER` is the one privilege that reaches past reading, because MySQL ties
-seeing a trigger to being allowed to create and drop one.
+seeing a trigger to being allowed to create and drop one, and a `SIGNAL`
+trigger can block writers. With the binlog on, as `binlog-check.sh` requires,
+MySQL refuses `CREATE TRIGGER` to a login without `SUPER`, so this stays shut
+unless `log_bin_trust_function_creators` is set. `../migrations/selftest.sh`
+pins both halves.
 `restore.sh` still runs as the admin account, because it drops and recreates
 the schema and recreates each procedure under its original `DEFINER`.
 

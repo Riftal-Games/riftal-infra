@@ -60,7 +60,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=37
+EXPECTED_ASSERTIONS=39
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -437,7 +437,7 @@ for half in LOCKEDPW OPENBLANK; do
   fi
 done
 
-section "the backup login needs no grants file, reads everything and writes nothing"
+section "the backup login needs no grants file, reads everything and changes no row, table, lock, event or account"
 PW_E=selftestPasswordBackup000005
 run_migrations "$FIXTURES/good" riftal_selftest "selftest-prov-backup-$SUFFIX" \
   -e RIFTAL_DB_PASSWORD_BACKUP="$PW_E" >"$LOGS"/out-prov-backup.log 2>&1 || true
@@ -458,9 +458,34 @@ for stmt in "INSERT INTO widgets VALUES (2, 'x')" "UPDATE widgets SET name = 'x'
 done
 if [ "${#written[@]}" -eq 0 ] \
    && [ "$(query riftal_selftest 'SELECT COUNT(*) FROM widgets')" = "1" ]; then
-  pass "every write, DDL, lock, event and account statement is denied to backup"
+  pass "every row, table, lock, event and account statement is denied to backup"
 else
   fail "backup was allowed: ${written[*]-none, but widgets changed}"
+fi
+# mysqldump needs TRIGGER to see a trigger, and MySQL ties creating and
+# dropping one to the same privilege. With the binlog on, as
+# ../deploy/binlog-check.sh requires, MySQL still refuses CREATE TRIGGER to a
+# login without SUPER, unless log_bin_trust_function_creators is set. Both
+# halves are pinned, so a wider grant or a lifted guard shows up here.
+trigger_sql="CREATE TRIGGER selftest_backup_trg BEFORE INSERT ON widgets FOR EACH ROW SET @x = 1; DROP TRIGGER selftest_backup_trg"
+triggers_sql="SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='riftal_selftest'"
+if ! as_login backup "$trigger_sql" "$PW_E" >"$LOGS"/out-prov-backup-trg-binlog.log 2>&1 \
+   && grep -q 'ERROR 1419' "$LOGS"/out-prov-backup-trg-binlog.log \
+   && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
+  pass "with the binlog on, backup cannot create a trigger"
+else
+  fail "expected backup's CREATE TRIGGER refused with ERROR 1419 and no trigger left"
+  cat "$LOGS"/out-prov-backup-trg-binlog.log
+fi
+query riftal_selftest 'SET GLOBAL log_bin_trust_function_creators = 1'
+trigger_rc=0
+as_login backup "$trigger_sql" "$PW_E" >"$LOGS"/out-prov-backup-trg-trust.log 2>&1 || trigger_rc=$?
+query riftal_selftest 'SET GLOBAL log_bin_trust_function_creators = 0'
+if [ "$trigger_rc" -eq 0 ] && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
+  pass "with log_bin_trust_function_creators set, TRIGGER lets backup create and drop a trigger"
+else
+  fail "expected backup to create and drop a trigger once the binlog guard is lifted, got exit $trigger_rc"
+  cat "$LOGS"/out-prov-backup-trg-trust.log
 fi
 
 section "no provisioning run ever prints a password"
@@ -482,4 +507,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, MySQL version floor, login provisioning, the read-only backup login, DEFINER procedures.\n' "$PASSES"
+printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, MySQL version floor, login provisioning, the dump-only backup login, DEFINER procedures.\n' "$PASSES"
