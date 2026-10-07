@@ -23,8 +23,8 @@ fails on either.
 
 `*.phar` is gitignored by the repo root's `.gitignore`, and
 `RiftalMines.config.yml` by this folder's own, so a copy edited by hand to
-hold a database password is never committed. Only `RiftalMines.config.yml.template` is
-tracked.
+hold a database password is never committed. Only
+`RiftalMines.config.yml.template` is tracked.
 
 ## Build `RiftalMines.phar`
 
