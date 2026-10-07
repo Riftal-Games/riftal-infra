@@ -13,8 +13,11 @@ under containers, not less (CLAUDE.md hard rule 5).
 2. Refuses, before writing anything, a server whose `VERSION()` is below
    MySQL 8.0.30, the floor ADR 008 sets because `grants.sql` may use
    `REVOKE IF EXISTS`. The `mysql:8` tag floats, so the server is asked.
-3. Reads `*.sql` files from `MIGRATIONS_DIR`, sorted by filename, and applies
-   the ones not already recorded in a `schema_migrations` bookkeeping table.
+3. Reads `*.sql` files from `MIGRATIONS_DIR`, sorted by filename under
+   `LC_ALL=C`, and applies the ones not already recorded in a
+   `schema_migrations` bookkeeping table. The order is bytewise whatever
+   locale the container carries, so `0001_B` sorts before `0001_a` on every
+   image.
    A missing or empty directory is nothing pending, not a fault: there is no
    table to migrate until `riftal-game` ships one.
    It refuses the whole run, with a nonzero exit and nothing applied, when
@@ -146,7 +149,8 @@ container using the fixtures in `fixtures/`: no-op on an empty directory,
 ordered apply with both files recorded, a no-op second run, a broken
 migration halting the run without being recorded, a pending file sorting
 below the highest applied one refusing the run while files above it still
-apply, and two invocations racing
+apply, both of those decided bytewise under a stand-in case-folding locale,
+and two invocations racing
 the same lock name applying a pending migration exactly once, a server
 reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass, and login
 provisioning against `fixtures/grants/`: a login created on an existing

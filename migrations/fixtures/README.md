@@ -21,6 +21,11 @@ only real source of those; these exist only so `selftest.sh` can prove
 - `order/` holds three files that each create their own table, so the
   self-test can mark one as applied and show a lower pending file refused
   with nothing applied, and a higher one still applied.
+- `collate/` holds `0001_B`, which creates a table, and `0001_a`, which
+  fills it, so the pair applies only in bytewise order.
+- `collate-locale/` holds a `sort` function, sourced through `BASH_ENV`, that
+  folds case under any `LC_ALL` but `C`, standing in for a collating locale
+  the `mysql:8` image does not carry.
 - `grants/` holds a `grants.sql` standing in for `riftal-game`'s, creating
   `riftal_role_mines` with `SELECT` on the `good/` fixtures' `widgets`, so
   the self-test can provision a login against a real role.

@@ -60,7 +60,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=38
+EXPECTED_ASSERTIONS=40
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -267,6 +267,36 @@ if [ "$high_rc" -eq 0 ] && [ "$high_state" = "gears,schema_migrations,sprockets 
 else
   fail "expected exit 0 with sprockets and gears applied, got exit $high_rc, state: $high_state"
   cat "$LOGS"/out-order-high.log
+fi
+
+section "filename order is bytewise whatever locale the container carries"
+in_locale() {
+  run_migrations "$FIXTURES/collate" "$1" "selftest-collate-$SUFFIX" \
+    -v "$FIXTURES/collate-locale:/collate-locale:ro" \
+    -e BASH_ENV=/collate-locale/fake-locale-sort.bash -e LANG=en_US.UTF-8
+}
+docker exec "$CONTAINER" mysql -uroot -pselftest -e \
+  'CREATE DATABASE riftal_selftest_collate' 2>/dev/null
+collate_rc=0
+in_locale riftal_selftest_collate >"$LOGS"/out-collate.log 2>&1 || collate_rc=$?
+collate_order="$(grep '^applying ' "$LOGS"/out-collate.log | tr '\n' ' ')"
+if [ "$collate_rc" -eq 0 ] \
+   && [ "$collate_order" = "applying 0001_B_create_bolts.sql applying 0001_a_seed_bolts.sql " ]; then
+  pass "under a case-folding locale, 0001_B still applies before 0001_a"
+else
+  fail "expected exit 0 applying 0001_B then 0001_a, got exit $collate_rc, order: $collate_order"
+  cat "$LOGS"/out-collate.log
+fi
+seed_order riftal_selftest_collate_low 0001_a_seed_bolts.sql
+collate_low_rc=0
+in_locale riftal_selftest_collate_low >"$LOGS"/out-collate-low.log 2>&1 || collate_low_rc=$?
+if [ "$collate_low_rc" -eq 1 ] && grep -q \
+     'pending migration(s) 0001_B_create_bolts.sql sort below 0001_a_seed_bolts.sql' \
+     "$LOGS"/out-collate-low.log; then
+  pass "under a case-folding locale, a pending 0001_B below an applied 0001_a is refused"
+else
+  fail "expected exit 1 refusing 0001_B_create_bolts.sql, got exit $collate_low_rc"
+  cat "$LOGS"/out-collate-low.log
 fi
 
 section "provisioning on an existing schema creates the login with its role"
@@ -497,4 +527,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
+printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, locale-independent order, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
