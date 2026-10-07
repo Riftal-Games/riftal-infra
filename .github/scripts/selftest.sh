@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=60
+EXPECTED_ASSERTIONS=89
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -263,6 +263,35 @@ expect_cleanup "$FIXTURES/bad/cleanup-optout-after-rm.sh" "5: a container starte
 expect_cleanup "$FIXTURES/bad/cleanup-optout-inline.sh" "5: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-optout-unspaced.sh" "5: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-continued-hash.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-comment.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-comment-tab.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-comment-unspaced.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-comment-rm.sh" "4: a container removed without -v"
+expect_cleanup "$FIXTURES/bad/cleanup-comment-paren.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-comment-twice.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-comment-continued.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-continued-comment.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-length.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-strip.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-single.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-escaped.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-blank.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-subshell.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-multiline.sh" "5: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-continued.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-heredoc.sh" "7: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-apostrophe.sh" "7: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-apostrophe-quoted.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-dquote-in-single.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-url.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-dquote.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-ansi.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-in-flag.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-comment-run.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-in-word.sh" "5: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-in-word.sh" "6: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-hash-in-word.sh" "7: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-image-rm.sh" "4: a container started without --rm"
 expect_cleanup_carry
 expect_real_cleanup
 
