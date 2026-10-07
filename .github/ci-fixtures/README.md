@@ -64,6 +64,17 @@ end on a continued run, so whichever is read first loses its run at the next
 file's first line and the other at the end of input, and a scanner that checks
 the pending command at only one of those two points names only one file.
 
+A run or create reads its options only up to the image, so
+`bad/cleanup-rm-after-image.sh` puts each `--rm` after the image, behind a
+short, a long, a clustered, an attached and an `=` option in turn, so a scanner
+that lets any of those swallow the image goes red. `good/cleanup.sh` puts its
+`--rm` behind options that take a value in each form docker reads one, so a
+scanner that stops at a value as if it were the image goes red there.
+`bad/cleanup-rm-quoted-value.sh` hides each `--rm` inside a single or double
+quoted value, so a scanner that splits words on blanks without reading quotes
+goes red, and `good/cleanup.sh` follows quoted values holding a blank, a
+backslash and the other quote with a real `--rm`.
+
 A flag after a trailing `#` lends a command nothing, but the scanner never
 deletes the text after a `#`: it only stops looking for that command's flags
 there, so a `#` it misreads can report a command and never hide one.

@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=90
+EXPECTED_ASSERTIONS=104
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -308,6 +308,20 @@ expect_cleanup "$FIXTURES/bad/cleanup-hash-in-word.sh" "5: a container started w
 expect_cleanup "$FIXTURES/bad/cleanup-hash-in-word.sh" "6: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-hash-in-word.sh" "7: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-image-rm.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-after-image.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-after-image.sh" "5: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-after-image.sh" "6: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-after-image.sh" "7: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-after-image.sh" "8: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-after-image.sh" "9: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-after-image.sh" "10: a container created without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-after-image.sh" "11: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-quoted-value.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-quoted-value.sh" "5: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-quoted-value.sh" "6: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-quoted-value.sh" "7: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-quoted-value.sh" "8: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-rm-quoted-value.sh" "9: a container started without --rm"
 expect_cleanup_carry
 expect_cleanup_eof_continued
 expect_real_cleanup
