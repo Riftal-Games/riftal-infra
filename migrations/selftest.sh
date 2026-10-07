@@ -437,7 +437,7 @@ for half in LOCKEDPW OPENBLANK; do
   fi
 done
 
-section "the backup login needs no grants file, reads everything and changes no row, table, lock, event or account"
+section "the backup login needs no grants file, reads widgets, and is denied INSERT, UPDATE, DELETE, CREATE/ALTER/DROP TABLE, LOCK TABLES, CREATE EVENT, CREATE USER and GRANT"
 PW_E=selftestPasswordBackup000005
 run_migrations "$FIXTURES/good" riftal_selftest "selftest-prov-backup-$SUFFIX" \
   -e RIFTAL_DB_PASSWORD_BACKUP="$PW_E" >"$LOGS"/out-prov-backup.log 2>&1 || true
@@ -458,7 +458,7 @@ for stmt in "INSERT INTO widgets VALUES (2, 'x')" "UPDATE widgets SET name = 'x'
 done
 if [ "${#written[@]}" -eq 0 ] \
    && [ "$(query riftal_selftest 'SELECT COUNT(*) FROM widgets')" = "1" ]; then
-  pass "every row, table, lock, event and account statement is denied to backup"
+  pass "backup is denied INSERT, UPDATE, DELETE, CREATE/ALTER/DROP TABLE, LOCK TABLES, CREATE EVENT, CREATE USER and GRANT"
 else
   fail "backup was allowed: ${written[*]-none, but widgets changed}"
 fi
@@ -521,4 +521,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, MySQL version floor, login provisioning, the dump-only backup login, DEFINER procedures.\n' "$PASSES"
+printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, MySQL version floor, login provisioning, the backup login, DEFINER procedures.\n' "$PASSES"

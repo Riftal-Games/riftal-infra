@@ -29,14 +29,16 @@ adds one line there; the script needs no change, per `CLAUDE.md` hard rule 5.
 
 ## The dump login
 
-`backup.sh` dumps as `backup`, a dump-only login whose password is
+`backup.sh` dumps as the login `backup`, whose password is
 `RIFTAL_DB_PASSWORD_BACKUP`. `../migrations/run-migrations.sh` creates it on
 any run with that variable set, grants it `riftal_role_backup`, and rotates it
 when the variable changes. The role holds `SELECT`, `SHOW VIEW` and `TRIGGER`
 on the schema and the global `SHOW_ROUTINE`. The last two matter: without
 them `mysqldump` still exits 0 and silently leaves every trigger or stored
-procedure out of the set. It can change no row, table, account or grant,
-but it is not read-only: MySQL ties seeing a trigger to creating and dropping
+procedure out of the set. `../migrations/selftest.sh` proves `backup` is
+denied `INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`, `ALTER TABLE`,
+`DROP TABLE`, `LOCK TABLES`, `CREATE EVENT`, `CREATE USER` and `GRANT`.
+MySQL ties seeing a trigger to creating and dropping
 one, so `TRIGGER` lets `backup` drop any existing trigger in the schema,
 whatever the binlog setting, and with it whatever that trigger enforces. With
 the binlog on, as `binlog-check.sh` requires, MySQL refuses only
@@ -45,6 +47,12 @@ the binlog on, as `binlog-check.sh` requires, MySQL refuses only
 a `SIGNAL` trigger can block writers. `../migrations/selftest.sh` pins each
 of these: the refused create, the accepted drop, and the create once the
 guard is lifted.
+Like any MySQL login, `backup` can change its own password and default role,
+take shared row locks (`SELECT ... FOR SHARE`) and take named locks
+(`GET_LOCK`), including the runner's `riftal_schema_migrations`; no grant
+removes these, and their effect is on availability only: backups or
+migrations stop, or writers wait, until the login is reprovisioned or its
+session ends.
 `restore.sh` still runs as the admin account, because it drops and recreates
 the schema and recreates each procedure under its original `DEFINER`.
 

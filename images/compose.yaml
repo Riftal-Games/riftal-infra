@@ -166,7 +166,7 @@ services:
     environment:
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
-      # Dump-only, see ../deploy/README.md, The dump login.
+      # See ../deploy/README.md, The dump login.
       # ../migrations/run-migrations.sh creates this login from the
       # same variable, and until it has, every run here fails to log in.
       MYSQL_USER: backup

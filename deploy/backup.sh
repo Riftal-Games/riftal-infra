@@ -13,10 +13,10 @@ set -euo pipefail
 
 MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
-# A login that can change no row, table or account, provisioned with its role
-# by ../migrations/run-migrations.sh from RIFTAL_DB_PASSWORD_BACKUP. Its one
-# reach past reading is dropping or creating triggers, see README.md, The
-# dump login.
+# A login granted SELECT, SHOW VIEW and TRIGGER on the schema and global
+# SHOW_ROUTINE, provisioned with its role by ../migrations/run-migrations.sh
+# from RIFTAL_DB_PASSWORD_BACKUP. What it is denied and what it can still do
+# are in README.md, The dump login.
 MYSQL_USER="${MYSQL_USER:-backup}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 MYSQL_DATABASE="${MYSQL_DATABASE:?MYSQL_DATABASE is required}"

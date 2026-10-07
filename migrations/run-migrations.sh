@@ -226,8 +226,9 @@ fi
 # ../deploy/binlog-check.sh requires refuses only CREATE TRIGGER without
 # SUPER; with the binlog off or log_bin_trust_function_creators set, it can
 # create one too, and a SIGNAL trigger blocks writers. LOCK TABLES and EVENT are
-# withheld: --single-transaction takes no table locks and backup.sh passes no
-# --events, while either would let this login block writers or drop an event.
+# withheld because the dump needs neither: --single-transaction takes no table
+# locks and backup.sh passes no --events. What any login can do regardless is
+# in ../deploy/README.md, The dump login.
 schema="${MYSQL_DATABASE//\`/\`\`}"
 if ! printf '%s\n' \
     "CREATE ROLE IF NOT EXISTS riftal_role_backup;" \

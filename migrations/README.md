@@ -53,7 +53,7 @@ After the migrations, every run:
    and fails the run otherwise, before anything connects. Grants are never
    recorded as applied: a dump restored onto a fresh server carries
    `schema_migrations` but no roles, so they are rebuilt every run.
-   It then creates `riftal_role_backup` itself, the dump-only role for
+   It then creates `riftal_role_backup` itself, the role for
    `../deploy/backup.sh`, since that role follows the whole schema and no
    plugin owns it (`../deploy/README.md`, The dump login).
 2. For each `RIFTAL_DB_PASSWORD_<NAME>`, runs `CREATE USER IF NOT EXISTS` and
