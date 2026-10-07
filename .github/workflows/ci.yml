@@ -50,11 +50,13 @@ jobs:
           sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
           hadolint --version
 
-      # Runs before the real scans on purpose. images/ and proxy/ hold only a
-      # .gitkeep today, so the scans below have nothing to look at and would go
-      # green by being empty. This step feeds every check a fixture it must
-      # reject and a fixture it must accept, so the checks are known to
-      # discriminate on this commit and not only on the day they were written.
+      # Runs before the real scans on purpose. Outside the fixtures the tree
+      # holds no Dockerfile or Containerfile, so the Dockerfile scan below goes
+      # green by finding nothing, and a compose scan whose discovery missed
+      # every file would go green the same way. This step feeds every check a
+      # fixture it must reject and a fixture it must accept, so the checks are
+      # known to discriminate on this commit and not only on the day they were
+      # written.
       - name: Self-test, prove every check can fail
         run: bash .github/scripts/selftest.sh
 
