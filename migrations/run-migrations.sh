@@ -16,6 +16,11 @@
 # work below runs over its own throwaway connections.
 set -euo pipefail
 
+# Filename order decides the apply order and the out-of-order refusal below,
+# and a collating locale such as en_US.UTF-8 puts 0001_a before 0001_B where
+# C puts it after. Pinned here, the order is bytewise on every image.
+export LC_ALL=C
+
 LOCK_NAME="${MIGRATIONS_LOCK_NAME:-riftal_schema_migrations}"
 LOCK_TIMEOUT="${MIGRATIONS_LOCK_TIMEOUT:-60}"
 
@@ -180,7 +185,7 @@ is_applied() {
 # but before it on a fresh database, so the two could end with different
 # schemas. The applied list was read under the lock, so no other runner can
 # move the highest applied file while this is decided. Both sides go through
-# the same sort as the file list.
+# the same LC_ALL=C sort as the file list.
 highest=""
 if [ "${#applied[@]}" -gt 0 ]; then
   highest="$(printf '%s\n' "${applied[@]}" | sort | tail -n 1)"
