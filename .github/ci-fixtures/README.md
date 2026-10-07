@@ -113,7 +113,11 @@ that stops recognising one spelling of the key passes a good file just as well.
 way, a branch, a short, long or uppercase sha, a sha only in the trailing comment,
 a word after the sha that YAML reads into the ref, a URL ending in a sha, no ref at
 all and a `docker://` tag, and the list, mapping and spaced-key forms of the key
-are spread across them. The URL is there for the pattern's start anchor and the
+are spread across them. Two more carry a tag behind a key quoted each way, and two
+hold a pinned sha in a flow mapping, one after a comma and one with the `{` opening
+its line, because a flow mapping fails whatever it names. The good workflow keeps
+comment lines holding `{ uses: ... }`, so a check that stops exempting a comment
+goes red there. The URL is there for the pattern's start anchor and the
 trailing word for the check on what follows the value: without either, a sha at
 the end of the line passes.
 
