@@ -58,19 +58,47 @@ awk '
     for (i in names) takes_value[names[i]] = 1
     short_value = "acehlmpuvw"
   }
+  # Splits s into shell words as the shell would before expansion, so a quoted
+  # value such as -e "X --rm Y" is one word and the --rm in it is not a flag.
+  # A quote still open where the command was cut, at a separator, a # or a
+  # docker inside it, runs to the end, so no word after it can be a flag.
+  function shell_words(s, w,    n, i, ch, q, cur) {
+    n = 0
+    q = ""
+    cur = ""
+    for (i = 1; i <= length(s); i++) {
+      ch = substr(s, i, 1)
+      if (q == "\047") {
+        if (ch == q) q = ""
+      } else if (ch == "\\") {
+        ch = substr(s, i++, 2)
+      } else if (q == "\"") {
+        if (ch == q) q = ""
+      } else if (ch == "\"" || ch == "\047") {
+        q = ch
+      } else if (ch == " " || ch == "\t") {
+        if (cur != "") w[++n] = cur
+        cur = ""
+        continue
+      }
+      cur = cur ch
+    }
+    if (cur != "") w[++n] = cur
+    return n
+  }
   # docker run and docker create read options only up to the image, and hand
   # every word after it to the container, so a --rm there is not theirs. An
   # option missing from takes_value is read as taking no value, so its value
   # is read as the image and the search stops early: an option this list does
   # not know can make a command be reported, never let one through.
   function has_rm(seg,    w, n, i, t, c) {
-    n = split(substr(seg, 2), w, " ")
+    n = shell_words(seg, w)
     for (i = 1; i <= n; i++) {
       t = w[i]
       if (t == "--rm") return 1
       if (t !~ /^-./) return 0
       if (t ~ /^--/) {
-        if (t !~ /=/ && (substr(t, 3) in takes_value)) i++
+        if (substr(t, 3) in takes_value) i++
         continue
       }
       # In a cluster such as -it or -dp 80:80, the first letter that takes a

@@ -6,7 +6,8 @@
 # docker does not end a command, and a flag that ends its command just before a
 # separator or a trailing comment still counts. A --rm after options that take
 # a value, as the next word, after = or inside a cluster, is still before the
-# image and counts. Each long-lived service at the
+# image and counts, and so does one after a quoted value holding a blank, a
+# backslash or the other quote. Each long-lived service at the
 # end is kept by the opt-out line directly above it, whether that line is
 # indented with spaces or with tabs, and whether the service continues over
 # several lines.
@@ -32,6 +33,9 @@ docker run -dp 8080:80 -e A=b -v data:/data --name riftal_smoke_fixture -m 1g \
   --cpus 2 --network riftal_smoke_net --mount type=volume,dst=/d --rm mysql:8
 docker run -eB=c --rm mysql:8 true
 docker run --env=C=d --rm mysql:8 true
+docker run --health-cmd "x y" --rm mysql:8 true
+docker run -e 'D\' --rm mysql:8 true
+docker run -e "E'F" --rm mysql:8 true
 # container-cleanup: keep a --restart service outlives the script that starts it
 docker run -d --restart unless-stopped --name riftal_smoke_fixture mysql:8
 if true; then
