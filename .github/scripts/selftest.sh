@@ -12,12 +12,17 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURES="$REPO_ROOT/.github/ci-fixtures"
 LIST="$REPO_ROOT/.github/scripts/list_compose.sh"
 SCAN="$REPO_ROOT/.github/scripts/scan.sh"
+# In CI, HADOLINT comes from install-hadolint.sh, and falling back to PATH
+# would lint with a binary this job never checked.
+if [ "${GITHUB_ACTIONS:-}" = true ]; then
+  : "${HADOLINT:?HADOLINT is unset, install-hadolint.sh did not reach this step}"
+fi
 export HADOLINT="${HADOLINT:-hadolint}"
 FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=120
+EXPECTED_ASSERTIONS=125
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -284,30 +289,44 @@ INSTALL_HADOLINT="$REPO_ROOT/.github/scripts/install-hadolint.sh"
 
 # A stub stands in for the release asset, served over file:// so no case
 # touches the network. sha256sum -c names the file it checked, which is how
-# each run's download directory is read back.
+# each run's download directory is read back. Every run sees an install(1)
+# that refuses a destination outside this scratch directory, so a target that
+# drifts to a host-wide path such as /usr/local/bin goes red here instead of
+# replacing the runner's own hadolint with the stub.
 expect_install_hadolint() {
-  local scratch stub good_sha bad_sha out_a out_b out_c status_c dir_a dir_b dir_c
+  local scratch stub good_sha bad_sha want out_a out_b out_c out_d out_e
+  local status_c status_d status_e dir_a dir_b dir_c
   scratch="$(mktemp -d)"
-  mkdir -p "$scratch/runner_temp" "$scratch/bin"
+  mkdir -p "$scratch/ab" "$scratch/c" "$scratch/d" "$scratch/shim"
+  printf '#!/bin/sh\nfor dest; do :; done\ncase "$dest" in %s/*) exec %s "$@" ;; esac\necho "install outside this job: $dest" >&2\nexit 1\n' \
+    "$scratch" "$(command -v install)" > "$scratch/shim/install"
+  chmod +x "$scratch/shim/install"
   stub="$scratch/hadolint-stub"
   printf '#!/bin/sh\necho stub\n' > "$stub"
   good_sha="$(sha256sum "$stub" | cut -d' ' -f1)"
   bad_sha="0${good_sha#?}"
   [ "$bad_sha" = "$good_sha" ] && bad_sha="1${good_sha#?}"
   run_install() {
-    RUNNER_TEMP="$scratch/runner_temp" HADOLINT_URL="file://$stub" \
-      HADOLINT_SHA256="$1" HADOLINT_TARGET="$scratch/bin/$2" \
+    PATH="$scratch/shim:$PATH" RUNNER_TEMP="$scratch/$2" GITHUB_ENV="$scratch/$2.env" \
+      HADOLINT_URL="file://$stub" HADOLINT_SHA256="$1" \
       bash "$INSTALL_HADOLINT" 2>&1
   }
   checked_dir() { printf '%s\n' "$1" | sed -n 's#^\(.*\)/hadolint: \(OK\|FAILED\)$#\1#p' | head -n 1; }
 
-  out_a="$(run_install "$good_sha" a)"
-  out_b="$(run_install "$good_sha" b)"
+  out_a="$(run_install "$good_sha" ab)"
+  out_b="$(run_install "$good_sha" ab)"
   out_c="$(run_install "$bad_sha" c)"
   status_c=$?
+  out_d="$(env -u RUNNER_TEMP PATH="$scratch/shim:$PATH" GITHUB_ENV="$scratch/d.env" \
+    HADOLINT_URL="file://$stub" HADOLINT_SHA256="$good_sha" bash "$INSTALL_HADOLINT" 2>&1)"
+  status_d=$?
+  out_e="$(env -u GITHUB_ENV PATH="$scratch/shim:$PATH" RUNNER_TEMP="$scratch/d" \
+    HADOLINT_URL="file://$stub" HADOLINT_SHA256="$good_sha" bash "$INSTALL_HADOLINT" 2>&1)"
+  status_e=$?
   dir_a="$(checked_dir "$out_a")"
   dir_b="$(checked_dir "$out_b")"
   dir_c="$(checked_dir "$out_c")"
+  want="HADOLINT=$scratch/ab/bin/hadolint"
 
   if [ -n "$dir_a" ] && [ -n "$dir_b" ] && [ "$dir_a" != "$dir_b" ]; then
     pass "two hadolint installs download into two different directories"
@@ -315,11 +334,9 @@ expect_install_hadolint() {
     fail "expected two hadolint installs to download into two different directories, got '$dir_a' and '$dir_b'"
     printf '%s\n%s\n' "$out_a" "$out_b"
   fi
-  if [ "$dir_a/hadolint" = /tmp/hadolint ] || [ "$dir_b/hadolint" = /tmp/hadolint ]; then
-    fail "a hadolint install downloaded to the shared /tmp/hadolint"
-  elif [ "${dir_a#"$scratch/runner_temp/hadolint."}" != "$dir_a" ] \
-    && [ "${dir_b#"$scratch/runner_temp/hadolint."}" != "$dir_b" ]; then
-    pass "neither hadolint download is /tmp/hadolint, both are in mktemp directories under RUNNER_TEMP"
+  if [ "${dir_a#"$scratch/ab/hadolint."}" != "$dir_a" ] \
+    && [ "${dir_b#"$scratch/ab/hadolint."}" != "$dir_b" ]; then
+    pass "both hadolint downloads are in mktemp directories under RUNNER_TEMP"
   else
     fail "expected both hadolint download directories under RUNNER_TEMP, got '$dir_a' and '$dir_b'"
   fi
@@ -330,28 +347,92 @@ expect_install_hadolint() {
     fail "expected a wrong hadolint hash to fail at the checksum, exit $status_c"
     printf '%s\n' "$out_c"
   fi
-  if [ ! -e "$scratch/bin/c" ]; then
-    pass "a wrong hadolint hash installs nothing"
+  if [ ! -e "$scratch/c/bin/hadolint" ] && [ ! -s "$scratch/c.env" ]; then
+    pass "a wrong hadolint hash installs nothing and sets no HADOLINT"
   else
-    fail "a wrong hadolint hash still installed $scratch/bin/c"
+    fail "a wrong hadolint hash still installed $scratch/c/bin/hadolint or wrote $scratch/c.env"
   fi
-  if cmp -s "$stub" "$scratch/bin/a" && [ -x "$scratch/bin/a" ]; then
-    pass "a right hadolint hash installs the checked file, executable"
+  if cmp -s "$stub" "$scratch/ab/bin/hadolint" && [ -x "$scratch/ab/bin/hadolint" ]; then
+    pass "a right hadolint hash installs the checked file, executable, at RUNNER_TEMP/bin/hadolint"
   else
-    fail "expected a right hadolint hash to install the checked file, executable"
+    fail "expected a right hadolint hash to install the checked file, executable, at RUNNER_TEMP/bin/hadolint"
     printf '%s\n' "$out_a"
   fi
-  if [ -z "$(ls -A "$scratch/runner_temp")" ] \
+  if [ "$(grep -cxF "$want" "$scratch/ab.env" 2>/dev/null)" = 2 ] \
+    && ! grep -vxF "$want" "$scratch/ab.env" >/dev/null 2>&1; then
+    pass "each right-hash install points later steps at RUNNER_TEMP/bin/hadolint through GITHUB_ENV"
+  else
+    fail "expected GITHUB_ENV to hold exactly two '$want' lines, it holds: $(cat "$scratch/ab.env" 2>/dev/null)"
+  fi
+  if [ -z "$(find "$scratch/ab" "$scratch/c" -maxdepth 1 -name 'hadolint.*')" ] \
     && [ -n "$dir_a" ] && [ ! -e "$dir_a" ] && [ -n "$dir_c" ] && [ ! -e "$dir_c" ]; then
     pass "every hadolint install, right hash or wrong, removes its download directory"
   else
-    fail "expected no hadolint download directory left behind, RUNNER_TEMP holds: $(ls -A "$scratch/runner_temp")"
+    fail "expected no hadolint download directory left behind: $(find "$scratch/ab" "$scratch/c" -maxdepth 1 -name 'hadolint.*')"
+  fi
+
+  if [ "$status_d" -ne 0 ] && printf '%s' "$out_d" | grep -qF RUNNER_TEMP && [ ! -e "$scratch/d.env" ]; then
+    pass "with no RUNNER_TEMP, the install refuses instead of picking a shared path"
+  else
+    fail "expected the install to refuse with no RUNNER_TEMP, exit $status_d"
+    printf '%s\n' "$out_d"
+  fi
+  if [ "$status_e" -ne 0 ] && printf '%s' "$out_e" | grep -qF GITHUB_ENV && [ ! -e "$scratch/d/bin" ]; then
+    pass "with no GITHUB_ENV, the install refuses before installing a binary no scan would find"
+  else
+    fail "expected the install to refuse with no GITHUB_ENV before installing, exit $status_e"
+    printf '%s\n' "$out_e"
   fi
   rm -rf "$scratch"
 }
 
-section "hadolint install, a per-run download directory, gated on the hash"
+# A hadolint first on PATH that passes everything stands in for one in a
+# directory any job can write. With HADOLINT unset the scan must refuse, not
+# lint with it.
+expect_scan_needs_hadolint() {
+  local shim out status
+  shim="$(mktemp -d)"
+  printf '#!/bin/sh\necho PATH hadolint ran\n' > "$shim/hadolint"
+  chmod +x "$shim/hadolint"
+  out="$(env -u HADOLINT PATH="$shim:$PATH" bash "$SCAN" dockerfiles "$FIXTURES/bad/Dockerfile" 2>&1)"
+  status=$?
+  rm -rf "$shim"
+  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qF HADOLINT \
+    && ! printf '%s' "$out" | grep -qF 'PATH hadolint ran'; then
+    pass "scan.sh dockerfiles with no HADOLINT refuses rather than run hadolint from PATH"
+  else
+    fail "expected scan.sh dockerfiles with no HADOLINT to refuse without a PATH lookup, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+# Every other dockerfiles case passes the same with a working hadolint on PATH
+# as with HADOLINT, so only this one tells the two apart: each prints its own
+# marker, and the lint must come from HADOLINT.
+expect_scan_runs_hadolint() {
+  local scratch out status
+  scratch="$(mktemp -d)"
+  mkdir -p "$scratch/shim"
+  printf '#!/bin/sh\necho PATH hadolint ran\n' > "$scratch/shim/hadolint"
+  printf '#!/bin/sh\necho HADOLINT binary ran\n' > "$scratch/checked-hadolint"
+  chmod +x "$scratch/shim/hadolint" "$scratch/checked-hadolint"
+  out="$(HADOLINT="$scratch/checked-hadolint" PATH="$scratch/shim:$PATH" \
+    bash "$SCAN" dockerfiles "$FIXTURES/good/Dockerfile" 2>&1)"
+  status=$?
+  rm -rf "$scratch"
+  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'HADOLINT binary ran' \
+    && ! printf '%s' "$out" | grep -qF 'PATH hadolint ran'; then
+    pass "scan.sh dockerfiles lints with the HADOLINT binary, not a hadolint on PATH"
+  else
+    fail "expected scan.sh dockerfiles to run HADOLINT and never the hadolint on PATH, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+section "hadolint install, per-job, gated on the hash, found by the scans through HADOLINT"
 expect_install_hadolint
+expect_scan_needs_hadolint
+expect_scan_runs_hadolint
 
 section "container cleanup takes the anonymous volumes with every container"
 expect_cleanup "$FIXTURES/good/cleanup.sh" ""
