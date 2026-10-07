@@ -17,7 +17,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=88
+EXPECTED_ASSERTIONS=89
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -268,6 +268,7 @@ expect_cleanup "$FIXTURES/bad/cleanup-comment-tab.sh" "4: a container started wi
 expect_cleanup "$FIXTURES/bad/cleanup-comment-unspaced.sh" "4: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-comment-rm.sh" "4: a container removed without -v"
 expect_cleanup "$FIXTURES/bad/cleanup-comment-paren.sh" "4: a container started without --rm"
+expect_cleanup "$FIXTURES/bad/cleanup-comment-twice.sh" "4: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-comment-continued.sh" "4: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-continued-comment.sh" "4: a container started without --rm"
 expect_cleanup "$FIXTURES/bad/cleanup-hash-length.sh" "4: a container started without --rm"

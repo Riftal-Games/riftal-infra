@@ -65,7 +65,8 @@ A flag after a trailing `#` lends a command nothing, but the scanner never
 deletes the text after a `#`: it only stops looking for that command's flags
 there, so a `#` it misreads can report a command and never hide one.
 `bad/cleanup-comment*.sh` and `bad/cleanup-continued-comment.sh` put the flag
-in a comment. Every `bad/cleanup-hash-*.sh` puts a `#` that a shell reads as
+in a comment, and `bad/cleanup-comment-twice.sh` follows the flag with a second
+`#`, so a scanner that cuts at the last `#` goes red. Every `bad/cleanup-hash-*.sh` puts a `#` that a shell reads as
 text, inside quotes, a here-document, a parameter expansion or a word, ahead of
 or beside a leaking run, so a scanner that strips comments wrongly goes red.
 
