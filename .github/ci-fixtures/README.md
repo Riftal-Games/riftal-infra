@@ -68,7 +68,11 @@ that pattern. Where both the unused opt-out and the leaking command are
 reported, both are asserted, each at its own line: a scanner that drops the
 opt-out silently, or reports it yet still lets it excuse the run, gets only one
 of them right. `bad/cleanup-optout-carry/` is a directory because only a second
-file can show an opt-out carrying across the boundary. The good opt-outs
+file can show an opt-out carrying across the boundary.
+`bad/cleanup-optout-after-rm.sh` indents its line and opens it with a removal
+that uses up no keep, so a scanner that measures what precedes the second
+command from the start of the line, rather than from the end of the first
+command, reads only indentation there and lets the opt-out keep that run. The good opt-outs
 indented with spaces and with tabs go red when a blank stops meaning either.
 
 The real scans exclude this directory. If they ever stop excluding it, CI is red
