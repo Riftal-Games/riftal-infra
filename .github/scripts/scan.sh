@@ -12,14 +12,19 @@ root="${2:-.}"
 prune="${3:-$root/.github/ci-fixtures}"
 scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-check_dockerfiles() { "${HADOLINT:-hadolint}" "$1"; }
+check_dockerfiles() { "$HADOLINT" "$1"; }
 check_compose() { docker compose -f "$1" config --quiet; }
 
 # Command substitution puts discovery's exit status under `set -e`, so a
 # discovery that dies stops the scan instead of reading as an empty tree.
 # LISTER is how the self-test makes discovery fail on demand.
+#
+# HADOLINT has no default. A bare `hadolint` would be a PATH lookup, which on
+# the self-hosted runner can find a binary in a directory every job can write,
+# instead of the one install-hadolint.sh checked for this job.
 case "$kind" in
   dockerfiles) label='Dockerfile(s)/Containerfile(s)'
+    : "${HADOLINT:?HADOLINT must name the hadolint binary to run}"
     found="$(find "$root" -path "$root/.git" -prune -o -path "$prune" -prune -o \
       -type f \( -name Dockerfile -o -name 'Dockerfile.*' \
         -o -name '*.Dockerfile' -o -name Containerfile \
