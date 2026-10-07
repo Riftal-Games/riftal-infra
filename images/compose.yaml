@@ -70,6 +70,11 @@ services:
       # every boot, so it can never disagree with the one mysql runs with.
       # instance-b loads no plugin that connects, so it is not given it.
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # RiftalRanks connects as the ranks login (ADR 008), and riftal-game's
+      # DatabaseSettings reads its password from here, never from a file on
+      # the volume. The migration runner provisions the login from the same
+      # images/.env value. instance-b loads no ranks and is not given it.
+      RIFTAL_DB_PASSWORD_RANKS: ${RIFTAL_DB_PASSWORD_RANKS}
       # Flags beat server.properties in ServerConfigGroup, so the instance
       # needs no config file mounted in and the world volume stays the only
       # durable state.

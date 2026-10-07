@@ -90,6 +90,33 @@ needs `-e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD"` for the same reason.
 Unset, the boot stops before PocketMine starts and names the variable. No
 file rendered into this folder is read.
 
+## `RiftalRanks` and the `ranks` login
+
+`RiftalRanks.phar` loads on `instance` alone, like `RiftalMines`, because
+`instance-b` loads no plugin that connects to MySQL (ADR 008 item 6). Build it
+with the recipe above, `ranks` in place of `mines` and `RiftalRanks.phar` as
+the output. It declares `depend: [RiftalContracts]`, so PocketMine refuses it
+unless `RiftalContracts.phar` is in the roster too; placing that phar is
+riftal-infra#305.
+
+It connects as the `ranks` login of ADR 008, never as root. With the phar
+present, `start-instance.sh` copies `RiftalRanks.config.yml` to
+`/data/plugin_data/RiftalRanks/config.yml` on every boot. That file differs
+from the shipped one only in its schema, `riftal_dev`, and carries no
+password: `DatabaseSettings` reads it from `RIFTAL_DB_PASSWORD_RANKS`, which
+compose passes `instance` from `images/.env`. A `wslc run` of `instance`
+needs `-e RIFTAL_DB_PASSWORD_RANKS` for the same reason. Unset, the boot
+stops before PocketMine starts and names the variable.
+
+The login itself is made by the migration runner, not by the instance. Run it
+before `instance`, with `grants.sql` mounted and
+`-e RIFTAL_DB_PASSWORD_RANKS` exported from the same `images/.env`, as
+`../../../migrations/README.md` shows under "Running it locally". The runner
+creates `ranks`, grants it `riftal_role_ranks`, and resets its password to
+that value on every run, so after editing it in `images/.env` run the
+runner again before the next boot. A grant `ranks` lacks surfaces on this stack as ERROR 1142,
+which is the point.
+
 ## Why an override is required, not optional
 
 `mines/resources/config.yml`'s shipped default (`host: riftal-mysql, schema:

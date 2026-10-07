@@ -3,7 +3,7 @@
 # plugins from one flat directory and /plugins is the ./plugins bind
 # instance-b shares, so this instance's roster is assembled in the
 # container's own disposable filesystem: every plugin at the top of /plugins,
-# plus RiftalMines.phar once built. It mounts nothing and runs as uid 1000,
+# plus RiftalMines.phar and RiftalRanks.phar once built. It mounts nothing and runs as uid 1000,
 # so /data/plugin_data on a fresh volume stays writable by PocketMine.
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
@@ -55,6 +55,19 @@ if [ -f "$here/RiftalMines.phar" ]; then
 	mkdir -p /data/plugin_data/RiftalMines
 	bash "$here/render-config.sh" /data/plugin_data/RiftalMines/config.yml
 	cp "$here/RiftalMines.phar" "$roster/"
+fi
+
+if [ -f "$here/RiftalRanks.phar" ]; then
+	# Without the variable the plugin connects with the config's empty
+	# password, MySQL refuses it, and PocketMine shuts the whole server down
+	# because a plugin failed to enable. Stopping here names the cause.
+	if [ -z "${RIFTAL_DB_PASSWORD_RANKS:-}" ]; then
+		echo "start-instance.sh: RiftalRanks.phar is built and RIFTAL_DB_PASSWORD_RANKS is not set; the instance takes it from images/.env" >&2
+		exit 1
+	fi
+	mkdir -p /data/plugin_data/RiftalRanks
+	cp "$here/RiftalRanks.config.yml" /data/plugin_data/RiftalRanks/config.yml
+	cp "$here/RiftalRanks.phar" "$roster/"
 fi
 
 cd /opt/pocketmine
