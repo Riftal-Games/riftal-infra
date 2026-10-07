@@ -19,6 +19,10 @@ env:
   # Pinned. An unpinned linter changes the meaning of a merge gate with no
   # commit to point at.
   HADOLINT_VERSION: v2.12.0
+  # hadolint-Linux-x86_64.sha256 from the v2.12.0 release. Recorded here, not
+  # fetched at run time, so a replaced release asset fails the install. A new
+  # HADOLINT_VERSION needs its own hash.
+  HADOLINT_SHA256: 56de6d5e5ec427e17b74fa48d51271c7fc0d61244bf5c90e828aab8362d55010
 
 jobs:
   checks:
@@ -30,7 +34,9 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
+      # what runs with this job's token.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       # Before any step that starts a container, so every one of them carries
       # this job's label for the sweep at the end.
@@ -47,6 +53,7 @@ jobs:
           set -euo pipefail
           curl -fsSL -o /tmp/hadolint \
             "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
+          printf '%s  /tmp/hadolint\n' "$HADOLINT_SHA256" | sha256sum -c -
           sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
           hadolint --version
 
