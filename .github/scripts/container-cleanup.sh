@@ -98,14 +98,23 @@ awk '
   # docker run and docker create read options only up to the image, and hand
   # every word after it to the container, so a --rm there is not theirs. An
   # option missing from takes_value is read as taking no value, so its value
-  # is read as the image and the search stops early: an option this list does
-  # not know can make a command be reported, never let one through.
-  function has_rm(seg,    w, n, i, t, c) {
+  # is read as the image and the search stops early. That can report a command,
+  # and it can also miss a later --rm=false or read a --rm that the option takes
+  # as its value as the flag, so an option this list does not know can let a
+  # command through (#806).
+  # The last --rm before the image decides. Its value counts as true only in
+  # the spellings strconv.ParseBool reads as true, which is what docker uses;
+  # false, a value docker refuses and a quoted value all count as no --rm.
+  function has_rm(seg,    w, n, i, t, c, rm) {
     n = shell_words(seg, w)
+    rm = 0
     for (i = 1; i <= n; i++) {
       t = w[i]
-      if (t == "--rm") return 1
-      if (t !~ /^-./) return 0
+      if (t !~ /^-./) break
+      if (t ~ /^--rm(=|$)/) {
+        rm = (t ~ /^--rm(=(1|t|T|true|TRUE|True))?$/)
+        continue
+      }
       if (t ~ /^--/) {
         if (substr(t, 3) in takes_value) i++
         continue
@@ -119,7 +128,7 @@ awk '
         }
       }
     }
-    return 0
+    return rm
   }
   # keep_file is the file the pending opt-out was read in, which FILENAME no
   # longer names once the next file has started.
