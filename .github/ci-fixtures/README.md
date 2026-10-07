@@ -59,7 +59,10 @@ is deleted. `bad/cleanup-quoted-comment.sh` and `bad/cleanup-argcount.sh` put a
 `#` that starts no comment before a run, so a scanner that drops everything
 after any `#` goes red. `bad/cleanup-continued-hash.sh` puts a run on a line
 that starts with `#` yet is no comment, because a continuation joins it to the
-word above.
+word above. `bad/cleanup-eof-continued/` is a directory of two files that each
+end on a continued run, so whichever is read first loses its run at the next
+file's first line and the other at the end of input, and a scanner that checks
+the pending command at only one of those two points names only one file.
 
 A flag after a trailing `#` lends a command nothing, but the scanner never
 deletes the text after a `#`: it only stops looking for that command's flags

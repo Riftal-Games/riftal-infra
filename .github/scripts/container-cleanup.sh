@@ -48,7 +48,13 @@ awk '
     }
     keep_at = 0
   }
-  function check(cmd, at,    rest, head, seg, n) {
+  # A command still continued when its file ends is checked as it stands, so a
+  # backslash on a last line cannot hide a run from the next file or from END.
+  function flush() {
+    if (cmd != "") check(cmd, at, at_file)
+    cmd = ""
+  }
+  function check(cmd, at, file,    rest, head, seg, n) {
     rest = cmd
     while (match(rest, /docker[ \t]+(container[ \t]+)?(run|rm|create)([ \t]|$)/)) {
       if (substr(rest, 1, RSTART - 1) !~ /^[ \t]*$/) drop_keep()
@@ -73,18 +79,18 @@ awk '
           if (keep_at) {
             keep_at = 0
           } else {
-            printf "%s:%d: a container %s without --rm\n", FILENAME, at, (head ~ /create/ ? "created" : "started")
+            printf "%s:%d: a container %s without --rm\n", file, at, (head ~ /create/ ? "created" : "started")
             bad = 1
           }
         }
       } else if (seg !~ /[ \t](--volumes|-[A-Za-z]*v[A-Za-z]*)[ \t]/) {
-        printf "%s:%d: a container removed without -v\n", FILENAME, at
+        printf "%s:%d: a container removed without -v\n", file, at
         bad = 1
       }
     }
     drop_keep()
   }
-  FNR == 1 { drop_keep(); cmd = ""; at = 0 }
+  FNR == 1 { flush(); drop_keep(); at = 0 }
   {
     line = $0
     if (cmd == "" && line ~ /^[ \t]*#/) {
@@ -101,13 +107,16 @@ awk '
       next
     }
     gsub(/"[$][{]DOCKER[}]"|"[$]DOCKER"|[$][{]DOCKER[}]|[$]DOCKER/, "docker", line)
-    if (cmd == "") at = FNR
+    if (cmd == "") {
+      at = FNR
+      at_file = FILENAME
+    }
     if (line ~ /\\$/) {
       cmd = cmd substr(line, 1, length(line) - 1) " "
       next
     }
-    check(cmd line, at)
+    check(cmd line, at, FILENAME)
     cmd = ""
   }
-  END { drop_keep(); exit bad }
+  END { flush(); drop_keep(); exit bad }
 ' "${files[@]}"
