@@ -60,7 +60,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=35
+EXPECTED_ASSERTIONS=38
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -226,6 +226,47 @@ if at_version 8.1.0 >"$LOGS"/out-floor-above.log 2>&1; then
   pass "8.1.0 passes the floor"
 else
   fail "8.1.0 should pass the floor"; cat "$LOGS"/out-floor-above.log
+fi
+
+section "a pending file sorting below the highest applied one is refused"
+# Stands in for a database that ran its seeded file before the lower-numbered
+# ones landed.
+seed_order() {
+  docker exec "$CONTAINER" mysql -uroot -pselftest -e "CREATE DATABASE $1" 2>/dev/null
+  run_migrations "$FIXTURES/empty" "$1" "selftest-order-$SUFFIX" >/dev/null 2>&1
+  query "$1" "INSERT INTO schema_migrations (id) VALUES ('$2')"
+}
+order_state() {
+  query "$1" "SELECT CONCAT(GROUP_CONCAT(TABLE_NAME ORDER BY TABLE_NAME), ' ', (SELECT COUNT(*) FROM schema_migrations)) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$1'"
+}
+seed_order riftal_selftest_order_low 0002_create_sprockets.sql
+low_rc=0
+run_migrations "$FIXTURES/order" riftal_selftest_order_low "selftest-order-$SUFFIX" \
+  >"$LOGS"/out-order-low.log 2>&1 || low_rc=$?
+if [ "$low_rc" -eq 1 ] && grep -q \
+     'pending migration(s) 0001_create_cogs.sql sort below 0002_create_sprockets.sql' \
+     "$LOGS"/out-order-low.log; then
+  pass "a lower pending file exits 1 naming it and the highest applied"
+else
+  fail "expected exit 1 naming 0001_create_cogs.sql and 0002_create_sprockets.sql, got exit $low_rc"
+  cat "$LOGS"/out-order-low.log
+fi
+low_state="$(order_state riftal_selftest_order_low)"
+if [ "$low_state" = "schema_migrations 1" ]; then
+  pass "the refusal applied nothing, not even the in-order 0003"
+else
+  fail "expected only schema_migrations with 1 row, got: $low_state"
+fi
+seed_order riftal_selftest_order_high 0001_create_cogs.sql
+high_rc=0
+run_migrations "$FIXTURES/order" riftal_selftest_order_high "selftest-order-$SUFFIX" \
+  >"$LOGS"/out-order-high.log 2>&1 || high_rc=$?
+high_state="$(order_state riftal_selftest_order_high)"
+if [ "$high_rc" -eq 0 ] && [ "$high_state" = "gears,schema_migrations,sprockets 3" ]; then
+  pass "pending files all above the highest applied one still apply"
+else
+  fail "expected exit 0 with sprockets and gears applied, got exit $high_rc, state: $high_state"
+  cat "$LOGS"/out-order-high.log
 fi
 
 section "provisioning on an existing schema creates the login with its role"

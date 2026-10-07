@@ -17,6 +17,12 @@ under containers, not less (CLAUDE.md hard rule 5).
    the ones not already recorded in a `schema_migrations` bookkeeping table.
    A missing or empty directory is nothing pending, not a fault: there is no
    table to migrate until `riftal-game` ships one.
+   It refuses the whole run, with a nonzero exit and nothing applied, when
+   any pending file sorts below the highest already recorded one, naming
+   both. That database would otherwise run the file after the higher one
+   while a fresh database runs it before, and the two could end with
+   different schemas. A lower number that lands late is renumbered above the
+   highest applied, never forced in.
 4. Stops on the first migration that errors, with a nonzero exit and that
    file left unrecorded. A later run retries it and everything after it.
 5. Is a no-op success when nothing is pending, so running it twice is safe.
@@ -138,7 +144,9 @@ before failing loudly, and a hung `wslc` call otherwise gives no signal.
 `selftest.sh` proves the runner against a real, throwaway `mysql:8`
 container using the fixtures in `fixtures/`: no-op on an empty directory,
 ordered apply with both files recorded, a no-op second run, a broken
-migration halting the run without being recorded, and two invocations racing
+migration halting the run without being recorded, a pending file sorting
+below the highest applied one refusing the run while files above it still
+apply, and two invocations racing
 the same lock name applying a pending migration exactly once, a server
 reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass, and login
 provisioning against `fixtures/grants/`: a login created on an existing

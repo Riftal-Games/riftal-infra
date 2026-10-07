@@ -18,6 +18,9 @@ only real source of those; these exist only so `selftest.sh` can prove
 - `lostlock/` holds one file that KILLs the session holding the lock named
   `selftest-lost-lock`, so the self-test can lose the runner's lock mid-run
   without a timing race.
+- `order/` holds three files that each create their own table, so the
+  self-test can mark one as applied and show a lower pending file refused
+  with nothing applied, and a higher one still applied.
 - `grants/` holds a `grants.sql` standing in for `riftal-game`'s, creating
   `riftal_role_mines` with `SELECT` on the `good/` fixtures' `widgets`, so
   the self-test can provision a login against a real role.
