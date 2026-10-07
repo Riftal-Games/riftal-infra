@@ -41,6 +41,8 @@ docker run --rm=0 -d --rm=True mysql:8 true
 docker run --rm=1 mysql:8 true
 docker run --rm=t mysql:8 true
 docker run --rm=TRUE mysql:8 true
+docker run --rm=true mysql:8 true
+docker run --rm=T mysql:8 true
 # container-cleanup: keep a --restart service outlives the script that starts it
 docker run -d --restart unless-stopped --name riftal_smoke_fixture mysql:8
 if true; then

@@ -98,8 +98,10 @@ awk '
   # docker run and docker create read options only up to the image, and hand
   # every word after it to the container, so a --rm there is not theirs. An
   # option missing from takes_value is read as taking no value, so its value
-  # is read as the image and the search stops early: an option this list does
-  # not know can make a command be reported, never let one through.
+  # is read as the image and the search stops early. That can report a command,
+  # and it can also miss a later --rm=false or read a --rm that the option takes
+  # as its value as the flag, so an option this list does not know can let a
+  # command through (#806).
   # The last --rm before the image decides. Its value counts as true only in
   # the spellings strconv.ParseBool reads as true, which is what docker uses;
   # false, a value docker refuses and a quoted value all count as no --rm.
