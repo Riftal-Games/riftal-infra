@@ -71,6 +71,9 @@ jobs:
       - name: Containers leave no anonymous volumes
         run: bash .github/scripts/container-cleanup.sh
 
+      - name: Containers carry memory and CPU limits, by a check proven able to fail
+        run: bash .github/scripts/container-limits-selftest.sh && bash .github/scripts/container-limits.sh
+
       # No PHP on the runner is confirmed, so the check runs inside a pinned
       # php:8.3-cli-alpine container instead of assuming a host binary.
       - name: Lint PHP plugins

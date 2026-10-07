@@ -23,21 +23,26 @@ IFS=: read -ra entries <<<"$PATH"
 for entry in "${entries[@]}"; do
   entry="${entry:-.}"
   [ "$entry" = "$dir" ] && continue
+  # container-limits: exempt tests a path and runs nothing
   if [ -f "$entry/docker" ] && [ -x "$entry/docker" ]; then
+    # container-limits: exempt records the binary the shim wraps and runs nothing
     real="$entry/docker"
     break
   fi
 done
 if [ -z "$real" ]; then
+  # container-limits: exempt prints an error and runs nothing
   printf '::error::no docker on PATH outside %s\n' "$dir" >&2
   exit 1
 fi
 mkdir -p "$dir"
 
+# container-limits: exempt writes the shim, whose own runs keep the limits their callers pass
 cat >"$dir/docker" <<EOF
 #!/bin/sh
 real='$real'
 EOF
+# container-limits: exempt writes the shim, whose own runs keep the limits their callers pass
 cat >>"$dir/docker" <<'EOF'
 if [ -z "${GITHUB_RUN_ID:-}" ] || [ -z "${GITHUB_RUN_ATTEMPT:-}" ]; then
   exec "$real" "$@"
@@ -59,7 +64,9 @@ case "$1" in
 esac
 exec "$real" "$@"
 EOF
+# container-limits: exempt makes the shim executable and runs nothing
 chmod 0755 "$dir/docker"
 
 printf '%s\n' "$dir" >>"${GITHUB_PATH:?}"
+# container-limits: exempt prints the shim's path and runs nothing
 printf 'docker shim at %s wraps %s\n' "$dir/docker" "$real"

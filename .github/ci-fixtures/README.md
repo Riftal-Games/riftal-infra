@@ -98,5 +98,12 @@ command from the start of the line, rather than from the end of the first
 command, reads only indentation there and lets the opt-out keep that run. The good opt-outs
 indented with spaces and with tabs go red when a blank stops meaning either.
 
+`good/limits.sh` and every `bad/limits-*` drive
+`.github/scripts/container-limits.sh` through its own self-test, which
+compares each fixture's whole report set and also takes each limit off a copy
+of every real launch in `.github/`, so a dropped limit is known to go red.
+`bad/limits-unread.sh` holds every way of naming docker that QA probed on
+riftal-infra#812 and #814; each must be reported, since none is the plain form.
+
 The real scans exclude this directory. If they ever stop excluding it, CI is red
 forever and the reason is here.

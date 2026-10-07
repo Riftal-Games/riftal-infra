@@ -13,6 +13,7 @@ prune="${3:-$root/.github/ci-fixtures}"
 scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 check_dockerfiles() { "${HADOLINT:-hadolint}" "$1"; }
+# container-limits: exempt validates a compose file with config, which starts no container
 check_compose() { docker compose -f "$1" config --quiet; }
 
 # Command substitution puts discovery's exit status under `set -e`, so a

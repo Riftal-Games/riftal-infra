@@ -100,6 +100,7 @@ expect_not_listed() {
   local out
   out="$(bash "$LIST" "$1")"
   if printf '%s\n' "$out" | grep -q "/$2\$"; then
+    # container-limits: exempt an assertion message that runs nothing
     fail "$2 is not compose and must not be handed to docker compose"
     printf '%s\n' "$out"
   else

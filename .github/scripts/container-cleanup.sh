@@ -34,7 +34,7 @@ if [ "${#files[@]}" -eq 0 ]; then
 fi
 
 # Backslash continuations are joined first, so a flag several lines below its
-# `docker run` still counts. `$DOCKER`, `${DOCKER}` and their quoted forms are
+# `docker run` still counts. $DOCKER, ${DOCKER} and their quoted forms are
 # read as `docker`. Each command is read only up to the next `docker` or the
 # next `;`, `&`, `&&`, `|` or `||`, so a later command on the same line cannot
 # lend it a flag.
@@ -138,11 +138,13 @@ awk '
   }
   function check(cmd, at, file,    rest, head, seg, n) {
     rest = cmd
+    # container-limits: exempt an awk pattern that reads the name as text
     while (match(rest, /docker[ \t]+(container[ \t]+)?(run|rm|create)([ \t]|$)/)) {
       if (substr(rest, 1, RSTART - 1) !~ /^[ \t]*$/) drop_keep()
       head = substr(rest, RSTART, RLENGTH)
       seg = substr(rest, RSTART + RLENGTH - 1)
       rest = seg
+      # container-limits: exempt an awk pattern that reads the name as text
       n = match(seg, /[ \t]docker[ \t]/)
       if (n) seg = substr(seg, 1, n)
       n = match(seg, /[;&|]/)
@@ -188,6 +190,7 @@ awk '
       }
       next
     }
+    # container-limits: exempt an awk pattern that reads the name as text
     gsub(/"[$][{]DOCKER[}]"|"[$]DOCKER"|[$][{]DOCKER[}]|[$]DOCKER/, "docker", line)
     if (cmd == "") {
       at = FNR

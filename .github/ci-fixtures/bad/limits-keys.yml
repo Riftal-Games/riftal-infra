@@ -1,0 +1,8 @@
+# Must fail container-limits.sh at every line after this one: each gives a job a container or service.
+    container: alpine
+    services:
+    - container: alpine
+    "container": alpine
+    'services' : {}
+  build: {runs-on: x, container: alpine}
+  build: {"services": {db: {image: mysql}}}

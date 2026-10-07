@@ -51,6 +51,7 @@ trap cleanup EXIT
 # second argument and whose creation time is before the first, in epoch seconds.
 reap_other_vols() {
   local before="$1" prefix="$2" stale vol created epoch left
+  # container-limits: exempt lists volumes, which starts no container
   if ! stale="$(docker volume ls -q --filter label=riftal.ci.job=selftest-other-job)"; then
     check fail "could not list the other job's volumes"
     return 1
@@ -73,6 +74,7 @@ reap_other_vols() {
     if [ -z "$left" ]; then
       check ok "removed $vol, left by a cancelled run"
     else
+      # container-limits: exempt prints a removal hint and runs nothing
       check fail "could not remove $vol, left by a cancelled run; remove it by hand with: docker volume rm $vol"
     fi
   done
@@ -91,6 +93,7 @@ reap_other_vols "$(($(date +%s) - 1200))" riftal_smoke_sweep_reap || exit 1
 # cutoff in the future would remove a concurrent run's volume under the real
 # prefix, so the real prefix never sees one.
 for vol in "$reap_young" "$reap_old" "$reap_miss"; do
+  # container-limits: exempt creates a volume, which starts no container
   GITHUB_RUN_ID='' docker volume create --label riftal.ci.job=selftest-other-job "$vol" \
     >/dev/null || exit 1
 done
@@ -107,6 +110,7 @@ kept="$(docker volume ls -q --filter "name=^${reap_label}\$")"
 check "$([ "$kept" = "$reap_label" ] && echo ok)" "reap keeps a matching name under this job's label (got '$kept')"
 docker volume rm "$reap_miss" "$reap_label" >/dev/null 2>&1
 
+# container-limits: exempt points the sweep at no daemon, so nothing can start
 if DOCKER_HOST=unix:///nonexistent.sock bash "$sweep" >/dev/null 2>&1; then
   check fail 'sweep exited 0 with no reachable daemon'
 else
@@ -125,6 +129,7 @@ GITHUB_RUN_ID='' start 60 --name "$other" --label riftal.ci.job=selftest-other-j
 docker volume create "$own_vol" >/dev/null || exit 1
 got="$(docker volume inspect -f '{{index .Labels "riftal.ci.job"}}' "$own_vol")"
 check "$([ "$got" = "$want" ] && echo ok)" "shim labels a volume create with riftal.ci.job=$want (got '$got')"
+# container-limits: exempt creates a volume, which starts no container
 GITHUB_RUN_ID='' docker volume create --label riftal.ci.job=selftest-other-job "$other_vol" \
   >/dev/null || exit 1
 
@@ -157,6 +162,7 @@ check "$([ "$kept" = "$other_vol" ] && echo ok)" "another job's volume survives 
 docker network create "$net" >/dev/null || exit 1
 GITHUB_RUN_ID='' start 20 --name "$holder" --network "$net" \
   --label riftal.ci.job=selftest-other-job || exit 1
+# container-limits: exempt stops a container in the background and starts none
 (sleep 5; docker stop -t 10 "$holder" >/dev/null 2>&1) &
 releaser=$!
 out="$(bash "$sweep")"
@@ -183,6 +189,7 @@ if RUNNER_TEMP="$sandbox" GITHUB_PATH="$sandbox/path" \
 else
   check fail 'label script failed on a second run in one job'
 fi
+# container-limits: exempt asks the shim for the engine version, which starts no container
 timeout 20 "$shim/docker" version --format '{{.Server.Version}}' >/dev/null 2>&1
 rc=$?
 rm -rf "$sandbox"

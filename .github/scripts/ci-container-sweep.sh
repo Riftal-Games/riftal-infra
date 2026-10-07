@@ -13,7 +13,9 @@ filter="label=$label"
 # sweep. Every caller runs this in a command substitution followed by
 # `|| exit 1`, because the exit here leaves only that subshell.
 query() {
+  # container-limits: exempt every caller passes ps, network ls or volume ls, which start no container
   if ! out="$(docker "$@" --filter "$filter")"; then
+    # container-limits: exempt prints which query failed and runs nothing
     printf 'docker %s failed, so nothing is known to be removed\n' "$1" >&2
     exit 1
   fi
