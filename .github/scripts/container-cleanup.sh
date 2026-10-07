@@ -59,6 +59,14 @@ awk '
       if (n) seg = substr(seg, 1, n)
       n = match(seg, /[;&|]/)
       if (n) seg = substr(seg, 1, n - 1)
+      # Any # may open a trailing comment, and telling a quoted or $# one
+      # apart takes a shell parser, so no flag after the first # counts. That
+      # can report a command whose flag follows a quoted #, and it never
+      # hides one: the cut only narrows where a flag is looked for, never
+      # where a command is. The # itself stays, so a word such as --rm# does
+      # not end on a blank and is not read as the flag.
+      n = index(seg, "#")
+      if (n) seg = substr(seg, 1, n)
       seg = seg " "
       if (head !~ /rm[ \t]?$/) {
         if (seg !~ /[ \t]--rm[ \t]/) {
