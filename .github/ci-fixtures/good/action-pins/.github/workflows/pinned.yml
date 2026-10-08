@@ -1,4 +1,4 @@
-# Must pass action-pins.sh with exactly 9 uses: lines checked: every form that
+# Must pass action-pins.sh with exactly 11 uses: lines checked: every form that
 # passes, each spelling YAML allows for it, a tag named in a trailing comment,
 # and lines that mention uses: without being the key.
 on: push
@@ -11,12 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # uses: actions/checkout@v4
+      # - { name: a, uses: actions/checkout@v4 }
+      #{ uses: actions/checkout@v4 }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"  # v4.4.0
       - uses: 'astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d'
       - name: a mapping key spelled with a space, an action in a subdirectory
         uses : github/codeql-action/init@11d5960a326750d5838078e36cf38b85af677262
+      - "uses": actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - 'uses': actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: ./.github/actions/local
       - uses: docker://alpine@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
         with:

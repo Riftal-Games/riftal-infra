@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=152
+EXPECTED_ASSERTIONS=158
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -678,7 +678,7 @@ expect_real_pins() {
 }
 
 section "every uses: names a commit sha, a local path or an image digest"
-expect_pins_clean "$FIXTURES/good/action-pins/.github/workflows/pinned.yml" 9
+expect_pins_clean "$FIXTURES/good/action-pins/.github/workflows/pinned.yml" 11
 expect_pins_bad "$PIN_WORKFLOWS/tag.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/short-sha.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/long-sha.yml" 8
@@ -692,6 +692,12 @@ expect_pins_bad "$PIN_WORKFLOWS/no-ref.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/docker-tag.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/spaced-key.yml" 9
 expect_pins_bad "$PIN_WORKFLOWS/reusable-branch.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-mapping.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-mapping-line-start.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/double-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/single-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-sequence.yml" 7
+expect_pins_bad "$PIN_WORKFLOWS/flow-quoted-key.yml" 8
 expect_pins_bad "$FIXTURES/bad/action-pins/composite/action.yml" 8
 expect_real_pins
 
