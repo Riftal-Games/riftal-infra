@@ -127,10 +127,10 @@ Eight more do the same: an anchor, and a tag with an anchor, after the `[` of a
 flow sequence; an explicit `?` after a `[`, and after a `,`, with the key on the
 next line; a single-quoted key behind a tag; an alias directly after a `[`, and
 directly after a `,`; and an alias key with its value on the next line.
-Each passed unchecked before the script refused it, so a check that
+The script refuses each of these, so a check that
 stops refusing one exits 0 there. Three more each hold up one pattern
-alternative that no file above needs, so dropping it exits 0 at that file: a `?`
-with no space before a uses key in a flow mapping, the same before an alias, both
+alternative that no file above needs, so dropping it exits 0 at that file: no
+space between the `?` and a uses key in a flow mapping, the same with an alias, both
 of which PyYAML reads as explicit keys, and an alias key at column 0 on a
 continuation line of a flow collection. The good workflow keeps
 comment lines holding `{ uses: ... }`, so a check that stops exempting a comment

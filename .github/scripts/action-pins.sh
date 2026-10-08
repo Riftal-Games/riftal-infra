@@ -21,11 +21,12 @@
 # pinned value there passes, and a `,` or `}` after it fails.
 #
 # Some lines fail whatever they name, because they can spell a `uses` key that
-# the reading above would miss: an explicit `?` key, where the `?` opens the
-# line, follows a `-`, a tag or an anchor, or follows a `[`, `{` or `,`; a
-# `uses` key behind a tag, an anchor or more than one `-`; an alias used as a
-# key; and a double-quoted key with an escape in it, because an escape can spell
-# `uses`. The pattern misreads some keys holding an escaped `\` or `"`, such as
+# the reading above would miss: an explicit `?` key, where a `?` followed by a
+# space or the line's end opens the line or follows a `-`, a `[`, a `{` or a
+# `,`; a `uses` key behind a tag, an anchor or more than one `-`; an alias used
+# as a key; and a double-quoted key with an escape in it, because an escape can
+# spell `uses`. A `?` after a tag or an anchor is not refused, because PyYAML
+# rejects the file, in a block or a flow collection. The pattern misreads some keys holding an escaped `\` or `"`, such as
 # `"a\\"`, and lets them pass: neither escape can be part of a key that spells
 # `uses`. A key spelled any way not named in this header is not read.
 #
@@ -52,13 +53,14 @@ key="^[[:space:]]*(-[[:space:]]+)?(uses|\"uses\"|'uses')[[:space:]]*:(.*)\$"
 # including one that opens it, so a bracket, brace or comma outside a flow
 # collection is refused too. A tag, an anchor or a `?` between the two does not
 # hide the key, even a `?` with no space after it: PyYAML reads `{ ?uses: x }`
-# and `{ ?*k : x }` as explicit keys.
+# as an explicit key.
 flow="^[[:space:]]*([^#[:space:]].*)?[[{,][[:space:]]*([!&?][^[:space:]]*[[:space:]]*)*(uses|\"uses\"|'uses')[[:space:]]*:"
 explicit="^[[:space:]]*(([^#[:space:]].*)?[[{,])?((-[^[:space:]]*)?[[:space:]]+)*\?([[:space:]]|\$)"
 # Group 1 is everything before the key: one `-` alone is an ordinary step.
 decorated="^[[:space:]]*(([-!&][^[:space:]]*[[:space:]]*)+)(uses|\"uses\"|'uses')[[:space:]]*:"
 # An alias opening a line at column 0 is a key in a flow collection spread over
-# several lines, whose continuation lines need no indent.
+# several lines, whose continuation lines need no indent. A `?` with no space
+# after it does not hide an alias: PyYAML reads `{ ?*k : x }` as an explicit key.
 alias_key="^[[:space:]]*([^#[:space:]].*)?(^|[[:space:][{,?])\*[^][:space:],{}[]+[[:space:]]*:([[:space:]]|\$)"
 escaped_key="^[[:space:]]*([^#[:space:]].*)?\"[^\"\\\\]*\\\\([^\"\\\\]|\\\\.)*\"[[:space:]]*:"
 double_quoted='^[[:space:]]*"([^"]*)"(.*)$'

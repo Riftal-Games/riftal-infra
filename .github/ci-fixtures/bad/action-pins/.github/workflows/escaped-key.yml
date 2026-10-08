@@ -1,5 +1,5 @@
-# Must fail action-pins.sh at line 8 and nowhere else: a double-quoted key
-# with a backslash fails whatever it names, because an escape can spell uses.
+# Must fail action-pins.sh at line 8 and nowhere else: a double-quoted key with
+# a hex escape such as `\x73` fails whatever it names, as it can spell uses.
 on: push
 jobs:
   a:

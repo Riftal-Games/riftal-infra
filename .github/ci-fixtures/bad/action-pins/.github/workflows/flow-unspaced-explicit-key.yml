@@ -1,5 +1,5 @@
-# Must fail action-pins.sh at line 8 and nowhere else: a `?` with no space
-# before a uses key in a flow collection, which PyYAML reads as an explicit key.
+# Must fail action-pins.sh at line 8 and nowhere else: no space between the `?`
+# and a uses key in a flow collection, which PyYAML reads as an explicit key.
 on: push
 jobs:
   a:
