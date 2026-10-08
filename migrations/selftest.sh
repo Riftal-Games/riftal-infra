@@ -60,7 +60,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=44
+EXPECTED_ASSERTIONS=46
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -229,6 +229,17 @@ if grep -qE "held by connection $holder_id, user lockholder from host [^ ]+" "$L
   pass "the timeout names the holder's connection id, user and host"
 else
   fail "expected the holder named as connection $holder_id, user lockholder and a host"
+  cat "$LOGS"/out-held.log
+fi
+if ! grep -q "PROCESS" "$LOGS"/out-held.log; then
+  pass "the timeout does not blame a missing PROCESS privilege"
+else
+  fail "expected no mention of PROCESS in the timeout"; cat "$LOGS"/out-held.log
+fi
+if ! grep -q "released after the timeout" "$LOGS"/out-held.log; then
+  pass "the timeout does not claim the lock was released after it"
+else
+  fail "expected no claim that the lock was released after the timeout"
   cat "$LOGS"/out-held.log
 fi
 

@@ -142,7 +142,7 @@ if ! IFS= read -r lock_result <&"${LOCKCONN[0]}"; then
 fi
 if [ "$lock_result" != "1" ]; then
   # Only a 0 is a timeout. GET_LOCK answers NULL on an error, such as its
-  # session being killed, when the lock may never have been held at all.
+  # statement being killed with KILL QUERY.
   if [ "$lock_result" = "0" ]; then
     failure="could not acquire lock '$LOCK_NAME' within ${LOCK_TIMEOUT}s (GET_LOCK returned: 0)"
   else
@@ -151,8 +151,9 @@ if [ "$lock_result" != "1" ]; then
   # Any login may take the lock by name, so the holder is not necessarily a
   # runner. Each read below is a separate moment, so the holder may have let
   # go in between. performance_schema.processlist needs no grant, but without
-  # PROCESS it shows a login only its own sessions, and an empty row cannot
-  # tell that apart from a session that has ended, so neither is claimed.
+  # PROCESS it shows a login only its own sessions, and with
+  # performance_schema=OFF it is empty for every login. An empty row cannot
+  # tell those apart from a session that has ended, so none is claimed.
   holder="unknown, IS_USED_LOCK could not be read"
   holder_id="$(run_sql -e "SELECT IS_USED_LOCK('$LOCK_NAME')" 2>/dev/null)" || holder_id=""
   if [ "$holder_id" = "NULL" ]; then
