@@ -136,7 +136,11 @@ continuation line of a flow collection. Two more open a continuation line of a
 flow mapping with a `?` and a uses key and no space between them, which PyYAML
 reads as an explicit key: one with the value on the same line, and one with the
 value on the next line and a comment after the `,` before it, so the script
-must find that `,` past the comment. The good workflow keeps
+must find that `,` past the comment. Seven more open such a line the same way,
+each for one part of how the script reads it: after a line ending in a `{`, and
+after one ending in a `[`; after a `,` with trailing spaces behind it; with a
+tag, and with an anchor, between the `?` and the key; and with the key
+double-quoted, and single-quoted. The good workflow keeps
 comment lines holding `{ uses: ... }`, so a check that stops exempting a comment
 goes red there, and a `?uses` key in a block plus a `?with` key opening a flow
 continuation line, so a check that refuses every line opening with a `?` goes
