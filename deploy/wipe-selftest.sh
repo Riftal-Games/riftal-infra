@@ -110,7 +110,7 @@ sh_in "mkdir -p /tmp/set /tmp/other /tmp/empty /tmp/absent \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=21
+EXPECTED_ASSERTIONS=22
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -159,6 +159,9 @@ WIPE_USER=wiper refused no-process "lacks a direct PROCESS grant" wipe "$DB" "$D
 released
 hold
 refused no-default-db-session "other session" wipe "$DB" "$DB" /tmp/set
+released
+hold mysql
+refused other-db-session "other session" wipe "$DB" "$DB" /tmp/set
 released
 
 [ "$(snapshot_rows)" = "2" ] && pass "every refusal left the snapshot rows in place" \
