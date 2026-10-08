@@ -27,6 +27,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The README's Testing list is the reader's copy of the section titles, so it
+# must name each one exactly and in run order. Checked before any container
+# starts, so a drift fails in a second.
+script_sections="$(sed -n 's/^[[:space:]]*section "\(.*\)"$/\1/p' "${BASH_SOURCE[0]}")"
+readme_sections="$(sed -n '/^## Testing$/,/^## /s/^- //p' "$SCRIPT_DIR/README.md")"
+if [ "$script_sections" != "$readme_sections" ]; then
+  echo "::error::migrations/README.md's section list does not match selftest.sh's section titles"
+  diff <(printf '%s\n' "$script_sections") <(printf '%s\n' "$readme_sections") \
+    | sed 's/^</selftest.sh /; s/^>/README.md   /' || true
+  exit 1
+fi
+
 docker network create "$NETWORK" >/dev/null
 
 start_mysql() {

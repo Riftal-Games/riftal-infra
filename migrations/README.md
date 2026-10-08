@@ -156,39 +156,37 @@ and a holder that disconnected between the two reads look the same. Only a
 container using the fixtures in `fixtures/`. Its sections, in the order it
 runs them, are:
 
-- no-op on an empty directory
-- ordered apply with both files recorded
-- a no-op second run
-- a broken migration halting the run without being recorded
-- two invocations racing the same lock name applying a pending migration
-  exactly once
-- a lock connection that dies before `GET_LOCK` answers failing cleanly
-- a run whose lock session dies mid-run failing
-- a lock held by another login timing out with that login named
-- each unusable read of the holder reported as what it is: a `GET_LOCK`
-  NULL, an `IS_USED_LOCK` NULL or failure, a failed processlist query, and
-  the empty row a login without `PROCESS` or any `performance_schema` grant
-  reads
-- a server reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass
-- a pending file sorting below the highest applied one refusing the run
-  while files above it still apply
-- filename order, and that refusal, decided bytewise under a stand-in
-  case-folding locale
-- login provisioning against `fixtures/grants/`: a login created on an
-  existing schema, an idempotent second run, rotation, the loud refusals of
-  bad input, and a restore onto a fresh server rebuilding the login
-- the DEFINER procedure checks above
-- a migration failing after one that recreated a procedure still restoring
-  the role's `EXECUTE` on it
-- an empty or missing migrations directory still provisioning
-- a run needing grants failing when the grants file is not a file
-- the role check's refusals: a plain login named like a role refused as a
-  decoy, and two decoys, one locked with a password and one open with none,
-  each failing exactly one half of the check, so removing either half admits
-  one of them
-- no provisioning run ever printing a password
+- empty migrations directory is a no-op success
+- applies pending migrations in order and records them
+- second run with nothing new is a no-op success
+- a broken migration halts loudly and is not recorded
+- two invocations racing the same lock name do not double-apply
+- a lock connection that dies early fails cleanly
+- a run whose lock session dies mid-run fails
+- a lock held elsewhere times out naming its holder
+- a lock failure says which read of its holder came back unusable
+- a server below MySQL 8.0.30 is refused before anything is applied
+- a pending file sorting below the highest applied one is refused
+- filename order is bytewise whatever locale the container carries
+- provisioning on an existing schema creates the login with its role
+- a second provisioning run is idempotent
+- a changed password in the environment rotates the login
+- provisioning refuses bad input loudly and changes nothing
+- a restore onto a fresh server, then the step, rebuilds the login
+- a DEFINER procedure runs on its definer's privileges and survives a restore
+- a migration failing after one that recreates a procedure still applies grants
+- an empty or missing migrations directory still provisions
+- a run needing grants fails when the grants file is not a file
+- a plain login named like a role does not pass as the role
+- each half of the role check refuses on its own
+- no provisioning run ever prints a password
 
-Its closing line lists every section title it ran. It calls
+The provisioning sections run against `fixtures/grants/`. The role check's
+decoys are two logins, one locked with a password and one open with none,
+each failing exactly one half of the check, so removing either half admits
+one of them. The self-test refuses to start unless these bullets match its
+`section` titles exactly and in order. On success, its closing lines list
+every section title. It calls
 `docker` directly, the same way `.github/workflows/ci.yml`'s PHP lint step
 does, so it runs in CI and, on Nasir's Windows machine, under the Docker
 inside the WSL distro that hosts the CI runners:
