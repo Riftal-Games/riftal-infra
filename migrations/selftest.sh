@@ -63,7 +63,9 @@ PASSES=0
 EXPECTED_ASSERTIONS=51
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
-section() { printf '\n== %s\n' "$1"; }
+# The closing summary lists these titles, so a new section cannot be left out of it.
+SECTIONS=()
+section() { SECTIONS+=("$1"); printf '\n== %s\n' "$1"; }
 
 # Arguments after the first three go to docker run, for provisioning's env.
 run_migrations() {
@@ -645,4 +647,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, a lock connection that dies early, a lock session that dies mid-run, the lock holder named on timeout, each unusable read of the lock holder, locale-independent order, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
+printf 'all %s assertions passed across %s sections:\n' "$PASSES" "${#SECTIONS[@]}"
+printf '  %s\n' "${SECTIONS[@]}"

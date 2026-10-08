@@ -153,23 +153,42 @@ and a holder that disconnected between the two reads look the same. Only a
 ## Testing
 
 `selftest.sh` proves the runner against a real, throwaway `mysql:8`
-container using the fixtures in `fixtures/`: no-op on an empty directory,
-ordered apply with both files recorded, a no-op second run, a broken
-migration halting the run without being recorded, a migration failing after
-one that recreated a procedure still restoring the role's `EXECUTE` on it, a
-pending file sorting
-below the highest applied one refusing the run while files above it still
-apply, both of those decided bytewise under a stand-in case-folding locale,
-and two invocations racing
-the same lock name applying a pending migration exactly once, a lock held
-by another login timing out with that login named, each unusable read
-of the holder reported as what it is (a `GET_LOCK` NULL, an `IS_USED_LOCK`
-NULL or failure, a failed processlist query, and the empty row a login
-without `PROCESS` or any `performance_schema` grant reads), a server
-reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass, and login
-provisioning against `fixtures/grants/`: a login created on an existing
-schema, an idempotent second run, rotation, a restore onto a fresh server,
-and the loud refusals, and the DEFINER procedure checks above. It calls
+container using the fixtures in `fixtures/`. Its sections, in the order it
+runs them, are:
+
+- no-op on an empty directory
+- ordered apply with both files recorded
+- a no-op second run
+- a broken migration halting the run without being recorded
+- two invocations racing the same lock name applying a pending migration
+  exactly once
+- a lock connection that dies before `GET_LOCK` answers failing cleanly
+- a run whose lock session dies mid-run failing
+- a lock held by another login timing out with that login named
+- each unusable read of the holder reported as what it is: a `GET_LOCK`
+  NULL, an `IS_USED_LOCK` NULL or failure, a failed processlist query, and
+  the empty row a login without `PROCESS` or any `performance_schema` grant
+  reads
+- a server reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass
+- a pending file sorting below the highest applied one refusing the run
+  while files above it still apply
+- filename order, and that refusal, decided bytewise under a stand-in
+  case-folding locale
+- login provisioning against `fixtures/grants/`: a login created on an
+  existing schema, an idempotent second run, rotation, the loud refusals of
+  bad input, and a restore onto a fresh server rebuilding the login
+- the DEFINER procedure checks above
+- a migration failing after one that recreated a procedure still restoring
+  the role's `EXECUTE` on it
+- an empty or missing migrations directory still provisioning
+- a run needing grants failing when the grants file is not a file
+- the role check's refusals: a plain login named like a role refused as a
+  decoy, and two decoys, one locked with a password and one open with none,
+  each failing exactly one half of the check, so removing either half admits
+  one of them
+- no provisioning run ever printing a password
+
+Its closing line lists every section title it ran. It calls
 `docker` directly, the same way `.github/workflows/ci.yml`'s PHP lint step
 does, so it runs in CI and, on Nasir's Windows machine, under the Docker
 inside the WSL distro that hosts the CI runners:
