@@ -141,22 +141,35 @@ if ! IFS= read -r lock_result <&"${LOCKCONN[0]}"; then
   exit 1
 fi
 if [ "$lock_result" != "1" ]; then
+  # Only a 0 is a timeout. A NULL from GET_LOCK means an error, so it is not
+  # reported as a timeout.
+  if [ "$lock_result" = "0" ]; then
+    failure="could not acquire lock '$LOCK_NAME' within ${LOCK_TIMEOUT}s (GET_LOCK returned: 0)"
+  else
+    failure="could not acquire lock '$LOCK_NAME': GET_LOCK returned $lock_result, which is an error and not a timeout"
+  fi
   # Any login may take the lock by name, so the holder is not necessarily a
-  # runner. A login without PROCESS sees only its own processlist rows, which
-  # leaves the connection id as the one name it can give.
+  # runner. Each read below is a separate moment, so the holder may have let
+  # go in between. performance_schema.processlist needs no grant, but without
+  # PROCESS it shows a login only its own sessions, and with
+  # performance_schema=OFF it is empty for every login. An empty row cannot
+  # tell those apart from a session that has ended, so none is claimed.
   holder="unknown, IS_USED_LOCK could not be read"
   holder_id="$(run_sql -e "SELECT IS_USED_LOCK('$LOCK_NAME')" 2>/dev/null)" || holder_id=""
   if [ "$holder_id" = "NULL" ]; then
-    holder="no session, the lock was released after the timeout"
+    holder="no session by the time IS_USED_LOCK was read"
   elif [[ "$holder_id" =~ ^[0-9]+$ ]]; then
-    holder_row="$(run_sql -e "SELECT USER, HOST FROM information_schema.PROCESSLIST WHERE ID = $holder_id" 2>/dev/null)" || holder_row=""
-    if [[ "$holder_row" == *$'\t'* ]]; then
-      holder="connection $holder_id, user ${holder_row%%$'\t'*} from host ${holder_row#*$'\t'}"
+    if holder_row="$(run_sql -e "SELECT USER, HOST FROM performance_schema.processlist WHERE ID = $holder_id" 2>/dev/null)"; then
+      if [[ "$holder_row" == *$'\t'* ]]; then
+        holder="connection $holder_id, user ${holder_row%%$'\t'*} from host ${holder_row#*$'\t'}"
+      else
+        holder="connection $holder_id, whose user and host could not be read: its processlist row came back empty"
+      fi
     else
-      holder="connection $holder_id, whose user and host this login cannot see without PROCESS"
+      holder="connection $holder_id, whose user and host could not be read: the performance_schema.processlist query failed"
     fi
   fi
-  echo "could not acquire lock '$LOCK_NAME' within ${LOCK_TIMEOUT}s (GET_LOCK returned: $lock_result), held by $holder" >&2
+  echo "$failure, held by $holder" >&2
   exit 1
 fi
 lock_held=1
