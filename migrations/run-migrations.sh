@@ -203,6 +203,29 @@ if [ "${#out_of_order[@]}" -gt 0 ]; then
   exit 1
 fi
 
+# Grants are applied on every run rather than recorded, because a dump
+# restored onto a fresh server carries schema_migrations but no roles.
+apply_grants() {
+  if [ -f "$GRANTS_FILE" ]; then
+    echo "applying grants from $GRANTS_FILE"
+    if ! run_sql "$@" < "$GRANTS_FILE"; then
+      echo "grants file $GRANTS_FILE failed, stopping" >&2
+      exit 1
+    fi
+  else
+    echo "no grants file at $GRANTS_FILE, no grants applied"
+  fi
+}
+
+# Dropping a procedure to recreate it drops every role's EXECUTE on it, so a
+# run that stops partway still owes grants to the files it applied. --force
+# carries on past grants naming what the failed file never created.
+stop_after_grants() {
+  echo "$1, applying grants for what did apply, then stopping" >&2
+  apply_grants --force
+  exit 1
+}
+
 pending=0
 for f in "${files[@]+"${files[@]}"}"; do
   id="$(basename "$f")"
@@ -212,13 +235,11 @@ for f in "${files[@]+"${files[@]}"}"; do
   pending=$((pending + 1))
   echo "applying $id"
   if ! run_sql < "$f"; then
-    echo "migration $id failed, stopping" >&2
-    exit 1
+    stop_after_grants "migration $id failed"
   fi
   escaped_id="${id//\'/\'\'}"
   if ! run_sql -e "INSERT INTO schema_migrations (id) VALUES ('$escaped_id')"; then
-    echo "$id applied but could not be recorded as applied, stopping" >&2
-    exit 1
+    stop_after_grants "$id applied but could not be recorded as applied"
   fi
 done
 
@@ -228,17 +249,7 @@ else
   echo "applied $pending pending migration(s)"
 fi
 
-# Grants are applied on every run rather than recorded, because a dump
-# restored onto a fresh server carries schema_migrations but no roles.
-if [ -f "$GRANTS_FILE" ]; then
-  echo "applying grants from $GRANTS_FILE"
-  if ! run_sql < "$GRANTS_FILE"; then
-    echo "grants file $GRANTS_FILE failed, stopping" >&2
-    exit 1
-  fi
-else
-  echo "no grants file at $GRANTS_FILE, no grants applied"
-fi
+apply_grants
 
 for login in "${logins[@]+"${logins[@]}"}"; do
   role="riftal_role_$login"

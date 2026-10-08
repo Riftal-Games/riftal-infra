@@ -28,6 +28,9 @@ under containers, not less (CLAUDE.md hard rule 5).
    highest applied, never forced in.
 4. Stops on the first migration that errors, with a nonzero exit and that
    file left unrecorded. A later run retries it and everything after it.
+   Before exiting it still applies `GRANTS_FILE`, past any statement that
+   errors, because a file before the failed one may have dropped and
+   recreated a procedure, and that drops every role's `EXECUTE` on it.
 5. Is a no-op success when nothing is pending, so running it twice is safe.
 6. Provisions the per-plugin MySQL logins of ADR 008 (riftal-pm
    `docs/decisions/008-per-plugin-mysql-users.md`) on every run, still under
@@ -124,14 +127,13 @@ set -a; . "$INFRA/images/.env"; set +a
 wslc run --rm --network riftal-dev \
   -v "$INFRA/migrations/run-migrations.sh:/run-migrations.sh:ro" \
   -v "$GAME/lib/resources/sql/migrations:/migrations:ro" \
+  -v "$GAME/lib/resources/sql/grants.sql:/grants.sql:ro" \
   -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
-  -e MYSQL_DATABASE=riftal_dev -e MIGRATIONS_DIR=/migrations \
+  -e MYSQL_DATABASE=riftal_dev -e MIGRATIONS_DIR=/migrations -e GRANTS_FILE=/grants.sql \
   mysql:8 bash /run-migrations.sh
 ```
 
-To provision logins in the same run, add
-`-v "$GAME/lib/resources/sql/grants.sql:/grants.sql:ro" -e GRANTS_FILE=/grants.sql`
-and one name-only `-e RIFTAL_DB_PASSWORD_<NAME>` per login, exported in the
+To provision logins in the same run, add one name-only `-e RIFTAL_DB_PASSWORD_<NAME>` per login, exported in the
 shell first, so the password stays off the host's command line. Until
 `riftal-game` ships `grants.sql` (riftal-game#259), the bind mount creates an
 empty directory in its place, and the runner refuses it: any run that sets
@@ -147,7 +149,9 @@ before failing loudly, and a hung `wslc` call otherwise gives no signal.
 `selftest.sh` proves the runner against a real, throwaway `mysql:8`
 container using the fixtures in `fixtures/`: no-op on an empty directory,
 ordered apply with both files recorded, a no-op second run, a broken
-migration halting the run without being recorded, a pending file sorting
+migration halting the run without being recorded, a migration failing after
+one that recreated a procedure still restoring the role's `EXECUTE` on it, a
+pending file sorting
 below the highest applied one refusing the run while files above it still
 apply, both of those decided bytewise under a stand-in case-folding locale,
 and two invocations racing

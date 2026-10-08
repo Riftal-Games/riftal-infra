@@ -60,7 +60,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=40
+EXPECTED_ASSERTIONS=42
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -436,6 +436,32 @@ if [[ "$orphan" == *"ERROR 1449"*"('root'@'%') does not exist"* ]]; then
   pass "a renamed definer makes every call fail with ERROR 1449"
 else
   fail "expected ERROR 1449 naming 'root'@'%', got: $orphan"
+fi
+
+section "a migration failing after one that recreates a procedure still applies grants"
+regrant_rc=0
+run_migrations "$FIXTURES/regrant" riftal_selftest_definer "selftest-regrant-$SUFFIX" \
+  -v "$FIXTURES/regrant-grants:/grants:ro" -e GRANTS_FILE=/grants/grants.sql \
+  >"$LOGS"/out-regrant.log 2>&1 || regrant_rc=$?
+regrant_applied="$(query riftal_selftest_definer \
+  'SELECT GROUP_CONCAT(id ORDER BY id) FROM schema_migrations')"
+if [ "$regrant_rc" -eq 1 ] \
+   && grep -q 'migration 0003_broken.sql failed' "$LOGS"/out-regrant.log \
+   && [ "$regrant_applied" = "0001_create_tallies.sql,0002_recreate_tallies_bump.sql" ]; then
+  pass "the run exits 1 naming 0003, with 0002 recorded and 0003 not"
+else
+  fail "expected exit 1 naming 0003 with only 0001 and 0002 recorded, got exit $regrant_rc, applied: $regrant_applied"
+  cat "$LOGS"/out-regrant.log
+fi
+# The dropped EXECUTE leaves the grant tables at once but lingers in the
+# server's cached role privileges until they are reloaded, as a restart does.
+query riftal_selftest_definer 'FLUSH PRIVILEGES'
+regrant_call="$(as_tally 'CALL tallies_bump(); SELECT n FROM tallies' 2>&1 || true)"
+if [ "$regrant_call" = "2" ]; then
+  pass "tally still calls the recreated procedure after the failed run"
+else
+  fail "tally should call the recreated tallies_bump and read n=2, got: $regrant_call"
+  cat "$LOGS"/out-regrant.log
 fi
 
 section "an empty or missing migrations directory still provisions"
