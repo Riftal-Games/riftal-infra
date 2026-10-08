@@ -39,7 +39,9 @@ reap_young="${reap_prefix}young"
 reap_old="${reap_prefix}old"
 reap_label="${reap_prefix}label"
 reap_miss="riftal_smoke_sweep_reapmiss_${GITHUB_RUN_ID}_$$"
+sandbox=
 cleanup() {
+  [ -z "$sandbox" ] || rm -rf "$sandbox"
   docker rm -v -f "$own" "$other" "$holder" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
   docker volume rm "$own_vol" "$other_vol" "$reap_young" "$reap_old" "$reap_miss" \
@@ -173,7 +175,12 @@ check "$([ -z "$held" ] && echo ok)" "sweep removed this job's network after its
 # scratch RUNNER_TEMP and GITHUB_PATH, with that scratch shim first on PATH the
 # way GITHUB_PATH puts the real one there. Every call is bounded, so a
 # regression fails this check and leaves `docker` for the rest of the job alone.
-sandbox="$(mktemp -d)"
+# Without this, a full or missing temp directory reads as three label-script
+# failures against a shim path at the filesystem root.
+if ! sandbox="$(mktemp -d)"; then
+  check fail "mktemp -d could not make the label script's sandbox under ${TMPDIR:-/tmp}"
+  exit 1
+fi
 shim="$sandbox/riftal-docker-label"
 if RUNNER_TEMP="$sandbox" GITHUB_PATH="$sandbox/path" \
   timeout 20 bash "$dir/ci-docker-label.sh" >/dev/null &&
@@ -185,8 +192,28 @@ else
 fi
 timeout 20 "$shim/docker" version --format '{{.Server.Version}}' >/dev/null 2>&1
 rc=$?
-rm -rf "$sandbox"
 check "$([ "$rc" -eq 0 ] && echo ok)" "a shim written by a second label run answers within 20s (got $rc)"
+
+# The runner's coreutils share a directory with the real docker, so this PATH
+# holds the shim alone. The label script reaches its refusal on builtins only.
+# With no shim there, it would refuse for want of any docker at all and pass
+# without ever skipping its own shim.
+if [ ! -x "$shim/docker" ]; then
+  check fail "no executable shim at $shim/docker for the shim-only refusal check to skip"
+else
+  err="$(timeout 20 env PATH="$shim" RUNNER_TEMP="$sandbox" GITHUB_PATH="$sandbox/path" \
+    "$BASH" "$dir/ci-docker-label.sh" 2>&1 >/dev/null)"
+  rc=$?
+  line="::error::no docker on PATH outside $shim"
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ "$err" = "$line" ]; then
+    check ok 'label script refuses when only its own shim is on PATH'
+  else
+    # An annotation ends at the first newline, so every line of err goes on one.
+    shown="${err//::error::/}"
+    shown="${shown//$'\n'/ | }"
+    check fail "label script with only its shim on PATH: want a non-zero exit and the no-docker error, got exit $rc and '$shown'"
+  fi
+fi
 
 [ "$failures" -eq 0 ] || exit 1
 printf 'label shim and sweep proven on this engine\n'
