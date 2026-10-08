@@ -60,7 +60,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=46
+EXPECTED_ASSERTIONS=51
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -204,22 +204,28 @@ section "a lock held elsewhere times out naming its holder"
 # the holder's processlist row and not from the runner's own root session.
 query riftal_selftest \
   "CREATE USER 'lockholder'@'%' IDENTIFIED BY 'selftestLockHolder00000006'"
+hold_lock() {
+  docker exec -e MYSQL_PWD=selftestLockHolder00000006 "$CONTAINER" \
+    mysql -h 127.0.0.1 -ulockholder -N -B \
+    -e "SELECT GET_LOCK('$1', 0); SELECT SLEEP(120);" >/dev/null 2>&1 &
+  holder_pid=$!
+  holder_id=""
+  for _ in $(seq 1 30); do
+    holder_id="$(query riftal_selftest "SELECT IS_USED_LOCK('$1')")"
+    [ "$holder_id" != "NULL" ] && break
+    sleep 1
+  done
+}
+release_lock() {
+  query riftal_selftest "KILL $holder_id" 2>/dev/null || true
+  wait "$holder_pid" 2>/dev/null || true
+}
 HELD_LOCK="selftest-held-$SUFFIX"
-docker exec -e MYSQL_PWD=selftestLockHolder00000006 "$CONTAINER" \
-  mysql -h 127.0.0.1 -ulockholder -N -B \
-  -e "SELECT GET_LOCK('$HELD_LOCK', 0); SELECT SLEEP(120);" >/dev/null 2>&1 &
-holder_pid=$!
-holder_id=""
-for _ in $(seq 1 30); do
-  holder_id="$(query riftal_selftest "SELECT IS_USED_LOCK('$HELD_LOCK')")"
-  [ "$holder_id" != "NULL" ] && break
-  sleep 1
-done
+hold_lock "$HELD_LOCK"
 held_rc=0
 run_migrations "$FIXTURES/good" riftal_selftest "$HELD_LOCK" \
   -e MIGRATIONS_LOCK_TIMEOUT=1 >"$LOGS"/out-held.log 2>&1 || held_rc=$?
-query riftal_selftest "KILL $holder_id" 2>/dev/null || true
-wait "$holder_pid" 2>/dev/null || true
+release_lock
 if [ "$held_rc" -eq 1 ] && grep -q "could not acquire lock '$HELD_LOCK' within 1s" "$LOGS"/out-held.log; then
   pass "a held lock exits 1 once the timeout passes"
 else
@@ -242,6 +248,48 @@ else
   fail "expected no claim that the lock was released after the timeout"
   cat "$LOGS"/out-held.log
 fi
+
+section "a lock failure says which read of its holder came back unusable"
+# Holds a database grant and nothing global, so no PROCESS and no grant on
+# performance_schema.
+query riftal_selftest \
+  "CREATE USER 'lockrunner'@'%' IDENTIFIED BY 'selftestLockRunner00000007'"
+query riftal_selftest "GRANT ALL ON riftal_selftest.* TO 'lockrunner'@'%'"
+UNREAD_LOCK="selftest-unread-$SUFFIX"
+# Arguments after the first two go to docker run.
+expect_lock_failure() {
+  local name="$1" want="$2" rc=0
+  shift 2
+  run_migrations "$FIXTURES/good" riftal_selftest "$UNREAD_LOCK" \
+    -v "$FIXTURES/lock-reads:/lock-reads:ro" -e BASH_ENV=/lock-reads/fake-lock-reads.bash \
+    -e MIGRATIONS_LOCK_TIMEOUT=1 "$@" >"$LOGS/out-$name.log" 2>&1 || rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF -- "$want" "$LOGS/out-$name.log"; then
+    pass "$name exits 1 saying: $want"
+  else
+    fail "$name: expected exit 1 and '$want', got exit $rc"
+    cat "$LOGS/out-$name.log"
+  fi
+}
+hold_lock "$UNREAD_LOCK"
+expect_lock_failure getlock-null \
+  "could not acquire lock '$UNREAD_LOCK': GET_LOCK returned NULL, which is an error and not a timeout" \
+  -e SELFTEST_GET_LOCK=NULL
+expect_lock_failure is-used-lock-null \
+  "within 1s (GET_LOCK returned: 0), held by no session by the time IS_USED_LOCK was read" \
+  -e SELFTEST_IS_USED_LOCK=NULL
+expect_lock_failure is-used-lock-error \
+  "within 1s (GET_LOCK returned: 0), held by unknown, IS_USED_LOCK could not be read" \
+  -e SELFTEST_IS_USED_LOCK=error
+expect_lock_failure processlist-error \
+  "held by connection $holder_id, whose user and host could not be read: the performance_schema.processlist query failed" \
+  -e SELFTEST_PROCESSLIST=error
+# The processlist query itself succeeds for this login: the table is readable
+# without a grant, and without PROCESS it hides every session but the login's
+# own.
+expect_lock_failure no-process-login \
+  "held by connection $holder_id, whose user and host could not be read: its processlist row came back empty" \
+  -e MYSQL_USER=lockrunner -e MYSQL_PASSWORD=selftestLockRunner00000007
+release_lock
 
 section "a server below MySQL 8.0.30 is refused before anything is applied"
 at_version() {

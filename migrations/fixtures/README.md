@@ -40,6 +40,11 @@ only real source of those; these exist only so `selftest.sh` can prove
 - `regrant-grants/` is `definer-grants/` with a grant on `gizmos`, a table no
   fixture creates, ahead of `EXECUTE`, so the grants applied on a failed run
   must carry on past an error to restore it.
+- `lock-reads/` holds a `mysql` function, sourced through `BASH_ENV`, that
+  makes the runner's `IS_USED_LOCK` read answer NULL or fail, or its
+  processlist read fail, and a `mysql` stand-in it puts first on `PATH` that
+  answers `GET_LOCK` with NULL, so the self-test can reach each holder message
+  a real server gives only inside a window it cannot time.
 - `version-floor/` holds a shell function, sourced through `BASH_ENV`, that
   makes the runner's `VERSION()` query report a chosen version, so the
   self-test can show a server below 8.0.30 refused without one.

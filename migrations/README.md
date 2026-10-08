@@ -162,7 +162,10 @@ below the highest applied one refusing the run while files above it still
 apply, both of those decided bytewise under a stand-in case-folding locale,
 and two invocations racing
 the same lock name applying a pending migration exactly once, a lock held
-by another login timing out with that login named, a server
+by another login timing out with that login named, each unusable read
+of the holder reported as what it is (a `GET_LOCK` NULL, an `IS_USED_LOCK`
+NULL or failure, a failed processlist query, and the empty row a login
+without `PROCESS` or any `performance_schema` grant reads), a server
 reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass, and login
 provisioning against `fixtures/grants/`: a login created on an existing
 schema, an idempotent second run, rotation, a restore onto a fresh server,
