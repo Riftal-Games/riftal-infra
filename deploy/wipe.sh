@@ -56,12 +56,13 @@ sql() {
 # and could be blind for a reason not foreseen here, so its count is trusted
 # only once it shows this connection's own thread.
 #
-# A session with no default database can still write here by qualified name.
-counts="$(sql "SELECT COALESCE(SUM(ID = CONNECTION_ID()), 0), COALESCE(SUM((DB = '$MYSQL_DATABASE' OR DB IS NULL)
-  AND COMMAND <> 'Daemon' AND ID <> CONNECTION_ID()), 0) FROM performance_schema.processlist")"
+# Every session counts whatever its default database, because any of them can
+# write here by qualified name.
+counts="$(sql "SELECT COALESCE(SUM(ID = CONNECTION_ID()), 0), COALESCE(SUM(COMMAND <> 'Daemon'
+  AND ID <> CONNECTION_ID()), 0) FROM performance_schema.processlist")"
 read -r own sessions <<<"$counts"
 [ "$own" = "1" ] || fail "the processlist does not show this session, so it cannot see the others; is performance_schema off?"
-[ "$sessions" = "0" ] || fail "$sessions other session(s) are connected to $MYSQL_DATABASE or to no database; stop every instance first"
+[ "$sessions" = "0" ] || fail "$sessions other session(s) are connected to $MYSQL_HOST:$MYSQL_PORT; stop every instance first"
 
 echo "wipe $MYSQL_DATABASE: dropping and recreating at $MYSQL_HOST:$MYSQL_PORT, backup set $BACKUP_SET"
 sql "DROP DATABASE \`$MYSQL_DATABASE\`; CREATE DATABASE \`$MYSQL_DATABASE\`"
