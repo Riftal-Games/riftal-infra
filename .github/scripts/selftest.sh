@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=179
+EXPECTED_ASSERTIONS=196
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -727,6 +727,23 @@ expect_pins_bad "$PIN_WORKFLOWS/alias-key-value-next-line.yml" 10
 expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-key.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-alias-key.yml" 10
 expect_pins_bad "$PIN_WORKFLOWS/column-zero-alias-key.yml" 7
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-value-next-line.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-brace.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-bracket.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-trailing-space.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-tagged-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-anchored-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-double-quoted-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-single-quoted-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-indented-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-blank.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-comment.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-double-quoted-hash.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-single-quoted-hash.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-quoted-hash-comment.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-multiline-quoted-hash.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-three-hash-cuts.yml" 9
 expect_pins_bad "$FIXTURES/bad/action-pins/composite/action.yml" 8
 expect_real_pins
 

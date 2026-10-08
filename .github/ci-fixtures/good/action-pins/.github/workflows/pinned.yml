@@ -1,6 +1,7 @@
 # Must pass action-pins.sh with exactly 11 uses: lines checked: every form that
 # passes, each spelling YAML allows for it, a tag named in a trailing comment,
-# and lines that mention uses: without being the key.
+# and lines that mention uses: without being the key, among them a `?uses` key
+# in a block and a `?` key other than uses opening a flow continuation line.
 on: push
 jobs:
   call:
@@ -25,5 +26,9 @@ jobs:
       - uses: docker://alpine@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
         with:
           args: echo uses: actions/checkout@v4
+      - name: a block key, which YAML reads as the plain scalar
+        ?uses: actions/checkout@v4
+      - {name: a,
+        ?with: x}
       - run: |
           echo "uses: actions/checkout@v4"
