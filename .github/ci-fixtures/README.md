@@ -146,7 +146,9 @@ key and the value on the next line; after a `,` behind a scalar holding a blank 
 a `#`, double-quoted, single-quoted, and double-quoted with a comment after the
 `,`; and after a double-quoted scalar whose second line opens with a `#` and ends
 in the `,`. So the script must not cut a line at a `#` it cannot tell from one
-inside quotes, nor skip a line only because it looks like a comment. The good
+inside quotes, nor skip a line only because it looks like a comment. One more
+has three blanks followed by a `#` on the line before, with the `,` behind the
+first, so the script must test every cut, not only the last one. The good
 workflow keeps comment lines holding `{ uses: ... }`, so a check that stops
 exempting a comment goes red there, and a `?uses` key in a block plus a `?with` key
 opening a flow continuation line, so a check that refuses every line opening with a
