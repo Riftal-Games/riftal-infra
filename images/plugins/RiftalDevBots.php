@@ -5,8 +5,12 @@
  * @main riftal\dev\bots\Main
  * @version 0.2.1
  * @api 5.0.0
+ * @softdepend RiftalCustody
  * @description Dev stack only. Admits the headless player bots from devtools/bot.
  */
+
+// The softdepend keeps RiftalCustody enabled until this plugin has disabled, so
+// its shutdown sweep runs after anything this plugin drops (ADR 013, item 2).
 
 declare(strict_types=1);
 
