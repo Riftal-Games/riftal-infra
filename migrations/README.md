@@ -144,8 +144,11 @@ Wrap the `wslc run` above in `timeout 120` when running it unattended: if the
 lock cannot be acquired, this hangs for `MIGRATIONS_LOCK_TIMEOUT` seconds
 before failing loudly, and a hung `wslc` call otherwise gives no signal.
 The failure names the holder: its connection id from `IS_USED_LOCK`, and the
-user and host from that connection's processlist row, which a login without
-`PROCESS` sees only for its own sessions.
+user and host from that connection's row in `performance_schema.processlist`,
+which needs no grant but shows a login without `PROCESS` only its own
+sessions. An empty row is reported as could not be read, since a hidden row
+and a holder that disconnected between the two reads look the same. Only a
+`GET_LOCK` answer of `0` is reported as a timeout; `NULL` is an error.
 
 ## Testing
 
