@@ -41,8 +41,13 @@ fi
 
 docker network create "$NETWORK" >/dev/null
 
+# Every container this script starts shares a host with other jobs and other
+# lanes, and one without a limit can take the whole machine's RAM. mysql:8
+# reaches ready and runs every section well inside these.
+LIMITS=(-m 1g --cpus 1)
+
 start_mysql() {
-  docker run -d --rm --name "$1" --network "$NETWORK" --network-alias "$2" \
+  docker run -d --rm "${LIMITS[@]}" --name "$1" --network "$NETWORK" --network-alias "$2" \
     -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
     mysql:8 >/dev/null
 }
@@ -83,7 +88,7 @@ section() { SECTIONS+=("$1"); printf '\n== %s\n' "$1"; }
 run_migrations() {
   local dir="$1" db="$2" lock="$3"
   shift 3
-  docker run --rm --network "$NETWORK" \
+  docker run --rm "${LIMITS[@]}" --network "$NETWORK" \
     -v "$RUNNER:/run-migrations.sh:ro" -v "$dir:/migrations:ro" \
     -e MYSQL_HOST="${HOST_ALIAS:-mysql}" -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE="$db" -e MIGRATIONS_DIR=/migrations \
