@@ -14,10 +14,11 @@
 # content digest: a docker:// tag is refused for the same reason a git tag is.
 #
 # A quoted `"uses":` or `'uses':` key is read like a bare one. A `uses` key with
-# a `{` or `,` before it on its line, as in `{ uses: ... }`, fails whatever its
-# value, because this script reads a value only where the key opens its line. A
-# `uses:` that opens its own line inside a flow mapping spread over several lines
-# is read that way, so a pinned value there passes, and a `,` or `}` after it fails.
+# a `[`, `{` or `,` before it on its line, as in `{ uses: ... }` or the
+# single-pair `[ uses: ... ]`, fails whatever its value, because this script
+# reads a value only where the key opens its line. A `uses:` that opens its own
+# line inside a flow mapping spread over several lines is read that way, so a
+# pinned value there passes, and a `,` or `}` after it fails.
 #
 # Any other value fails, including one this script cannot read, so a form it
 # does not know is reported rather than skipped. A `#` comment after the value
@@ -36,10 +37,11 @@ mapfile -t files < <(printf '%s' "$found")
 printf 'found %d workflow(s) and action(s) outside the fixtures\n' "${#files[@]}"
 
 key="^[[:space:]]*(-[[:space:]]+)?(uses|\"uses\"|'uses')[[:space:]]*:(.*)\$"
-# Any `{` or `,` before a uses key on the same line fails the line, including
-# one that opens it, so a brace or comma outside a flow mapping is refused too.
+# Any `[`, `{` or `,` before a uses key on the same line fails the line,
+# including one that opens it, so a bracket, brace or comma outside a flow
+# collection is refused too.
 # A line whose first non-blank character is `#` never matches.
-flow="^[[:space:]]*([^#[:space:]].*)?[{,][[:space:]]*(uses|\"uses\"|'uses')[[:space:]]*:"
+flow="^[[:space:]]*([^#[:space:]].*)?[[{,][[:space:]]*(uses|\"uses\"|'uses')[[:space:]]*:"
 double_quoted='^[[:space:]]*"([^"]*)"(.*)$'
 single_quoted="^[[:space:]]*'([^']*)'(.*)\$"
 plain='^[[:space:]]*([^[:space:]]*)(.*)$'
