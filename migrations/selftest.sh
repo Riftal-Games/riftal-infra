@@ -13,6 +13,9 @@ SUFFIX="$$-$(date +%s)"
 CONTAINER="riftal_smoke_migrations_$SUFFIX"
 FRESH="riftal_smoke_migrations_fresh_$SUFFIX"
 NETWORK="riftal_smoke_migrations_net_$SUFFIX"
+# Runner containers have no name, so this label is the only handle cleanup
+# has on them, and the network cannot be removed while one is attached.
+OWNED=(--label "riftal_smoke_migrations=$SUFFIX")
 
 # Per run, so two runs sharing a host, as the self-hosted CI runners do,
 # never read each other's logs.
@@ -20,12 +23,38 @@ LOGS="$(mktemp -d)"
 
 # -v takes the anonymous volume the mysql:8 image declares with each container,
 # which would otherwise outlive every run.
+remove_owned() {
+  local ids=()
+  mapfile -t ids < <(docker ps -aq --filter "label=riftal_smoke_migrations=$SUFFIX" 2>/dev/null)
+  if [ "${#ids[@]}" -gt 0 ]; then
+    docker rm -f -v "${ids[@]}" >/dev/null 2>&1 || true
+  fi
+}
+
+# Runs once however the script ends: a signal handler calls it and then exits,
+# which fires the EXIT trap a second time. Further INT and TERM are ignored so a
+# second Ctrl-C cannot cut the teardown short.
 cleanup() {
-  docker rm -f -v "$CONTAINER" "$FRESH" >/dev/null 2>&1 || true
+  [ -z "${CLEANED:-}" ] || return 0
+  CLEANED=1
+  trap '' INT TERM
+  remove_owned
+  # A backgrounded runner can create its container after the sweep above. With
+  # mysql gone it fails at once, so waiting is short, and the second sweep takes
+  # whatever it left.
+  wait 2>/dev/null || true
+  remove_owned
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
 }
+on_signal() {
+  echo "selftest.sh: interrupted by SIG$1, removing its containers and network" >&2
+  cleanup
+  exit "$2"
+}
 trap cleanup EXIT
+trap 'on_signal INT 130' INT
+trap 'on_signal TERM 143' TERM
 
 # The README's Testing list is the reader's copy of the section titles, so it
 # must name each one exactly and in run order. Checked before any container
@@ -47,7 +76,7 @@ docker network create "$NETWORK" >/dev/null
 LIMITS=(-m 1g --cpus 1)
 
 start_mysql() {
-  docker run -d --rm "${LIMITS[@]}" --name "$1" --network "$NETWORK" --network-alias "$2" \
+  docker run -d --rm "${LIMITS[@]}" "${OWNED[@]}" --name "$1" --network "$NETWORK" --network-alias "$2" \
     -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
     mysql:8 >/dev/null
 }
@@ -88,7 +117,7 @@ section() { SECTIONS+=("$1"); printf '\n== %s\n' "$1"; }
 run_migrations() {
   local dir="$1" db="$2" lock="$3"
   shift 3
-  docker run --rm "${LIMITS[@]}" --network "$NETWORK" \
+  docker run --rm "${LIMITS[@]}" "${OWNED[@]}" --network "$NETWORK" \
     -v "$RUNNER:/run-migrations.sh:ro" -v "$dir:/migrations:ro" \
     -e MYSQL_HOST="${HOST_ALIAS:-mysql}" -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE="$db" -e MIGRATIONS_DIR=/migrations \

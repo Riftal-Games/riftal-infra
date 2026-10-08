@@ -196,4 +196,7 @@ wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/Users/nasir/riftal-games/riftal
 ```
 
 Each run writes its logs to its own `mktemp -d` directory and removes it on
-exit, so concurrent runs on one host do not clobber each other.
+exit, so concurrent runs on one host do not clobber each other. A SIGINT or
+SIGTERM, as from `timeout` or a cancelled CI job, runs the same teardown: every
+container the run started, found by its `riftal_smoke_migrations=<run>` label,
+then its network, then the logs. The run then exits 130 or 143.
