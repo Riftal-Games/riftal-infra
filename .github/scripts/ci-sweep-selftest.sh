@@ -39,7 +39,9 @@ reap_young="${reap_prefix}young"
 reap_old="${reap_prefix}old"
 reap_label="${reap_prefix}label"
 reap_miss="riftal_smoke_sweep_reapmiss_${GITHUB_RUN_ID}_$$"
+sandbox=
 cleanup() {
+  [ -z "$sandbox" ] || rm -rf "$sandbox"
   docker rm -v -f "$own" "$other" "$holder" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
   docker volume rm "$own_vol" "$other_vol" "$reap_young" "$reap_old" "$reap_miss" \
@@ -185,8 +187,19 @@ else
 fi
 timeout 20 "$shim/docker" version --format '{{.Server.Version}}' >/dev/null 2>&1
 rc=$?
-rm -rf "$sandbox"
 check "$([ "$rc" -eq 0 ] && echo ok)" "a shim written by a second label run answers within 20s (got $rc)"
+
+# The runner's coreutils share a directory with the real docker, so this PATH
+# holds the shim alone. The label script reaches its refusal on builtins only.
+err="$(timeout 20 env PATH="$shim" RUNNER_TEMP="$sandbox" GITHUB_PATH="$sandbox/path" \
+  "$BASH" "$dir/ci-docker-label.sh" 2>&1 >/dev/null)"
+rc=$?
+line="::error::no docker on PATH outside $shim"
+if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ "$err" = "$line" ]; then
+  check ok 'label script refuses when only its own shim is on PATH'
+else
+  check fail "label script with only its shim on PATH: want a non-zero exit and the no-docker error, got exit $rc and '${err#::error::}'"
+fi
 
 [ "$failures" -eq 0 ] || exit 1
 printf 'label shim and sweep proven on this engine\n'
