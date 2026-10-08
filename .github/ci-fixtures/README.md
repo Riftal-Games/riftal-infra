@@ -123,6 +123,10 @@ an anchor, a double-quoted key spelled with an escape, a second `-`, and an alia
 used as a key. Four more put those forms where a narrower pattern would miss them:
 a tag after the `[` of a flow sequence, a quoted key behind a tag, an explicit `?`
 after a `{` with the key on the next line, and an alias directly after a `{`.
+Eight more do the same: an anchor, and a tag with an anchor, after the `[` of a
+flow sequence; an explicit `?` after a `[`, and after a `,`, with the key on the
+next line; a single-quoted key behind a tag; an alias directly after a `[`, and
+directly after a `,`; and an alias key with its value on the next line.
 Each passed unchecked before the script refused it, so a check that
 stops refusing one exits 0 there. The good workflow keeps
 comment lines holding `{ uses: ... }`, so a check that stops exempting a comment

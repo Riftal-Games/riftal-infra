@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=168
+EXPECTED_ASSERTIONS=176
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -716,6 +716,14 @@ expect_pins_bad "$PIN_WORKFLOWS/flow-tagged-key.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/tagged-quoted-key.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/flow-explicit-key.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/flow-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-anchored-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-tagged-anchored-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-sequence-explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/comma-explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/tagged-single-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-sequence-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/comma-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/alias-key-value-next-line.yml" 10
 expect_pins_bad "$FIXTURES/bad/action-pins/composite/action.yml" 8
 expect_real_pins
 
