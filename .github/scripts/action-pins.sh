@@ -26,9 +26,17 @@
 # `,`; a `uses` key behind a tag, an anchor or more than one `-`; an alias used
 # as a key; and a double-quoted key with an escape in it, because an escape can
 # spell `uses`. A `?` after a tag or an anchor is not refused, because PyYAML
-# rejects the file, in a block or a flow collection. The pattern misreads some keys holding an escaped `\` or `"`, such as
-# `"a\\"`, and lets them pass: neither escape can be part of a key that spells
-# `uses`. A key spelled any way not named in this header is not read.
+# rejects the file, in a block or a flow collection. The pattern misreads some
+# keys holding an escaped `\` or `"`, such as `"a\\"`, and lets them pass:
+# neither escape can be part of a key that spells `uses`.
+#
+# A line opening with a `?` and no space after it is refused when it spells a
+# `uses` key, or a `uses` alone with its value on a later line, and the last
+# character before it outside a comment is a `[`, a `{` or a `,`. That places
+# the line inside a flow collection spread over several lines, where PyYAML
+# reads any `?` as an explicit key. In a block the same line is a plain key
+# `?uses` and passes, unless the line before it ends in a `,`, which is
+# refused. A key spelled any way not named in this header is not read.
 #
 # Any value other than the three forms fails, including one this script cannot
 # read, so a value it does not know is reported rather than skipped. A `#`
@@ -62,6 +70,8 @@ decorated="^[[:space:]]*(([-!&][^[:space:]]*[[:space:]]*)+)(uses|\"uses\"|'uses'
 # several lines, whose continuation lines need no indent. A `?` with no space
 # after it does not hide an alias: PyYAML reads `{ ?*k : x }` as an explicit key.
 alias_key="^[[:space:]]*([^#[:space:]].*)?(^|[[:space:][{,?])\*[^][:space:],{}[]+[[:space:]]*:([[:space:]]|\$)"
+continued_explicit="^[[:space:]]*\?([!&][^[:space:]]*[[:space:]]+)*(uses|\"uses\"|'uses')[[:space:]]*(:|\$)"
+blank_or_comment='^[[:space:]]*(#.*)?$'
 escaped_key="^[[:space:]]*([^#[:space:]].*)?\"[^\"\\\\]*\\\\([^\"\\\\]|\\\\.)*\"[[:space:]]*:"
 double_quoted='^[[:space:]]*"([^"]*)"(.*)$'
 single_quoted="^[[:space:]]*'([^']*)'(.*)\$"
@@ -73,9 +83,17 @@ status=0
 checked=0
 for file in "${files[@]}"; do
   n=0
+  last=""
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
     line="${line%$'\r'}"
+    in_flow=0
+    [[ $last == [[{,] ]] && in_flow=1
+    if ! [[ $line =~ $blank_or_comment ]]; then
+      code="${line%%[[:space:]]#*}"
+      code="${code%"${code##*[![:space:]]}"}"
+      last="${code: -1}"
+    fi
     if [[ $line =~ $flow ]]; then
       checked=$((checked + 1))
       printf '%s:%d: an action not pinned to a commit sha or image digest, in a flow mapping this script does not read: %s\n' \
@@ -85,6 +103,7 @@ for file in "${files[@]}"; do
     fi
     hidden=0
     [[ $line =~ $explicit || $line =~ $alias_key || $line =~ $escaped_key ]] && hidden=1
+    [[ $in_flow -eq 1 && $line =~ $continued_explicit ]] && hidden=1
     if [[ $line =~ $decorated ]]; then
       prefix="${BASH_REMATCH[1]//[[:space:]]/}"
       [ "$prefix" = "-" ] || hidden=1

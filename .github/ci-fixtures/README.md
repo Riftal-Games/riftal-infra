@@ -132,9 +132,15 @@ stops refusing one exits 0 there. Three more each hold up one pattern
 alternative that no file above needs, so dropping it exits 0 at that file: no
 space between the `?` and a uses key in a flow mapping, the same with an alias, both
 of which PyYAML reads as explicit keys, and an alias key at column 0 on a
-continuation line of a flow collection. The good workflow keeps
+continuation line of a flow collection. Two more open a continuation line of a
+flow mapping with a `?` and a uses key and no space between them, which PyYAML
+reads as an explicit key: one with the value on the same line, and one with the
+value on the next line and a comment after the `,` before it, so the script
+must find that `,` past the comment. The good workflow keeps
 comment lines holding `{ uses: ... }`, so a check that stops exempting a comment
-goes red there. The URL is there for the pattern's start anchor and the
+goes red there, and a `?uses` key in a block plus a `?with` key opening a flow
+continuation line, so a check that refuses every line opening with a `?` goes
+red there too. The URL is there for the pattern's start anchor and the
 trailing word for the check on what follows the value: without either, a sha at
 the end of the line passes.
 
