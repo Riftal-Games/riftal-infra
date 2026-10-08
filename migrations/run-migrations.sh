@@ -141,8 +141,8 @@ if ! IFS= read -r lock_result <&"${LOCKCONN[0]}"; then
   exit 1
 fi
 if [ "$lock_result" != "1" ]; then
-  # Only a 0 is a timeout. GET_LOCK answers NULL on an error, such as its
-  # statement being killed with KILL QUERY.
+  # Only a 0 is a timeout. A NULL from GET_LOCK means an error, so it is not
+  # reported as a timeout.
   if [ "$lock_result" = "0" ]; then
     failure="could not acquire lock '$LOCK_NAME' within ${LOCK_TIMEOUT}s (GET_LOCK returned: 0)"
   else
