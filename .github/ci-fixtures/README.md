@@ -123,5 +123,10 @@ goes red there. The URL is there for the pattern's start anchor and the
 trailing word for the check on what follows the value: without either, a sha at
 the end of the line passes.
 
+`fake-locale-sort.bash` is a `sort` function the Dockerfile order check loads
+through `BASH_ENV`. It folds case under any collating locale and keeps C order
+under C, so a scan.sh that drops its `LC_ALL=C` goes red on any host, whether
+its `sort` is GNU or uutils and whatever locales it carries.
+
 The real scans exclude this directory. If they ever stop excluding it, CI is red
 forever and the reason is here.
