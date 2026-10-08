@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Self-test for binlog-check.sh, against real, throwaway mysql:8 containers.
 # Runs on the self-hosted CI runner via `docker`, the same way selftest.sh
-# does. One server keeps mysql:8's defaults and must pass. A second is started
-# with a one-day retention and must fail naming that setting, which proves the
-# check reads the running server rather than agreeing with anything it is shown.
+# does. One server keeps mysql:8's defaults and must pass. Every setting the
+# check reads then gets its own negative control: that one setting is set
+# wrong, and the check must fail naming it and nothing else. That proves the
+# check reads the running server rather than agreeing with anything it is
+# shown, and that no two settings are read through each other's column.
+#
+# Four of the settings are dynamic, so their controls run against the same
+# server with SET GLOBAL, each put back before the next. log_bin is not, so its
+# control needs a second server started with --skip-log-bin.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,8 +51,13 @@ start_mysql() {
   exit 1
 }
 
+set_global() {
+  docker exec -e MYSQL_PWD=selftest "$MYSQL_CONTAINER" mysql -uroot -h 127.0.0.1 \
+    -e "SET GLOBAL $1"
+}
+
 run_check() {
-  timeout 60 docker run --rm --network "$NETWORK" \
+  timeout 60 docker run --rm --network "$NETWORK" -m 1g --cpus 1 \
     -v "$SCRIPT_DIR/binlog-check.sh:/deploy/binlog-check.sh:ro" \
     -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
     mysql:8 bash /deploy/binlog-check.sh
@@ -54,23 +65,71 @@ run_check() {
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=4
+EXPECTED_ASSERTIONS=14
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
+expect_pass() {
+  local log="$LOGS/$1.log" what="$2"
+  if run_check > "$log" 2>&1; then
+    pass "binlog-check.sh exits 0 $what"
+  else
+    fail "binlog-check.sh exits nonzero $what"
+  fi
+  cat "$log"
+  if grep -q '^binlog-check: PASS$' "$log"; then
+    pass "binlog-check.sh prints PASS $what"
+  else
+    fail "binlog-check.sh never printed PASS $what"
+  fi
+}
+
+# One wrong setting must give a nonzero exit, that setting's mismatch line, and
+# a count of exactly one, so a check that reads one column for another fails.
+expect_refused() {
+  local log="$LOGS/$1.log" name="$1" actual="$2" wanted="$3"
+  if run_check > "$log" 2>&1; then
+    fail "binlog-check.sh exits 0 with $name=$actual"
+  else
+    pass "binlog-check.sh exits nonzero with $name=$actual"
+  fi
+  cat "$log"
+  if grep -qx "binlog-check: $name is $actual, expected $wanted" "$log" &&
+    [ "$(grep -c '^binlog-check: .* is .*, expected ' "$log")" -eq 1 ] &&
+    grep -qx 'binlog-check: FAIL, 1 setting(s) differ from the recorded retention' "$log"; then
+    pass "binlog-check.sh names $name, and only $name, as the mismatch"
+  else
+    fail "binlog-check.sh did not name $name, and only $name, as the mismatch"
+  fi
+}
+
 printf '\n== mysql:8 defaults match the recorded retention\n'
 start_mysql
-if run_check > "$LOGS/defaults.log" 2>&1; then
-  pass "binlog-check.sh exits 0 on mysql:8 defaults"
-else
-  fail "binlog-check.sh exits nonzero on mysql:8 defaults"
-fi
-cat "$LOGS/defaults.log"
-if grep -q '^binlog-check: PASS$' "$LOGS/defaults.log"; then
-  pass "binlog-check.sh prints PASS on mysql:8 defaults"
-else
-  fail "binlog-check.sh never printed PASS on mysql:8 defaults"
-fi
+expect_pass defaults "on mysql:8 defaults"
+
+printf '\n== binlog_format STATEMENT is refused\n'
+set_global "binlog_format = 'STATEMENT'"
+expect_refused binlog_format STATEMENT ROW
+set_global "binlog_format = 'ROW'"
+
+printf '\n== binlog_row_image MINIMAL is refused\n'
+set_global "binlog_row_image = 'MINIMAL'"
+expect_refused binlog_row_image MINIMAL FULL
+set_global "binlog_row_image = 'FULL'"
+
+printf '\n== a one-day retention is refused\n'
+set_global "binlog_expire_logs_seconds = 86400"
+expect_refused binlog_expire_logs_seconds 86400 2592000
+set_global "binlog_expire_logs_seconds = 2592000"
+
+printf '\n== automatic purge off is refused\n'
+set_global "binlog_expire_logs_auto_purge = OFF"
+expect_refused binlog_expire_logs_auto_purge 0 1
+set_global "binlog_expire_logs_auto_purge = ON"
+
+printf '\n== every setting put back passes again\n'
+expect_pass restored "with every setting put back"
+
 stop_mysql
 # The stopped container frees its name only once --rm has removed it.
 for _ in $(seq 1 30); do
@@ -78,20 +137,9 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-printf '\n== a one-day retention is refused\n'
-start_mysql --binlog-expire-logs-seconds=86400
-if run_check > "$LOGS/short.log" 2>&1; then
-  fail "binlog-check.sh exits 0 with a one-day retention"
-else
-  pass "binlog-check.sh exits nonzero with a one-day retention"
-fi
-cat "$LOGS/short.log"
-if grep -q '^binlog-check: binlog_expire_logs_seconds is 86400, expected 2592000$' \
-  "$LOGS/short.log"; then
-  pass "binlog-check.sh names binlog_expire_logs_seconds as the mismatch"
-else
-  fail "binlog-check.sh did not name binlog_expire_logs_seconds as the mismatch"
-fi
+printf '\n== the binary log off is refused\n'
+start_mysql --skip-log-bin
+expect_refused log_bin 0 1
 
 printf '\n%d passed, %d failed, %d expected\n' "$PASSES" "$FAILURES" "$EXPECTED_ASSERTIONS"
 if [ "$FAILURES" -ne 0 ] || [ "$PASSES" -ne "$EXPECTED_ASSERTIONS" ]; then
