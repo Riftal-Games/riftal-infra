@@ -31,12 +31,20 @@
 # neither escape can be part of a key that spells `uses`.
 #
 # A line opening with a `?` and no space after it is refused when it spells a
-# `uses` key, or a `uses` alone with its value on a later line, and the last
-# character before it outside a comment is a `[`, a `{` or a `,`. That places
-# the line inside a flow collection spread over several lines, where PyYAML
-# reads any `?` as an explicit key. In a block the same line is a plain key
-# `?uses` and passes, unless the line before it ends in a `,`, which is
-# refused. A key spelled any way not named in this header is not read.
+# `uses` key, or a `uses` with nothing after it but blanks or a comment, and a
+# line read before it ends in a `[`, a `{` or a `,`. That places the line inside
+# a flow collection spread over several lines, where PyYAML reads any `?` as an
+# explicit key. The lines read before it are the nearest one that is neither
+# blank nor a comment, and every comment line after that one. Each is taken to
+# end at its last character that is not a blank, and also at the last one
+# before every blank followed by a `#`, because this script cannot tell a `#`
+# opening a comment from one inside a quoted scalar, and a quoted scalar can
+# run across lines. In a block the same line is a plain key `?uses` and passes,
+# unless one of those ends is a `[`, a `{` or a `,`, which is refused: after a
+# line ending in one of the three, a comment line or a trailing comment
+# included, and after a line where one of them is followed by blanks and then a
+# `#`, in a comment or in a quoted scalar. A key spelled any way not named in
+# this header is not read.
 #
 # Any value other than the three forms fails, including one this script cannot
 # read, so a value it does not know is reported rather than skipped. A `#`
@@ -70,7 +78,7 @@ decorated="^[[:space:]]*(([-!&][^[:space:]]*[[:space:]]*)+)(uses|\"uses\"|'uses'
 # several lines, whose continuation lines need no indent. A `?` with no space
 # after it does not hide an alias: PyYAML reads `{ ?*k : x }` as an explicit key.
 alias_key="^[[:space:]]*([^#[:space:]].*)?(^|[[:space:][{,?])\*[^][:space:],{}[]+[[:space:]]*:([[:space:]]|\$)"
-continued_explicit="^[[:space:]]*\?([!&][^[:space:]]*[[:space:]]+)*(uses|\"uses\"|'uses')[[:space:]]*(:|\$)"
+continued_explicit="^[[:space:]]*\?([!&][^[:space:]]*[[:space:]]+)*(uses|\"uses\"|'uses')([[:space:]]*(:|\$)|[[:space:]]+#)"
 blank_or_comment='^[[:space:]]*(#.*)?$'
 escaped_key="^[[:space:]]*([^#[:space:]].*)?\"[^\"\\\\]*\\\\([^\"\\\\]|\\\\.)*\"[[:space:]]*:"
 double_quoted='^[[:space:]]*"([^"]*)"(.*)$'
@@ -83,16 +91,23 @@ status=0
 checked=0
 for file in "${files[@]}"; do
   n=0
-  last=""
+  flow_open=0
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
     line="${line%$'\r'}"
-    in_flow=0
-    [[ $last == [[{,] ]] && in_flow=1
-    if ! [[ $line =~ $blank_or_comment ]]; then
-      code="${line%%[[:space:]]#*}"
+    in_flow=$flow_open
+    ends_open=0
+    code="$line"
+    while :; do
       code="${code%"${code##*[![:space:]]}"}"
-      last="${code: -1}"
+      [[ ${code: -1} == [[{,] ]] && ends_open=1
+      [[ $code == *[[:space:]]#* ]] || break
+      code="${code%[[:space:]]#*}"
+    done
+    if [[ $line =~ $blank_or_comment ]]; then
+      [ "$ends_open" -eq 1 ] && flow_open=1
+    else
+      flow_open=$ends_open
     fi
     if [[ $line =~ $flow ]]; then
       checked=$((checked + 1))
