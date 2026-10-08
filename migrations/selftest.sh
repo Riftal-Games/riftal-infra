@@ -261,7 +261,6 @@ expect_lock_failure() {
   local name="$1" want="$2" rc=0
   shift 2
   run_migrations "$FIXTURES/good" riftal_selftest "$UNREAD_LOCK" \
-    -v "$FIXTURES/lock-reads:/lock-reads:ro" -e BASH_ENV=/lock-reads/fake-lock-reads.bash \
     -e MIGRATIONS_LOCK_TIMEOUT=1 "$@" >"$LOGS/out-$name.log" 2>&1 || rc=$?
   if [ "$rc" -eq 1 ] && grep -qF -- "$want" "$LOGS/out-$name.log"; then
     pass "$name exits 1 saying: $want"
@@ -270,19 +269,20 @@ expect_lock_failure() {
     cat "$LOGS/out-$name.log"
   fi
 }
+LOCK_READS=(-v "$FIXTURES/lock-reads:/lock-reads:ro" -e BASH_ENV=/lock-reads/fake-lock-reads.bash)
 hold_lock "$UNREAD_LOCK"
 expect_lock_failure getlock-null \
   "could not acquire lock '$UNREAD_LOCK': GET_LOCK returned NULL, which is an error and not a timeout" \
-  -e SELFTEST_GET_LOCK=NULL
+  "${LOCK_READS[@]}" -e SELFTEST_GET_LOCK=NULL
 expect_lock_failure is-used-lock-null \
   "within 1s (GET_LOCK returned: 0), held by no session by the time IS_USED_LOCK was read" \
-  -e SELFTEST_IS_USED_LOCK=NULL
+  "${LOCK_READS[@]}" -e SELFTEST_IS_USED_LOCK=NULL
 expect_lock_failure is-used-lock-error \
   "within 1s (GET_LOCK returned: 0), held by unknown, IS_USED_LOCK could not be read" \
-  -e SELFTEST_IS_USED_LOCK=error
+  "${LOCK_READS[@]}" -e SELFTEST_IS_USED_LOCK=error
 expect_lock_failure processlist-error \
   "held by connection $holder_id, whose user and host could not be read: the performance_schema.processlist query failed" \
-  -e SELFTEST_PROCESSLIST=error
+  "${LOCK_READS[@]}" -e SELFTEST_PROCESSLIST=error
 # The processlist query itself succeeds for this login: the table is readable
 # without a grant, and without PROCESS it hides every session but the login's
 # own.
@@ -645,4 +645,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, the lock holder named on timeout, locale-independent order, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
+printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, the lock holder named on timeout, each unusable read of the lock holder, locale-independent order, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
