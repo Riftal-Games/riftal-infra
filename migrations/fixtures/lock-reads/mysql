@@ -14,8 +14,8 @@ done
 shopt -s extglob
 while IFS= read -r line; do
   case "$line" in
-    # A timeout that is empty or not a whole number is a malformed statement
-    # a real server would reject, so it falls through to the error below.
+    # The runner sends a whole-number timeout, so any other timeout means it
+    # built the statement wrong, and that falls through to the error below.
     "SELECT GET_LOCK('$MIGRATIONS_LOCK_NAME', "+([0-9])");")
       printf 'NULL\n'
       ;;
