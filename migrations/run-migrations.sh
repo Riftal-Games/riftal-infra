@@ -141,7 +141,22 @@ if ! IFS= read -r lock_result <&"${LOCKCONN[0]}"; then
   exit 1
 fi
 if [ "$lock_result" != "1" ]; then
-  echo "could not acquire lock '$LOCK_NAME' within ${LOCK_TIMEOUT}s (GET_LOCK returned: $lock_result)" >&2
+  # Any login may take the lock by name, so the holder is not necessarily a
+  # runner. A login without PROCESS sees only its own processlist rows, which
+  # leaves the connection id as the one name it can give.
+  holder="unknown, IS_USED_LOCK could not be read"
+  holder_id="$(run_sql -e "SELECT IS_USED_LOCK('$LOCK_NAME')" 2>/dev/null)" || holder_id=""
+  if [ "$holder_id" = "NULL" ]; then
+    holder="no session, the lock was released after the timeout"
+  elif [[ "$holder_id" =~ ^[0-9]+$ ]]; then
+    holder_row="$(run_sql -e "SELECT USER, HOST FROM information_schema.PROCESSLIST WHERE ID = $holder_id" 2>/dev/null)" || holder_row=""
+    if [[ "$holder_row" == *$'\t'* ]]; then
+      holder="connection $holder_id, user ${holder_row%%$'\t'*} from host ${holder_row#*$'\t'}"
+    else
+      holder="connection $holder_id, whose user and host this login cannot see without PROCESS"
+    fi
+  fi
+  echo "could not acquire lock '$LOCK_NAME' within ${LOCK_TIMEOUT}s (GET_LOCK returned: $lock_result), held by $holder" >&2
   exit 1
 fi
 lock_held=1
