@@ -42,7 +42,9 @@ refused() {
 refused "a sha whose tag is not on this daemon" \
   0000000000000000000000000000000000000000 \
   local-pocketmine-mp:0000000000000000000000000000000000000000
-refused "a short sha" "${pinned:0:9}" "${pinned:0:9}"
+# The daemon refusal also names a short sha inside its tag, so only the
+# length refusal's own wording tells the two apart.
+refused "a short sha" "${pinned:0:9}" "\"${pinned:0:9}\", not a full 40-character"
 refused "the bare latest tag" latest '"latest"'
 refused "a missing sha file" "" "cannot read"
 
