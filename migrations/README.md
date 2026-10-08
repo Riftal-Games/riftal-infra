@@ -143,6 +143,9 @@ file is a readable regular file. Only a run setting neither skips grants.
 Wrap the `wslc run` above in `timeout 120` when running it unattended: if the
 lock cannot be acquired, this hangs for `MIGRATIONS_LOCK_TIMEOUT` seconds
 before failing loudly, and a hung `wslc` call otherwise gives no signal.
+The failure names the holder: its connection id from `IS_USED_LOCK`, and the
+user and host from that connection's processlist row, which a login without
+`PROCESS` sees only for its own sessions.
 
 ## Testing
 
@@ -155,7 +158,8 @@ pending file sorting
 below the highest applied one refusing the run while files above it still
 apply, both of those decided bytewise under a stand-in case-folding locale,
 and two invocations racing
-the same lock name applying a pending migration exactly once, a server
+the same lock name applying a pending migration exactly once, a lock held
+by another login timing out with that login named, a server
 reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass, and login
 provisioning against `fixtures/grants/`: a login created on an existing
 schema, an idempotent second run, rotation, a restore onto a fresh server,

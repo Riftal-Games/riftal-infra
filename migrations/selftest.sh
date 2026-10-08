@@ -60,7 +60,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=42
+EXPECTED_ASSERTIONS=44
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -197,6 +197,39 @@ if [ "$lost_rc" -eq 1 ] \
 else
   fail "expected exit 1 and a lost-lock error, got exit $lost_rc"
   cat "$LOGS"/out-lostlock.log
+fi
+
+section "a lock held elsewhere times out naming its holder"
+# A login of its own, so the user the runner names can only have come from
+# the holder's processlist row and not from the runner's own root session.
+query riftal_selftest \
+  "CREATE USER 'lockholder'@'%' IDENTIFIED BY 'selftestLockHolder00000006'"
+HELD_LOCK="selftest-held-$SUFFIX"
+docker exec -e MYSQL_PWD=selftestLockHolder00000006 "$CONTAINER" \
+  mysql -h 127.0.0.1 -ulockholder -N -B \
+  -e "SELECT GET_LOCK('$HELD_LOCK', 0); SELECT SLEEP(120);" >/dev/null 2>&1 &
+holder_pid=$!
+holder_id=""
+for _ in $(seq 1 30); do
+  holder_id="$(query riftal_selftest "SELECT IS_USED_LOCK('$HELD_LOCK')")"
+  [ "$holder_id" != "NULL" ] && break
+  sleep 1
+done
+held_rc=0
+run_migrations "$FIXTURES/good" riftal_selftest "$HELD_LOCK" \
+  -e MIGRATIONS_LOCK_TIMEOUT=1 >"$LOGS"/out-held.log 2>&1 || held_rc=$?
+query riftal_selftest "KILL $holder_id" 2>/dev/null || true
+wait "$holder_pid" 2>/dev/null || true
+if [ "$held_rc" -eq 1 ] && grep -q "could not acquire lock '$HELD_LOCK' within 1s" "$LOGS"/out-held.log; then
+  pass "a held lock exits 1 once the timeout passes"
+else
+  fail "expected exit 1 and the lock timeout, got exit $held_rc"; cat "$LOGS"/out-held.log
+fi
+if grep -qE "held by connection $holder_id, user lockholder from host [^ ]+" "$LOGS"/out-held.log; then
+  pass "the timeout names the holder's connection id, user and host"
+else
+  fail "expected the holder named as connection $holder_id, user lockholder and a host"
+  cat "$LOGS"/out-held.log
 fi
 
 section "a server below MySQL 8.0.30 is refused before anything is applied"
@@ -553,4 +586,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, locale-independent order, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
+printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, the lock holder named on timeout, locale-independent order, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
