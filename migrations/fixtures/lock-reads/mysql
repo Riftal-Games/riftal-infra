@@ -11,9 +11,12 @@ for arg in "$@"; do
     exec /usr/bin/mysql "$@"
   fi
 done
+shopt -s extglob
 while IFS= read -r line; do
   case "$line" in
-    "SELECT GET_LOCK('$MIGRATIONS_LOCK_NAME', "*");")
+    # The runner sends a whole-number timeout, so any other timeout means it
+    # built the statement wrong, and that falls through to the error below.
+    "SELECT GET_LOCK('$MIGRATIONS_LOCK_NAME', "+([0-9])");")
       printf 'NULL\n'
       ;;
     # The lock is held by another session, which is what a real server
