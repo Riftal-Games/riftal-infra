@@ -1,0 +1,18 @@
+# start-instance.sh copies this to /data/plugin_data/RiftalAccounts/config.yml
+# on every boot, so this file stays authoritative;
+# PluginBase::saveDefaultConfig() never overwrites a file that already exists
+# there.
+#
+# Everything below except the schema is the plugin's own shipped default
+# (riftal-game/accounts/resources/config.yml), and selftest.sh compares every
+# other line to that file; the schema is the one compose creates. The password
+# stays empty: RiftalGames\Lib\Database\DatabaseSettings reads the accounts
+# login's password from RIFTAL_DB_PASSWORD_ACCOUNTS in the instance's
+# environment, and throws if this file holds one too (ADR 008 item 5).
+database:
+  host: "mysql"
+  schema: "riftal_dev"
+  username: "accounts"
+  password: ""
+  port: 3306
+  worker-limit: 1

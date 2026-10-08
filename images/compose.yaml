@@ -88,6 +88,12 @@ services:
       # plain environment variable, never a PocketMine config value, that no
       # production deploy path has any reason to set.
       RIFTAL_DEV_ENV: "1"
+      # RiftalAccounts loads wherever a game plugin does and connects as the
+      # accounts login (ADR 008); riftal-game's DatabaseSettings reads its
+      # password from here, never from a file on the volume. The migration
+      # runner provisions the login from the same images/.env value.
+      # instance-b runs no game plugin, so it is not given it.
+      RIFTAL_DB_PASSWORD_ACCOUNTS: ${RIFTAL_DB_PASSWORD_ACCOUNTS}
       # auto-report.enabled keeps crash dumps, which carry config and from M1
       # alpha player data, off crash.axolotl-pm.org (riftal-infra#232). It has
       # to be 0: ServerConfigGroup::getPropertyBool() casts the flag's string,

@@ -23,8 +23,10 @@ fails on either.
 
 `*.phar` is gitignored by the repo root's `.gitignore`, and
 `RiftalMines.config.yml` by this folder's own, since a copy rendered by hand
-carries a real database password. Only `RiftalMines.config.yml.template` is
-tracked.
+carries a real database password. Two config files are tracked:
+`RiftalMines.config.yml.template`, and `RiftalAccounts.config.yml`, which
+holds no password because the `accounts` login's comes from the environment
+(see the last section).
 
 ## Build `RiftalMines.phar`
 
@@ -133,3 +135,43 @@ plugin exposes the write ops `build_mine --apply` needs (`create_world`,
 `pregen`, `set_blocks`/`fill`; tracked under riftal-game's `lane:bridge`
 issues, riftal-infra#239 and riftal-game#8) to turn
 that log line into a loaded world.
+
+## `RiftalAccounts` and the `accounts` login
+
+`RiftalAccounts` resolves every login to its account and is the only writer
+of the `accounts` table, so every instance that runs a game plugin loads it
+(steward ruling on riftal-game#176). `start-instance.sh` enforces that here:
+with any `Riftal*.phar` in this folder and no `RiftalAccounts.phar`, the boot
+stops before PocketMine starts and names both. `instance-b` runs no game
+plugin, so it loads none of this.
+
+It declares `depend: [RiftalContracts]`, so `start-instance.sh` adds
+`contracts.phar` to the roster beside it and stops, naming the file, when it
+is missing. Build both, plus any other plugin, from a copy of riftal-game's
+plugin folders, `lib/` and `contracts/` with riftal-game's own
+`.github/scripts/packages.sh phar <copy> <pharynx.phar> <out>`, run in
+`local-pocketmine-mp` with a `composer` wrapper on `PATH` for
+`/tmp/composer.phar`. It names each phar after its folder, so rename
+`accounts.phar` to `RiftalAccounts.phar` and `mines.phar` to
+`RiftalMines.phar`; `contracts.phar` keeps its name. Unlike the recipe above,
+it links `vendor/pocketmine/pocketmine-mp` to the fork before pharynx runs,
+which pharynx needs against riftal-game `main`.
+
+It connects as the `accounts` login of ADR 008, never as root. With the phar
+present, `start-instance.sh` copies `RiftalAccounts.config.yml` to
+`/data/plugin_data/RiftalAccounts/config.yml` on every boot. That file
+differs from the shipped one only in its schema, `riftal_dev`, and carries no
+password: `DatabaseSettings` reads it from `RIFTAL_DB_PASSWORD_ACCOUNTS`,
+which compose passes `instance` from `images/.env`. A `wslc run` of
+`instance` needs `-e RIFTAL_DB_PASSWORD_ACCOUNTS` for the same reason.
+Unset, the boot stops before PocketMine starts and names the variable.
+
+The login itself is made by the migration runner, not by the instance. Run it
+before `instance`, with `grants.sql` mounted and
+`-e RIFTAL_DB_PASSWORD_ACCOUNTS` exported from the same `images/.env`, as
+`../../../migrations/README.md` shows under "Running it locally". The runner
+creates `accounts`, grants it `riftal_role_accounts` and nothing else, and
+resets its password to that value on every run, so after editing it in
+`images/.env` run the runner again before the next boot. Booted before that,
+the plugin logs `Access denied for user 'accounts'` and PocketMine shuts the
+server down.
