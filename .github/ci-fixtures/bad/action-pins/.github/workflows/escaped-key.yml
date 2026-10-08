@@ -1,0 +1,8 @@
+# Must fail action-pins.sh at line 8 and nowhere else: a double-quoted key
+# with a backslash fails whatever it names, because an escape can spell uses.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - "u\x73es": actions/checkout@11d5960a326750d5838078e36cf38b85af677262

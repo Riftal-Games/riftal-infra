@@ -117,7 +117,18 @@ are spread across them. Two more carry a tag behind a key quoted each way, and f
 hold a pinned sha in a flow collection, because a flow collection fails whatever it
 names: one after a comma, one with the `{` opening its line, one with a quoted key
 after the `{`, and one directly behind the `[` of a flow sequence, which YAML reads
-as a single-pair mapping. The good workflow keeps
+as a single-pair mapping. Six more hold a pinned sha behind a key form the script
+does not read, each of which fails whatever it names: an explicit `?` key, a tag,
+an anchor, a double-quoted key spelled with an escape, a second `-`, and an alias
+used as a key. Four more put those forms where a narrower pattern would miss them:
+a tag after the `[` of a flow sequence, a quoted key behind a tag, an explicit `?`
+after a `{` with the key on the next line, and an alias directly after a `{`.
+Eight more do the same: an anchor, and a tag with an anchor, after the `[` of a
+flow sequence; an explicit `?` after a `[`, and after a `,`, with the key on the
+next line; a single-quoted key behind a tag; an alias directly after a `[`, and
+directly after a `,`; and an alias key with its value on the next line.
+Each passed unchecked before the script refused it, so a check that
+stops refusing one exits 0 there. The good workflow keeps
 comment lines holding `{ uses: ... }`, so a check that stops exempting a comment
 goes red there. The URL is there for the pattern's start anchor and the
 trailing word for the check on what follows the value: without either, a sha at
