@@ -7,6 +7,14 @@
 # checks run, so a change to what they test is a commit here. The bare tag is
 # whatever was built last on that daemon, so it is never a fallback, and
 # nothing here pulls: the tag exists only on that daemon.
+#
+# A docker prune or a runner rebuild can drop the pinned tag, and then every
+# check that sources this refuses. Two ways back: re-run pmmp-core's "Docker
+# image CI" run for the riftal push at the pinned sha, which tags it again, or
+# open a PR moving core-image.sha to a sha whose tag is on the daemon. Nothing
+# in either repo removes a sha tag (pmmp-core
+# .github/workflows/tag-image-sha.sh); a cleanup may remove any of them except
+# the one core-image.sha pins.
 
 # $1 the sha file, core-image.sha beside this script when omitted. Sets
 # CORE_IMAGE to the pinned tag, or prints an ::error:: and returns 1 when the
