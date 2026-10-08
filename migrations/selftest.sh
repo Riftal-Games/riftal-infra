@@ -645,4 +645,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, the lock holder named on timeout, each unusable read of the lock holder, locale-independent order, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
+printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, a lock connection that dies early, a lock session that dies mid-run, the lock holder named on timeout, each unusable read of the lock holder, locale-independent order, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
