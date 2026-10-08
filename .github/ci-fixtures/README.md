@@ -140,7 +140,9 @@ must find that `,` past the comment. Seven more open such a line the same way,
 each for one part of how the script reads it: after a line ending in a `{`, and
 after one ending in a `[`; after a `,` with trailing spaces behind it; with a
 tag, and with an anchor, between the `?` and the key; and with the key
-double-quoted, and single-quoted. The good workflow keeps
+double-quoted, and single-quoted. Two more open such a line indented, and
+after a blank line behind the `,`, so the script must allow leading space
+before the `?` and must look past a blank line for the `,`. The good workflow keeps
 comment lines holding `{ uses: ... }`, so a check that stops exempting a comment
 goes red there, and a `?uses` key in a block plus a `?with` key opening a flow
 continuation line, so a check that refuses every line opening with a `?` goes
