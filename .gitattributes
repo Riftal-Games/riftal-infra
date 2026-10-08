@@ -13,3 +13,4 @@
 .env.example text eol=lf
 Dockerfile text eol=lf
 Containerfile text eol=lf
+migrations/fixtures/lock-reads/mysql text eol=lf

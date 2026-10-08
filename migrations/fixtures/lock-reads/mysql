@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Stands in for the lock session's mysql client. MySQL answers GET_LOCK with
+# NULL only on an error, such as the waiting thread being killed, so a session
+# reading statements on stdin answers NULL to every one. A call passing -e is
+# one of the runner's own queries and goes to the real client, by its absolute
+# path because this directory is first on PATH.
+for arg in "$@"; do
+  if [ "$arg" = -e ]; then
+    exec /usr/bin/mysql "$@"
+  fi
+done
+while IFS= read -r _; do
+  printf 'NULL\n'
+done
