@@ -10,7 +10,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=7
+expected=13
 
 mkdir -p "$work/bin"
 cat >"$work/bin/docker" <<'EOF'
@@ -60,6 +60,24 @@ expect "one service drifts to mysql:8.4" fail ok 'runs mysql:8.4 but the self-te
 
 printf 'services:\n  db:\n    image: "mysql@sha256:abc"\n' >"$work/digest.yaml"
 expect "a digest pin is not mysql:8" fail ok 'runs mysql@sha256:abc but' "$work/digest.yaml"
+
+compose mysql:8 docker.io/library/mysql:8.4 >"$work/registry.yaml"
+expect "a registry-prefixed mysql:8.4" fail ok 'runs docker.io/library/mysql:8.4 but' "$work/registry.yaml"
+
+compose mysql:8 mariadb:11 >"$work/mariadb.yaml"
+expect "a mariadb service" fail ok 'runs mariadb:11 but' "$work/mariadb.yaml"
+
+compose mysql:8 'MySQL:8' >"$work/case.yaml"
+expect "an upper-case MySQL:8" fail ok 'runs MySQL:8 but' "$work/case.yaml"
+
+compose mysql:8 '${DB_IMAGE:-mysql:8.4}' >"$work/variable.yaml"
+expect "an image from a variable" fail ok 'cannot classify' "$work/variable.yaml"
+
+printf 'services:\n  db: {image: mysql:8.4}\n  b:\n    image: mysql:8\n' >"$work/flow.yaml"
+expect "a flow-mapping image" fail ok 'cannot classify' "$work/flow.yaml"
+
+printf 'services:\n  db:\n    image: &db mysql:8.4\n  b:\n    image: mysql:8\n' >"$work/anchor.yaml"
+expect "an anchored image" fail ok 'cannot classify' "$work/anchor.yaml"
 
 compose local-pocketmine-mp >"$work/none.yaml"
 expect "no mysql service" fail ok 'names no mysql image' "$work/none.yaml"
