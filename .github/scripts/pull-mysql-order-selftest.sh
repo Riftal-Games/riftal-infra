@@ -11,7 +11,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=38
+expected=39
 
 root="$work/root"
 mkdir -p "$root/.github/scripts" "$root/sub"
@@ -29,6 +29,7 @@ printf '# %s run --rm mysql:8 true\n%s run --rm php:8.3-cli-alpine true\n' "$eng
 printf "expect 'pull mysql:8'\n" >"$root/named.sh"
 cp "$root/db.sh" "$root/db"
 printf '%s run --rm mysql:8 true\n' podman >"$root/podman.sh"
+printf '%s run --rm mysql:8 true\n' /usr/local/bin/Docker >"$root/cased.sh"
 printf '%s run --rm mysql:8 true\n' '"${engine}"' >"$root/var.sh"
 printf '%s --context x run --rm mysql:8 true\n' "$engine" >"$root/flag.sh"
 printf '%s run --rm docker.io/library/mysql:8 true\n' "$engine" >"$root/registry.sh"
@@ -109,7 +110,7 @@ expect "missing workflow" fail 'cannot read' "$work/none.yml" "$root"
 # the pull with a plain mysql:8 step after it, so the only way to fail is to
 # see the first step.
 for form in "direct=./db" 'flagged=bash -e "db"' "quoted=bash 'db.sh'" 'yaml="bash db"' \
-  "podman=bash podman.sh" "variable=bash var.sh" "global flag=bash flag.sh" \
+  "podman=bash podman.sh" "cased=bash cased.sh" "variable=bash var.sh" "global flag=bash flag.sh" \
   "registry=bash registry.sh" "compose=bash compose.sh" \
   "bundled o=bash -euo pipefail db" "lone o=bash -o pipefail db"; do
   workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/form.yml"
