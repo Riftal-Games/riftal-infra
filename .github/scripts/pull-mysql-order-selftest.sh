@@ -20,7 +20,10 @@ mkdir -p "$root/.github/scripts" "$root/sub"
 engine=docker
 printf '%s pull mysql:8\n' "$engine" >"$root/.github/scripts/pull-mysql.sh"
 printf '%s run --rm -m 1g mysql:8 true\n' "$engine" >"$root/db.sh"
-printf '%s run -d \\\n  mysql:8 >/dev/null\n' "$engine" >"$root/sub/db.sh"
+# start.sh runs mysql:8 only under sub/, so a checker that ignores a step's
+# working-directory reads the root copy and finds no mysql:8 step at all.
+printf '%s run -d \\\n  mysql:8 >/dev/null\n' "$engine" >"$root/sub/start.sh"
+printf '%s run --rm php:8.3-cli-alpine true\n' "$engine" >"$root/start.sh"
 printf '%s run --rm php:8.3-cli-alpine true\n' "$engine" >"$root/php.sh"
 printf '# %s run --rm mysql:8 true\n%s run --rm php:8.3-cli-alpine true\n' "$engine" "$engine" >"$root/comment.sh"
 printf "expect 'pull mysql:8'\n" >"$root/named.sh"
@@ -81,7 +84,7 @@ expect "inline run block before the pull" fail "step 'inline' runs mysql:8 befor
 
 {
   workflow job:a "php=bash php.sh"
-  printf '      - name: subdir\n        working-directory: sub\n        run: bash db.sh\n'
+  printf '      - name: subdir\n        working-directory: sub\n        run: bash start.sh\n'
   workflow "$pull" | sed 1,4d
 } >"$work/subdir.yml"
 expect "working-directory script before the pull" fail "step 'subdir' runs mysql:8 before" "$work/subdir.yml" "$root"
@@ -89,7 +92,9 @@ expect "working-directory script before the pull" fail "step 'subdir' runs mysql
 workflow job:a "$pull" "db=bash db.sh" job:b "db2=bash db.sh" >"$work/twojobs.yml"
 expect "pull in another job" fail "step 'db2' runs mysql:8 before .github/scripts/pull-mysql.sh in job b" "$work/twojobs.yml" "$root"
 
-workflow job:a "$pull" "gone=bash absent.sh" >"$work/absent.yml"
+# A real mysql:8 step after the pull, so the only reason left to fail is the
+# script that cannot be read.
+workflow job:a "$pull" "db=bash db.sh" "gone=bash absent.sh" >"$work/absent.yml"
 expect "a script that is not there" fail 'absent.sh, which cannot be read' "$work/absent.yml" "$root"
 
 expect "missing workflow" fail 'cannot read' "$work/none.yml" "$root"

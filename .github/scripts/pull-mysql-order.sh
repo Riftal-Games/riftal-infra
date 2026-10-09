@@ -4,11 +4,13 @@
 # (riftal-infra#962). A self-test that starts mysql:8 ahead of the pull runs
 # the runner's cached copy of a floating tag, and CI stays green while it does.
 #
-# A step runs mysql:8 when its run text, or a script that text hands to bash or
-# sh, starts a container and names mysql:8 outside a comment. That is read from
-# the scripts on every run, so a new mysql self-test is held to the order with
-# no list here to update. Script paths resolve from $2, the repository root,
-# or from the step's working-directory below it. Reads files only.
+# A step runs mysql:8 when its run text, or a script that text names in the
+# form `bash <path>` or `sh <path>`, starts a container and names mysql:8
+# outside a comment. Only that form is followed, one level deep, with an
+# unquoted path and no flag before it. A self-test started any other way, by
+# direct exec, a quoted or flagged path, a nested script or docker compose, is
+# not seen and passes unchecked. Script paths resolve from $2, the repository
+# root, or from the step's working-directory below it. Reads files only.
 set -euo pipefail
 
 workflow="${1:-.github/workflows/ci.yml}"
