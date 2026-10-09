@@ -41,13 +41,13 @@ survive; the migration run reapplies their grants anyway.
    Never kill one. `wipe.sh` refuses while any other session is connected to
    the server, whatever its default database, but that check reads one moment
    and is a backstop, not a lock. Anything else holding a connection, such as
-   a backup in progress or a client left open, must be closed too. See The session
-   check, below.
+   a backup in progress or a client left open, must be closed too. See The
+   session check, below.
 3. **Back up.** One `backup.sh` run as in `README.md`. Note the set directory
-   it prints as `backup <ts>: complete at <set>`. It is the rollback, and `wipe.sh` refuses without it. Retention
-   prunes it after `BACKUP_RETENTION` more runs (2.5 days at the defaults); if
-   it must be kept longer, copy it out of `BACKUP_ROOT` first, and where to is
-   Nasir's call.
+   it prints as `backup <ts>: complete at <set>`. It is the rollback, and
+   `wipe.sh` refuses without it. Retention prunes it after `BACKUP_RETENTION`
+   more runs (2.5 days at the defaults); if it must be kept longer, copy it
+   out of `BACKUP_ROOT` first, and where to is Nasir's call.
 4. **Wipe.** `wipe.sh`, below, with the database named twice and the set from
    step 3. On success it prints
    `wipe <database>: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh`.
@@ -79,7 +79,7 @@ printed as `wipe <database>: refused: <reason>`:
 |---|---|
 | `<user> lacks a direct PROCESS grant, so it cannot see every session` | Without `PROCESS` the processlist shows only the account's own threads, so it would count 0 whatever is connected. `PROCESS` held through a role is not seen, and refuses too |
 | `the processlist does not show this session, so it cannot see the others; is performance_schema off?` | The count is trusted only once it shows the script's own connection. With `performance_schema` off the processlist is empty, and any other blindness looks the same |
-| `<n> other session(s) are connected to <host>:<port>; stop every instance first` | Every session counts whatever its default database, since any of them can write by qualified name. `Daemon` threads do not |
+| `<n> other session(s) are connected to <host>:<port>; close every other connection, instances first` | Every session counts whatever its default database, since any of them can write by qualified name. `Daemon` threads do not |
 
 ## Environment
 

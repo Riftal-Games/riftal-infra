@@ -110,7 +110,7 @@ sh_in "mkdir -p /tmp/set /tmp/other /tmp/empty /tmp/absent \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=22
+EXPECTED_ASSERTIONS=23
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -144,9 +144,14 @@ refused absent-database "no database riftal_smoke_absent" \
   wipe riftal_smoke_absent riftal_smoke_absent /tmp/absent
 
 sleeping() { q "SELECT COUNT(*) FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP%'"; }
+# A session that never connects would let the next refusal case run a real
+# wipe on the fixture, so it stops the self-test rather than muddy every later
+# assertion.
 hold() {
   docker exec -d "$C" mysql -uroot -pselftest "$@" -e 'SELECT SLEEP(8)'
   for _ in $(seq 1 20); do [ "$(sleeping)" != "0" ] && return; sleep 0.5; done
+  echo "the session held on $C with default database '${1:-none}' never connected" >&2
+  exit 1
 }
 released() { for _ in $(seq 1 30); do [ "$(sleeping)" = "0" ] && return; sleep 0.5; done; }
 
@@ -168,6 +173,12 @@ released
   || fail "a refused wipe changed the database"
 
 printf '\n== a confirmed wipe, then the migrations, leaves every table empty\n'
+# The confirmed wipe passing proves wipe.sh leaves Daemon threads out of its
+# count only while one is connected, which on mysql:8 rests on the default
+# event_scheduler=ON.
+daemons="$(q "SELECT COUNT(*) FROM performance_schema.processlist WHERE COMMAND = 'Daemon'")"
+[ "${daemons:-0}" -ge 1 ] && pass "a Daemon thread is connected, $daemons of them" \
+  || fail "no Daemon thread is connected, so the confirmed wipe cannot show they are left out of the count"
 wipe_ok=1
 wipe_set=/tmp/set
 wipe "$DB" "$DB" "$wipe_set" >"$LOGS/wipe.log" 2>"$LOGS/wipe.err" || wipe_ok=0
