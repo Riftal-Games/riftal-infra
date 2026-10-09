@@ -30,6 +30,32 @@ check() {
     failures=$((failures + 1))
   fi
 }
+
+# The reap below takes a volume older than reap_after seconds to be left by a
+# run that has ended, which holds only while every job in this workflow times
+# out sooner. A job with no timeout-minutes runs for 6 hours.
+reap_after=1200
+workflow="${dir%/scripts}/workflows/ci.yml"
+if [ ! -r "$workflow" ]; then
+  check fail "cannot read $workflow to check every job times out before the reap"
+  exit 1
+fi
+read -r jobs limited worst bad < <(awk '
+  /^    runs-on:/ { jobs++ }
+  /^    timeout-minutes:/ {
+    limited++
+    if ($2 !~ /^[0-9]+$/) bad++
+    else if ($2 + 0 > worst) worst = $2 + 0
+  }
+  END { print jobs + 0, limited + 0, worst + 0, bad + 0 }' "$workflow")
+if [ "$jobs" -gt 0 ] && [ "$limited" -eq "$jobs" ] && [ "$bad" -eq 0 ] &&
+  [ $((worst * 60)) -lt "$reap_after" ]; then
+  check ok "every one of $jobs job(s) in $workflow times out within $worst minutes, under the reap's $((reap_after / 60))"
+else
+  check fail "$workflow: $jobs job(s), $limited with a job-level timeout-minutes, $bad not a plain number, longest $worst minutes; every job needs one under the reap's $((reap_after / 60)) minutes"
+  exit 1
+fi
+
 net="riftal_smoke_sweep_net_${GITHUB_RUN_ID}_$$"
 holder="riftal_smoke_sweep_holder_${GITHUB_RUN_ID}_$$"
 own_vol="riftal_smoke_sweep_own_vol_${GITHUB_RUN_ID}_$$"
@@ -83,11 +109,11 @@ reap_other_vols() {
 # The other job's volumes, both the reap's test volumes below and the one the
 # sweep must leave alone, carry a label no sweep matches, so a cancel that kills
 # this script before its EXIT trap leaves them for the next run on this engine
-# to remove. The job times out at 10 minutes, so a volume older than 20 belongs
-# to a run that has ended, and a younger one may be a concurrent run's still
-# waiting on its assertion.
-reap_other_vols "$(($(date +%s) - 1200))" riftal_smoke_sweep_other_vol_ || exit 1
-reap_other_vols "$(($(date +%s) - 1200))" riftal_smoke_sweep_reap || exit 1
+# to remove. Every job times out before reap_after, as checked above, so an
+# older volume belongs to a run that has ended, and a younger one may be a
+# concurrent run's still waiting on its assertion.
+reap_other_vols "$(($(date +%s) - reap_after))" riftal_smoke_sweep_other_vol_ || exit 1
+reap_other_vols "$(($(date +%s) - reap_after))" riftal_smoke_sweep_reap || exit 1
 
 # The reap's three conditions run against volumes named for this run alone. A
 # cutoff in the future would remove a concurrent run's volume under the real
@@ -97,7 +123,7 @@ for vol in "$reap_young" "$reap_old" "$reap_miss"; do
     >/dev/null || exit 1
 done
 docker volume create "$reap_label" >/dev/null || exit 1
-reap_other_vols "$(($(date +%s) - 1200))" "$reap_prefix" || exit 1
+reap_other_vols "$(($(date +%s) - reap_after))" "$reap_prefix" || exit 1
 kept="$(docker volume ls -q --filter "name=^${reap_young}\$")"
 check "$([ "$kept" = "$reap_young" ] && echo ok)" "reap keeps a matching volume younger than the cutoff (got '$kept')"
 reap_other_vols "$(($(date +%s) + 3600))" "$reap_prefix" || exit 1
