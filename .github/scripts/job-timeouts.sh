@@ -13,7 +13,7 @@ job_timeouts_under() {
   _jt_worst=0
   _jt_chain=""
   if _jt_check "$1" "$2"; then
-    printf 'every one of %s job(s) in %s times out within %s minutes, under %s\n' \
+    printf 'every one of %s job(s) run by %s times out within %s minutes, under %s\n' \
       "$_jt_jobs" "$1" "$_jt_worst" "$(($2 / 60))"
     return 0
   fi
@@ -102,7 +102,10 @@ _jt_check() {
           _jt_reason="$workflow: job $name has a timeout-minutes that is not a plain number"
           return 1
         fi
-        # YAML reads 023 as 23, and shell arithmetic reads it as octal 19.
+        # Shell arithmetic would read 023 as octal 19. Read as decimal it is 23,
+        # and a string of the digits 0 to 7 is never smaller in decimal than in
+        # octal, so whichever way the workflow's YAML is read, base 10 can only
+        # refuse a timeout that would pass, never pass one that would not.
         value=$((10#$value))
         if [ $((value * 60)) -ge "$cutoff" ]; then
           _jt_reason="$workflow: job $name times out at $value minutes, not under $((cutoff / 60))"

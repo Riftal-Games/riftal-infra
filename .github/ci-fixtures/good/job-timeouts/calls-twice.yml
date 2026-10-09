@@ -1,0 +1,10 @@
+# Must pass job-timeouts.sh under a 1200-second cutoff: both jobs call the same
+# file, which itself calls a deeper one, so the first call leaves that file on
+# the call chain unless the chain is restored after it, and the second call is
+# then refused as a loop it is not.
+on: push
+jobs:
+  first:
+    uses: ./.github/workflows/twice-mid.yml
+  second:
+    uses: ./.github/workflows/twice-mid.yml
