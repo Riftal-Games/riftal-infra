@@ -162,11 +162,15 @@ ci.yml runs before any container starts. Each is asserted on its exit and its
 exact reason line under a 1200-second cutoff, and the self-test counts one
 assertion per file directly in those two directories, plus one for a missing
 path. The bad files are a job with no `timeout-minutes`, a job whose only one is
-on a step, an expression value, a value equal to the cutoff, an untimed job
+on a step, an expression value, a value equal to the cutoff, a value over it
+written with a leading zero, which shell arithmetic would read as octal and
+under it, an untimed job
 beside a call carrying a timeout, so a check that counts instead of pairing goes
 red, a job with neither `runs-on` nor `uses`, jobs indented too deep to find, a
-call to another repository, a call whose called job is untimed, and a call that
-loops. The good files are two jobs, the longer one minute under the cutoff, with
+call to another repository, a call whose called job is untimed, a call that
+loops on itself, and a call into two files that call each other, which only the
+call chain catches. Each assertion runs under a 10-second `timeout`, so a check
+that follows a loop forever fails there instead of holding the job. The good files are two jobs, the longer one minute under the cutoff, with
 a step timeout over it, so a check that reads a step's timeout as its job's goes
 red there, and a call whose called job sets the longest timeout. A called file
 lives in its caller's directory under `.github/workflows/`, where a `./` call

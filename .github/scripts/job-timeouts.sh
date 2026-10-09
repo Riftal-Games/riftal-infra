@@ -101,7 +101,10 @@ _jt_check() {
         elif ! [[ "$value" =~ ^[0-9]+$ ]]; then
           _jt_reason="$workflow: job $name has a timeout-minutes that is not a plain number"
           return 1
-        elif [ $((value * 60)) -ge "$cutoff" ]; then
+        fi
+        # YAML reads 023 as 23, and shell arithmetic reads it as octal 19.
+        value=$((10#$value))
+        if [ $((value * 60)) -ge "$cutoff" ]; then
           _jt_reason="$workflow: job $name times out at $value minutes, not under $((cutoff / 60))"
           return 1
         fi

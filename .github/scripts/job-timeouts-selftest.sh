@@ -6,8 +6,6 @@ set -uo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fixtures="${dir%/scripts}/ci-fixtures"
-# shellcheck source=job-timeouts.sh
-. "$dir/job-timeouts.sh"
 failures=0
 ran=0
 # Every assertion below must run. A harness that quietly runs fewer and still
@@ -17,11 +15,13 @@ ran=0
 expected=$(($(find "$fixtures/good/job-timeouts" "$fixtures/bad/job-timeouts"   -maxdepth 1 -type f -name '*.yml' | wc -l) + 1))
 
 # Each refusal must name its own reason, so a fixture refused for a defect it
-# was not written for does not count.
+# was not written for does not count. A check that follows a call loop forever
+# is cut off after 10 seconds, so it fails here and does not hang the job.
 expect() {
   local file="$fixtures/$1" status="$2" reason="$3" out rc
   ran=$((ran + 1))
-  out="$(job_timeouts_under "$file" 1200)"
+  # shellcheck disable=SC2016
+  out="$(timeout 10 bash -c '. "$1" && job_timeouts_under "$2" 1200' _ "$dir/job-timeouts.sh" "$file")"
   rc=$?
   if [ "$out" = "$reason" ] &&
     { { [ "$status" = pass ] && [ "$rc" -eq 0 ]; } ||
@@ -45,6 +45,8 @@ f="$fixtures/bad/job-timeouts/expression.yml"
 expect bad/job-timeouts/expression.yml fail "$f: job only has a timeout-minutes that is not a plain number"
 f="$fixtures/bad/job-timeouts/at-cutoff.yml"
 expect bad/job-timeouts/at-cutoff.yml fail "$f: job only times out at 20 minutes, not under 20"
+f="$fixtures/bad/job-timeouts/leading-zero.yml"
+expect bad/job-timeouts/leading-zero.yml fail "$f: job only times out at 23 minutes, not under 20"
 f="$fixtures/bad/job-timeouts/paired.yml"
 expect bad/job-timeouts/paired.yml fail "$f: job untimed has no job-level timeout-minutes"
 f="$fixtures/bad/job-timeouts/neither.yml"
@@ -59,6 +61,10 @@ expect bad/job-timeouts/calls-remote.yml fail   "$f: job call uses Riftal-Games/
 f="$fixtures/bad/job-timeouts/calls-loop.yml"
 c="$fixtures/bad/job-timeouts/.github/workflows/loop.yml"
 expect bad/job-timeouts/calls-loop.yml fail   "$f: job call: $c: job again calls $c, which is already in its own call chain"
+f="$fixtures/bad/job-timeouts/calls-cycle.yml"
+a="$fixtures/bad/job-timeouts/.github/workflows/cycle-a.yml"
+b="$fixtures/bad/job-timeouts/.github/workflows/cycle-b.yml"
+expect bad/job-timeouts/calls-cycle.yml fail   "$f: job call: $a: job next: $b: job back calls $a, which is already in its own call chain"
 f="$fixtures/bad/job-timeouts/absent.yml"
 expect bad/job-timeouts/absent.yml fail "cannot read $f to check every job times out"
 

@@ -1,0 +1,6 @@
+# Must fail job-timeouts.sh: the called workflow calls a second one, which
+# calls the first back, so no file calls itself directly.
+on: push
+jobs:
+  call:
+    uses: ./.github/workflows/cycle-a.yml
