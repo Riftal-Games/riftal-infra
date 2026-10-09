@@ -34,6 +34,11 @@ def _weights(data: Any, key: str) -> dict[str, float]:
         for b, bb, bstates in parsed[i + 1:]:
             if ab == bb and (astates.items() <= bstates.items() or bstates.items() <= astates.items()):
                 raise ValueError(f"{key} names {a!r} and {b!r}, which one block can satisfy both of")
+    # RiftalMines resets through StringToItemParser::parse, which strips only "minecraft:" and
+    # whose aliases hold no ':', '[' or '=', so any other key throws at reset (#650).
+    for name, base, states in parsed:
+        if states or not base.startswith("minecraft:"):
+            raise ValueError(f"{key} names {name!r}, which the mine reset cannot resolve: it takes a bare minecraft: id")
     return ores
 
 

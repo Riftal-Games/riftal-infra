@@ -39,9 +39,10 @@ survive; the migration run reapplies their grants anyway.
    rollout rules.
 2. **Stop every instance** with `stop` on stdin, waiting for the shutdown line.
    Never kill one. `wipe.sh` refuses while any other session is connected to
-   the database or to no database, but that check reads one moment and is a
-   backstop, not a lock. Sessions on another default database are not counted.
-   See The session check, below.
+   the server, whatever its default database, but that check reads one moment
+   and is a backstop, not a lock. Anything else holding a connection, such as
+   a backup in progress or a client left open, must be closed too. See The session
+   check, below.
 3. **Back up.** One `backup.sh` run as in `README.md`. Note the set directory
    it prints as `backup <ts>: complete at <set>`. It is the rollback, and `wipe.sh` refuses without it. Retention
    prunes it after `BACKUP_RETENTION` more runs (2.5 days at the defaults); if
@@ -78,7 +79,7 @@ printed as `wipe <database>: refused: <reason>`:
 |---|---|
 | `<user> lacks a direct PROCESS grant, so it cannot see every session` | Without `PROCESS` the processlist shows only the account's own threads, so it would count 0 whatever is connected. `PROCESS` held through a role is not seen, and refuses too |
 | `the processlist does not show this session, so it cannot see the others; is performance_schema off?` | The count is trusted only once it shows the script's own connection. With `performance_schema` off the processlist is empty, and any other blindness looks the same |
-| `<n> other session(s) are connected to <database> or to no database; stop every instance first` | A session with no default database can still write by qualified name, so it counts. `Daemon` threads do not |
+| `<n> other session(s) are connected to <host>:<port>; stop every instance first` | Every session counts whatever its default database, since any of them can write by qualified name. `Daemon` threads do not |
 
 ## Environment
 
@@ -128,5 +129,3 @@ Locally, under the Docker in the WSL distro that hosts the CI runners:
 MSYS_NO_PATHCONV=1 wsl -d Ubuntu-26.04 -u runner --exec bash \
   /mnt/c/Users/nasir/riftal-games/riftal-infra/deploy/wipe-selftest.sh
 ```
-
-`README.md` links here once #490 lands.

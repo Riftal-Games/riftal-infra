@@ -13,6 +13,9 @@ log = logging.getLogger("designer.blocks")
 
 AIR = "minecraft:air"
 NAMESPACE = "minecraft:"
+# What the core loads in place of a block it has no mapping for (LevelDB.php), so the
+# block the world really holds, and its collision, are unknown to the toolkit.
+UNMAPPED = "minecraft:info_update"
 
 # Wire order of a region's runs and axis order of every decoded array,
 # outermost first: ``blocks[y][z][x]``, x varies fastest.
@@ -111,6 +114,12 @@ def _pitcher_crop(states: Mapping[str, str]) -> BlockClass:
     return _by_box_top((3 if growth == 0 else 5) / 16)
 
 
+# An open gate has no collision box (FenceGate.php:70), so a player walks and
+# falls through it. ``open_bit`` is Bedrock's key (BlockStateNames::OPEN_BIT).
+def _fence_gate(states: Mapping[str, str]) -> BlockClass:
+    return BlockClass.PASSABLE if states.get("open_bit") == "true" else BlockClass.SOLID
+
+
 # First match wins, on the base name. A seeded rule whose class is a function
 # decides from the block's states, for a block whose collision a state
 # changes. ``register_rule(front=True)`` inserts at index 0 to beat every
@@ -118,6 +127,9 @@ def _pitcher_crop(states: Mapping[str, str]) -> BlockClass:
 CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
     *(("exact", n, BlockClass.AIR) for n in ("air", "cave_air", "void_air")),
     *(("exact", n, BlockClass.LIQUID) for n in ("water", "flowing_water", "bubble_column")),
+    # Always waterlogged in Bedrock, but DesignBridge reads only a chunk's main block layer
+    # (RegionReadJob, Chunk::getBlockStateId), so the water under them never arrives.
+    *(("exact", n, BlockClass.LIQUID) for n in ("kelp", "seagrass")),
     *(("exact", n, BlockClass.DANGER) for n in (
         "lava", "flowing_lava", "fire", "soul_fire", "magma", "cactus",
         "sweet_berry_bush", "wither_rose", "powder_snow", "campfire", "soul_campfire")),
@@ -126,9 +138,10 @@ CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
     ("exact", "end_portal", BlockClass.DANGER),
     ("exact", "snow_layer", _snow_layer),
     ("exact", "pitcher_crop", _pitcher_crop),
+    ("suffix", "fence_gate", _fence_gate),
     *(("exact", n, BlockClass.PASSABLE) for n in (
         "lever", "ladder", "vine", "fern", "large_fern", "dead_bush",
-        "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
+        "redstone_wire", "lily_pad", "waterlily",
         "sugar_cane", "reeds", "bamboo_sapling", "hanging_roots", "dandelion", "poppy", "blue_orchid",
         "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley",
         "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",
@@ -164,6 +177,11 @@ def is_tall_floor(name: str) -> bool:
     if base.endswith("fence_gate"):
         return states.get("open_bit") != "true"
     return base.endswith(TALL_FLOOR_SUFFIXES)
+
+
+def is_unmapped(name: str) -> bool:
+    """A block the core could not map, which classes SOLID but may be anything in the world."""
+    return parse_name(name)[0] == UNMAPPED
 
 
 def tall_floor_lut(palette: Sequence[str]) -> np.ndarray:

@@ -159,6 +159,8 @@ def scan(bridge: Bridge, zone: str) -> int:
 
 
 def _comparable(entry: Location | NamedRegion) -> dict[str, Any]:
+    if not isinstance(entry.tags, list):
+        raise LevelError(f"{entry.name!r} has tags that are not a list: {entry.tags!r}")
     if bad := [t for t in entry.tags if not isinstance(t, str)]:
         raise LevelError(f"{entry.name!r} has a tag that is not a string: {bad[0]!r}")
     # Tags are only ever tested for membership and are saved in the order given, so their order does not matter.
@@ -226,14 +228,23 @@ def mines_config_path() -> Path:
 
 
 def _check_fragment_ores(zone: str, fragment: Path, built: list[str], root: Path) -> None:
-    """The reset refills from the fragment's ``ores`` while ``mine_valid`` reads the spec's, so the two must be the same."""
+    """The reset refills from the fragment's ``ores`` while ``mine_valid`` reads the spec's, so the two must be the same.
+
+    RiftalMines reads no ``ore_layers`` and refills the whole interior from one flat mix, so a spec with any layer refuses.
+    """
     try:
         ores = json.loads(fragment.read_text(encoding="utf-8"))["ores"]
         theirs = {format_name(*parse_name(name)): float(weight) for name, weight in dict(ores).items()}
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise LevelError(f"cannot read the ores of {zone!r}'s mines fragment {fragment}: {exc!r}") from exc
     for spec_path in built:
-        ours = MineSpec.from_dict(json.loads(_input(root, spec_path).read_text(encoding="utf-8"))).ores
+        spec = MineSpec.from_dict(json.loads(_input(root, spec_path).read_text(encoding="utf-8")))
+        if spec.ore_layers:
+            raise LevelError(
+                f"{spec_path} has ore_layers, but RiftalMines refills {zone!r} from the mines fragment {fragment}'s"
+                " flat ores alone; the reset would refill another mix"
+            )
+        ours = spec.ores
         if ours != theirs:
             raise LevelError(f"{spec_path} ores {ours} differ from the mines fragment {fragment} ores {theirs}; the reset would refill another mix")
 

@@ -83,16 +83,59 @@ def test_one_mine_step_builds_and_writes_a_lock(bridge: Bridge, root: Path, zone
     assert json.loads(_build(bridge, root, zone).read_text(encoding="utf-8"))["zone"] == zone
 
 
+@pytest.mark.parametrize("zone", ["mine_a", "lumber"])
+def test_a_mine_dug_into_terrain_builds_with_its_exit_lane_clear(fake: FakeBridge, bridge: Bridge, root: Path, zone: str) -> None:
+    # Stone up to the surface at y 63 buries the whole mine, as a generated world does.
+    fake.worlds[zone] = FakeWorld(extent=((-64, -64), (64, 64)))
+    assert json.loads(_build(bridge, root, zone).read_text(encoding="utf-8"))["zone"] == zone
+
+
+@pytest.mark.parametrize("side", ["north", "west"])
+def test_a_mine_dug_into_terrain_facing_north_or_west_builds_with_its_exit_lane_clear(
+    fake: FakeBridge, bridge: Bridge, root: Path, side: str,
+) -> None:
+    spec_path = root / "specs" / "mine_a.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    spec["entrance"]["side"] = side
+    spec_path.write_text(json.dumps(spec), encoding="utf-8")
+    fake.worlds["mine_a"] = FakeWorld(extent=((-64, -64), (64, 64)))
+    assert json.loads(_build(bridge, root, "mine_a").read_text(encoding="utf-8"))["zone"] == "mine_a"
+
+
 def test_a_torch_in_the_interior_refuses_naming_the_entry_and_cell(bridge: Bridge, root: Path) -> None:
     _recipe(root, "mine_a", {"at": MINE_A_INTERIOR_CELL, "block": "minecraft:torch"})
     _refused(bridge, root, "mine_a", r"mine_valid_mine_a: 1 interior cells neither air nor in ores \[\(0, 45, 0\)\]")
 
 
+def _layered(root: Path, zone: str, ores: dict[str, float]) -> None:
+    spec = json.loads((root / "specs" / f"{zone}.json").read_text(encoding="utf-8"))
+    spec["ore_layers"] = [{"y_from": 45, "y_to": 45, "ores": ores}]
+    (root / "specs" / f"{zone}.json").write_text(json.dumps(spec), encoding="utf-8")
+
+
+# Layers are refused in every zone mines resets, so mine_valid's own reading of them is exercised in a zone it does not.
+def _unlisted(root: Path, zone: str) -> None:
+    (root / "mines.yml").write_text("\n".join(line for line in MINES.splitlines() if not line.startswith(f"  {zone}:")) + "\n", encoding="utf-8")
+
+
 def test_a_layer_ore_absent_from_ores_refuses(bridge: Bridge, root: Path) -> None:
-    spec = json.loads((root / "specs" / "mine_a.json").read_text(encoding="utf-8"))
-    spec["ore_layers"] = [{"y_from": 45, "y_to": 45, "ores": {"minecraft:iron_ore": 1}}]
-    (root / "specs" / "mine_a.json").write_text(json.dumps(spec), encoding="utf-8")
+    _layered(root, "mine_a", {"minecraft:iron_ore": 1})
+    _unlisted(root, "mine_a")
     _refused(bridge, root, "mine_a", r"mine_valid_mine_a: 1024 interior cells neither air nor in ores \[\(-16, 45, -16\)")
+
+
+# RiftalMines refills one flat mix, so even a layer naming only the spec's own ores would reset to another composition.
+def test_ore_layers_in_a_zone_mines_resets_refuse_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    spec = json.loads((root / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    _layered(root, "mine_a", {name: 1 for name in spec["ores"]})
+    _refused(bridge, root, "mine_a", r"specs/mine_a\.json has ore_layers, but RiftalMines refills 'mine_a' from the mines fragment .*mine_a\.json")
+    assert fake.requests == []
+
+
+def test_empty_ore_layers_in_a_zone_mines_resets_builds(bridge: Bridge, root: Path) -> None:
+    spec = json.loads((root / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    (root / "specs" / "mine_a.json").write_text(json.dumps({**spec, "ore_layers": []}), encoding="utf-8")
+    assert _build(bridge, root, "mine_a").is_file()
 
 
 # An alias reads back under another name, and it has no reset state, so it is refused before any request.
@@ -105,12 +148,11 @@ def test_an_ore_named_by_an_alias_refuses_since_it_has_no_reset_state(fake: Fake
     assert fake.requests == []
 
 
-# A layer ore is not in the fragment's comparison, so only the reset-state check stops it before
-# the build; mine_valid would refuse it, but only after every request has been made.
+# In a zone mines does not reset no fragment is read, so only the reset-state check stops a layer
+# ore before the build; mine_valid would refuse it, but only after every request has been made.
 def test_a_layer_ore_without_a_reset_state_refuses_before_any_request(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
-    spec = json.loads((root / "specs" / "mine_a.json").read_text(encoding="utf-8"))
-    spec["ore_layers"] = [{"y_from": 45, "y_to": 45, "ores": {"minecraft:quartz_ore": 1}}]
-    (root / "specs" / "mine_a.json").write_text(json.dumps(spec), encoding="utf-8")
+    _layered(root, "mine_a", {"minecraft:quartz_ore": 1})
+    _unlisted(root, "mine_a")
     _refused(bridge, root, "mine_a", r"specs/mine_a\.json names \['minecraft:quartz_ore'\], which have no reset state")
     assert fake.requests == []
 

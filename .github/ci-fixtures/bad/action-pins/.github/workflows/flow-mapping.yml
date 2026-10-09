@@ -1,0 +1,8 @@
+# Must fail action-pins.sh at line 8 and nowhere else: a flow mapping is
+# refused whatever it names, because its value is not read.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - { name: a, uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 }

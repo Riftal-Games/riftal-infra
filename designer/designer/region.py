@@ -10,7 +10,7 @@ from typing import Any, ClassVar, Self
 
 import numpy as np
 
-from designer.blocks import AIR, BlockClass, RLEError, base_name, class_lut, decode_rle, encode_rle, expand_runs, tall_floor_lut
+from designer.blocks import AIR, BlockClass, RLEError, base_name, class_lut, decode_rle, encode_rle, expand_runs, is_unmapped, tall_floor_lut
 from designer.bridge import Bridge
 
 # The bridge's ``max_region_edge``; any request with a longer edge is refused.
@@ -273,30 +273,51 @@ class Region:
         classes = self.classes()
         return (classes == BlockClass.AIR) | (classes == BlockClass.PASSABLE)
 
-    def stand_mask(self) -> np.ndarray:
+    def unmapped(self) -> np.ndarray:
+        """Bool ``[y][z][x]``: the block is one the core could not map (``is_unmapped``)."""
+        return np.array([is_unmapped(name) for name in self.palette], dtype=bool)[self.blocks]
+
+    def stand_mask(self, *, unmapped_floor: bool = False) -> np.ndarray:
         """Bool ``[y][z][x]``: a player can stand with feet in the cell.
 
-        Solid floor below, the cell and the one above passable, and the one above that too on a floor taller
-        than one block (``is_tall_floor``). The top and
+        Solid floor below, the cell and the one above passable, and the one
+        above that too on a floor taller than one block (``is_tall_floor``),
+        which counts as blocked when it is outside the region. An unmapped
+        floor (``unmapped``) classes SOLID but may be water or kelp in the
+        world, so it holds no one unless ``unmapped_floor`` is set. The top and
         bottom layers are never standable because their floor or head cell is
         outside the region. The mask depends on nothing but the blocks, so the
-        root region caches it beside ``classes`` and ``_invalidate`` clears
-        both; a view computes fresh every call because an edit made through
-        its parent never reaches the view's cache.
+        root region caches the default mask beside ``classes`` and
+        ``_invalidate`` clears both; a view computes fresh every call because
+        an edit made through its parent never reaches the view's cache.
         """
-        if self._parent is None and self._stand is not None:
+        cached = self._parent is None and not unmapped_floor
+        if cached and self._stand is not None:
             return self._stand
         classes, passable = self.classes(), self.passable()
+        floor = classes == BlockClass.SOLID
+        if not unmapped_floor:
+            floor &= ~self.unmapped()
         mask = np.zeros(classes.shape, dtype=bool)
         if classes.shape[0] >= 3:
-            mask[1:-1] = (classes[:-2] == BlockClass.SOLID) & passable[1:-1] & passable[2:]
-            # On a 1.5-tall floor the head reaches the third cell up; with that cell outside the region the spot is treated as blocked.
+            mask[1:-1] = floor[:-2] & passable[1:-1] & passable[2:]
+            # On a 1.5-tall floor the head reaches the third cell up; with that cell outside the
+            # region the spot is treated as blocked.
             third = np.zeros(classes.shape, dtype=bool)
             third[:-3] = passable[3:]
-            mask[1:-1] &= ~tall_floor_lut(self.palette)[self.blocks][:-2] | third[:-2]
-        if self._parent is None:
+            mask[1:-1] &= ~self.on_tall_floor()[1:-1] | third[:-2]
+        if cached:
             self._stand = mask
         return mask
+
+    def on_tall_floor(self) -> np.ndarray:
+        """Bool ``[y][z][x]``: the block under the cell is a floor taller than one block (``is_tall_floor``).
+
+        The bottom layer is always false, its floor being outside the region.
+        """
+        tall = np.zeros(self.blocks.shape, dtype=bool)
+        tall[1:] = tall_floor_lut(self.palette)[self.blocks[:-1]]
+        return tall
 
     def web_mask(self) -> np.ndarray:
         """Bool ``[y][z][x]``: a player with feet in the cell has a web at the feet or the head.

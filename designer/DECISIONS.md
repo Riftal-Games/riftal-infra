@@ -831,6 +831,19 @@ base where one's states are a subset of the other's, since one block would satis
 lenient match was rejected because it could pass a level the next reset silently changes; the
 vendored Bedrock state data was rejected because it marks no state as the default (#561).
 
+## 2026-10-07 `MineSpec` refuses an `ores` key the mine reset cannot resolve
+
+RiftalMines resolves every `ores` key with `StringToItemParser::parse` and throws on null
+(riftal-game `MineResetListener.php`). The parser strips `minecraft:`, lowercases, and looks the
+rest up among aliases, none of which holds `:`, `[` or `=` (pmmp-core
+`src/item/StringToItemParser.php`). So `MineSpec.from_dict` refuses, in `ores` and in every ore
+layer, a key with states, such as `oak_log[pillar_axis=x]`, or a namespace other than
+`minecraft`, which would otherwise pass every designer check and fail only at the reset.
+Whether a bare id is a registered alias is not checked: the designer holds no copy of the alias
+list, and `check_reset_states` already refuses a base outside `RESET_STATES`. `build_mine` fills
+each cell with its base's reset state alone, since a key brings no states of its own. `mine_valid`
+keeps its reading of stated keys for a spec built without `from_dict` (#650).
+
 ## 2026-09-30 A fence, wall or closed fence gate floor needs a third clear cell
 
 Fences, walls and closed fence gates are 1.5 blocks tall, so a player standing on one reaches
@@ -838,5 +851,133 @@ half a block into the third cell above it. `blocks.is_tall_floor` names them (ba
 `fence` or `_wall`, or a `fence_gate` without `open_bit=true`). `Region.stand_mask` and
 `entity_clear` require that third cell to be passable over such a floor. Outside the region,
 each keeps its existing rule: `stand_mask` treats the cell as blocked, as it never marks the
-top layer standable, and `entity_clear` lets it pass, as it does a head cell (2026-09-08). Classing these blocks by their box top like snow layers was rejected: they
-are still SOLID to stand on; only the headroom changes (#469).
+top layer standable, and `entity_clear` lets it pass, as it does a head cell (2026-09-08).
+Classing these blocks by their box top like snow layers was rejected: they are still SOLID to
+stand on; only the headroom changes (#469).
+
+## 2026-10-06 An open fence gate is PASSABLE, a closed one SOLID
+
+An open gate has no collision box (`FenceGate.php:70`), so a player walks through it and falls
+through it. `blocks.classify` reads Bedrock's `open_bit` state (`BlockStateNames::OPEN_BIT`) on
+any base ending `fence_gate`: `true` is PASSABLE, anything else SOLID, the same test
+`is_tall_floor` uses, so a gate with no states stays a 1.5-tall floor. Every class consumer
+follows: `stand_mask` and `path_exists` neither stand on an open gate nor are stopped by one,
+`entity_clear` looks through it to the floor beneath, `warp_safe` finds no landing in it,
+`verify_mine` counts it as an opening, the ASCII class render draws it `,`, and a `ground`
+heightmap looks through it. Leaving it SOLID and special-casing `stand_mask` was rejected: it
+would still read an open gate in a hitbox as blocked (#675).
+
+## 2026-09-30 Kelp and seagrass are LIQUID
+
+Both always stand in water in Bedrock, but DesignBridge's region read takes each cell from the
+chunk's main block layer only (`RegionReadJob`, `Chunk::getBlockStateId`), so the water beneath
+them never reaches the toolkit. Classed PASSABLE, a hitbox in kelp read "clear". They are LIQUID,
+so `entity_clear` names them `hitbox in liquid` as it does water and `bubble_column`. Reading the
+second layer in DesignBridge was rejected here: that is a riftal-game change, and the class is
+right for these blocks whatever the bridge sends (#479).
+
+## 2026-10-05 An unmapped block stays SOLID and the safety checks name it
+
+The core loads a block it has no mapping for as `minecraft:info_update`, so the world may hold
+kelp, water or anything else where the toolkit reads one block that classes SOLID. `entity_clear`
+names it apart from an ordinary wall: `hitbox blocked by a block the core does not map
+(minecraft:info_update)`, and `floor is` the same note when it is the support. `warp_safe` refuses
+one anywhere in the 3x3x3 it already scans for liquid and danger, since an unmapped block may be
+either. An `UNKNOWN` block class was rejected: every check compares against `SOLID`, so a sixth
+class would change what every path, hole and mine check counts, where only the reason a designer
+reads needed to change (#664).
+
+## 2026-10-06 `path_exists` climbs onto a fence, wall or closed gate only from another one
+
+A jump rises about 1.25 blocks (`Living.php:117`, `jumpVelocity` 0.42) and a walk steps up 0.6
+(`Player.php:281`). A step up one cell onto a tall floor (`is_tall_floor`) is a 1.5 climb from an
+ordinary floor, so `path_exists` refuses it, and `travel_time` with it: a fence that exists to stop
+players does not read as a path over it. From another tall floor the same step is a 1.0 climb,
+so it stays open, but the jump lifts the head into the third cell above the feet, which must be
+passable, and outside the region counts as blocked as it does in `stand_mask`. A level step onto a
+tall floor rises 0.5, under the walk step, and its headroom is the 2026-10-07 entry's (#747). A
+step up from a tall floor onto ordinary ground also rises 0.5, so it needs only the two cells any
+step up needs; demanding the third would report no path where a player walks (#726).
+`Region.on_tall_floor` is the one per-cell reading of the floor height that `stand_mask` and
+`path_exists` share. Refusing every step up onto a tall floor was rejected: it would deny a fence
+stair a player can climb (#659).
+
+## 2026-10-06 `timelapse` skips an unreadable snapshot and lists it in `skipped`
+
+`timelapse` reads every `*.npz` in the world's snapshot folder, so a single damaged file there
+would otherwise fail the strip for every region in that world, including regions the file never
+covered. It catches the same `snapshot.UNREADABLE` errors `_load_entry` turns into
+`snapshot_unreadable` for `undo`, leaves that file out, and names it in `skipped` with its error
+and that code, so the designer sees which file to look at rather than a silently shorter strip.
+When nothing readable matches, the refusal counts the skipped files. Catching every exception was
+rejected for the reason `_load_entry` gives: a `TypeError` or `AttributeError` is a bug in `load`
+and must still surface (#627).
+
+## 2026-10-06 An unmapped block is no floor to stand or land on, and the route over one is named
+
+An unmapped block still classes SOLID (#664), but it holds no one: `Region.stand_mask` leaves the
+cell above it unstandable, and `warp_safe` does not count it as a landing. A floor ring cell whose
+only landing within `LANDING + 1` is one fails last, as `floor ring lands only on a block the core
+does not map (minecraft:info_update)`, naming those blocks; a real hole in the ring still fails
+first. When `path_exists` finds no route, it searches again with unmapped floors allowed
+(`stand_mask(unmapped_floor=True)`); a route found that way fails as `path only over` the same
+note, with `path` that route and `coords` its unmapped floor cells, and `travel_time` reports the
+same. A route that walks round an unmapped floor passes. Letting the route through and naming its
+cells in `data` was rejected: `entity_clear` already refuses a player standing on one, and a check
+that passes reads as walkable to a designer who never opens `data` (#669).
+
+## 2026-10-06 `no_holes` and `mine_valid` name an unmapped floor instead of passing it
+
+An unmapped block classes SOLID (#664), so a walkway, mine floor or exit platform over one passed
+both checks. `no_holes` fails it last, after any real hole, as `walkway floor cells are a block the
+core does not map (minecraft:info_update)`, with `coords` those floor cells; `data["unmapped"]`
+counts them even when a hole fails first. `mine_valid` adds two rules beside the missing ones,
+`floor cells are` and `exit platform cells are` the same note, with `floor_unmapped` and
+`platform_unmapped` in `data` and their cells in `coords` after the missing cells of the same
+surface. Counting them as holes was rejected: a hole is fixed by placing a block, while an
+unmapped one needs a look at what the world really holds there, so the designer reads the same
+note `entity_clear`, `warp_safe` and `path_exists` give (#667).
+
+## 2026-10-06 `mine_valid` names an unmapped wall block instead of reading it as sealed
+
+The enclosure flood treated an unmapped block as wall, so a hole through the shell plugged by one
+passed, although the world may hold water or air there. `mine_valid` fails it as `wall cells are`
+the same note, after the undeclared openings, with `wall_unmapped` in `data` and the cells in
+`coords` after the undeclared ones. A shell or padding cell counts when it lies on the shell's
+surface or when the flood, letting unmapped blocks through, reaches it from the interior; one
+sealed inside the wall by mapped solid blocks cannot leak and passes. Interior, entrance, floor
+and exit platform cells are left to the rules that already name them, so no cell gets two notes.
+Failing every unmapped block anywhere in the padding was rejected: a wall chunk pasted from the
+world would fail over a block that can never reach the mine (#741).
+
+## 2026-10-06 `build_level` refuses `ore_layers` on a mine in a zone mines resets
+
+RiftalMines reads only `ores` from a fragment (riftal-game `MineDefinition.php`) and refills the
+whole interior from that one flat mix, while `mine_valid` checks the spec's layers band by band.
+A layered spec would pass the gate and reset to another composition, so `build_level` refuses,
+before any request, a `mine` step whose spec has any `ore_layers` in a zone the mines `config.yml`
+lists. An empty list builds. A zone mines does not list keeps its layers, since nothing refills
+it. Carrying layers into the fragment was rejected for now: the plugin would need layer support
+first, a riftal-game change of its own (#653).
+
+## 2026-10-07 `path_exists` keeps the head's third cell clear on and off a tall floor
+
+A player on a tall floor stands 0.5 higher, so the 1.8 hitbox reaches about 2.3 above the cell the
+feet are in, into the third cell up. The hitbox is 0.6 wide and straddles both columns while it
+moves, so a level step or a drop off a tall floor needs the third cell of the column it enters
+passable, and a level step from ordinary ground onto one needs the third cell above the origin
+passable, since the 0.5 walk step lifts the head there before the feet leave. Outside the region
+counts as blocked, as in `stand_mask`. A step up follows #659 and #726, which check the head cell
+above the origin, and between two tall floors `stand_mask` holds both third cells. Leaving these
+moves to `stand_mask` was rejected: it checks only the cell a player ends in, so a fence edge under
+a low ceiling read as a path no player can take (#747).
+
+## 2026-10-07 `restore` answers a damaged snapshot with `snapshot_unreadable`
+
+`restore` reads one named snapshot, so a damaged file is the whole answer, not one skipped frame as
+in `timelapse`. It catches the same `snapshot.UNREADABLE` errors `_load_entry` catches for `undo`
+and raises `SnapshotLoadError`, so the same damage carries the same code whichever tool meets it,
+and the refusal comes before anything reaches the bridge. A missing file counts, as it does for
+`undo`. An undo id with no entry and a path outside the snapshots directory refuse the reference,
+not a file, and keep no code. A `TypeError` or `AttributeError` from `load` is a bug and is not
+caught (#626).

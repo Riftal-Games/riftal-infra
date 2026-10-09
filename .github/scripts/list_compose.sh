@@ -23,6 +23,6 @@ done < <(
   find "$root" \
     -path "$root/.git" -prune -o \
     -path "$prune" -prune -o \
-    -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 |
+    -type f \( -iname '*.yml' -o -iname '*.yaml' \) -print0 |
     LC_ALL=C sort -z
 )
