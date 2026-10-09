@@ -11,8 +11,10 @@ fixtures="${dir%/scripts}/ci-fixtures"
 failures=0
 ran=0
 # Every assertion below must run. A harness that quietly runs fewer and still
-# prints its closing line is the exact failure it exists to catch.
-expected=5
+# prints its closing line is the exact failure it exists to catch. One per
+# fixture file, called workflows below them excluded, and one for a missing
+# path, so dropping a case means deleting its fixture too.
+expected=$(($(find "$fixtures/good/job-timeouts" "$fixtures/bad/job-timeouts"   -maxdepth 1 -type f -name '*.yml' | wc -l) + 1))
 
 # Each refusal must name its own reason, so a fixture refused for a defect it
 # was not written for does not count.
@@ -32,16 +34,33 @@ expect() {
 }
 
 f="$fixtures/good/job-timeouts/two-jobs.yml"
-expect good/job-timeouts/two-jobs.yml pass \
-  "every one of 2 job(s) in $f times out within 19 minutes, under 20"
+expect good/job-timeouts/two-jobs.yml pass   "every one of 2 job(s) in $f times out within 19 minutes, under 20"
+f="$fixtures/good/job-timeouts/calls-local.yml"
+expect good/job-timeouts/calls-local.yml pass   "every one of 2 job(s) in $f times out within 12 minutes, under 20"
 f="$fixtures/bad/job-timeouts/missing.yml"
-expect bad/job-timeouts/missing.yml fail "$f: 2 job(s), 1 with a job-level timeout-minutes"
+expect bad/job-timeouts/missing.yml fail "$f: job second has no job-level timeout-minutes"
 f="$fixtures/bad/job-timeouts/step-level.yml"
-expect bad/job-timeouts/step-level.yml fail "$f: 1 job(s), 0 with a job-level timeout-minutes"
+expect bad/job-timeouts/step-level.yml fail "$f: job only has no job-level timeout-minutes"
 f="$fixtures/bad/job-timeouts/expression.yml"
-expect bad/job-timeouts/expression.yml fail "$f: 1 job-level timeout-minutes not a plain number"
+expect bad/job-timeouts/expression.yml fail "$f: job only has a timeout-minutes that is not a plain number"
 f="$fixtures/bad/job-timeouts/at-cutoff.yml"
-expect bad/job-timeouts/at-cutoff.yml fail "$f: longest job timeout is 20 minutes, not under 20"
+expect bad/job-timeouts/at-cutoff.yml fail "$f: job only times out at 20 minutes, not under 20"
+f="$fixtures/bad/job-timeouts/paired.yml"
+expect bad/job-timeouts/paired.yml fail "$f: job untimed has no job-level timeout-minutes"
+f="$fixtures/bad/job-timeouts/neither.yml"
+expect bad/job-timeouts/neither.yml fail "$f: job only has neither runs-on nor uses"
+f="$fixtures/bad/job-timeouts/no-jobs.yml"
+expect bad/job-timeouts/no-jobs.yml fail "$f: no job key indented two spaces under jobs"
+f="$fixtures/bad/job-timeouts/calls-untimed.yml"
+c="$fixtures/bad/job-timeouts/.github/workflows/called-untimed.yml"
+expect bad/job-timeouts/calls-untimed.yml fail   "$f: job call: $c: job inner has no job-level timeout-minutes"
+f="$fixtures/bad/job-timeouts/calls-remote.yml"
+expect bad/job-timeouts/calls-remote.yml fail   "$f: job call uses Riftal-Games/riftal-infra/.github/workflows/ci.yml@ad88fa0a1b2c3d4e5f60718293a4b5c6d7e8f901, not a workflow in this checkout's .github/workflows, so its jobs cannot be read"
+f="$fixtures/bad/job-timeouts/calls-loop.yml"
+c="$fixtures/bad/job-timeouts/.github/workflows/loop.yml"
+expect bad/job-timeouts/calls-loop.yml fail   "$f: job call: $c: job again calls $c, which is already in its own call chain"
+f="$fixtures/bad/job-timeouts/absent.yml"
+expect bad/job-timeouts/absent.yml fail "cannot read $f to check every job times out"
 
 if [ "$ran" -ne "$expected" ]; then
   printf '::error::ran %s of %s job-timeouts assertions\n' "$ran" "$expected"
