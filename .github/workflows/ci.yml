@@ -115,6 +115,9 @@ jobs:
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
 
+      - name: Dev faults hook self-test
+        run: bash images/plugins/dev-faults/selftest.sh
+
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
 
