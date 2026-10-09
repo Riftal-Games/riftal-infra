@@ -22,6 +22,13 @@ set -euo pipefail
 export LC_ALL=C
 
 LOCK_NAME="${MIGRATIONS_LOCK_NAME:-riftal_schema_migrations}"
+# The name is printed inside quoted SQL for GET_LOCK, IS_USED_LOCK and
+# RELEASE_LOCK, so a quote in it would end the string and the rest would reach
+# MySQL as SQL. 64 characters is the longest user lock name MySQL accepts.
+if [[ ! "$LOCK_NAME" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
+  echo "MIGRATIONS_LOCK_NAME must be 1 to 64 characters from A-Z a-z 0-9 _ -, got '$LOCK_NAME'" >&2
+  exit 1
+fi
 LOCK_TIMEOUT="${MIGRATIONS_LOCK_TIMEOUT:-60}"
 # The value is printed straight into the GET_LOCK statement, so anything but
 # digits would reach MySQL as SQL. A negative number is refused too, since
