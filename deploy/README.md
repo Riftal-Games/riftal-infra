@@ -223,6 +223,44 @@ wslc run --rm --network riftal-dev \
   mysql:8 bash /deploy/binlog-check.sh
 ```
 
+## Custody alert check
+
+`custody-alert-check.sh <log> [<log> ...]` reads one instance's logs, one file
+per process lifetime, oldest first, and alerts when a RiftalCustody
+`emergency` repeats (the riftal-pm workspace's ADR 017 item 4). It reads files
+only and stops, restarts or parks nothing; acting on an alert is a separate,
+later decision. It prints one `CUSTODY ALERT:` line per finding and exits 1
+when two consecutive logs each hold an instance-wide custody stop, when one
+player is refused twice or more anywhere in the logs given (names compared
+case-insensitively), or when an `EMERGENCY` line mentioning RiftalCustody
+matches no known shape, so a reworded custody line alerts rather than going
+quiet. Otherwise it prints one `CUSTODY OK:` line and exits 0. Exit 2 is a
+usage error, an unreadable log, or a log holding more than one boot, never a
+pass.
+
+An instance's `server.log` is not one lifetime per file. PocketMine appends to
+it across restarts and archives it into `log_archive/` only by size
+(pmmp-core `src/utils/MainLoggerThread.php:95`, `:137-139`), so one file holds
+every boot since the last archive, and a restart loop in it would read as one
+log's stops. The check counts each boot's `Loading server configuration` line
+(pmmp-core `src/Server.php:813`, logged once per process and never translated)
+and exits 2 when a file holds more than one. Split a copy at that line and pass
+the pieces in order:
+
+```bash
+awk '/\/INFO\]: Loading server configuration/ { n++ } { print > sprintf("life-%03d.log", n) }' server.log
+deploy/custody-alert-check.sh life-*.log
+```
+
+`life-000.log`, when written, holds what precedes the first boot line: the end
+of a lifetime whose start was archived. A boot's performance warnings
+come just before its boot line and so land in the piece before; they carry no
+custody line. `../images/loads-check.sh`
+already fails one boot on any `EMERGENCY` line; this is the view across boots.
+A log left out of the middle of the list makes two stops look consecutive or
+hides one between them, so give it every lifetime in order.
+`custody-alert-check-selftest.sh` proves each rule in CI against fixture logs.
+
 ## Environment
 
 | Variable | Required | Default | Meaning |
