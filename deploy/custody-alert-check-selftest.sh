@@ -44,12 +44,24 @@ log unprefixed.log '[12:00:02.000] [Server thread/EMERGENCY]: RiftalCustody was 
 { quiet; printf '%s\r\n' "$probe_failed"; } >"$DIR/crlf.log"
 # server.log as an instance leaves it: two lifetimes appended in one file.
 cat "$DIR/probe.log" "$DIR/disabled.log" >"$DIR/merged.log"
+# One lifetime archived by size while running: its head ends a log_archive
+# file and its tail opens server.log after MainLoggerThread's archive notice.
+log head.log
+printf '%s\n' '--- Starting new log file - old log file archived as server.2026-10-10T12.00.00.0.log ---' \
+  "$disabled" >"$DIR/tail.log"
+cat "$DIR/head.log" "$DIR/tail.log" >"$DIR/joined.log"
+# What PocketMine.php can log ahead of the oldest boot line.
+printf '%s\n' '[11:59:58.000] [Server thread/WARNING]: Non-packaged installation detected. This will degrade autoloading speed and make startup times longer.' \
+  >"$DIR/preboot.log"
 
 failures=0
+ran=0
+expected=16
 # check <exit> <regex some output line must match> <case> <log>...
 check() {
   local want="$1" match="$2" case="$3" out got
   shift 3
+  ran=$((ran + 1))
   set +e
   out="$(cd "$DIR" && bash "$CHECK" "$@" 2>&1)"
   got=$?
@@ -82,9 +94,19 @@ check 1 '^CUSTODY ALERT: unclassified custody emergency at unprefixed.log:5: ' \
 check 2 '^usage: ' 'no log is a usage error'
 check 2 'cannot read missing.log' 'a missing log is an error, not a pass' quiet.log missing.log
 check 2 'merged.log holds 2 boots' 'a log holding two boots is an error, not a pass' merged.log
+check 2 'tail.log has no boot line .* earlier piece' \
+  'a lifetime split across the archive is an error, not a pass' probe.log head.log tail.log
+check 1 '^CUSTODY ALERT: instance-wide custody stop in two consecutive logs: probe.log:5, then joined.log:7$' \
+  'a lifetime joined across the archive alerts' probe.log joined.log
+check 2 'preboot.log has no boot line .* earlier piece' \
+  'a later log with no boot line and no custody line is an error' quiet.log preboot.log
+check 2 'tail.log has no boot line and holds a custody emergency' \
+  'a first log with no boot line and a custody line is an error' tail.log quiet.log
+check 0 '^CUSTODY OK: 2 log\(s\), 1 instance-wide' \
+  'a first log with no boot line and no custody line passes' preboot.log probe.log
 
-if [ "$failures" -ne 0 ]; then
-  printf '%s case(s) failed\n' "$failures"
+if [ "$failures" -ne 0 ] || [ "$ran" -ne "$expected" ]; then
+  printf '%s case(s) failed, %s of %s expected case(s) ran\n' "$failures" "$ran" "$expected"
   exit 1
 fi
 echo 'custody-alert-check self-test passed'
