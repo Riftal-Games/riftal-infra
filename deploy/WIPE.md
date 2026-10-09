@@ -91,14 +91,15 @@ directly, not through a role. It also requires:
 | Variable | Meaning |
 |---|---|
 | `WIPE_CONFIRM` | Must equal `MYSQL_DATABASE` exactly. There is no default |
-| `BACKUP_SET` | The step 3 set. Its `mysql.sql` must be non-empty and its `manifest.txt` must hold the line `mysql_database: <MYSQL_DATABASE>` |
+| `BACKUP_SET` | The step 3 set. Its `mysql.sql` must be non-empty, and its `manifest.txt` must hold the line `mysql_database: <MYSQL_DATABASE>` and exactly one `timestamp:` line in `backup.sh`'s format, no older than `WIPE_BACKUP_MAX_AGE_MINUTES` and not in the future |
+| `WIPE_BACKUP_MAX_AGE_MINUTES` | Optional, default `60`, see `README.md`. A whole number of minutes |
 
 `wipe.sh` also refuses a database name outside `[A-Za-z0-9_]`, and a database
 that does not exist. Every refusal happens before the drop, and leaves the
 database as it was.
 
-The set's age, what a restore of it would need, and `PROCESS` through a role
-are open in #498.
+What a restore of the set would need, and `PROCESS` through a role, are open
+in #498.
 
 ## Running it
 
