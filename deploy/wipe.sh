@@ -16,6 +16,10 @@ MYSQL_PASSWORD="${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 MYSQL_DATABASE="${MYSQL_DATABASE:?MYSQL_DATABASE is required}"
 WIPE_CONFIRM="${WIPE_CONFIRM:-}"
 BACKUP_SET="${BACKUP_SET:?BACKUP_SET is required: the backup.sh set taken of this database just before the wipe}"
+# The set is taken with every instance already stopped, so nothing it lacks can
+# be written before the wipe. A set older than this was most likely taken while
+# instances still ran, and restoring it would lose their later writes.
+WIPE_BACKUP_MAX_AGE_MINUTES="${WIPE_BACKUP_MAX_AGE_MINUTES:-60}"
 
 fail() {
   echo "wipe $MYSQL_DATABASE: refused: $1" >&2
@@ -32,6 +36,25 @@ fail() {
 [ -s "$BACKUP_SET/mysql.sql" ] || fail "no non-empty $BACKUP_SET/mysql.sql"
 grep -qx "mysql_database: $MYSQL_DATABASE" "$BACKUP_SET/manifest.txt" 2>/dev/null \
   || fail "$BACKUP_SET/manifest.txt does not name database $MYSQL_DATABASE"
+
+[[ "$WIPE_BACKUP_MAX_AGE_MINUTES" =~ ^[1-9][0-9]{0,5}$ ]] \
+  || fail "WIPE_BACKUP_MAX_AGE_MINUTES must be a whole number of minutes from 1 to 999999"
+# backup.sh writes the line once, as date -u +%Y%m%dT%H%M%S%NZ. Anything else
+# leaves the set's age unknown, which refuses rather than guesses.
+stamps="$(grep -c '^timestamp: ' "$BACKUP_SET/manifest.txt" || true)"
+[ "$stamps" = "1" ] || fail "$BACKUP_SET/manifest.txt holds $stamps timestamp line(s), not exactly one"
+stamp="$(sed -n 's/^timestamp: //p' "$BACKUP_SET/manifest.txt")"
+[[ "$stamp" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})T([0-9]{2})([0-9]{2})([0-9]{2})[0-9]{9}Z$ ]] \
+  || fail "$BACKUP_SET/manifest.txt timestamp '$stamp' is not in backup.sh's format"
+m=("${BASH_REMATCH[@]}")
+taken="$(date -u -d "${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}" +%s 2>/dev/null)" \
+  || fail "$BACKUP_SET/manifest.txt timestamp '$stamp' is not a valid UTC time"
+age=$(( $(date -u +%s) - taken ))
+# backup.sh and this script read the same clock on one host, so a set from the
+# future means the clock moved or the manifest was not written by backup.sh.
+[ "$age" -ge 0 ] || fail "$BACKUP_SET was taken $(( -age ))s in the future"
+[ "$age" -le $(( WIPE_BACKUP_MAX_AGE_MINUTES * 60 )) ] \
+  || fail "$BACKUP_SET is $(( age / 60 )) minute(s) old, over WIPE_BACKUP_MAX_AGE_MINUTES=$WIPE_BACKUP_MAX_AGE_MINUTES; take a fresh backup with every instance stopped"
 
 sql() {
   MYSQL_PWD="$MYSQL_PASSWORD" mysql --host="$MYSQL_HOST" --port="$MYSQL_PORT" \

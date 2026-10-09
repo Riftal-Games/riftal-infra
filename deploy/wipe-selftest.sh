@@ -87,7 +87,8 @@ migrate() {
     "$C" bash /migrations-runner/run-migrations.sh
 }
 wipe() {
-  env_run -e MYSQL_USER="${WIPE_USER:-root}" -e MYSQL_DATABASE="$1" -e WIPE_CONFIRM="$2" -e BACKUP_SET="$3" "$C" bash /deploy/wipe.sh
+  env_run -e MYSQL_USER="${WIPE_USER:-root}" ${WIPE_MAX_AGE:+-e "WIPE_BACKUP_MAX_AGE_MINUTES=$WIPE_MAX_AGE"} \
+    -e MYSQL_DATABASE="$1" -e WIPE_CONFIRM="$2" -e BACKUP_SET="$3" "$C" bash /deploy/wipe.sh
 }
 check() {
   env_run -e MYSQL_DATABASE="$DB" "$C" bash /deploy/wipe-check.sh
@@ -102,15 +103,34 @@ q "INSERT INTO $DB.balances VALUES (1, 500);
    CREATE TABLE $DB.stray_unmigrated (id INT PRIMARY KEY);
    INSERT INTO $DB.stray_unmigrated VALUES (1);"
 
+# Prints a manifest's timestamp line as backup.sh writes it, for a set taken
+# at the given date -d time.
+stamp_cmd() { printf "date -u -d '%s' +'timestamp: %%Y%%m%%dT%%H%%M%%S%%NZ'" "$1"; }
+NOW="$(stamp_cmd now)"
 sh_in "mkdir -p /tmp/set /tmp/other /tmp/empty /tmp/absent \
-  && printf 'x\n' > /tmp/absent/mysql.sql && printf 'mysql_database: riftal_smoke_absent\n' > /tmp/absent/manifest.txt \
+  && printf 'x\n' > /tmp/absent/mysql.sql \
+  && { $NOW; printf 'mysql_database: riftal_smoke_absent\n'; } > /tmp/absent/manifest.txt \
   && MYSQL_PWD=selftest mysqldump -uroot --single-transaction --routines $DB > /tmp/set/mysql.sql \
-  && printf 'mysql_database: $DB\n' > /tmp/set/manifest.txt \
+  && { $NOW; printf 'mysql_database: $DB\n'; } > /tmp/set/manifest.txt \
   && cp /tmp/set/mysql.sql /tmp/other/ && printf 'mysql_database: riftal_other\n' > /tmp/other/manifest.txt"
+# One set per way its timestamp can fail, each otherwise valid for $DB, and a
+# two-hour-old set naming the absent database, which can pass the age check
+# with no wipe to follow it.
+stamped() {
+  sh_in "mkdir -p /tmp/$1 && cp /tmp/absent/mysql.sql /tmp/$1/ \
+    && { $2; printf 'mysql_database: %s\n' '${3:-$DB}'; } > /tmp/$1/manifest.txt"
+}
+stamped stale "$(stamp_cmd '-2 hours')"
+stamped future "$(stamp_cmd '+2 hours')"
+stamped nostamp true
+stamped twostamps "$NOW; $NOW"
+stamped badformat "echo 'timestamp: 2026-10-10T00:00:00Z'"
+stamped badtime "echo 'timestamp: 20261340T250000000000000Z'"
+stamped stale_absent "$(stamp_cmd '-2 hours')" riftal_smoke_absent
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=23
+EXPECTED_ASSERTIONS=32
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -142,6 +162,16 @@ refused no-dump "no non-empty" wipe "$DB" "$DB" /tmp/empty
 refused other-db-backup "does not name database" wipe "$DB" "$DB" /tmp/other
 refused absent-database "no database riftal_smoke_absent" \
   wipe riftal_smoke_absent riftal_smoke_absent /tmp/absent
+refused stale-set "1[0-9][0-9] minute(s) old, over WIPE_BACKUP_MAX_AGE_MINUTES=60" wipe "$DB" "$DB" /tmp/stale
+refused future-set "in the future" wipe "$DB" "$DB" /tmp/future
+refused no-timestamp "holds 0 timestamp line(s)" wipe "$DB" "$DB" /tmp/nostamp
+refused two-timestamps "holds 2 timestamp line(s)" wipe "$DB" "$DB" /tmp/twostamps
+refused bad-format "not in backup.sh's format" wipe "$DB" "$DB" /tmp/badformat
+refused bad-time "not a valid UTC time" wipe "$DB" "$DB" /tmp/badtime
+WIPE_MAX_AGE=0 refused zero-max-age "must be a whole number" wipe "$DB" "$DB" /tmp/set
+WIPE_MAX_AGE=1h refused unit-max-age "must be a whole number" wipe "$DB" "$DB" /tmp/set
+WIPE_MAX_AGE=180 refused raised-max-age "no database riftal_smoke_absent" \
+  wipe riftal_smoke_absent riftal_smoke_absent /tmp/stale_absent
 
 # Each hold aliases its SLEEP with its own tag, so hold() and released() count
 # that session and never one an earlier hold left behind.
@@ -245,7 +275,7 @@ printf '\n== with performance_schema off, a connected session still refuses the 
 qp() { docker exec "$C_PSOFF" mysql -uroot -pselftest -N -B -e "$1" 2>/dev/null; }
 qp "CREATE TABLE $DB.t (id INT PRIMARY KEY); INSERT INTO $DB.t VALUES (1), (2), (3)"
 docker exec "$C_PSOFF" bash -c "mkdir -p /tmp/set && printf 'x\n' > /tmp/set/mysql.sql \
-  && printf 'mysql_database: $DB\n' > /tmp/set/manifest.txt"
+  && { $NOW; printf 'mysql_database: $DB\n'; } > /tmp/set/manifest.txt"
 docker exec -d "$C_PSOFF" mysql -uroot -pselftest "$DB" -e 'SELECT SLEEP(20)'
 held=0
 for _ in $(seq 1 20); do
