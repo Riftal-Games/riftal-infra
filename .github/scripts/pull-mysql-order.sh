@@ -49,7 +49,7 @@ fi
 # separators and an empty field would vanish. Newlines in the run text become
 # octal 037 so each record stays on one line.
 steps_of() {
-  awk '
+  awk -v q="'" '
     function indent(s) { match(s, /^ */); return RLENGTH }
     function flush() {
       if (instep) printf "S\036%s\036%s\036%s\036%s\036%s\036%s\n", job, name, wd, cond, image, run
@@ -91,7 +91,7 @@ steps_of() {
       else if (line ~ /^continue-on-error:/ && line !~ /^continue-on-error:[ \t]*false[ \t]*(#.*)?$/) {
         cond = cond " continue-on-error:"
       }
-      else if (line ~ /^uses:[ \t]*docker:\/\//) { sub(/^uses:[ \t]*docker:\/\//, "", line); image = line }
+      else if (line ~ ("^uses:[ \t]*[\"" q "]?docker://")) { sub("^uses:[ \t]*[\"" q "]?docker://", "", line); image = line }
       else if (line ~ /^run:/) {
         sub(/^run:[ \t]*/, "", line)
         if (line ~ /^[|>]/) { inrun = 1; runkey = at } else run = line
@@ -120,9 +120,9 @@ scripts_of() {
       bash | sh)
         for ((i = i + 1; i < ${#w[@]}; i++)); do
           case "${w[i]}" in
-            -o | +o | -O | +O) i=$((i + 1)) ;;
             --*) ;;
             -*c*) break ;;
+            [-+]*[oO]) i=$((i + 1)) ;;
             -*) ;;
             *)
               printf '%s\n' "${w[i]//[\"\']/}"

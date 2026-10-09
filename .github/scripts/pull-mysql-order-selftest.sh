@@ -11,7 +11,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=34
+expected=38
 
 root="$work/root"
 mkdir -p "$root/.github/scripts" "$root/sub"
@@ -110,7 +110,8 @@ expect "missing workflow" fail 'cannot read' "$work/none.yml" "$root"
 # see the first step.
 for form in "direct=./db" 'flagged=bash -e "db"' "quoted=bash 'db.sh'" 'yaml="bash db"' \
   "podman=bash podman.sh" "variable=bash var.sh" "global flag=bash flag.sh" \
-  "registry=bash registry.sh" "compose=bash compose.sh"; do
+  "registry=bash registry.sh" "compose=bash compose.sh" \
+  "bundled o=bash -euo pipefail db" "lone o=bash -o pipefail db"; do
   workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/form.yml"
   expect "${form%%=*} before the pull" fail "step '${form%%=*}' runs mysql:8 before" "$work/form.yml" "$root"
 done
@@ -124,6 +125,10 @@ expect "a sh word in prose is not a script" pass 'precedes all 1 step(s)' "$work
   workflow "$pull" "db=bash db.sh" | sed 1,4d
 } >"$work/uses.yml"
 expect "uses: docker:// before the pull" fail "step 'image' runs mysql:8 before" "$work/uses.yml" "$root"
+for q in '"' "'"; do
+  sed "s|uses: docker://mysql:8|uses: ${q}docker://mysql:8${q}|" "$work/uses.yml" >"$work/uses-quoted.yml"
+  expect "uses: ${q}docker://${q} before the pull" fail "step 'image' runs mysql:8 before" "$work/uses-quoted.yml" "$root"
+done
 
 for key in 'services:\n      db:\n        image: mysql:8' 'container: ubuntu:24.04'; do
   workflow job:a "$pull" "db=bash db.sh" | sed "s/^    steps:\$/    $key\n    steps:/" >"$work/job-key.yml"
