@@ -1,0 +1,8 @@
+# Must fail action-pins.sh at line 8 and nowhere else:
+# a short sha names a commit only until another shares its prefix.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960

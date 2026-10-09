@@ -1,0 +1,8 @@
+# Must fail action-pins.sh at line 8 and nowhere else: a tag between the `[`
+# of a flow sequence and a uses key does not hide the key from the flow check.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - [ !!str uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 ]

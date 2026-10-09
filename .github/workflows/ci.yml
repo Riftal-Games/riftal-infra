@@ -19,31 +19,43 @@ env:
   # Pinned. An unpinned linter changes the meaning of a merge gate with no
   # commit to point at.
   HADOLINT_VERSION: v2.12.0
+  # hadolint-Linux-x86_64.sha256 from the v2.12.0 release. Recorded here, not
+  # fetched at run time, so a replaced release asset fails the install. A new
+  # HADOLINT_VERSION needs its own hash.
+  HADOLINT_SHA256: 56de6d5e5ec427e17b74fa48d51271c7fc0d61244bf5c90e828aab8362d55010
 
 jobs:
   checks:
     name: lint and validate
     runs-on: [self-hosted, linux, riftal]
+    # ci-sweep-selftest.sh removes the self-test's other-job volumes once they
+    # are 20 minutes old, as left by a run that has ended. A timeout past 20
+    # would let it remove a live run's.
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
+      # what runs with this job's token.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
+      # Before any step that starts a container, so every one of them carries
+      # this job's label for the sweep at the end.
+      - name: Label this job's containers
+        run: bash .github/scripts/ci-docker-label.sh
+
+      - name: Self-test, prove the label and the sweep
+        run: bash .github/scripts/ci-sweep-selftest.sh
+
+      # Sets HADOLINT for every later step, so the self-test and the scan below
+      # run the binary this job checked, not whichever hadolint PATH finds.
       - name: Install hadolint
-        # /usr/local/bin is root-owned on the self-hosted runner, unlike the
-        # hosted image where the runner user already owns it.
-        run: |
-          set -euo pipefail
-          curl -fsSL -o /tmp/hadolint \
-            "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
-          sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
-          hadolint --version
+        run: bash .github/scripts/install-hadolint.sh
 
-      # Runs before the real scans on purpose. images/ and proxy/ hold only a
-      # .gitkeep today, so the scans below have nothing to look at and would go
-      # green by being empty. This step feeds every check a fixture it must
-      # reject and a fixture it must accept, so the checks are known to
-      # discriminate on this commit and not only on the day they were written.
+      # Runs before the real scans on purpose. A scan that finds nothing exits
+      # 0, so a green scan alone cannot tell a clean tree from a check that
+      # never ran. This step feeds every check a fixture it must reject and a
+      # fixture it must accept, so the checks are known to discriminate on
+      # this commit.
       - name: Self-test, prove every check can fail
         run: bash .github/scripts/selftest.sh
 
@@ -57,21 +69,27 @@ jobs:
       - name: Validate compose files
         run: bash .github/scripts/scan.sh compose
 
+      - name: Every action is pinned by commit sha or image digest
+        run: bash .github/scripts/action-pins.sh
+
+      - name: Containers leave no anonymous volumes
+        run: bash .github/scripts/container-cleanup.sh
+
       # No PHP on the runner is confirmed, so the check runs inside a pinned
       # php:8.3-cli-alpine container instead of assuming a host binary.
       - name: Lint PHP plugins
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
           fi
-          docker run --rm -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
+          docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -88,11 +106,20 @@ jobs:
       - name: Dev bots admission guard self-test
         run: bash images/plugins/selftest.sh
 
+      - name: Pinned core image self-test
+        run: bash images/core-image-selftest.sh
+
       - name: Dev bots join order self-test
         run: bash images/plugins/join-order/selftest.sh
 
+      - name: Dev bots crash hook self-test
+        run: bash images/plugins/crash-hook/selftest.sh
+
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
+
+      - name: RiftalCustody on every instance self-test
+        run: bash images/custody-selftest.sh
 
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
@@ -102,6 +129,18 @@ jobs:
 
       - name: Restore drill self-test
         run: bash deploy/restore-selftest.sh
+
+      - name: Binlog retention check self-test
+        run: bash deploy/binlog-selftest.sh
+
+      - name: Wipe self-test
+        run: bash deploy/wipe-selftest.sh
+
+      # Runs before the host-side sync below, which writes designer/.venv. The
+      # script mounts the project read-only, so a container run that tried to
+      # put its environment in the checkout fails here instead of leaving one.
+      - name: Designer toolkit tests in a container
+        run: sh designer/container-test.sh
 
       # --locked fails when uv.lock no longer matches pyproject.toml, where
       # --frozen would install the stale lock as-is. Once this sync has
@@ -116,3 +155,9 @@ jobs:
       - name: TOOLS.md matches the registered tools
         working-directory: designer
         run: uv run --frozen python -m designer.tools_doc --check
+
+      # always() rather than failure(): a cancelled run is the case that leaks,
+      # because the runner kills a self-test before its EXIT trap fires.
+      - name: Remove this job's containers
+        if: always()
+        run: bash .github/scripts/ci-container-sweep.sh

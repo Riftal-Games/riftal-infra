@@ -17,15 +17,17 @@
 # NORMAL ties with the placer, and the probe registers first so the tie goes
 # against RiftalDevBots.
 #
-# Needs the local-pocketmine-mp image, present on the self-hosted runners. It
-# publishes no port and keeps nothing: /data is the container's own anonymous
-# volume, removed with it.
+# Runs the pinned core image from ../../core-image.sha, present only on the
+# self-hosted runners' Docker daemon. It publishes no port and keeps nothing:
+# /data is the container's own anonymous volume, removed with it.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN="$DIR/../RiftalDevBots.php"
 PROBE="$DIR/JoinOrderProbe.php"
-IMAGE=local-pocketmine-mp
+. "$DIR/../../core-image.sh"
+core_image || { printf 'the join order was never checked\n'; exit 1; }
+IMAGE="$CORE_IMAGE"
 JOIN_LINE='registerEvent(PlayerJoinEvent::class, $this->onJoin(...), EventPriority::'
 WATCH_LINE='registerEvent(EntityTeleportEvent::class, $this->onTeleport(...)'
 
@@ -34,9 +36,6 @@ PASSES=0
 EXPECTED_ASSERTIONS=8
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
-
-docker image inspect "$IMAGE" >/dev/null 2>&1 \
-  || { printf '::error::image %s is not present, so the join order was never checked\n' "$IMAGE"; exit 1; }
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -49,7 +48,7 @@ probe() {
   cp "$1" "$plugins/RiftalDevBots.php"
   cp "$PROBE" "$plugins/JoinOrderProbe.php"
   chmod -R a+rX "$plugins"
-  if ! log="$(timeout 180 docker run --rm --name "$name" \
+  if ! log="$(timeout 180 docker run --rm --pull never --name "$name" -m 2g --cpus 2 \
       -v "$plugins:/plugins:ro" -e RIFTAL_DEV_ENV=1 \
       -e "POCKETMINE_ARGS=--xbox-auth=false --riftal-dev-bots=on --auto-report.enabled=0 --level-type=flat" \
       "$IMAGE" 2>&1)"; then

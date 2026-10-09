@@ -691,3 +691,293 @@ the index preflight still come first. Each CLI invocation labels its entries wit
 command; the MCP `undo` walks every session's entries, so it reverses a CLI build too. Keeping a
 second apply in the CLI was rejected: it is how a signage build came to send nothing from the CLI
 while the MCP path sent it (#438).
+
+## 2026-09-29 A level build compares an entry's tags without their order
+
+A step reproduces a committed index entry when its tags are the same list in any order, since
+every consumer only tests a tag for membership and `world_index.json` keeps the order it was
+given. A repeated tag still counts, so `["mine", "mine"]` does not reproduce `["mine"]`, and a
+tag that is not a string refuses the build naming the entry. Dropping duplicates too was
+rejected because it would let a committed entry pass whose tags are not the step's list (#362).
+
+## 2026-09-29 A mine's exit-platform lights stop short of its last row
+
+`build_mine` lights the platform's near edge every `lights_every` blocks out from the wall, but
+never on its last row, which holds the sell and rankup signs and the spawn. On a 3-wide path the
+sell sign sits on the lit edge itself; a wider path has no collision there, and the row is kept
+clear all the same so the signs and spawn stand alone at the platform's end. A light that would
+fall on the last row moves one block back toward the mine, so a length
+that is a multiple of `lights_every` still lights the platform's end; a one-row platform has no
+row to spare and gets no light. Moving lights to the far edge was rejected because the rankup sign
+sits there on a width-3 path, and refusing a colliding spec was rejected because length 8 with
+`lights_every` 4 is a reasonable mine. Mine A and Lumber, length 6 with `lights_every` 4, keep
+their one light at 4 (#485).
+
+## 2026-09-29 No region in a contested world carries `safe_zone`
+
+`WorldIndex._admissible` refuses a region tagged `safe_zone` in a world whose role is
+`contested`, so `add_region`, `load` and a build's `preflight` all refuse it, a build before its
+snapshot and first edit. RiftalRiots treats a whole world as safe once any region in it carries
+the tag, and design plan 7.2 keeps the contested mine always PvP. A mine spec's `safe_zone`
+defaults to true, so a contested mine's spec that omits it is refused the same as one stating
+`true`, which makes `safe_zone: false` the only spec that builds there. The message reads
+`region '<name>' carries safe_zone in '<world>', a contested world that is always PvP; a
+contested mine's spec sets safe_zone: false`. Locations are not checked, since riots reads only
+regions. Refusing in `MineSpec` was rejected because a spec does not know its world's role; the
+index does (#313).
+
+## 2026-09-29 A mine's exit path is at least 3 wide
+
+`MineSpec` refuses `exit_path.width` below 3 with `exit_path width must be at least 3 to hold
+both signs beside the walking line, got <width>`. `build_mine` walks players down the platform's
+centre, puts the sell and rankup signs one block either side of it on the last row, and lights the
+platform's low-coordinate edge. At width 1 every light sits on the walking line and the sell and
+rankup signs both land off the platform; at width 2 the rankup sign does. Placing signs and lights
+per width was rejected because no committed spec is narrower than 3, and a one- or two-wide
+platform has no room for two signs beside a clear path anyway. Mine A and Lumber use width 3
+and are unchanged (#495).
+
+## 2026-09-29 A mine interior holds only air and its `ores`; a `mines` zone needs its gate
+
+`mine_valid` fails any interior cell that is not air or a block named in `ores`, at no
+tolerance whatever `tolerance` is passed, naming up to 20 cells in the detail so
+`build_level`'s refusal names them. A block counts as an `ores` key when the bases match and
+its states include the key's, since DesignBridge reads a log back as
+`minecraft:oak_log[pillar_axis=y]` while `lumber.json` names `minecraft:oak_log`; the
+composition rule matches the same way. A name only in `ore_layers` fails, since the refill never
+writes it. `build_level` reads `worlds:` from riftal-game's mines `config.yml` before any engine
+call and refuses a listed zone with no `mine_valid` of that `zone` on a spec a `mine` step
+builds, and every zone when the file is missing or unreadable. It then refuses a chorus flower
+outside every `mine` interior in every zone, plots included: the toolkit builds no plots level
+that needs one, and reading `custody`'s plots-world name would be a second cross-repo read. The
+tests pass the file as `mines_config`, so CI needs no riftal-game checkout (ADR 014 item 7, #550).
+
+## 2026-09-29 `offdisk_clear` reads `scan_items` and fails a saved Human it cannot see into
+
+`offdisk_clear` runs `scan_items` once per world and fails each saved entity ADR 013 item 4
+destroys on load: an item, arrow, trident, falling block or painting, by every save name core
+registers and by legacy int id. `scan_items` reports a saved entity's id and position only, so a
+saved `Human` fails too, since its inventory, armor and offhand are unread, and so does a save id
+core does not register, which may be a plugin's `Human` subclass. Markers never save with a chunk,
+so they cannot trip it. Tile findings are item 6's, not item 4's, and `build_level`'s own scan
+already refuses them. `checks.yaml` holds each M1 zone, `mine_a` to `mine_c` and `lumber`, to it
+(ADR 013 item 4, #520).
+
+## 2026-09-30 A container run of the suite goes through `container-test.sh`, which keeps its environment off the checkout
+
+`sh designer/container-test.sh` runs the suite in `python:3.12-alpine`, or the image named by
+`DESIGNER_TEST_IMAGE`, which needs python and pip, under any engine taking docker's run flags,
+named by `CONTAINER_ENGINE`. It needs a POSIX `sh` and a path the engine can mount, so from
+Windows it runs under the WSL distro's docker on the checkout's `/mnt/c` path:
+`wsl -d Ubuntu-26.04 -u runner --exec sh /mnt/c/<checkout>/designer/container-test.sh`. `--exec`
+runs no shell, so a variable goes through `env`, as in `--exec env DESIGNER_TEST_IMAGE=<image> sh
+...`, and Git Bash needs `MSYS_NO_PATHCONV=1` or it rewrites `/mnt/c/...` into its own install
+path. `--` in place of `--exec` hands the line to the distro's shell to re-parse
+(riftal-pm#293). The project is mounted read-only and
+`UV_PROJECT_ENVIRONMENT` puts the environment at `/opt/designer-venv` inside the container. A
+container `uv sync` on a writable mount leaves a Linux `.venv` in the checkout, a `lib64` symlink
+and a `pyvenv.cfg` whose home is a container interpreter, and Windows `uv run` then stops on
+`failed to remove file ...\.venv\lib64: Access is denied` instead of rebuilding it. The read-only
+mount makes a run that omits the variable fail on `Read-only file system` rather than leave one.
+CI runs the script before its host-side sync. A checkout that already holds such a `.venv` works
+from Windows with `UV_PROJECT_ENVIRONMENT` set to a path outside it, until its owner clears it
+(#583).
+
+## 2026-09-30 `requests` splits a `set_blocks` batch under `max_line_bytes` and refuses any other op too long for one line
+
+DesignBridge answers a line over `max_line_bytes` (1 MiB) with `BAD_REQUEST` and closes it,
+and no op reports its limits, so `MAX_LINE_BYTES` mirrors the default the way `MAX_SET_BLOCKS`
+and `MAX_EDGE` do. A `set_blocks` batch closes at `batch` entries or when the next entry would
+pass `LINE_BUDGET`, whichever comes first, the way a `Fill` past `MAX_EDGE` is tiled: the line
+length of a batch turns on its block names, which the caller does not pick per batch, so
+refusing it would make a valid `batch` fail on content. `LINE_BUDGET` keeps 4096 bytes for the
+id, op and token. A `Fill`, `Replace` or `Text` whose own request passes it cannot be split and
+is refused with `ValueError` before `apply` sends anything, as an out-of-range `batch` is. So
+is a `SetBlock` whose entry alone passes it: sent, the bridge would close the connection after
+the batches before it had already landed (#572).
+
+## 2026-09-30 An undo whose restore fails still pushes that restore's snapshot
+
+`UndoStack.undo` pushes the snapshot a restore took as an `undo` entry even when the restore
+then fails, as `fill` and `restore` already do, and leaves the entry it was undoing unrestored.
+The `undo` tool reports that snapshot and its `undo_id`. A restore can fail after writing some
+cells, so its snapshot is the only record of what those cells held. Deleting the file was
+rejected for that reason; leaving it on disk outside the manifest, as before, left an orphan
+`prune` never found (#544).
+
+## 2026-09-30 `build_level` refuses a mines zone whose fragment's `ores` differ from its spec's
+
+`mine_valid` reads the designer spec's `ores`, but RiftalMines refills from the riftal-game
+fragment the mines `config.yml` names for the zone. `build_level` reads that fragment beside the
+config and refuses the build, before any request, unless every `mine` step's spec has the same
+`ores` (names compared canonically, weights as numbers). A fragment it cannot read also refuses.
+Until riftal-game#527 lands, riftal-game `main`'s ore lists are behind the specs, so real mine
+builds against it refuse; that is the check working, not a reason to relax it (#549).
+
+## 2026-09-30 A mine's `ores` key matches only the state the reset writes
+
+`mine_valid` counts a block under an `ores` key only when the block is in exactly the state
+`designer/reset_states.py` gives for its base, and the key names a subset of that state. Any
+other state, or a base the table lacks, counts as unnamed even under a key that spells the
+block's whole name, such as `oak_log[pillar_axis=x]` or `quartz_ore`. `build_mine` fills
+the interior with that same reset state, so a build reads back as a reset mine does. The
+table mirrors what RiftalMines' reset places: the block of `StringToItemParser::parse(name)`
+(riftal-game `MineResetListener.php`), not what the bridge reads back for a bare id
+(riftal-game#256). It lists only the bases the specs and fragments use; a `mine` step naming a
+base the table lacks refuses the build before any request, and a test walks every spec and
+fragment base. Any entry for a block with states, today only `oak_log` with `pillar_axis=y`,
+needs a one-time live check on the designer stack. `MineSpec` refuses two `ores` keys on one
+base where one's states are a subset of the other's, since one block would satisfy both. A
+lenient match was rejected because it could pass a level the next reset silently changes; the
+vendored Bedrock state data was rejected because it marks no state as the default (#561).
+
+## 2026-10-07 `MineSpec` refuses an `ores` key the mine reset cannot resolve
+
+RiftalMines resolves every `ores` key with `StringToItemParser::parse` and throws on null
+(riftal-game `MineResetListener.php`). The parser strips `minecraft:`, lowercases, and looks the
+rest up among aliases, none of which holds `:`, `[` or `=` (pmmp-core
+`src/item/StringToItemParser.php`). So `MineSpec.from_dict` refuses, in `ores` and in every ore
+layer, a key with states, such as `oak_log[pillar_axis=x]`, or a namespace other than
+`minecraft`, which would otherwise pass every designer check and fail only at the reset.
+Whether a bare id is a registered alias is not checked: the designer holds no copy of the alias
+list, and `check_reset_states` already refuses a base outside `RESET_STATES`. `build_mine` fills
+each cell with its base's reset state alone, since a key brings no states of its own. `mine_valid`
+keeps its reading of stated keys for a spec built without `from_dict` (#650).
+
+## 2026-09-30 A fence, wall or closed fence gate floor needs a third clear cell
+
+Fences, walls and closed fence gates are 1.5 blocks tall, so a player standing on one reaches
+half a block into the third cell above it. `blocks.is_tall_floor` names them (base ending
+`fence` or `_wall`, or a `fence_gate` without `open_bit=true`). `Region.stand_mask` and
+`entity_clear` require that third cell to be passable over such a floor. Outside the region,
+each keeps its existing rule: `stand_mask` treats the cell as blocked, as it never marks the
+top layer standable, and `entity_clear` lets it pass, as it does a head cell (2026-09-08).
+Classing these blocks by their box top like snow layers was rejected: they are still SOLID to
+stand on; only the headroom changes (#469).
+
+## 2026-10-06 An open fence gate is PASSABLE, a closed one SOLID
+
+An open gate has no collision box (`FenceGate.php:70`), so a player walks through it and falls
+through it. `blocks.classify` reads Bedrock's `open_bit` state (`BlockStateNames::OPEN_BIT`) on
+any base ending `fence_gate`: `true` is PASSABLE, anything else SOLID, the same test
+`is_tall_floor` uses, so a gate with no states stays a 1.5-tall floor. Every class consumer
+follows: `stand_mask` and `path_exists` neither stand on an open gate nor are stopped by one,
+`entity_clear` looks through it to the floor beneath, `warp_safe` finds no landing in it,
+`verify_mine` counts it as an opening, the ASCII class render draws it `,`, and a `ground`
+heightmap looks through it. Leaving it SOLID and special-casing `stand_mask` was rejected: it
+would still read an open gate in a hitbox as blocked (#675).
+
+## 2026-09-30 Kelp and seagrass are LIQUID
+
+Both always stand in water in Bedrock, but DesignBridge's region read takes each cell from the
+chunk's main block layer only (`RegionReadJob`, `Chunk::getBlockStateId`), so the water beneath
+them never reaches the toolkit. Classed PASSABLE, a hitbox in kelp read "clear". They are LIQUID,
+so `entity_clear` names them `hitbox in liquid` as it does water and `bubble_column`. Reading the
+second layer in DesignBridge was rejected here: that is a riftal-game change, and the class is
+right for these blocks whatever the bridge sends (#479).
+
+## 2026-10-05 An unmapped block stays SOLID and the safety checks name it
+
+The core loads a block it has no mapping for as `minecraft:info_update`, so the world may hold
+kelp, water or anything else where the toolkit reads one block that classes SOLID. `entity_clear`
+names it apart from an ordinary wall: `hitbox blocked by a block the core does not map
+(minecraft:info_update)`, and `floor is` the same note when it is the support. `warp_safe` refuses
+one anywhere in the 3x3x3 it already scans for liquid and danger, since an unmapped block may be
+either. An `UNKNOWN` block class was rejected: every check compares against `SOLID`, so a sixth
+class would change what every path, hole and mine check counts, where only the reason a designer
+reads needed to change (#664).
+
+## 2026-10-06 `path_exists` climbs onto a fence, wall or closed gate only from another one
+
+A jump rises about 1.25 blocks (`Living.php:117`, `jumpVelocity` 0.42) and a walk steps up 0.6
+(`Player.php:281`). A step up one cell onto a tall floor (`is_tall_floor`) is a 1.5 climb from an
+ordinary floor, so `path_exists` refuses it, and `travel_time` with it: a fence that exists to stop
+players does not read as a path over it. From another tall floor the same step is a 1.0 climb,
+so it stays open, but the jump lifts the head into the third cell above the feet, which must be
+passable, and outside the region counts as blocked as it does in `stand_mask`. A level step onto a
+tall floor rises 0.5, under the walk step, and its headroom is the 2026-10-07 entry's (#747). A
+step up from a tall floor onto ordinary ground also rises 0.5, so it needs only the two cells any
+step up needs; demanding the third would report no path where a player walks (#726).
+`Region.on_tall_floor` is the one per-cell reading of the floor height that `stand_mask` and
+`path_exists` share. Refusing every step up onto a tall floor was rejected: it would deny a fence
+stair a player can climb (#659).
+
+## 2026-10-06 `timelapse` skips an unreadable snapshot and lists it in `skipped`
+
+`timelapse` reads every `*.npz` in the world's snapshot folder, so a single damaged file there
+would otherwise fail the strip for every region in that world, including regions the file never
+covered. It catches the same `snapshot.UNREADABLE` errors `_load_entry` turns into
+`snapshot_unreadable` for `undo`, leaves that file out, and names it in `skipped` with its error
+and that code, so the designer sees which file to look at rather than a silently shorter strip.
+When nothing readable matches, the refusal counts the skipped files. Catching every exception was
+rejected for the reason `_load_entry` gives: a `TypeError` or `AttributeError` is a bug in `load`
+and must still surface (#627).
+
+## 2026-10-06 An unmapped block is no floor to stand or land on, and the route over one is named
+
+An unmapped block still classes SOLID (#664), but it holds no one: `Region.stand_mask` leaves the
+cell above it unstandable, and `warp_safe` does not count it as a landing. A floor ring cell whose
+only landing within `LANDING + 1` is one fails last, as `floor ring lands only on a block the core
+does not map (minecraft:info_update)`, naming those blocks; a real hole in the ring still fails
+first. When `path_exists` finds no route, it searches again with unmapped floors allowed
+(`stand_mask(unmapped_floor=True)`); a route found that way fails as `path only over` the same
+note, with `path` that route and `coords` its unmapped floor cells, and `travel_time` reports the
+same. A route that walks round an unmapped floor passes. Letting the route through and naming its
+cells in `data` was rejected: `entity_clear` already refuses a player standing on one, and a check
+that passes reads as walkable to a designer who never opens `data` (#669).
+
+## 2026-10-06 `no_holes` and `mine_valid` name an unmapped floor instead of passing it
+
+An unmapped block classes SOLID (#664), so a walkway, mine floor or exit platform over one passed
+both checks. `no_holes` fails it last, after any real hole, as `walkway floor cells are a block the
+core does not map (minecraft:info_update)`, with `coords` those floor cells; `data["unmapped"]`
+counts them even when a hole fails first. `mine_valid` adds two rules beside the missing ones,
+`floor cells are` and `exit platform cells are` the same note, with `floor_unmapped` and
+`platform_unmapped` in `data` and their cells in `coords` after the missing cells of the same
+surface. Counting them as holes was rejected: a hole is fixed by placing a block, while an
+unmapped one needs a look at what the world really holds there, so the designer reads the same
+note `entity_clear`, `warp_safe` and `path_exists` give (#667).
+
+## 2026-10-06 `mine_valid` names an unmapped wall block instead of reading it as sealed
+
+The enclosure flood treated an unmapped block as wall, so a hole through the shell plugged by one
+passed, although the world may hold water or air there. `mine_valid` fails it as `wall cells are`
+the same note, after the undeclared openings, with `wall_unmapped` in `data` and the cells in
+`coords` after the undeclared ones. A shell or padding cell counts when it lies on the shell's
+surface or when the flood, letting unmapped blocks through, reaches it from the interior; one
+sealed inside the wall by mapped solid blocks cannot leak and passes. Interior, entrance, floor
+and exit platform cells are left to the rules that already name them, so no cell gets two notes.
+Failing every unmapped block anywhere in the padding was rejected: a wall chunk pasted from the
+world would fail over a block that can never reach the mine (#741).
+
+## 2026-10-06 `build_level` refuses `ore_layers` on a mine in a zone mines resets
+
+RiftalMines reads only `ores` from a fragment (riftal-game `MineDefinition.php`) and refills the
+whole interior from that one flat mix, while `mine_valid` checks the spec's layers band by band.
+A layered spec would pass the gate and reset to another composition, so `build_level` refuses,
+before any request, a `mine` step whose spec has any `ore_layers` in a zone the mines `config.yml`
+lists. An empty list builds. A zone mines does not list keeps its layers, since nothing refills
+it. Carrying layers into the fragment was rejected for now: the plugin would need layer support
+first, a riftal-game change of its own (#653).
+
+## 2026-10-07 `path_exists` keeps the head's third cell clear on and off a tall floor
+
+A player on a tall floor stands 0.5 higher, so the 1.8 hitbox reaches about 2.3 above the cell the
+feet are in, into the third cell up. The hitbox is 0.6 wide and straddles both columns while it
+moves, so a level step or a drop off a tall floor needs the third cell of the column it enters
+passable, and a level step from ordinary ground onto one needs the third cell above the origin
+passable, since the 0.5 walk step lifts the head there before the feet leave. Outside the region
+counts as blocked, as in `stand_mask`. A step up follows #659 and #726, which check the head cell
+above the origin, and between two tall floors `stand_mask` holds both third cells. Leaving these
+moves to `stand_mask` was rejected: it checks only the cell a player ends in, so a fence edge under
+a low ceiling read as a path no player can take (#747).
+
+## 2026-10-07 `restore` answers a damaged snapshot with `snapshot_unreadable`
+
+`restore` reads one named snapshot, so a damaged file is the whole answer, not one skipped frame as
+in `timelapse`. It catches the same `snapshot.UNREADABLE` errors `_load_entry` catches for `undo`
+and raises `SnapshotLoadError`, so the same damage carries the same code whichever tool meets it,
+and the refusal comes before anything reaches the bridge. A missing file counts, as it does for
+`undo`. An undo id with no entry and a path outside the snapshots directory refuse the reference,
+not a file, and keep no code. A `TypeError` or `AttributeError` from `load` is a bug and is not
+caught (#626).

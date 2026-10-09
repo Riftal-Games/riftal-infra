@@ -27,7 +27,7 @@ WORLD_B_VOL="riftal-restore-selftest-world-b-$SUFFIX"
 LOGS="$(mktemp -d)"
 
 cleanup() {
-  docker rm -f "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
+  docker rm -f -v "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
@@ -35,8 +35,13 @@ cleanup() {
 trap cleanup EXIT
 
 docker network create "$NETWORK" >/dev/null
+# Created before any `run -v` names them, so CI's label shim stamps them for
+# the job's sweep, which is all that removes them when a cancel skips the trap.
+docker volume create "$BACKUPS_VOL" >/dev/null
+docker volume create "$WORLD_A_VOL" >/dev/null
+docker volume create "$WORLD_B_VOL" >/dev/null
 
-docker run -d --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
+docker run -d --rm --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
   mysql:8 >/dev/null
 
@@ -67,6 +72,10 @@ exec_sql() {
 # or wrong-volume restore reads as an obviously wrong value below.
 exec_sql 'CREATE TABLE riftal_selftest.accounts (id INT PRIMARY KEY, balance INT);
           INSERT INTO riftal_selftest.accounts VALUES (1, 500);'
+# restore.sh drops the database, and its procedures with it, so this one
+# exists after the restore only if backup.sh dumped routines.
+exec_sql 'CREATE PROCEDURE riftal_selftest.balance_of_1()
+          SELECT balance FROM riftal_selftest.accounts WHERE id = 1'
 docker run --rm -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo 17 > /world/blocks_broken_mine_a.txt' >/dev/null
 docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
@@ -74,7 +83,7 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=14
+EXPECTED_ASSERTIONS=15
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -133,6 +142,14 @@ restored_balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE id
 [ "$restored_balance" = "500" ] \
   && pass "the account balance matches the backup-time value, not the drifted one" \
   || fail "expected the restored balance 500, got $restored_balance"
+
+restored_call="$(query riftal_selftest 'CALL balance_of_1()' 2>"$LOGS"/out-call.log || true)"
+if [ "$restored_call" = "500" ]; then
+  pass "a stored procedure survives the backup and restore and still runs"
+else
+  fail "expected CALL balance_of_1() to return 500 after the restore, got '$restored_call'"
+  cat "$LOGS"/out-call.log
+fi
 
 restored_blocks="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
 [ "$restored_blocks" = "17" ] \
@@ -212,4 +229,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup, drift, restore to the backup-time state across the database and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"
+printf 'all %s assertions passed: backup, drift, restore to the backup-time state across the database, its stored procedures and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"

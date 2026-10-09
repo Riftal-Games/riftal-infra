@@ -16,6 +16,11 @@
 # work below runs over its own throwaway connections.
 set -euo pipefail
 
+# Filename order decides the apply order and the out-of-order refusal below,
+# and a collating locale such as en_US.UTF-8 puts 0001_a before 0001_B where
+# C puts it after. Pinned here, the order is bytewise on every image.
+export LC_ALL=C
+
 LOCK_NAME="${MIGRATIONS_LOCK_NAME:-riftal_schema_migrations}"
 LOCK_TIMEOUT="${MIGRATIONS_LOCK_TIMEOUT:-60}"
 
@@ -96,18 +101,37 @@ coproc LOCKCONN {
 }
 lock_pid="$LOCKCONN_PID"
 
-released=0
+lock_held=0
 release_lock() {
-  if [ "$released" -eq 0 ]; then
-    released=1
-    if kill -0 "$lock_pid" 2>/dev/null; then
-      printf "SELECT RELEASE_LOCK('%s');\n" "$LOCK_NAME" >&"${LOCKCONN[1]}" 2>/dev/null || true
+  local rc=$? release_result=""
+  # Once bash reaps a dead coprocess it unsets LOCKCONN and closes both of its
+  # descriptors, so an empty value means the lock session is already over.
+  local lock_fd="${LOCKCONN[1]-}" lock_out="${LOCKCONN[0]-}"
+  # A coprocess that has exited but is not yet reaped still has its pipe, and
+  # writing to a pipe with no reader raises SIGPIPE, which would end this
+  # trap before the close and wait below. Ignored, the write just fails.
+  trap '' PIPE
+  if [ -n "$lock_fd" ]; then
+    # Only a 1 proves the lock was still held by this session. A session
+    # killed mid-run answers with an error, or, if the client reconnected,
+    # with NULL from a fresh session that never held it.
+    if printf "SELECT RELEASE_LOCK('%s');\n" "$LOCK_NAME" >&"$lock_fd" 2>/dev/null; then
+      IFS= read -r -t 30 release_result <&"$lock_out" 2>/dev/null || true
+    fi
+    # Closing the write side is what lets the held mysql session see EOF and
+    # exit; without it "wait" below blocks forever, success or failure alike.
+    eval "exec $lock_fd>&-" 2>/dev/null || true
+  fi
+  wait "$lock_pid" 2>/dev/null || true
+  # MySQL drops a named lock when its session ends, so a session that ended
+  # before the run did left a window where another runner could take the lock
+  # and apply the same files concurrently. That run cannot count as a success.
+  if [ "$lock_held" -eq 1 ] && [ "$release_result" != "1" ]; then
+    echo "lost the migration lock '$LOCK_NAME' before the run finished, so another runner may have migrated concurrently" >&2
+    if [ "$rc" -eq 0 ]; then
+      exit 1
     fi
   fi
-  # Closing the write side is what lets the held mysql session see EOF and
-  # exit; without it "wait" below blocks forever, success or failure alike.
-  eval "exec ${LOCKCONN[1]}>&-" 2>/dev/null || true
-  wait "$lock_pid" 2>/dev/null || true
 }
 trap release_lock EXIT
 
@@ -117,10 +141,52 @@ if ! IFS= read -r lock_result <&"${LOCKCONN[0]}"; then
   exit 1
 fi
 if [ "$lock_result" != "1" ]; then
-  echo "could not acquire lock '$LOCK_NAME' within ${LOCK_TIMEOUT}s (GET_LOCK returned: $lock_result)" >&2
+  # Only a 0 is a timeout. A NULL from GET_LOCK means an error, so it is not
+  # reported as a timeout.
+  if [ "$lock_result" = "0" ]; then
+    failure="could not acquire lock '$LOCK_NAME' within ${LOCK_TIMEOUT}s (GET_LOCK returned: 0)"
+  else
+    failure="could not acquire lock '$LOCK_NAME': GET_LOCK returned $lock_result, which is an error and not a timeout"
+  fi
+  # Any login may take the lock by name, so the holder is not necessarily a
+  # runner. Each read below is a separate moment, so the holder may have let
+  # go in between. performance_schema.processlist needs no grant, but without
+  # PROCESS it shows a login only its own sessions, and with
+  # performance_schema=OFF it is empty for every login. An empty row cannot
+  # tell those apart from a session that has ended, so none is claimed.
+  holder="unknown, IS_USED_LOCK could not be read"
+  holder_id="$(run_sql -e "SELECT IS_USED_LOCK('$LOCK_NAME')" 2>/dev/null)" || holder_id=""
+  if [ "$holder_id" = "NULL" ]; then
+    holder="no session by the time IS_USED_LOCK was read"
+  elif [[ "$holder_id" =~ ^[0-9]+$ ]]; then
+    if holder_row="$(run_sql -e "SELECT USER, HOST FROM performance_schema.processlist WHERE ID = $holder_id" 2>/dev/null)"; then
+      if [[ "$holder_row" == *$'\t'* ]]; then
+        holder="connection $holder_id, user ${holder_row%%$'\t'*} from host ${holder_row#*$'\t'}"
+      else
+        holder="connection $holder_id, whose user and host could not be read: its processlist row came back empty"
+      fi
+    else
+      holder="connection $holder_id, whose user and host could not be read: the performance_schema.processlist query failed"
+    fi
+  fi
+  echo "$failure, held by $holder" >&2
   exit 1
 fi
+lock_held=1
 echo "acquired lock '$LOCK_NAME'"
+
+# grants.sql may use REVOKE IF EXISTS, which needs MySQL 8.0.30 (ADR 008), and
+# the mysql:8 tag floats, so the server's own answer decides, before anything
+# is written.
+server_version="$(run_sql -e 'SELECT VERSION()')"
+if [[ ! "$server_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+  echo "could not read a MySQL version from VERSION(), which answered '$server_version'" >&2
+  exit 1
+fi
+if [ $((10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]})) -lt 8000030 ]; then
+  echo "MySQL $server_version is below the 8.0.30 floor of ADR 008, so nothing was applied" >&2
+  exit 1
+fi
 
 run_sql <<'SQL'
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -143,6 +209,51 @@ is_applied() {
   return 1
 }
 
+# A pending file that sorts below one already applied would run after it here
+# but before it on a fresh database, so the two could end with different
+# schemas. The applied list was read under the lock, so no other runner can
+# move the highest applied file while this is decided. Both sides go through
+# the same LC_ALL=C sort as the file list.
+highest=""
+if [ "${#applied[@]}" -gt 0 ]; then
+  highest="$(printf '%s\n' "${applied[@]}" | sort | tail -n 1)"
+fi
+out_of_order=()
+for f in "${files[@]+"${files[@]}"}"; do
+  id="$(basename "$f")"
+  if [ -n "$highest" ] && ! is_applied "$id" \
+     && [ "$(printf '%s\n' "$id" "$highest" | sort | head -n 1)" = "$id" ]; then
+    out_of_order+=("$id")
+  fi
+done
+if [ "${#out_of_order[@]}" -gt 0 ]; then
+  echo "pending migration(s) ${out_of_order[*]} sort below $highest, the highest already applied, so nothing was applied" >&2
+  exit 1
+fi
+
+# Grants are applied on every run rather than recorded, because a dump
+# restored onto a fresh server carries schema_migrations but no roles.
+apply_grants() {
+  if [ -f "$GRANTS_FILE" ]; then
+    echo "applying grants from $GRANTS_FILE"
+    if ! run_sql "$@" < "$GRANTS_FILE"; then
+      echo "grants file $GRANTS_FILE failed, stopping" >&2
+      exit 1
+    fi
+  else
+    echo "no grants file at $GRANTS_FILE, no grants applied"
+  fi
+}
+
+# Dropping a procedure to recreate it drops every role's EXECUTE on it, so a
+# run that stops partway still owes grants to the files it applied. --force
+# carries on past grants naming what the failed file never created.
+stop_after_grants() {
+  echo "$1, applying grants for what did apply, then stopping" >&2
+  apply_grants --force
+  exit 1
+}
+
 pending=0
 for f in "${files[@]+"${files[@]}"}"; do
   id="$(basename "$f")"
@@ -152,13 +263,11 @@ for f in "${files[@]+"${files[@]}"}"; do
   pending=$((pending + 1))
   echo "applying $id"
   if ! run_sql < "$f"; then
-    echo "migration $id failed, stopping" >&2
-    exit 1
+    stop_after_grants "migration $id failed"
   fi
   escaped_id="${id//\'/\'\'}"
   if ! run_sql -e "INSERT INTO schema_migrations (id) VALUES ('$escaped_id')"; then
-    echo "$id applied but could not be recorded as applied, stopping" >&2
-    exit 1
+    stop_after_grants "$id applied but could not be recorded as applied"
   fi
 done
 
@@ -168,17 +277,7 @@ else
   echo "applied $pending pending migration(s)"
 fi
 
-# Grants are applied on every run rather than recorded, because a dump
-# restored onto a fresh server carries schema_migrations but no roles.
-if [ -f "$GRANTS_FILE" ]; then
-  echo "applying grants from $GRANTS_FILE"
-  if ! run_sql < "$GRANTS_FILE"; then
-    echo "grants file $GRANTS_FILE failed, stopping" >&2
-    exit 1
-  fi
-else
-  echo "no grants file at $GRANTS_FILE, no grants applied"
-fi
+apply_grants
 
 for login in "${logins[@]+"${logins[@]}"}"; do
   role="riftal_role_$login"
