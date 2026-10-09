@@ -27,10 +27,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The README's Testing list is the reader's copy of the section titles, so it
+# must name each one exactly and in run order. Checked before any container
+# starts, so a drift fails in a second.
+script_sections="$(sed -n 's/^[[:space:]]*section "\(.*\)"$/\1/p' "${BASH_SOURCE[0]}")"
+readme_sections="$(sed -n '/^## Testing$/,/^## /s/^- //p' "$SCRIPT_DIR/README.md")"
+if [ "$script_sections" != "$readme_sections" ]; then
+  echo "::error::migrations/README.md's section list does not match selftest.sh's section titles"
+  diff <(printf '%s\n' "$script_sections") <(printf '%s\n' "$readme_sections") \
+    | sed 's/^</selftest.sh /; s/^>/README.md   /' || true
+  exit 1
+fi
+
 docker network create "$NETWORK" >/dev/null
 
+# Every container this script starts shares a host with other jobs and other
+# lanes, and one without a limit can take the whole machine's RAM. mysql:8
+# reaches ready and runs every section well inside these.
+LIMITS=(-m 1g --cpus 1)
+
 start_mysql() {
-  docker run -d --rm --name "$1" --network "$NETWORK" --network-alias "$2" \
+  docker run -d --rm "${LIMITS[@]}" --name "$1" --network "$NETWORK" --network-alias "$2" \
     -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
     mysql:8 >/dev/null
 }
@@ -60,16 +77,18 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=40
+EXPECTED_ASSERTIONS=51
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
-section() { printf '\n== %s\n' "$1"; }
+# The closing summary lists these titles, so a new section cannot be left out of it.
+SECTIONS=()
+section() { SECTIONS+=("$1"); printf '\n== %s\n' "$1"; }
 
 # Arguments after the first three go to docker run, for provisioning's env.
 run_migrations() {
   local dir="$1" db="$2" lock="$3"
   shift 3
-  docker run --rm --network "$NETWORK" \
+  docker run --rm "${LIMITS[@]}" --network "$NETWORK" \
     -v "$RUNNER:/run-migrations.sh:ro" -v "$dir:/migrations:ro" \
     -e MYSQL_HOST="${HOST_ALIAS:-mysql}" -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE="$db" -e MIGRATIONS_DIR=/migrations \
@@ -198,6 +217,98 @@ else
   fail "expected exit 1 and a lost-lock error, got exit $lost_rc"
   cat "$LOGS"/out-lostlock.log
 fi
+
+section "a lock held elsewhere times out naming its holder"
+# A login of its own, so the user the runner names can only have come from
+# the holder's processlist row and not from the runner's own root session.
+query riftal_selftest \
+  "CREATE USER 'lockholder'@'%' IDENTIFIED BY 'selftestLockHolder00000006'"
+hold_lock() {
+  docker exec -e MYSQL_PWD=selftestLockHolder00000006 "$CONTAINER" \
+    mysql -h 127.0.0.1 -ulockholder -N -B \
+    -e "SELECT GET_LOCK('$1', 0); SELECT SLEEP(120);" >/dev/null 2>&1 &
+  holder_pid=$!
+  holder_id=""
+  for _ in $(seq 1 30); do
+    holder_id="$(query riftal_selftest "SELECT IS_USED_LOCK('$1')")"
+    [ "$holder_id" != "NULL" ] && break
+    sleep 1
+  done
+}
+release_lock() {
+  query riftal_selftest "KILL $holder_id" 2>/dev/null || true
+  wait "$holder_pid" 2>/dev/null || true
+}
+HELD_LOCK="selftest-held-$SUFFIX"
+hold_lock "$HELD_LOCK"
+held_rc=0
+run_migrations "$FIXTURES/good" riftal_selftest "$HELD_LOCK" \
+  -e MIGRATIONS_LOCK_TIMEOUT=1 >"$LOGS"/out-held.log 2>&1 || held_rc=$?
+release_lock
+if [ "$held_rc" -eq 1 ] && grep -q "could not acquire lock '$HELD_LOCK' within 1s" "$LOGS"/out-held.log; then
+  pass "a held lock exits 1 once the timeout passes"
+else
+  fail "expected exit 1 and the lock timeout, got exit $held_rc"; cat "$LOGS"/out-held.log
+fi
+if grep -qE "held by connection $holder_id, user lockholder from host [^ ]+" "$LOGS"/out-held.log; then
+  pass "the timeout names the holder's connection id, user and host"
+else
+  fail "expected the holder named as connection $holder_id, user lockholder and a host"
+  cat "$LOGS"/out-held.log
+fi
+if ! grep -q "PROCESS" "$LOGS"/out-held.log; then
+  pass "the timeout does not blame a missing PROCESS privilege"
+else
+  fail "expected no mention of PROCESS in the timeout"; cat "$LOGS"/out-held.log
+fi
+if ! grep -q "released after the timeout" "$LOGS"/out-held.log; then
+  pass "the timeout does not claim the lock was released after it"
+else
+  fail "expected no claim that the lock was released after the timeout"
+  cat "$LOGS"/out-held.log
+fi
+
+section "a lock failure says which read of its holder came back unusable"
+# Holds a database grant and nothing global, so no PROCESS and no grant on
+# performance_schema.
+query riftal_selftest \
+  "CREATE USER 'lockrunner'@'%' IDENTIFIED BY 'selftestLockRunner00000007'"
+query riftal_selftest "GRANT ALL ON riftal_selftest.* TO 'lockrunner'@'%'"
+UNREAD_LOCK="selftest-unread-$SUFFIX"
+# Arguments after the first two go to docker run.
+expect_lock_failure() {
+  local name="$1" want="$2" rc=0
+  shift 2
+  run_migrations "$FIXTURES/good" riftal_selftest "$UNREAD_LOCK" \
+    -e MIGRATIONS_LOCK_TIMEOUT=1 "$@" >"$LOGS/out-$name.log" 2>&1 || rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF -- "$want" "$LOGS/out-$name.log"; then
+    pass "$name exits 1 saying: $want"
+  else
+    fail "$name: expected exit 1 and '$want', got exit $rc"
+    cat "$LOGS/out-$name.log"
+  fi
+}
+LOCK_READS=(-v "$FIXTURES/lock-reads:/lock-reads:ro" -e BASH_ENV=/lock-reads/fake-lock-reads.bash)
+hold_lock "$UNREAD_LOCK"
+expect_lock_failure getlock-null \
+  "could not acquire lock '$UNREAD_LOCK': GET_LOCK returned NULL, which is an error and not a timeout" \
+  "${LOCK_READS[@]}" -e SELFTEST_GET_LOCK=NULL
+expect_lock_failure is-used-lock-null \
+  "within 1s (GET_LOCK returned: 0), held by no session by the time IS_USED_LOCK was read" \
+  "${LOCK_READS[@]}" -e SELFTEST_IS_USED_LOCK=NULL
+expect_lock_failure is-used-lock-error \
+  "within 1s (GET_LOCK returned: 0), held by unknown, IS_USED_LOCK could not be read" \
+  "${LOCK_READS[@]}" -e SELFTEST_IS_USED_LOCK=error
+expect_lock_failure processlist-error \
+  "held by connection $holder_id, whose user and host could not be read: the performance_schema.processlist query failed" \
+  "${LOCK_READS[@]}" -e SELFTEST_PROCESSLIST=error
+# The processlist query itself succeeds for this login: the table is readable
+# without a grant, and without PROCESS it hides every session but the login's
+# own.
+expect_lock_failure no-process-login \
+  "held by connection $holder_id, whose user and host could not be read: its processlist row came back empty" \
+  -e MYSQL_USER=lockrunner -e MYSQL_PASSWORD=selftestLockRunner00000007
+release_lock
 
 section "a server below MySQL 8.0.30 is refused before anything is applied"
 at_version() {
@@ -438,6 +549,32 @@ else
   fail "expected ERROR 1449 naming 'root'@'%', got: $orphan"
 fi
 
+section "a migration failing after one that recreates a procedure still applies grants"
+regrant_rc=0
+run_migrations "$FIXTURES/regrant" riftal_selftest_definer "selftest-regrant-$SUFFIX" \
+  -v "$FIXTURES/regrant-grants:/grants:ro" -e GRANTS_FILE=/grants/grants.sql \
+  >"$LOGS"/out-regrant.log 2>&1 || regrant_rc=$?
+regrant_applied="$(query riftal_selftest_definer \
+  'SELECT GROUP_CONCAT(id ORDER BY id) FROM schema_migrations')"
+if [ "$regrant_rc" -eq 1 ] \
+   && grep -q 'migration 0003_broken.sql failed' "$LOGS"/out-regrant.log \
+   && [ "$regrant_applied" = "0001_create_tallies.sql,0002_recreate_tallies_bump.sql" ]; then
+  pass "the run exits 1 naming 0003, with 0002 recorded and 0003 not"
+else
+  fail "expected exit 1 naming 0003 with only 0001 and 0002 recorded, got exit $regrant_rc, applied: $regrant_applied"
+  cat "$LOGS"/out-regrant.log
+fi
+# The dropped EXECUTE leaves the grant tables at once but lingers in the
+# server's cached role privileges until they are reloaded, as a restart does.
+query riftal_selftest_definer 'FLUSH PRIVILEGES'
+regrant_call="$(as_tally 'CALL tallies_bump(); SELECT n FROM tallies' 2>&1 || true)"
+if [ "$regrant_call" = "2" ]; then
+  pass "tally still calls the recreated procedure after the failed run"
+else
+  fail "tally should call the recreated tallies_bump and read n=2, got: $regrant_call"
+  cat "$LOGS"/out-regrant.log
+fi
+
 section "an empty or missing migrations directory still provisions"
 PW_C=selftestPasswordEmptyDir0003
 PW_D=selftestPasswordNoDir0000004
@@ -527,4 +664,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, locale-independent order, MySQL version floor, login provisioning, DEFINER procedures.\n' "$PASSES"
+printf 'all %s assertions passed across %s sections:\n' "$PASSES" "${#SECTIONS[@]}"
+printf '  %s\n' "${SECTIONS[@]}"

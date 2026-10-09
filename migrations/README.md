@@ -28,6 +28,9 @@ under containers, not less (CLAUDE.md hard rule 5).
    highest applied, never forced in.
 4. Stops on the first migration that errors, with a nonzero exit and that
    file left unrecorded. A later run retries it and everything after it.
+   Before exiting it still applies `GRANTS_FILE`, past any statement that
+   errors, because a file before the failed one may have dropped and
+   recreated a procedure, and that drops every role's `EXECUTE` on it.
 5. Is a no-op success when nothing is pending, so running it twice is safe.
 6. Provisions the per-plugin MySQL logins of ADR 008 (riftal-pm
    `docs/decisions/008-per-plugin-mysql-users.md`) on every run, still under
@@ -124,14 +127,13 @@ set -a; . "$INFRA/images/.env"; set +a
 wslc run --rm --network riftal-dev \
   -v "$INFRA/migrations/run-migrations.sh:/run-migrations.sh:ro" \
   -v "$GAME/lib/resources/sql/migrations:/migrations:ro" \
+  -v "$GAME/lib/resources/sql/grants.sql:/grants.sql:ro" \
   -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
-  -e MYSQL_DATABASE=riftal_dev -e MIGRATIONS_DIR=/migrations \
+  -e MYSQL_DATABASE=riftal_dev -e MIGRATIONS_DIR=/migrations -e GRANTS_FILE=/grants.sql \
   mysql:8 bash /run-migrations.sh
 ```
 
-To provision logins in the same run, add
-`-v "$GAME/lib/resources/sql/grants.sql:/grants.sql:ro" -e GRANTS_FILE=/grants.sql`
-and one name-only `-e RIFTAL_DB_PASSWORD_<NAME>` per login, exported in the
+To provision logins in the same run, add one name-only `-e RIFTAL_DB_PASSWORD_<NAME>` per login, exported in the
 shell first, so the password stays off the host's command line. Until
 `riftal-game` ships `grants.sql` (riftal-game#259), the bind mount creates an
 empty directory in its place, and the runner refuses it: any run that sets
@@ -141,21 +143,50 @@ file is a readable regular file. Only a run setting neither skips grants.
 Wrap the `wslc run` above in `timeout 120` when running it unattended: if the
 lock cannot be acquired, this hangs for `MIGRATIONS_LOCK_TIMEOUT` seconds
 before failing loudly, and a hung `wslc` call otherwise gives no signal.
+The failure names the holder: its connection id from `IS_USED_LOCK`, and the
+user and host from that connection's row in `performance_schema.processlist`,
+which needs no grant but shows a login without `PROCESS` only its own
+sessions. An empty row is reported as could not be read, since a hidden row
+and a holder that disconnected between the two reads look the same. Only a
+`GET_LOCK` answer of `0` is reported as a timeout; `NULL` is an error.
 
 ## Testing
 
 `selftest.sh` proves the runner against a real, throwaway `mysql:8`
-container using the fixtures in `fixtures/`: no-op on an empty directory,
-ordered apply with both files recorded, a no-op second run, a broken
-migration halting the run without being recorded, a pending file sorting
-below the highest applied one refusing the run while files above it still
-apply, both of those decided bytewise under a stand-in case-folding locale,
-and two invocations racing
-the same lock name applying a pending migration exactly once, a server
-reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass, and login
-provisioning against `fixtures/grants/`: a login created on an existing
-schema, an idempotent second run, rotation, a restore onto a fresh server,
-and the loud refusals, and the DEFINER procedure checks above. It calls
+container using the fixtures in `fixtures/`. Its sections, in the order it
+runs them, are:
+
+- empty migrations directory is a no-op success
+- applies pending migrations in order and records them
+- second run with nothing new is a no-op success
+- a broken migration halts loudly and is not recorded
+- two invocations racing the same lock name do not double-apply
+- a lock connection that dies early fails cleanly
+- a run whose lock session dies mid-run fails
+- a lock held elsewhere times out naming its holder
+- a lock failure says which read of its holder came back unusable
+- a server below MySQL 8.0.30 is refused before anything is applied
+- a pending file sorting below the highest applied one is refused
+- filename order is bytewise whatever locale the container carries
+- provisioning on an existing schema creates the login with its role
+- a second provisioning run is idempotent
+- a changed password in the environment rotates the login
+- provisioning refuses bad input loudly and changes nothing
+- a restore onto a fresh server, then the step, rebuilds the login
+- a DEFINER procedure runs on its definer's privileges and survives a restore
+- a migration failing after one that recreates a procedure still applies grants
+- an empty or missing migrations directory still provisions
+- a run needing grants fails when the grants file is not a file
+- a plain login named like a role does not pass as the role
+- each half of the role check refuses on its own
+- no provisioning run ever prints a password
+
+The provisioning sections run against `fixtures/grants/`. The role check's
+decoys are two logins, one locked with a password and one open with none,
+each failing exactly one half of the check, so removing either half admits
+one of them. The self-test refuses to start unless these bullets match its
+`section` titles exactly and in order. On success, its closing lines list
+every section title. It calls
 `docker` directly, the same way `.github/workflows/ci.yml`'s PHP lint step
 does, so it runs in CI and, on Nasir's Windows machine, under the Docker
 inside the WSL distro that hosts the CI runners:
