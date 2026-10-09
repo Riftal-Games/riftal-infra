@@ -51,7 +51,7 @@ runs them; it never authors gameplay migrations.
 | `MYSQL_DATABASE` | yes | | `riftal_dev` in the local stack |
 | `MIGRATIONS_DIR` | no | sibling checkout's `riftal-game/lib/resources/sql/migrations` | Mount the real directory in explicitly rather than relying on the fallback |
 | `MIGRATIONS_LOCK_NAME` | no | `riftal_schema_migrations` | Override only for running more than one independent test in parallel |
-| `MIGRATIONS_LOCK_TIMEOUT` | no | `60` (seconds) | |
+| `MIGRATIONS_LOCK_TIMEOUT` | no | `60` (seconds) | A whole number of seconds; anything else fails the run before it connects. Empty means the default |
 | `GRANTS_FILE` | no | sibling checkout's `riftal-game/lib/resources/sql/grants.sql` | Mount the real file in explicitly, as with `MIGRATIONS_DIR` |
 | `RIFTAL_DB_PASSWORD_<NAME>` | no | | One per plugin login to provision, e.g. `RIFTAL_DB_PASSWORD_MINES` for `mines`. At least 24 characters, `[A-Za-z0-9]` only |
 
@@ -165,6 +165,7 @@ runs them, are:
 - a run whose lock session dies mid-run fails
 - a lock held elsewhere times out naming its holder
 - a lock failure says which read of its holder came back unusable
+- a lock timeout that is not a whole number is refused before connecting
 - a server below MySQL 8.0.30 is refused before anything is applied
 - a pending file sorting below the highest applied one is refused
 - filename order is bytewise whatever locale the container carries
