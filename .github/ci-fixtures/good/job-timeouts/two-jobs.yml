@@ -1,0 +1,16 @@
+# Must pass job-timeouts.sh under a 1200-second cutoff: both jobs carry a
+# job-level timeout-minutes, the longer one minute under the cutoff. A step's
+# timeout over the cutoff sends a check that counts it as a job's red.
+on: push
+jobs:
+  first:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: "true"
+        timeout-minutes: 30
+  second:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 19
+    steps:
+      - run: "true"
