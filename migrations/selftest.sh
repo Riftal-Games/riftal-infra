@@ -77,7 +77,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=51
+EXPECTED_ASSERTIONS=55
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # The closing summary lists these titles, so a new section cannot be left out of it.
@@ -309,6 +309,24 @@ expect_lock_failure no-process-login \
   "held by connection $holder_id, whose user and host could not be read: its processlist row came back empty" \
   -e MYSQL_USER=lockrunner -e MYSQL_PASSWORD=selftestLockRunner00000007
 release_lock
+
+section "a lock timeout that is not a whole number is refused before connecting"
+# The host resolves to nothing, so only a refusal made before the lock
+# session connects can produce the expected message.
+for timeout in 1.5 -1 '1 OR SLEEP(5)' abc; do
+  timeout_rc=0
+  run_migrations "$FIXTURES/good" riftal_selftest "selftest-timeout-$SUFFIX" \
+    -e MYSQL_HOST=nowhere.invalid -e MIGRATIONS_LOCK_TIMEOUT="$timeout" \
+    >"$LOGS"/out-timeout.log 2>&1 || timeout_rc=$?
+  if [ "$timeout_rc" -eq 1 ] && grep -qxF \
+       "MIGRATIONS_LOCK_TIMEOUT must be a whole number of seconds, got '$timeout'" \
+       "$LOGS"/out-timeout.log; then
+    pass "MIGRATIONS_LOCK_TIMEOUT='$timeout' exits 1 naming the variable"
+  else
+    fail "MIGRATIONS_LOCK_TIMEOUT='$timeout': expected exit 1 and a refusal naming it, got exit $timeout_rc"
+    cat "$LOGS"/out-timeout.log
+  fi
+done
 
 section "a server below MySQL 8.0.30 is refused before anything is applied"
 at_version() {

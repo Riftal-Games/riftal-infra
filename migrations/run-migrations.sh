@@ -23,6 +23,13 @@ export LC_ALL=C
 
 LOCK_NAME="${MIGRATIONS_LOCK_NAME:-riftal_schema_migrations}"
 LOCK_TIMEOUT="${MIGRATIONS_LOCK_TIMEOUT:-60}"
+# The value is printed straight into the GET_LOCK statement, so anything but
+# digits would reach MySQL as SQL. A negative number is refused too, since
+# GET_LOCK reads it as wait forever and a boot must never hang on the lock.
+if [[ ! "$LOCK_TIMEOUT" =~ ^[0-9]+$ ]]; then
+  echo "MIGRATIONS_LOCK_TIMEOUT must be a whole number of seconds, got '$LOCK_TIMEOUT'" >&2
+  exit 1
+fi
 
 MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
