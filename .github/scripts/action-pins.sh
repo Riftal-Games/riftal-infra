@@ -27,7 +27,12 @@
 # space or the line's end opens the line or follows a `-`, a `[`, a `{` or a
 # `,`; a `uses` key behind a tag, an anchor or more than one `-`; an alias used
 # as a key; and a double-quoted key with an escape in it, because an escape can
-# spell `uses`. A `?` after a tag or an anchor is not refused, because PyYAML
+# spell `uses`. The last two are read as keys where a `:` follows them on their
+# line, and also where they follow a `[`, a `{` or a `,` and then a `?` with no
+# space after it, with nothing after them but blanks or a comment, as in
+# `{ ?*k` with its `:` on the next line. A line inside a flow collection spread
+# over several lines that opens with such a `?` key and has no `:` is not read.
+# A `?` after a tag or an anchor is not refused, because PyYAML
 # rejects the file, in a block or a flow collection. The pattern misreads some
 # keys holding an escaped `\` or `"`, such as `"a\\"`, and lets them pass:
 # neither escape can be part of a key that spells `uses`.
@@ -80,11 +85,17 @@ explicit="^[[:space:]]*(([^#[:space:]].*)?[[{,])?((-[^[:space:]]*)?[[:space:]]+)
 decorated="^[[:space:]]*(([-!&][^[:space:]]*[[:space:]]*)+)(uses|\"uses\"|'uses')[[:space:]]*:"
 # An alias opening a line at column 0 is a key in a flow collection spread over
 # several lines, whose continuation lines need no indent. A `?` with no space
-# after it does not hide an alias: PyYAML reads `{ ?*k : x }` as an explicit key.
-alias_key="^[[:space:]]*([^#[:space:]].*)?(^|[[:space:][{,?])\*[^][:space:],{}[]+[[:space:]]*:([[:space:]]|\$)"
+# after it does not hide an alias: PyYAML reads `{ ?*k : x }` as an explicit key,
+# and `{ ?*k` with its `:` on a later line as well, so after a `[`, `{` or `,`
+# and a `?` an alias with nothing after it but blanks or a comment is refused.
+# Without the `?` PyYAML rejects that file.
+alias_key="^[[:space:]]*([^#[:space:]].*)?((^|[[:space:][{,?])\*[^][:space:],{}[]+[[:space:]]*:([[:space:]]|\$)|[[{,][[:space:]]*\?\*[^][:space:],{}[]+([[:space:]]*\$|[[:space:]]+#))"
 continued_explicit="^[[:space:]]*\?([!&][^[:space:]]*[[:space:]]+)*(uses|\"uses\"|'uses')([[:space:]]*(:|\$)|[[:space:]]+#)"
 blank_or_comment='^[[:space:]]*(#.*)?$'
-escaped_key="^[[:space:]]*([^#[:space:]].*)?\"[^\"\\\\]*\\\\([^\"\\\\]|\\\\.)*\"[[:space:]]*:"
+# An escaped key after a `[`, `{` or `,` and a `?` is refused with nothing after
+# it but blanks or a comment, as PyYAML reads `{ ?"u\x73es"` with its `:` on a
+# later line as an explicit key.
+escaped_key="^[[:space:]]*([^#[:space:]].*)?(\"[^\"\\\\]*\\\\([^\"\\\\]|\\\\.)*\"[[:space:]]*:|[[{,][[:space:]]*\?\"[^\"\\\\]*\\\\([^\"\\\\]|\\\\.)*\"([[:space:]]*\$|[[:space:]]+#))"
 double_quoted='^[[:space:]]*"([^"]*)"(.*)$'
 single_quoted="^[[:space:]]*'([^']*)'(.*)\$"
 plain='^[[:space:]]*([^[:space:]]*)(.*)$'
