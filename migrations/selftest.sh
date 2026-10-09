@@ -77,7 +77,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=55
+EXPECTED_ASSERTIONS=59
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # The closing summary lists these titles, so a new section cannot be left out of it.
@@ -325,6 +325,24 @@ for timeout in 1.5 -1 '1 OR SLEEP(5)' abc; do
   else
     fail "MIGRATIONS_LOCK_TIMEOUT='$timeout': expected exit 1 and a refusal naming it, got exit $timeout_rc"
     cat "$LOGS"/out-timeout.log
+  fi
+done
+
+section "a lock name outside the safe character set is refused before connecting"
+# 65 characters, one past the longest name MySQL accepts for a user lock.
+long_name="$(printf 'a%.0s' $(seq 1 65))"
+for name in "a'b" 'lock name' 'lock.name' "$long_name"; do
+  name_rc=0
+  run_migrations "$FIXTURES/good" riftal_selftest "$name" \
+    -e MYSQL_HOST=nowhere.invalid \
+    >"$LOGS"/out-lockname.log 2>&1 || name_rc=$?
+  if [ "$name_rc" -eq 1 ] && grep -qxF \
+       "MIGRATIONS_LOCK_NAME must be 1 to 64 characters from A-Z a-z 0-9 _ -, got '$name'" \
+       "$LOGS"/out-lockname.log; then
+    pass "MIGRATIONS_LOCK_NAME='$name' exits 1 naming the variable"
+  else
+    fail "MIGRATIONS_LOCK_NAME='$name': expected exit 1 and a refusal naming it, got exit $name_rc"
+    cat "$LOGS"/out-lockname.log
   fi
 done
 
