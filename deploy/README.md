@@ -223,6 +223,24 @@ wslc run --rm --network riftal-dev \
   mysql:8 bash /deploy/binlog-check.sh
 ```
 
+## Custody alert check
+
+`custody-alert-check.sh <log> [<log> ...]` reads one instance's logs, one file
+per process lifetime, oldest first, and alerts when a RiftalCustody
+`emergency` repeats (the riftal-pm workspace's ADR 017 item 4). It reads files
+only and stops, restarts or parks nothing; acting on an alert is a separate,
+later decision. It prints one `CUSTODY ALERT:` line per finding and exits 1
+when two consecutive logs each hold an instance-wide custody stop, when one
+player is refused twice or more anywhere in the logs given (names compared
+case-insensitively), or when an `EMERGENCY` line mentioning RiftalCustody
+matches no known shape, so a reworded custody line alerts rather than going
+quiet. Otherwise it prints one `CUSTODY OK:` line and exits 0. Exit 2 is a
+usage error or an unreadable log, never a pass. `../images/loads-check.sh`
+already fails one boot on any `EMERGENCY` line; this is the view across boots.
+A log left out of the middle of the list makes two stops look consecutive or
+hides one between them, so give it every lifetime in order.
+`custody-alert-check-selftest.sh` proves each rule in CI against fixture logs.
+
 ## Environment
 
 | Variable | Required | Default | Meaning |
