@@ -143,17 +143,35 @@ refused other-db-backup "does not name database" wipe "$DB" "$DB" /tmp/other
 refused absent-database "no database riftal_smoke_absent" \
   wipe riftal_smoke_absent riftal_smoke_absent /tmp/absent
 
-sleeping() { q "SELECT COUNT(*) FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP%'"; }
+# Each hold aliases its SLEEP with its own tag, so hold() and released() count
+# that session and never one an earlier hold left behind.
+HOLDS=0
+HOLD_TAG=
+sleeping() { q "SELECT COUNT(*) FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP(% AS $HOLD_TAG'"; }
 # A session that never connects would let the next refusal case run a real
 # wipe on the fixture, so it stops the self-test rather than muddy every later
 # assertion.
 hold() {
-  docker exec -d "$C" mysql -uroot -pselftest "$@" -e 'SELECT SLEEP(8)'
-  for _ in $(seq 1 20); do [[ "$(sleeping)" =~ ^[1-9][0-9]*$ ]] && return; sleep 0.5; done
-  echo "the session held on $C with default database '${1:-none}' never connected" >&2
+  HOLDS=$((HOLDS + 1))
+  HOLD_TAG="held$HOLDS"
+  docker exec -d "$C" mysql -uroot -pselftest "$@" -e "SELECT SLEEP(8) AS $HOLD_TAG"
+  for _ in $(seq 1 20); do [ "$(sleeping)" = "1" ] && return; sleep 0.5; done
+  echo "the session $HOLD_TAG held on $C with default database '${1:-none}' never connected" >&2
   exit 1
 }
-released() { for _ in $(seq 1 30); do [ "$(sleeping)" = "0" ] && return; sleep 0.5; done; }
+# A session still connected, or a count that cannot be read, would let the next
+# hold's refusal case pass against this session rather than its own, so either
+# stops the self-test.
+released() {
+  local n=
+  for _ in $(seq 1 30); do
+    n="$(sleeping)" || n=
+    [ "$n" = "0" ] && return
+    sleep 0.5
+  done
+  echo "the session $HOLD_TAG held on $C never ended; its count read '${n:-unreadable}'" >&2
+  exit 1
+}
 
 # An account with every privilege on the schema but no PROCESS sees only its
 # own threads in the processlist, so it would count 0 with a session connected.
