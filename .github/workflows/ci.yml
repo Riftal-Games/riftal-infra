@@ -126,6 +126,14 @@ jobs:
       - name: RiftalCustody on every instance self-test
         run: bash images/custody-selftest.sh
 
+      - name: Self-test, prove the mysql:8 pull can fail
+        run: bash .github/scripts/pull-mysql-selftest.sh
+
+      # Every step from here to the wipe self-test runs mysql:8, a floating tag
+      # the stack pulls fresh. The runner's cached copy would go stale unseen.
+      - name: Pull mysql:8
+        run: bash .github/scripts/pull-mysql.sh
+
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
 
