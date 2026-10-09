@@ -100,7 +100,7 @@ expect "a script that is not there" fail 'absent.sh, which cannot be read' "$wor
 expect "missing workflow" fail 'cannot read' "$work/none.yml" "$root"
 
 real="$repo/.github/workflows/ci.yml"
-expect "the real workflow" pass 'after the pull: Wipe self-test' "$real" "$repo"
+expect "the real workflow" pass 'precedes all 5 step(s)' "$real" "$repo"
 
 # The real workflow with its pull step cut out, and with that step put back
 # below the last mysql self-test. A mutation that missed would pass for the

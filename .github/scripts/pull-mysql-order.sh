@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-# Fails unless, in every job of the workflow at $1, a step running
+# Fails unless, in every job of the workflow at $1, a step whose run text names
 # .github/scripts/pull-mysql.sh comes before every step that runs mysql:8
 # (riftal-infra#962). A self-test that starts mysql:8 ahead of the pull runs
 # the runner's cached copy of a floating tag, and CI stays green while it does.
+# The pull is matched on the path appearing anywhere in the run text, so a
+# commented or echoed mention of it counts as the pull.
 #
 # A step runs mysql:8 when its run text, or a script that text names in the
 # form `bash <path>` or `sh <path>`, starts a container and names mysql:8
-# outside a comment. Only that form is followed, one level deep, with an
-# unquoted path and no flag before it. A self-test started any other way, by
-# direct exec, a quoted or flagged path, a nested script or docker compose, is
-# not seen and passes unchecked. Script paths resolve from $2, the repository
-# root, or from the step's working-directory below it. Reads files only.
+# outside a full-line comment. Only that form is followed, one level deep, with
+# an unquoted path and no flag before it. These pass unchecked: a self-test
+# started by direct exec, a quoted or flagged path, a nested script or docker
+# compose; an image named with a registry prefix, such as
+# docker.io/library/mysql:8; and every step of a job whose `steps:` line
+# carries a trailing comment, since that job is never read. Script paths
+# resolve from $2, the repository root, or from the step's working-directory
+# below it. Reads files only.
 set -euo pipefail
 
 workflow="${1:-.github/workflows/ci.yml}"
