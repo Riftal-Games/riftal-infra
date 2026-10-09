@@ -11,13 +11,15 @@
 # down cleanly. With the server as process 1, as in an image without tini,
 # the kernel would drop the SIGKILL, so the command refuses and kills nothing.
 #
-# Needs the local-pocketmine-mp image, present on the self-hosted runners. It
-# publishes no port and keeps nothing: /data is the container's own anonymous
-# volume, removed with it.
+# Runs the pinned core image from ../../core-image.sha, present only on the
+# self-hosted runners' Docker daemon. It publishes no port and keeps nothing:
+# /data is the container's own anonymous volume, removed with it.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE=local-pocketmine-mp
+. "$DIR/../../core-image.sh"
+core_image || { printf 'the crash hook was never checked\n'; exit 1; }
+IMAGE="$CORE_IMAGE"
 ERRORS='CRITICAL|EMERGENCY|Exception|Stack trace'
 
 FAILURES=0
@@ -25,9 +27,6 @@ PASSES=0
 EXPECTED_ASSERTIONS=14
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
-
-docker image inspect "$IMAGE" >/dev/null 2>&1 \
-  || { printf '::error::image %s is not present, so the crash hook was never checked\n' "$IMAGE"; exit 1; }
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -78,13 +77,17 @@ grep -q 'devbots-crash: killing process' "$work/log" \
 [ "$status" -eq 137 ] && pass "the server exits by SIGKILL (137)" \
   || fail "expected exit 137 from SIGKILL, got $status"
 
-printf '
-== dev bots admitted, server is process 1: the console run refuses
-'
+printf '\n== dev bots admitted, server is process 1: the console run refuses\n'
 boot on 1 pid1
 clean "process 1"
-grep -q 'devbots-crash: refused, this server is process 1' "$work/log"   && pass "process 1: the console's run is refused, naming why"   || fail "process 1: the console's run was not refused as process 1"
-grep -q 'crash-hook-probe alive after console' "$work/log"   && ! grep -q 'devbots-crash: killing process' "$work/log"   && [ "$status" -eq 0 ]   && pass "process 1: no kill is claimed and the server stops cleanly"   || fail "process 1: a kill was claimed, or the server did not stop cleanly (exit $status)"
+grep -q 'devbots-crash: refused, this server is process 1' "$work/log" \
+  && pass "process 1: the console's run is refused, naming why" \
+  || fail "process 1: the console's run was not refused as process 1"
+grep -q 'crash-hook-probe alive after console' "$work/log" \
+  && ! grep -q 'devbots-crash: killing process' "$work/log" \
+  && [ "$status" -eq 0 ] \
+  && pass "process 1: no kill is claimed and the server stops cleanly" \
+  || fail "process 1: a kill was claimed, or the server did not stop cleanly (exit $status)"
 
 # $1 --riftal-dev-bots value, $2 RIFTAL_DEV_ENV value, $3 description
 absent() {
