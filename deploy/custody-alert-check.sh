@@ -6,8 +6,9 @@
 #   custody-alert-check.sh <log> [<log> ...]
 #     0  one CUSTODY OK line
 #     1  one CUSTODY ALERT line per finding
-#     2  usage, a log that cannot be read, or a log holding more than one
-#        boot; never a pass
+#     2  usage, a log that cannot be read, a log holding more than one boot,
+#        a log after the first holding none, or a first log holding none and
+#        a custody emergency; never a pass
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
@@ -18,6 +19,11 @@ fi
 # PocketMine appends server.log across restarts (MainLoggerThread.php:95). One
 # file holding two boots would hide two consecutive stops as one log's stops.
 banner='/INFO\]: Loading server configuration'
+# Any EMERGENCY line that mentions RiftalCustody, not only the plugin's own
+# prefix, so a custody line in an unexpected format still fails closed.
+custody='/EMERGENCY\].*RiftalCustody'
+join='concatenate log_archive/*.log oldest first ahead of server.log, then split'
+first=1
 for log in "$@"; do
   if [ ! -f "$log" ] || [ ! -r "$log" ]; then
     echo "custody-alert-check.sh: cannot read $log" >&2
@@ -31,6 +37,28 @@ for log in "$@"; do
     echo "custody-alert-check.sh: $log holds $boots boots; split it at each 'Loading server configuration' line into one file per process lifetime" >&2
     exit 2
   fi
+  # MainLoggerThread archives server.log by size while running, so a piece
+  # without a boot line continues a lifetime from an earlier file. After the
+  # first log, passing it alone would let its head piece reset the
+  # consecutive-stop pairing below and hide two consecutive stops.
+  if [ "$boots" -eq 0 ] && [ "$first" -eq 0 ]; then
+    echo "custody-alert-check.sh: $log has no boot line ('Loading server configuration'), so it is the tail of a lifetime whose head is in an earlier piece; $join" >&2
+    exit 2
+  fi
+  # A first log without one is either the warnings PocketMine.php logs ahead of
+  # the oldest boot line or a lifetime whose head is no longer kept. With no
+  # custody line it changes no finding; with one, its head is missing.
+  if [ "$boots" -eq 0 ]; then
+    found="$(grep -a -c -E "$custody" "$log")" || [ "$?" -eq 1 ] || {
+      echo "custody-alert-check.sh: cannot read $log" >&2
+      exit 2
+    }
+    if [ "$found" -gt 0 ]; then
+      echo "custody-alert-check.sh: $log has no boot line and holds a custody emergency, so the head of its lifetime is missing; $join" >&2
+      exit 2
+    fi
+  fi
+  first=0
 done
 
 # Copied from riftal-game custody/src/RiftalGames/Custody/, with the steps from
@@ -57,9 +85,7 @@ previous=''
 declare -A named=()
 declare -A times=()
 for log in "$@"; do
-  # Any EMERGENCY line that mentions RiftalCustody, not only the plugin's own
-  # prefix, so a custody line in an unexpected format still fails closed.
-  hits="$(grep -a -n -E '/EMERGENCY\].*RiftalCustody' "$log")" || [ "$?" -eq 1 ] || {
+  hits="$(grep -a -n -E "$custody" "$log")" || [ "$?" -eq 1 ] || {
     echo "custody-alert-check.sh: cannot read $log" >&2
     exit 2
   }
