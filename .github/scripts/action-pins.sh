@@ -16,9 +16,11 @@
 # A quoted `"uses":` or `'uses':` key is read like a bare one. A `uses` key with
 # a `[`, `{` or `,` before it on its line, as in `{ uses: ... }` or the
 # single-pair `[ uses: ... ]`, fails whatever its value, because this script
-# reads a value only where the key opens its line. A `uses:` that opens its own
-# line inside a flow mapping spread over several lines is read that way, so a
-# pinned value there passes, and a `,` or `}` after it fails.
+# reads a value only where the key opens its line. Such a key fails too with
+# nothing after it on its line but blanks or a comment, as in `{ ?uses` with its
+# `:` on the next line, which PyYAML reads as an explicit key. A `uses:` that
+# opens its own line inside a flow mapping spread over several lines is read
+# that way, so a pinned value there passes, and a `,` or `}` after it fails.
 #
 # Some lines fail whatever they name, because they can spell a `uses` key that
 # the reading above would miss: an explicit `?` key, where a `?` followed by a
@@ -69,8 +71,10 @@ key="^[[:space:]]*(-[[:space:]]+)?(uses|\"uses\"|'uses')[[:space:]]*:(.*)\$"
 # including one that opens it, so a bracket, brace or comma outside a flow
 # collection is refused too. A tag, an anchor or a `?` between the two does not
 # hide the key, even a `?` with no space after it: PyYAML reads `{ ?uses: x }`
-# as an explicit key.
-flow="^[[:space:]]*([^#[:space:]].*)?[[{,][[:space:]]*([!&?][^[:space:]]*[[:space:]]*)*(uses|\"uses\"|'uses')[[:space:]]*:"
+# as an explicit key, and `{ ?uses` with its `:` on a later line as well, so a
+# key with nothing after it but blanks or a comment is refused like one with a
+# `:`.
+flow="^[[:space:]]*([^#[:space:]].*)?[[{,][[:space:]]*([!&?][^[:space:]]*[[:space:]]*)*(uses|\"uses\"|'uses')([[:space:]]*(:|\$)|[[:space:]]+#)"
 explicit="^[[:space:]]*(([^#[:space:]].*)?[[{,])?((-[^[:space:]]*)?[[:space:]]+)*\?([[:space:]]|\$)"
 # Group 1 is everything before the key: one `-` alone is an ordinary step.
 decorated="^[[:space:]]*(([-!&][^[:space:]]*[[:space:]]*)+)(uses|\"uses\"|'uses')[[:space:]]*:"

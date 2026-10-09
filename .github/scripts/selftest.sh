@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=196
+EXPECTED_ASSERTIONS=198
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -726,6 +726,8 @@ expect_pins_bad "$PIN_WORKFLOWS/comma-alias-key.yml" 10
 expect_pins_bad "$PIN_WORKFLOWS/alias-key-value-next-line.yml" 10
 expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-key.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-key-value-next-line.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-key-comment.yml" 9
 expect_pins_bad "$PIN_WORKFLOWS/column-zero-alias-key.yml" 7
 expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key.yml" 9
 expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-value-next-line.yml" 10

@@ -131,7 +131,10 @@ refuses each of these, so a check that stops refusing one exits 0 there. Three m
 each hold up one pattern alternative that no file above needs, so dropping it exits
 0 at that file: no space between the `?` and a uses key in a flow mapping, the same
 with an alias, both of which PyYAML reads as explicit keys, and an alias key at
-column 0 on a continuation line of a flow collection. Two more open a continuation
+column 0 on a continuation line of a flow collection. Two more put that unspaced
+`?` and uses key after a `{` with the value on the next line, one with nothing
+after the key and one with a comment after it, so the script must refuse the key
+without a `:` behind it on its line. Two more open a continuation
 line of a flow mapping with a `?` and a uses key and no space between them, which
 PyYAML reads as an explicit key: one with the value on the same line, and one with
 the value on the next line and a comment after the `,` before it, so the script
