@@ -12,11 +12,17 @@ declare(strict_types=1);
 
 namespace riftal\dev\bots;
 
+use Logger;
+use pocketmine\command\Command;
+use pocketmine\command\CommandSender;
+use pocketmine\console\ConsoleCommandSender;
 use pocketmine\event\EventPriority;
 use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\event\player\PlayerPreLoginEvent;
 use pocketmine\event\player\PlayerQuitEvent;
+use pocketmine\permission\DefaultPermissions;
 use pocketmine\plugin\PluginBase;
+use pocketmine\utils\Process;
 use function is_string;
 use function strtolower;
 
@@ -103,6 +109,10 @@ final class Main extends PluginBase{
 		$manager->registerEvent(PlayerPreLoginEvent::class, $this->onPreLogin(...), EventPriority::LOWEST, $this);
 		$manager->registerEvent(PlayerJoinEvent::class, $this->onJoin(...), EventPriority::LOWEST, $this);
 		$manager->registerEvent(PlayerQuitEvent::class, $this->onQuit(...), EventPriority::MONITOR, $this);
+
+		if($this->admitting){
+			$server->getCommandMap()->register("riftaldevbots", new CrashCommand($this->getLogger()));
+		}
 	}
 
 	private function onPreLogin(PlayerPreLoginEvent $event) : void{
@@ -149,5 +159,45 @@ final class Main extends PluginBase{
 			return;
 		}
 		unset($this->bots[$name]);
+	}
+}
+
+/**
+ * ADR 017's crash proofs need the server to die mid-tick with no save, no
+ * shutdown and no plugin disable, as a host crash or an OOM kill would. The
+ * guard refuses killing a server container from outside, so the process kills
+ * itself. SIGKILL cannot be caught, so nothing in the process runs after it.
+ *
+ * Registered only when Main admits dev bots, so a server without
+ * --riftal-dev-bots=on, xbox-auth off and RIFTAL_DEV_ENV=1 has no such
+ * command. Runnable only from the server console: a player who could run it
+ * could throw away every unsaved change on the instance at will.
+ * crash-hook/selftest.sh holds both.
+ */
+final class CrashCommand extends Command{
+
+	public const NAME = "devbots-crash";
+
+	public function __construct(private Logger $logger){
+		parent::__construct(self::NAME, "Dev stack only. Kills this server process with SIGKILL, for crash proofs.");
+		$this->setPermission(DefaultPermissions::ROOT_CONSOLE);
+	}
+
+	public function execute(CommandSender $sender, string $commandLabel, array $args) : bool{
+		if(!$sender instanceof ConsoleCommandSender){
+			$sender->sendMessage(self::NAME . " runs only from the server console");
+			return true;
+		}
+		$pid = Process::pid();
+		// The kernel drops a SIGKILL sent to a PID namespace's init from inside
+		// that namespace, so the server would carry on as if nothing happened.
+		// A crash proof run on it would measure a run with no crash in it.
+		if($pid === 1){
+			$this->logger->error(self::NAME . ": refused, this server is process 1 in its container, and a process 1 cannot SIGKILL itself; run the image with an init such as tini as process 1");
+			return true;
+		}
+		$this->logger->warning(self::NAME . ": killing process $pid with SIGKILL");
+		Process::kill($pid);
+		return true;
 	}
 }

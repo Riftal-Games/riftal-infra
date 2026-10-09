@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
@@ -89,7 +89,7 @@ jobs:
           docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -111,6 +111,9 @@ jobs:
 
       - name: Dev bots join order self-test
         run: bash images/plugins/join-order/selftest.sh
+
+      - name: Dev bots crash hook self-test
+        run: bash images/plugins/crash-hook/selftest.sh
 
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
