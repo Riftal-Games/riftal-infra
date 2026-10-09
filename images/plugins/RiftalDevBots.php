@@ -189,6 +189,13 @@ final class CrashCommand extends Command{
 			return true;
 		}
 		$pid = Process::pid();
+		// The kernel drops a SIGKILL sent to a PID namespace's init from inside
+		// that namespace, so the server would carry on as if nothing happened.
+		// A crash proof run on it would measure a run with no crash in it.
+		if($pid === 1){
+			$this->logger->error(self::NAME . ": refused, this server is process 1 in its container, and a process 1 cannot SIGKILL itself; run the image with an init such as tini as process 1");
+			return true;
+		}
 		$this->logger->warning(self::NAME . ": killing process $pid with SIGKILL");
 		Process::kill($pid);
 		return true;

@@ -8,7 +8,8 @@
 # console kills the process: the probe never logs past it, and tini reports
 # the server's SIGKILL as exit 137. Without the --riftal-dev-bots=on flag, or
 # without RIFTAL_DEV_ENV=1, the command does not exist and the server shuts
-# down cleanly.
+# down cleanly. With the server as process 1, as in an image without tini,
+# the kernel would drop the SIGKILL, so the command refuses and kills nothing.
 #
 # Needs the local-pocketmine-mp image, present on the self-hosted runners. It
 # publishes no port and keeps nothing: /data is the container's own anonymous
@@ -21,7 +22,7 @@ ERRORS='CRITICAL|EMERGENCY|Exception|Stack trace'
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=11
+EXPECTED_ASSERTIONS=14
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -35,15 +36,17 @@ mkdir -p "$plugins"
 cp "$DIR/../RiftalDevBots.php" "$DIR/CrashHookProbe.php" "$plugins/"
 chmod -R a+rX "$plugins"
 
-# $1 --riftal-dev-bots value, $2 RIFTAL_DEV_ENV value ("" for unset);
-# leaves the log in $work/log and the exit status in $status
+# $1 --riftal-dev-bots value, $2 RIFTAL_DEV_ENV value ("" for unset),
+# $3 "pid1" to bypass tini so the server is process 1; leaves the log in $work/log and the exit status in $status
 boot() {
   local name="riftal_selftest_crash_hook_$$_$RANDOM"
   local env=()
   [ -n "$2" ] && env=(-e "RIFTAL_DEV_ENV=$2")
+  local entry=()
+  [ "${3:-}" = pid1 ] && entry=(--entrypoint start-pocketmine)
   status=0
   timeout 180 docker run --rm --name "$name" -m 2g --cpus 2 \
-      -v "$plugins:/plugins:ro" "${env[@]}" \
+      -v "$plugins:/plugins:ro" "${env[@]}" "${entry[@]}" \
       -e "POCKETMINE_ARGS=--xbox-auth=false --riftal-dev-bots=$1 --auto-report.enabled=0 --level-type=flat" \
       "$IMAGE" >"$work/log" 2>&1 || status=$?
   if [ "$status" -eq 124 ]; then
@@ -74,6 +77,14 @@ grep -q 'devbots-crash: killing process' "$work/log" \
   || fail "the console's run did not kill the process before a shutdown"
 [ "$status" -eq 137 ] && pass "the server exits by SIGKILL (137)" \
   || fail "expected exit 137 from SIGKILL, got $status"
+
+printf '
+== dev bots admitted, server is process 1: the console run refuses
+'
+boot on 1 pid1
+clean "process 1"
+grep -q 'devbots-crash: refused, this server is process 1' "$work/log"   && pass "process 1: the console's run is refused, naming why"   || fail "process 1: the console's run was not refused as process 1"
+grep -q 'crash-hook-probe alive after console' "$work/log"   && ! grep -q 'devbots-crash: killing process' "$work/log"   && [ "$status" -eq 0 ]   && pass "process 1: no kill is claimed and the server stops cleanly"   || fail "process 1: a kill was claimed, or the server did not stop cleanly (exit $status)"
 
 # $1 --riftal-dev-bots value, $2 RIFTAL_DEV_ENV value, $3 description
 absent() {
