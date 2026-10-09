@@ -35,24 +35,12 @@ check() {
 # run that has ended, which holds only while every job in this workflow times
 # out sooner. A job with no timeout-minutes runs for 6 hours.
 reap_after=1200
-workflow="${dir%/scripts}/workflows/ci.yml"
-if [ ! -r "$workflow" ]; then
-  check fail "cannot read $workflow to check every job times out before the reap"
-  exit 1
-fi
-read -r jobs limited worst bad < <(awk '
-  /^    runs-on:/ { jobs++ }
-  /^    timeout-minutes:/ {
-    limited++
-    if ($2 !~ /^[0-9]+$/) bad++
-    else if ($2 + 0 > worst) worst = $2 + 0
-  }
-  END { print jobs + 0, limited + 0, worst + 0, bad + 0 }' "$workflow")
-if [ "$jobs" -gt 0 ] && [ "$limited" -eq "$jobs" ] && [ "$bad" -eq 0 ] &&
-  [ $((worst * 60)) -lt "$reap_after" ]; then
-  check ok "every one of $jobs job(s) in $workflow times out within $worst minutes, under the reap's $((reap_after / 60))"
+# shellcheck source=job-timeouts.sh
+. "$dir/job-timeouts.sh"
+if verdict="$(job_timeouts_under "${dir%/scripts}/workflows/ci.yml" "$reap_after")"; then
+  check ok "$verdict, the reap's cutoff"
 else
-  check fail "$workflow: $jobs job(s), $limited with a job-level timeout-minutes, $bad not a plain number, longest $worst minutes; every job needs one under the reap's $((reap_after / 60)) minutes"
+  check fail "$verdict; every job needs a job-level timeout-minutes under the reap's cutoff"
   exit 1
 fi
 

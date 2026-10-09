@@ -28,15 +28,20 @@ jobs:
   checks:
     name: lint and validate
     runs-on: [self-hosted, linux, riftal]
-    # A passing run takes up to about 9 minutes. ci-sweep-selftest.sh removes
-    # its other-job volumes once they are 20 minutes old, as left by a run
-    # that has ended, and fails unless every job here times out sooner.
+    # ci-sweep-selftest.sh removes its other-job volumes once they are older
+    # than its reap_after, as left by a run that has ended, and fails unless
+    # every job here times out sooner.
     timeout-minutes: 15
 
     steps:
       # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
       # what runs with this job's token.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # Reads fixtures only, so it runs before any step that starts a
+      # container and no engine fault can mask it.
+      - name: Self-test, prove the job timeout check can fail
+        run: bash .github/scripts/job-timeouts-selftest.sh
 
       # Before any step that starts a container, so every one of them carries
       # this job's label for the sweep at the end.

@@ -156,6 +156,15 @@ opening a flow continuation line, so a check that refuses every line opening wit
 trailing word for the check on what follows the value: without either, a sha at the
 end of the line passes.
 
+`good/job-timeouts/` and `bad/job-timeouts/` drive the function in
+`.github/scripts/job-timeouts.sh` through `job-timeouts-selftest.sh`, which
+ci.yml runs before any container starts. Each is asserted on its exit and its
+exact reason line under a 1200-second cutoff. The bad files are a job with no
+`timeout-minutes`, a job whose only one is on a step, an expression value, and
+a value equal to the cutoff. The good file has two jobs, the longer one minute
+under the cutoff, and a step timeout over it, so a check that reads a step's
+timeout as its job's goes red there.
+
 `fake-locale-sort.bash` is a `sort` function the Dockerfile order check loads
 through `BASH_ENV`. It folds case under any collating locale and keeps C order
 under C, so a scan.sh that drops its `LC_ALL=C` goes red on any host, whether
