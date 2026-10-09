@@ -13,6 +13,7 @@ trap 'rm -rf "$DIR"' EXIT
 e='[Server thread/EMERGENCY]: [RiftalCustody]'
 quiet() {
   printf '%s\n' \
+    '[11:59:59.000] [Server thread/INFO]: Loading server configuration' \
     '[12:00:00.000] [Server thread/INFO]: Enabling RiftalCustody v0.1.0' \
     '[12:00:00.500] [Server thread/INFO]: Done (1.234s)! For help, type "help" or "?"' \
     '[12:00:01.000] [Server thread/EMERGENCY]: [OtherPlugin] not a custody line'
@@ -38,11 +39,14 @@ log steve-upper.log "$(nothing sTEVE)"
 log alex.log "$(nothing Alex)"
 log alex-twice.log "$(held Alex)" "$(held alex)"
 log reworded.log "$e flushing Steve failed at save; the probe failed, killing the process"
+log unprefixed.log '[12:00:02.000] [Server thread/EMERGENCY]: RiftalCustody was disabled while the server is running; killing the process so no world saves without it'
 # A log copied off a Windows host ends its lines in CRLF.
 { quiet; printf '%s\r\n' "$probe_failed"; } >"$DIR/crlf.log"
+# server.log as an instance leaves it: two lifetimes appended in one file.
+cat "$DIR/probe.log" "$DIR/disabled.log" >"$DIR/merged.log"
 
 failures=0
-# check <exit> <regex every output must match> <case> <log>...
+# check <exit> <regex some output line must match> <case> <log>...
 check() {
   local want="$1" match="$2" case="$3" out got
   shift 3
@@ -61,20 +65,23 @@ check() {
 
 check 0 '^CUSTODY OK: 3 log\(s\), 1 instance-wide' 'one instance-wide stop passes' \
   quiet.log crlf.log quiet.log
-check 1 '^CUSTODY ALERT: instance-wide custody stop in two consecutive logs: probe.log:4, then disabled.log:4$' \
+check 1 '^CUSTODY ALERT: instance-wide custody stop in two consecutive logs: probe.log:5, then disabled.log:5$' \
   'two consecutive instance-wide stops alert' probe.log disabled.log
 check 0 '^CUSTODY OK: 3 log\(s\), 2 instance-wide' 'two non-consecutive instance-wide stops pass' \
   probe.log quiet.log disabled.log
-check 1 '^CUSTODY ALERT: player steve refused 2 times: steve.log:4, steve-upper.log:4$' \
+check 1 '^CUSTODY ALERT: player steve refused 2 times: steve.log:5, steve-upper.log:5$' \
   'one player in two logs, in different letter case, alerts' steve.log quiet.log steve-upper.log
-check 1 '^CUSTODY ALERT: player alex refused 2 times: alex-twice.log:4, alex-twice.log:5$' \
+check 1 '^CUSTODY ALERT: player alex refused 2 times: alex-twice.log:5, alex-twice.log:6$' \
   'one player twice in one log alerts' alex-twice.log
 check 0 '^CUSTODY OK: 2 log\(s\), 0 instance-wide stop\(s\), 2 player refusal' 'two players pass' \
   steve.log alex.log
-check 1 '^CUSTODY ALERT: unclassified custody emergency at reworded.log:4: ' \
+check 1 '^CUSTODY ALERT: unclassified custody emergency at reworded.log:5: ' \
   'an unclassified custody emergency alerts' quiet.log reworded.log
+check 1 '^CUSTODY ALERT: unclassified custody emergency at unprefixed.log:5: ' \
+  'a custody emergency without the plugin prefix alerts' quiet.log unprefixed.log
 check 2 '^usage: ' 'no log is a usage error'
 check 2 'cannot read missing.log' 'a missing log is an error, not a pass' quiet.log missing.log
+check 2 'merged.log holds 2 boots' 'a log holding two boots is an error, not a pass' merged.log
 
 if [ "$failures" -ne 0 ]; then
   printf '%s case(s) failed\n' "$failures"

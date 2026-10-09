@@ -6,16 +6,29 @@
 #   custody-alert-check.sh <log> [<log> ...]
 #     0  one CUSTODY OK line
 #     1  one CUSTODY ALERT line per finding
-#     2  usage, or a log that cannot be read; never a pass
+#     2  usage, a log that cannot be read, or a log holding more than one
+#        boot; never a pass
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
   echo 'usage: custody-alert-check.sh <log> [<log> ...], one per process lifetime, oldest first' >&2
   exit 2
 fi
+# pmmp-core src/Server.php:813 logs this once per process, untranslated, and
+# PocketMine appends server.log across restarts (MainLoggerThread.php:95). One
+# file holding two boots would hide two consecutive stops as one log's stops.
+banner='/INFO\]: Loading server configuration'
 for log in "$@"; do
   if [ ! -f "$log" ] || [ ! -r "$log" ]; then
     echo "custody-alert-check.sh: cannot read $log" >&2
+    exit 2
+  fi
+  boots="$(grep -a -c -E "$banner" "$log")" || [ "$?" -eq 1 ] || {
+    echo "custody-alert-check.sh: cannot read $log" >&2
+    exit 2
+  }
+  if [ "$boots" -gt 1 ]; then
+    echo "custody-alert-check.sh: $log holds $boots boots; split it at each 'Loading server configuration' line into one file per process lifetime" >&2
     exit 2
   fi
 done
