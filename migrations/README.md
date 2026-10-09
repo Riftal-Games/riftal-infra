@@ -200,3 +200,7 @@ exit, so concurrent runs on one host do not clobber each other. A SIGINT or
 SIGTERM, as from `timeout` or a cancelled CI job, runs the same teardown: every
 container the run started, found by its `riftal_smoke_migrations=<run>` label,
 then its network, then the logs. The run then exits 130 or 143.
+`signal-selftest.sh`, run in CI after the self-test, proves it: it interrupts
+one run with SIGTERM while the race section's runners are up and another with
+SIGINT once its first container starts, then checks the exit code and that no
+labelled container, network or log directory is left.
