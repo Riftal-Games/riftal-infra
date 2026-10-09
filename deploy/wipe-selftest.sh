@@ -149,7 +149,7 @@ sleeping() { q "SELECT COUNT(*) FROM performance_schema.processlist WHERE INFO L
 # assertion.
 hold() {
   docker exec -d "$C" mysql -uroot -pselftest "$@" -e 'SELECT SLEEP(8)'
-  for _ in $(seq 1 20); do [ "$(sleeping)" != "0" ] && return; sleep 0.5; done
+  for _ in $(seq 1 20); do [[ "$(sleeping)" =~ ^[1-9][0-9]*$ ]] && return; sleep 0.5; done
   echo "the session held on $C with default database '${1:-none}' never connected" >&2
   exit 1
 }
@@ -159,7 +159,7 @@ released() { for _ in $(seq 1 30); do [ "$(sleeping)" = "0" ] && return; sleep 0
 # own threads in the processlist, so it would count 0 with a session connected.
 q "CREATE USER 'wiper'@'%' IDENTIFIED BY 'selftest'; GRANT ALL ON $DB.* TO 'wiper'@'%'"
 hold "$DB"
-refused connected-session "other session" wipe "$DB" "$DB" /tmp/set
+refused connected-session "other session(s) are connected to .*; close every other connection, instances first" wipe "$DB" "$DB" /tmp/set
 WIPE_USER=wiper refused no-process "lacks a direct PROCESS grant" wipe "$DB" "$DB" /tmp/set
 released
 hold
