@@ -12,7 +12,7 @@ ran=0
 # prints its closing line is the exact failure it exists to catch. One per
 # fixture file, called workflows below them excluded, and one for a missing
 # path, so dropping a case means deleting its fixture too.
-expected=$(($(find "$fixtures/good/job-timeouts" "$fixtures/bad/job-timeouts"   -maxdepth 1 -type f -name '*.yml' | wc -l) + 1))
+expected=$(($(find "$fixtures/good/job-timeouts" "$fixtures/bad/job-timeouts" -maxdepth 1 -type f -name '*.yml' | wc -l) + 1))
 
 # Each refusal must name its own reason, so a fixture refused for a defect it
 # was not written for does not count. A check that follows a call loop forever
@@ -34,9 +34,13 @@ expect() {
 }
 
 f="$fixtures/good/job-timeouts/two-jobs.yml"
-expect good/job-timeouts/two-jobs.yml pass   "every one of 2 job(s) in $f times out within 19 minutes, under 20"
+expect good/job-timeouts/two-jobs.yml pass "every one of 2 job(s) run by $f times out within 19 minutes, under 20"
 f="$fixtures/good/job-timeouts/calls-local.yml"
-expect good/job-timeouts/calls-local.yml pass   "every one of 2 job(s) in $f times out within 12 minutes, under 20"
+expect good/job-timeouts/calls-local.yml pass "every one of 2 job(s) run by $f times out within 12 minutes, under 20"
+f="$fixtures/good/job-timeouts/calls-twice.yml"
+expect good/job-timeouts/calls-twice.yml pass "every one of 4 job(s) run by $f times out within 14 minutes, under 20"
+f="$fixtures/good/job-timeouts/key-after-jobs.yml"
+expect good/job-timeouts/key-after-jobs.yml pass "every one of 1 job(s) run by $f times out within 7 minutes, under 20"
 f="$fixtures/bad/job-timeouts/missing.yml"
 expect bad/job-timeouts/missing.yml fail "$f: job second has no job-level timeout-minutes"
 f="$fixtures/bad/job-timeouts/step-level.yml"
@@ -55,16 +59,16 @@ f="$fixtures/bad/job-timeouts/no-jobs.yml"
 expect bad/job-timeouts/no-jobs.yml fail "$f: no job key indented two spaces under jobs"
 f="$fixtures/bad/job-timeouts/calls-untimed.yml"
 c="$fixtures/bad/job-timeouts/.github/workflows/called-untimed.yml"
-expect bad/job-timeouts/calls-untimed.yml fail   "$f: job call: $c: job inner has no job-level timeout-minutes"
+expect bad/job-timeouts/calls-untimed.yml fail "$f: job call: $c: job inner has no job-level timeout-minutes"
 f="$fixtures/bad/job-timeouts/calls-remote.yml"
-expect bad/job-timeouts/calls-remote.yml fail   "$f: job call uses Riftal-Games/riftal-infra/.github/workflows/ci.yml@ad88fa0a1b2c3d4e5f60718293a4b5c6d7e8f901, not a workflow in this checkout's .github/workflows, so its jobs cannot be read"
+expect bad/job-timeouts/calls-remote.yml fail "$f: job call uses Riftal-Games/riftal-infra/.github/workflows/ci.yml@ad88fa0a1b2c3d4e5f60718293a4b5c6d7e8f901, not a workflow in this checkout's .github/workflows, so its jobs cannot be read"
 f="$fixtures/bad/job-timeouts/calls-loop.yml"
 c="$fixtures/bad/job-timeouts/.github/workflows/loop.yml"
-expect bad/job-timeouts/calls-loop.yml fail   "$f: job call: $c: job again calls $c, which is already in its own call chain"
+expect bad/job-timeouts/calls-loop.yml fail "$f: job call: $c: job again calls $c, which is already in its own call chain"
 f="$fixtures/bad/job-timeouts/calls-cycle.yml"
 a="$fixtures/bad/job-timeouts/.github/workflows/cycle-a.yml"
 b="$fixtures/bad/job-timeouts/.github/workflows/cycle-b.yml"
-expect bad/job-timeouts/calls-cycle.yml fail   "$f: job call: $a: job next: $b: job back calls $a, which is already in its own call chain"
+expect bad/job-timeouts/calls-cycle.yml fail "$f: job call: $a: job next: $b: job back calls $a, which is already in its own call chain"
 f="$fixtures/bad/job-timeouts/absent.yml"
 expect bad/job-timeouts/absent.yml fail "cannot read $f to check every job times out"
 
