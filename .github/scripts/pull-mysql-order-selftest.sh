@@ -11,7 +11,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=13
+expected=39
 
 root="$work/root"
 mkdir -p "$root/.github/scripts" "$root/sub"
@@ -27,6 +27,13 @@ printf '%s run --rm php:8.3-cli-alpine true\n' "$engine" >"$root/start.sh"
 printf '%s run --rm php:8.3-cli-alpine true\n' "$engine" >"$root/php.sh"
 printf '# %s run --rm mysql:8 true\n%s run --rm php:8.3-cli-alpine true\n' "$engine" "$engine" >"$root/comment.sh"
 printf "expect 'pull mysql:8'\n" >"$root/named.sh"
+cp "$root/db.sh" "$root/db"
+printf '%s run --rm mysql:8 true\n' podman >"$root/podman.sh"
+printf '%s run --rm mysql:8 true\n' /usr/local/bin/Docker >"$root/cased.sh"
+printf '%s run --rm mysql:8 true\n' '"${engine}"' >"$root/var.sh"
+printf '%s --context x run --rm mysql:8 true\n' "$engine" >"$root/flag.sh"
+printf '%s run --rm docker.io/library/mysql:8 true\n' "$engine" >"$root/registry.sh"
+printf '%s compose -f compose.yaml up -d mysql\n' "$engine" >"$root/compose.sh"
 
 # Prints a workflow with one job per argument group. Each step is name=run,
 # and a job starts at an argument job:<key>.
@@ -98,6 +105,62 @@ workflow job:a "$pull" "db=bash db.sh" "gone=bash absent.sh" >"$work/absent.yml"
 expect "a script that is not there" fail 'absent.sh, which cannot be read' "$work/absent.yml" "$root"
 
 expect "missing workflow" fail 'cannot read' "$work/none.yml" "$root"
+
+# Each form of a mysql:8 start, or of a script that holds one, placed before
+# the pull with a plain mysql:8 step after it, so the only way to fail is to
+# see the first step.
+for form in "direct=./db" 'flagged=bash -e "db"' "quoted=bash 'db.sh'" 'yaml="bash db"' \
+  "podman=bash podman.sh" "cased=bash cased.sh" "variable=bash var.sh" "global flag=bash flag.sh" \
+  "registry=bash registry.sh" "compose=bash compose.sh" \
+  "bundled o=bash -euo pipefail db" "lone o=bash -o pipefail db"; do
+  workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/form.yml"
+  expect "${form%%=*} before the pull" fail "step '${form%%=*}' runs mysql:8 before" "$work/form.yml" "$root"
+done
+
+workflow job:a "$pull" "db=bash db.sh" "prose=echo built with sh today" >"$work/prose.yml"
+expect "a sh word in prose is not a script" pass 'precedes all 1 step(s)' "$work/prose.yml" "$root"
+
+{
+  workflow job:a
+  printf '      - name: image\n        uses: docker://mysql:8\n'
+  workflow "$pull" "db=bash db.sh" | sed 1,4d
+} >"$work/uses.yml"
+expect "uses: docker:// before the pull" fail "step 'image' runs mysql:8 before" "$work/uses.yml" "$root"
+for q in '"' "'"; do
+  sed "s|uses: docker://mysql:8|uses: ${q}docker://mysql:8${q}|" "$work/uses.yml" >"$work/uses-quoted.yml"
+  expect "uses: ${q}docker://${q} before the pull" fail "step 'image' runs mysql:8 before" "$work/uses-quoted.yml" "$root"
+done
+
+for key in 'services:\n      db:\n        image: mysql:8' 'container: ubuntu:24.04'; do
+  workflow job:a "$pull" "db=bash db.sh" | sed "s/^    steps:\$/    $key\n    steps:/" >"$work/job-key.yml"
+  expect "job-level ${key%%:*}" fail 'sets services: or container:' "$work/job-key.yml" "$root"
+done
+
+workflow job:a "$pull" "db=bash start.sh" | sed 's/^jobs:$/defaults:\n  run:\n    working-directory: sub\njobs:/' >"$work/defaults.yml"
+expect "workflow defaults working-directory" fail 'working-directory: outside a step' "$work/defaults.yml" "$root"
+workflow job:a "$pull" "db=bash start.sh" |
+  sed 's/^    steps:$/    defaults:\n      run:\n        working-directory: sub\n    steps:/' >"$work/job-defaults.yml"
+expect "job defaults working-directory" fail 'working-directory: outside a step' "$work/job-defaults.yml" "$root"
+
+workflow job:a "$pull" "db=bash db.sh" job:b "db2=bash db.sh" "$pull" |
+  sed '/^  b:$/,$ s/^    steps:$/    steps: # b/' >"$work/steps-comment.yml"
+expect "a steps: line with a comment" fail "step 'db2' runs mysql:8 before .github/scripts/pull-mysql.sh in job b" \
+  "$work/steps-comment.yml" "$root"
+
+workflow job:a "$pull" "db=bash db.sh" job:b "db2=bash db.sh" | sed '5,$ s/^/  /' >"$work/indent.yml"
+expect "jobs indented four spaces" fail "step 'db2' runs mysql:8 before .github/scripts/pull-mysql.sh in job b" \
+  "$work/indent.yml" "$root"
+
+workflow job:a "echoed=echo .github/scripts/pull-mysql.sh" "db=bash db.sh" >"$work/echoed.yml"
+expect "an echoed pull path" fail "step 'echoed' names .github/scripts/pull-mysql.sh but is not" "$work/echoed.yml" "$root"
+
+workflow job:a "both=bash .github/scripts/pull-mysql.sh; bash db.sh" "db=bash db.sh" >"$work/both.yml"
+expect "a pull step that also runs mysql:8" fail "step 'both' runs mysql:8 before" "$work/both.yml" "$root"
+
+for key in 'if: false' 'continue-on-error: true'; do
+  workflow job:a "$pull" "db=bash db.sh" | sed "s/^      - name: pull\$/&\n        $key/" >"$work/cond.yml"
+  expect "pull step with ${key%%:*}:" fail "pull step 'pull' sets ${key%%:*}:" "$work/cond.yml" "$root"
+done
 
 real="$repo/.github/workflows/ci.yml"
 expect "the real workflow" pass 'precedes all 5 step(s)' "$real" "$repo"
