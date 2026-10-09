@@ -20,12 +20,25 @@ LOGS="$(mktemp -d)"
 
 # -v takes the anonymous volume the mysql:8 image declares with each container,
 # which would otherwise outlive every run.
+# A runner's `docker run` killed between create and start leaves its unnamed
+# container in Created, where --rm never acts, so cleanup also takes every
+# container on this run's network.
 cleanup() {
-  docker rm -f -v "$CONTAINER" "$FRESH" >/dev/null 2>&1 || true
+  trap '' INT TERM
+  local ids=()
+  mapfile -t ids < <(docker ps -aq --filter "network=$NETWORK" 2>/dev/null)
+  docker rm -f -v "$CONTAINER" "$FRESH" "${ids[@]}" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
 }
 trap cleanup EXIT
+# timeout signals this shell and then its whole process group, so one expiry
+# can deliver TERM twice. With TERM untrapped, bash starts the EXIT trap the
+# moment the first arrives, and the second kills it partway through cleanup.
+# Trapped, cleanup starts only once the foreground command has returned, and
+# the shell ignores every later signal while it runs.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # The README's Testing list is the reader's copy of the section titles, so it
 # must name each one exactly and in run order. Checked before any container

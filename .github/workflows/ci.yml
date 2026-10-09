@@ -129,6 +129,9 @@ jobs:
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
 
+      - name: Migration runner self-test teardown under timeout
+        run: bash migrations/signal-selftest.sh
+
       - name: Backup job self-test
         run: bash deploy/selftest.sh
 
