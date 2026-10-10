@@ -88,6 +88,7 @@ migrate() {
 }
 wipe() {
   env_run -e MYSQL_USER="${WIPE_USER:-root}" ${WIPE_MAX_AGE:+-e "WIPE_BACKUP_MAX_AGE_MINUTES=$WIPE_MAX_AGE"} \
+    ${WIPE_TZ:+-e "TZ=$WIPE_TZ"} \
     -e MYSQL_DATABASE="$1" -e WIPE_CONFIRM="$2" -e BACKUP_SET="$3" "$C" bash /deploy/wipe.sh
 }
 check() {
@@ -103,19 +104,22 @@ q "INSERT INTO $DB.balances VALUES (1, 500);
    CREATE TABLE $DB.stray_unmigrated (id INT PRIMARY KEY);
    INSERT INTO $DB.stray_unmigrated VALUES (1);"
 
+# The fresh set is backup.sh's own, so a timestamp format backup.sh no longer
+# writes fails the confirmed wipe below rather than only every real wipe.
+sh_in "mkdir -p /tmp/worlds/riftal_smoke_vol && printf 'x\n' > /tmp/worlds/riftal_smoke_vol/level.dat"
+env_run -e MYSQL_DATABASE="$DB" -e BACKUP_ROOT=/tmp/backups -e WORLDS_DIR=/tmp/worlds "$C" bash /deploy/backup.sh \
+  >"$LOGS/backup.log" 2>&1 || { cat "$LOGS/backup.log"; exit 1; }
+sh_in 'sets=(/tmp/backups/[0-9]*); [ "${#sets[@]}" = 1 ] && cp -r "${sets[0]}" /tmp/set'
 # Prints a manifest's timestamp line as backup.sh writes it, for a set taken
 # at the given date -d time.
 stamp_cmd() { printf "date -u -d '%s' +'timestamp: %%Y%%m%%dT%%H%%M%%S%%NZ'" "$1"; }
-NOW="$(stamp_cmd now)"
+NOW="grep '^timestamp: ' /tmp/set/manifest.txt"
 # A set restore.sh accepts holds worlds/ with at least one tar that lists.
 TAR=riftal_smoke_vol.tar.gz
-sh_in "mkdir -p /tmp/set/worlds /tmp/other /tmp/empty /tmp/absent/worlds /tmp/vol \
-  && printf 'x\n' > /tmp/vol/level.dat && tar -czf /tmp/set/worlds/$TAR -C /tmp/vol . \
+sh_in "mkdir -p /tmp/other /tmp/empty /tmp/absent/worlds \
   && cp /tmp/set/worlds/$TAR /tmp/absent/worlds/ \
   && printf 'x\n' > /tmp/absent/mysql.sql \
   && { $NOW; printf 'mysql_database: riftal_smoke_absent\n'; } > /tmp/absent/manifest.txt \
-  && MYSQL_PWD=selftest mysqldump -uroot --single-transaction --routines $DB > /tmp/set/mysql.sql \
-  && { $NOW; printf 'mysql_database: $DB\n'; } > /tmp/set/manifest.txt \
   && cp /tmp/set/mysql.sql /tmp/other/ && printf 'mysql_database: riftal_other\n' > /tmp/other/manifest.txt \
   && for s in noworlds notars badtar; do mkdir -p /tmp/\$s && cp /tmp/set/mysql.sql /tmp/set/manifest.txt /tmp/\$s/; done \
   && mkdir -p /tmp/notars/worlds /tmp/badtar/worlds && printf 'x\n' > /tmp/notars/worlds/level.dat \
@@ -134,10 +138,15 @@ stamped twostamps "$NOW; $NOW"
 stamped badformat "echo 'timestamp: 2026-10-10T00:00:00Z'"
 stamped badtime "echo 'timestamp: 20261340T250000000000000Z'"
 stamped stale_absent "$(stamp_cmd '-2 hours')" riftal_smoke_absent
+# backup.sh's stamp with a nanosecond digit too few and one too many. Each
+# names the absent database, so a format check that let it through reaches
+# that refusal rather than a wipe of the fixture.
+stamped eightnanos "sed -n '/^timestamp: /s/[0-9]Z\$/Z/p' /tmp/set/manifest.txt" riftal_smoke_absent
+stamped tennanos "sed -n '/^timestamp: /s/Z\$/0Z/p' /tmp/set/manifest.txt" riftal_smoke_absent
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=37
+EXPECTED_ASSERTIONS=41
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -170,11 +179,25 @@ refused other-db-backup "does not name database" wipe "$DB" "$DB" /tmp/other
 refused absent-database "no database riftal_smoke_absent" \
   wipe riftal_smoke_absent riftal_smoke_absent /tmp/absent
 refused stale-set "1[0-9][0-9] minute(s) old, over WIPE_BACKUP_MAX_AGE_MINUTES=60" wipe "$DB" "$DB" /tmp/stale
-refused future-set "in the future" wipe "$DB" "$DB" /tmp/future
+refused future-set "7[12][0-9][0-9]s in the future by this host's clock; if backup.sh ran on another host, its clock is ahead of this one" \
+  wipe "$DB" "$DB" /tmp/future
 refused no-timestamp "holds 0 timestamp line(s)" wipe "$DB" "$DB" /tmp/nostamp
 refused two-timestamps "holds 2 timestamp line(s)" wipe "$DB" "$DB" /tmp/twostamps
 refused bad-format "not in backup.sh's format" wipe "$DB" "$DB" /tmp/badformat
 refused bad-time "not a valid UTC time" wipe "$DB" "$DB" /tmp/badtime
+refused eight-nanos "not in backup.sh's format" wipe riftal_smoke_absent riftal_smoke_absent /tmp/eightnanos
+refused ten-nanos "not in backup.sh's format" wipe riftal_smoke_absent riftal_smoke_absent /tmp/tennanos
+# backup.sh's stamp is UTC whatever TZ it ran under, so a fresh set passes the
+# age check, reaching the absent database, under a zone either side of UTC. A
+# zone the container cannot parse would read as UTC and prove nothing.
+for zone in RIFT-14:+1400 RIFT+12:-1200; do
+  [ "$(docker exec -e TZ="${zone%%:*}" "$C" date +%z)" = "${zone#*:}" ] \
+    || { echo "TZ=${zone%%:*} does not read as ${zone#*:} in $C" >&2; exit 1; }
+done
+WIPE_TZ=RIFT-14 refused tz-east-fresh "no database riftal_smoke_absent" \
+  wipe riftal_smoke_absent riftal_smoke_absent /tmp/absent
+WIPE_TZ=RIFT+12 refused tz-west-fresh "no database riftal_smoke_absent" \
+  wipe riftal_smoke_absent riftal_smoke_absent /tmp/absent
 WIPE_MAX_AGE=0 refused zero-max-age "must be a whole number" wipe "$DB" "$DB" /tmp/set
 WIPE_MAX_AGE=1h refused unit-max-age "must be a whole number" wipe "$DB" "$DB" /tmp/set
 WIPE_MAX_AGE=180 refused raised-max-age "no database riftal_smoke_absent" \
@@ -302,8 +325,8 @@ printf '\n== with performance_schema off, a connected session still refuses the 
 qp() { docker exec "$C_PSOFF" mysql -uroot -pselftest -N -B -e "$1" 2>/dev/null; }
 qp "CREATE TABLE $DB.t (id INT PRIMARY KEY); INSERT INTO $DB.t VALUES (1), (2), (3)"
 docker exec "$C_PSOFF" bash -c "mkdir -p /tmp/set/worlds /tmp/vol && printf 'x\n' > /tmp/set/mysql.sql \
-  && printf 'x\n' > /tmp/vol/level.dat && tar -czf /tmp/set/worlds/$TAR -C /tmp/vol . \
-  && { $NOW; printf 'mysql_database: $DB\n'; } > /tmp/set/manifest.txt"
+  && printf 'x\n' > /tmp/vol/level.dat && tar -czf /tmp/set/worlds/$TAR -C /tmp/vol ."
+docker exec "$C" cat /tmp/set/manifest.txt | docker exec -i "$C_PSOFF" bash -c 'cat > /tmp/set/manifest.txt'
 docker exec -d "$C_PSOFF" mysql -uroot -pselftest "$DB" -e 'SELECT SLEEP(20)'
 held=0
 for _ in $(seq 1 20); do

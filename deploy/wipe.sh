@@ -62,9 +62,12 @@ m=("${BASH_REMATCH[@]}")
 taken="$(date -u -d "${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}" +%s 2>/dev/null)" \
   || fail "$BACKUP_SET/manifest.txt timestamp '$stamp' is not a valid UTC time"
 age=$(( $(date -u +%s) - taken ))
-# backup.sh and this script read the same clock on one host, so a set from the
-# future means the clock moved or the manifest was not written by backup.sh.
-[ "$age" -ge 0 ] || fail "$BACKUP_SET was taken $(( -age ))s in the future"
+# The stamp is the clock of the host backup.sh ran on. On this host, a set from
+# the future means the clock moved or the manifest was not written by backup.sh.
+# From another host, it is that clock running ahead of this one, and the set
+# stays refused because its age cannot be known.
+[ "$age" -ge 0 ] \
+  || fail "$BACKUP_SET was taken $(( -age ))s in the future by this host's clock; if backup.sh ran on another host, its clock is ahead of this one"
 [ "$age" -le $(( WIPE_BACKUP_MAX_AGE_MINUTES * 60 )) ] \
   || fail "$BACKUP_SET is $(( age / 60 )) minute(s) old, over WIPE_BACKUP_MAX_AGE_MINUTES=$WIPE_BACKUP_MAX_AGE_MINUTES; take a fresh backup with every instance stopped"
 
