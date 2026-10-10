@@ -37,6 +37,18 @@ fail() {
 grep -qx "mysql_database: $MYSQL_DATABASE" "$BACKUP_SET/manifest.txt" 2>/dev/null \
   || fail "$BACKUP_SET/manifest.txt does not name database $MYSQL_DATABASE"
 
+# deploy/WIPE.md names this set as the rollback, so it must pass the checks
+# restore.sh makes before it touches anything, or a wipe could go ahead with no
+# way back.
+[ -d "$BACKUP_SET/worlds" ] || fail "$BACKUP_SET has no worlds/ directory, so restore.sh could not roll the wipe back"
+shopt -s nullglob
+world_tars=("$BACKUP_SET"/worlds/*.tar.gz)
+shopt -u nullglob
+[ "${#world_tars[@]}" -gt 0 ] || fail "$BACKUP_SET/worlds holds no .tar.gz, so restore.sh could not roll the wipe back"
+for tar_file in "${world_tars[@]}"; do
+  tar -tzf "$tar_file" >/dev/null || fail "$tar_file does not list with tar -tzf, so restore.sh could not roll the wipe back"
+done
+
 [[ "$WIPE_BACKUP_MAX_AGE_MINUTES" =~ ^[1-9][0-9]{0,5}$ ]] \
   || fail "WIPE_BACKUP_MAX_AGE_MINUTES must be a whole number of minutes from 1 to 999999"
 # backup.sh writes the line once, as date -u +%Y%m%dT%H%M%S%NZ. Anything else
@@ -70,20 +82,21 @@ sql() {
 # step, and this catches one that was missed.
 #
 # Without PROCESS the processlist shows only this account's own threads, so the
-# count below would read 0 whatever is connected. PROCESS held through a role
-# is not seen here, which refuses rather than guesses.
-[ "$(sql "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE PRIVILEGE_TYPE = 'PROCESS'
-  AND GRANTEE = CONCAT('''', REPLACE(CURRENT_USER(), '@', '''@'''), '''')")" = "1" ] \
-  || fail "$MYSQL_USER lacks a direct PROCESS grant, so it cannot see every session"
+# count below would read 0 whatever is connected. SHOW GRANTS with no FOR lists
+# the session's privileges with its active roles expanded, so it is read in the
+# same session as the count, and a granted role that is not active refuses.
+#
 # The processlist is empty when the server runs with performance_schema off,
 # and could be blind for a reason not foreseen here, so its count is trusted
 # only once it shows this connection's own thread.
 #
 # Every session counts whatever its default database, because any of them can
 # write here by qualified name.
-counts="$(sql "SELECT COALESCE(SUM(ID = CONNECTION_ID()), 0), COALESCE(SUM(COMMAND <> 'Daemon'
+probe="$(sql "SHOW GRANTS; SELECT 'counts', COALESCE(SUM(ID = CONNECTION_ID()), 0), COALESCE(SUM(COMMAND <> 'Daemon'
   AND ID <> CONNECTION_ID()), 0) FROM performance_schema.processlist")"
-read -r own sessions <<<"$counts"
+grep -Eq '^GRANT ([^,]+, )*(PROCESS|ALL PRIVILEGES)(, [^,]+)* ON \*\.\* TO ' <<<"$probe" \
+  || fail "$MYSQL_USER lacks PROCESS, directly or through an active role, so it cannot see every session"
+read -r _ own sessions < <(grep '^counts' <<<"$probe") || true
 [ "$own" = "1" ] || fail "the processlist does not show this session, so it cannot see the others; is performance_schema off?"
 [ "$sessions" = "0" ] || fail "$sessions other session(s) are connected to $MYSQL_HOST:$MYSQL_PORT; close every other connection, instances first"
 

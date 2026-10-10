@@ -107,17 +107,24 @@ q "INSERT INTO $DB.balances VALUES (1, 500);
 # at the given date -d time.
 stamp_cmd() { printf "date -u -d '%s' +'timestamp: %%Y%%m%%dT%%H%%M%%S%%NZ'" "$1"; }
 NOW="$(stamp_cmd now)"
-sh_in "mkdir -p /tmp/set /tmp/other /tmp/empty /tmp/absent \
+# A set restore.sh accepts holds worlds/ with at least one tar that lists.
+TAR=riftal_smoke_vol.tar.gz
+sh_in "mkdir -p /tmp/set/worlds /tmp/other /tmp/empty /tmp/absent/worlds /tmp/vol \
+  && printf 'x\n' > /tmp/vol/level.dat && tar -czf /tmp/set/worlds/$TAR -C /tmp/vol . \
+  && cp /tmp/set/worlds/$TAR /tmp/absent/worlds/ \
   && printf 'x\n' > /tmp/absent/mysql.sql \
   && { $NOW; printf 'mysql_database: riftal_smoke_absent\n'; } > /tmp/absent/manifest.txt \
   && MYSQL_PWD=selftest mysqldump -uroot --single-transaction --routines $DB > /tmp/set/mysql.sql \
   && { $NOW; printf 'mysql_database: $DB\n'; } > /tmp/set/manifest.txt \
-  && cp /tmp/set/mysql.sql /tmp/other/ && printf 'mysql_database: riftal_other\n' > /tmp/other/manifest.txt"
+  && cp /tmp/set/mysql.sql /tmp/other/ && printf 'mysql_database: riftal_other\n' > /tmp/other/manifest.txt \
+  && for s in noworlds notars badtar; do mkdir -p /tmp/\$s && cp /tmp/set/mysql.sql /tmp/set/manifest.txt /tmp/\$s/; done \
+  && mkdir -p /tmp/notars/worlds /tmp/badtar/worlds && printf 'x\n' > /tmp/notars/worlds/level.dat \
+  && cp /tmp/set/worlds/$TAR /tmp/badtar/worlds/ && printf 'not a tar\n' > /tmp/badtar/worlds/riftal_smoke_vol_z.tar.gz"
 # One set per way its timestamp can fail, each otherwise valid for $DB, and a
 # two-hour-old set naming the absent database, which can pass the age check
 # with no wipe to follow it.
 stamped() {
-  sh_in "mkdir -p /tmp/$1 && cp /tmp/absent/mysql.sql /tmp/$1/ \
+  sh_in "mkdir -p /tmp/$1 && cp -r /tmp/absent/mysql.sql /tmp/absent/worlds /tmp/$1/ \
     && { $2; printf 'mysql_database: %s\n' '${3:-$DB}'; } > /tmp/$1/manifest.txt"
 }
 stamped stale "$(stamp_cmd '-2 hours')"
@@ -130,7 +137,7 @@ stamped stale_absent "$(stamp_cmd '-2 hours')" riftal_smoke_absent
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=32
+EXPECTED_ASSERTIONS=37
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -206,9 +213,29 @@ released() {
 # An account with every privilege on the schema but no PROCESS sees only its
 # own threads in the processlist, so it would count 0 with a session connected.
 q "CREATE USER 'wiper'@'%' IDENTIFIED BY 'selftest'; GRANT ALL ON $DB.* TO 'wiper'@'%'"
+# PROCESS through a role counts only while the role is active in the session,
+# which a default role is at login and a granted, non-default one is not.
+q "CREATE ROLE 'riftal_smoke_process'; GRANT PROCESS ON *.* TO 'riftal_smoke_process';
+   CREATE USER 'role_wiper'@'%' IDENTIFIED BY 'selftest', 'idle_role_wiper'@'%' IDENTIFIED BY 'selftest';
+   GRANT ALL ON $DB.* TO 'role_wiper'@'%', 'idle_role_wiper'@'%';
+   GRANT 'riftal_smoke_process' TO 'role_wiper'@'%', 'idle_role_wiper'@'%';
+   SET DEFAULT ROLE 'riftal_smoke_process' TO 'role_wiper'@'%'"
 hold "$DB"
 refused connected-session "other session(s) are connected to .*; close every other connection, instances first" wipe "$DB" "$DB" /tmp/set
-WIPE_USER=wiper refused no-process "lacks a direct PROCESS grant" wipe "$DB" "$DB" /tmp/set
+WIPE_USER=wiper refused no-process "lacks PROCESS, directly or through an active role" wipe "$DB" "$DB" /tmp/set
+released
+hold "$DB"
+WIPE_USER=idle_role_wiper refused inactive-role-process "lacks PROCESS, directly or through an active role" \
+  wipe "$DB" "$DB" /tmp/set
+WIPE_USER=role_wiper refused role-process-session "1 other session(s) are connected" wipe "$DB" "$DB" /tmp/set
+released
+# The held session is a backstop: a wipe.sh that missed one of these checks is
+# refused for the session instead, and fails the case without a drop.
+hold "$DB"
+refused no-worlds-dir "has no worlds/ directory, so restore.sh" wipe "$DB" "$DB" /tmp/noworlds
+refused no-world-tars "worlds holds no .tar.gz, so restore.sh" wipe "$DB" "$DB" /tmp/notars
+refused bad-world-tar "riftal_smoke_vol_z.tar.gz does not list with tar -tzf, so restore.sh" \
+  wipe "$DB" "$DB" /tmp/badtar
 released
 hold
 refused no-default-db-session "other session" wipe "$DB" "$DB" /tmp/set
@@ -274,7 +301,8 @@ fi
 printf '\n== with performance_schema off, a connected session still refuses the wipe\n'
 qp() { docker exec "$C_PSOFF" mysql -uroot -pselftest -N -B -e "$1" 2>/dev/null; }
 qp "CREATE TABLE $DB.t (id INT PRIMARY KEY); INSERT INTO $DB.t VALUES (1), (2), (3)"
-docker exec "$C_PSOFF" bash -c "mkdir -p /tmp/set && printf 'x\n' > /tmp/set/mysql.sql \
+docker exec "$C_PSOFF" bash -c "mkdir -p /tmp/set/worlds /tmp/vol && printf 'x\n' > /tmp/set/mysql.sql \
+  && printf 'x\n' > /tmp/vol/level.dat && tar -czf /tmp/set/worlds/$TAR -C /tmp/vol . \
   && { $NOW; printf 'mysql_database: $DB\n'; } > /tmp/set/manifest.txt"
 docker exec -d "$C_PSOFF" mysql -uroot -pselftest "$DB" -e 'SELECT SLEEP(20)'
 held=0
