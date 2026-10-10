@@ -11,7 +11,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=59
+expected=72
 
 root="$work/root"
 mkdir -p "$root/.github/scripts" "$root/sub"
@@ -34,6 +34,9 @@ printf '%s run --rm mysql:8 true\n' '"${engine}"' >"$root/var.sh"
 printf '%s --context x run --rm mysql:8 true\n' "$engine" >"$root/flag.sh"
 printf '%s run --rm docker.io/library/mysql:8 true\n' "$engine" >"$root/registry.sh"
 printf '%s compose -f compose.yaml up -d mysql\n' "$engine" >"$root/compose.sh"
+mkdir -p "$root/lint" "$root/dbs"
+cp "$root/php.sh" "$root/lint/php.sh"
+cp "$root/db.sh" "$root/dbs/db.sh"
 
 # Prints a workflow with one job per argument group. Each step is name=run,
 # and a job starts at an argument job:<key>.
@@ -114,7 +117,8 @@ for form in "direct=./db" 'flagged=bash -e "db"' "quoted=bash 'db.sh'" 'yaml="ba
   "registry=bash registry.sh" "compose=bash compose.sh" \
   "bundled o=bash -euo pipefail db" "lone o=bash -o pipefail db" "dot=. ./db" "source=source ./db" \
   'braced="{ bash db; }"' "command=command bash db" "timeout kill=timeout -k 5 10 bash db" \
-  "rcfile=bash --rcfile php.sh db"; do
+  "rcfile=bash --rcfile php.sh db" "plus x=bash +x db" "plus e=bash +e db" \
+  "timeout signal=timeout --signal=KILL 5m ./db" "glob=bash dbs/*.sh"; do
   workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/form.yml"
   expect "${form%%=*} before the pull" fail "step '${form%%=*}' runs mysql:8 before" "$work/form.yml" "$root"
 done
@@ -164,6 +168,41 @@ expect "a pull script that runs mysql:8" fail "pull step 'pull' runs mysql:8 its
 
 workflow job:a "$pull" "db=bash db.sh" "prose=echo built with sh today" >"$work/prose.yml"
 expect "a sh word in prose is not a script" pass 'precedes all 1 step(s)' "$work/prose.yml" "$root"
+
+# lint/ holds only a php script, so reading what the glob matches finds no
+# mysql:8, and bash -n parses a script without running it.
+workflow job:a "lint=shellcheck lint/*.sh" 'parse=for f in lint/*.sh; do bash -n "$f"; done' \
+  "status=$(printf '%s compose ps; systemctl start x' "$engine")" "$pull" "db=bash db.sh" >"$work/lint.yml"
+expect "a glob, bash -n and a start after a compose command" pass 'precedes all 1 step(s)' "$work/lint.yml" "$root"
+
+for form in 'variable=bash "$f"' 'variable path=bash "$d"/db.sh' "quoted glob=find . -name '*.sh'"; do
+  workflow job:a "$pull" "db=bash db.sh" "$form" >"$work/unresolved.yml"
+  expect "${form%%=*}" fail "step '${form%%=*}' names a script through a variable or a quoted glob" \
+    "$work/unresolved.yml" "$root"
+done
+
+for wd in '"sub"' "'sub'" 'sub # start.sh at the root runs php'; do
+  {
+    workflow job:a
+    printf '      - name: subdir\n        working-directory: %s\n        run: bash start.sh\n' "$wd"
+    workflow "$pull" "db=bash db.sh" | sed 1,4d
+  } >"$work/wd.yml"
+  expect "working-directory: $wd" fail "step 'subdir' runs mysql:8 before" "$work/wd.yml" "$root"
+done
+
+{
+  workflow job:a
+  printf '      - name: continued\n        run: |\n          %s compose -f compose.yaml \\\n            up -d\n' "$engine"
+  workflow "$pull" "db=bash db.sh" | sed 1,4d
+} >"$work/continued.yml"
+expect "compose continued onto a second line" fail "step 'continued' runs mysql:8 before" "$work/continued.yml" "$root"
+
+{
+  workflow job:a "php=bash php.sh"
+  printf '      - run: bash db.sh\n'
+  workflow "$pull" | sed 1,4d
+} >"$work/unnamed.yml"
+expect "a step with no name" fail "step '#2' runs mysql:8 before" "$work/unnamed.yml" "$root"
 
 {
   workflow job:a

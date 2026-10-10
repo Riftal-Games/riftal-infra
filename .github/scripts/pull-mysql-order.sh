@@ -4,7 +4,7 @@
 # mysql:8 ahead of the pull runs the runner's cached copy of a floating tag,
 # and CI stays green while it does.
 #
-# The pull step is one whose whole run text, comments dropped, is
+# The pull step is one whose whole run text, full-line comments dropped, is
 # `bash .github/scripts/pull-mysql.sh`, with no if: and no continue-on-error:
 # other than false, since either can let the job go on without a pull. Its
 # own text, script included, must not run mysql:8. Any other step that names
@@ -18,23 +18,29 @@
 # is docker, podman or nerdctl, by any path and in any case, or a shell
 # variable, then any closing } and ", then any global flags, then run, create
 # or container run|create; or any compose up, run, create or start, which
-# counts whatever it names, since the compose file is not read. The name and
-# the start are tested separately over the whole text, so a trailing comment
-# can flag a step that does neither.
+# counts whatever it names, since the compose file is not read. A line ending
+# in \ joins the next, and the words between compose and its verb stop at ;,
+# & or |, which end the compose command. The name and the start are tested
+# separately over the whole text, so a trailing comment can flag a step that
+# does neither.
 #
 # A step's text is its run text, every env: in scope at step, job and
 # workflow level, and every script the run text names: a word ending in .sh,
 # a word starting ./ or ../ as a command, the operand of . or source, and the
 # first operand of a bash or sh command after its flags and any --rcfile
-# argument, unless -c is one of them. Each is read one level deep: a script
-# that starts another script is not followed. A relative path resolves from
-# $2, the repository root, joined with the step's working-directory.
+# argument, unless -c is one of them, or -n, which parses without running.
+# An unquoted glob reads every file it matches. Each is read one level deep:
+# a script that starts another script is not followed. A relative path
+# resolves from $2, the repository root, joined with the step's
+# working-directory, its quotes and trailing comment dropped.
 #
 # What it cannot place, it refuses rather than skips: a job-level services:
 # or container:, a working-directory: outside a step as under defaults:, a
 # steps: key with a value on its line, a job indented less than the first, a
 # run that has cd or pushd as a word anywhere, inside bash -c included, and
-# names a relative script, and a script it cannot read. Reads files only.
+# names a relative script, a script named through a variable or a quoted
+# glob, and a script it cannot read. Reads files only. A step with no name:
+# is reported as #N, its place in its job.
 set -euo pipefail
 
 workflow="${1:-.github/workflows/ci.yml}"
@@ -59,12 +65,19 @@ steps_of() {
     function indent(s) { match(s, /^ */); return RLENGTH }
     function flush() {
       if (instep) {
+        if (name == "") name = "#" stepno
         rec[++n] = "S\036" job "\036" name "\036" wd "\036" cond "\036" image "\036" run "\036" ifx "\036" senv
         recjob[n] = job
       }
       instep = 0
     }
     function refuse(why) { rec[++n] = "E\036line " NR ": " why }
+    # Quotes and a trailing comment are YAML around the value, not part of it.
+    function scalar(s) {
+      if (s ~ /^"/) { sub(/^"/, "", s); sub(/".*/, "", s); return s }
+      if (s ~ ("^" q)) { sub("^" q, "", s); sub(q ".*", "", s); return s }
+      sub(/[ \t]+#.*/, "", s); sub(/[ \t]+$/, "", s); return s
+    }
     # A run scalar that is not a literal | block folds its lines into one
     # command, so those join with a space.
     function more(s) {
@@ -97,18 +110,18 @@ steps_of() {
     }
     !insteps && /^[ ]*steps:/ {
       if ($0 !~ /^[ ]*steps:[ \t]*(#.*)?$/) { refuse("a steps: key with a value on its line"); next }
-      insteps = 1; stepsat = indent($0); dash = -1; next
+      insteps = 1; stepsat = indent($0); dash = -1; stepno = 0; next
     }
     !insteps { next }
     /^[ ]*- / && (dash < 0 || indent($0) == dash) {
-      flush(); dash = indent($0); instep = 1; name = ""; wd = ""; cond = ""; image = ""; run = ""; ifx = ""; senv = ""
+      flush(); dash = indent($0); instep = 1; stepno++; name = ""; wd = ""; cond = ""; image = ""; run = ""; ifx = ""; senv = ""
       sub(/- /, "  ")
     }
     !instep { next }
     {
       line = $0; at = indent(line); sub(/^ */, "", line)
-      if (line ~ /^name:/) { sub(/^name:[ \t]*/, "", line); name = line }
-      else if (line ~ /^working-directory:/) { sub(/^working-directory:[ \t]*/, "", line); wd = line }
+      if (line ~ /^name:/) { sub(/^name:[ \t]*/, "", line); name = scalar(line) }
+      else if (line ~ /^working-directory:/) { sub(/^working-directory:[ \t]*/, "", line); wd = scalar(line) }
       else if (line ~ /^if:/) { cond = cond " if:"; sub(/^if:[ \t]*/, "", line); ifx = line; cont = "if"; contat = at }
       else if (line ~ /^env:/) { sub(/^env:[ \t]*/, "", line); senv = line; cont = "senv"; contat = at }
       else if (line ~ /^continue-on-error:/ && line !~ /^continue-on-error:[ \t]*false[ \t]*(#.*)?$/) {
@@ -128,12 +141,28 @@ steps_of() {
     }' "$1"
 }
 
+glob='[*?[]'
+
+# Prints a script word with its quotes dropped. A variable, or a glob inside
+# quotes that the shell may pass on unexpanded, names nothing this check can
+# read, so it prints as a refusal line instead.
+script_word() {
+  local word="${1//[\"\']/}"
+  if [[ "$word" == *'$'* ]] || { [[ "$1" == *[\"\']* ]] && [[ "$word" == *$glob* ]]; }; then
+    printf '\tvar %s\n' "$word"
+  else
+    printf '%s\n' "$word"
+  fi
+}
+
 # Prints each script the run text names, one per line.
 scripts_of() {
-  local code seg word i
+  local code seg word i noexec
   local -a w
   code="$(grep -vE '^[[:space:]]*#' <<<"$1" || true)"
-  grep -oE "[^[:space:]\"'=<>;&|()]+\.sh([^[:alnum:]_.-]|\$)" <<<"$code" | sed -E 's/\.sh.$/.sh/' || true
+  while IFS= read -r word; do
+    script_word "$word"
+  done < <(grep -oE "[^[:space:]=<>;&|()]+\.sh([^[:alnum:]_.-]|\$)" <<<"$code" | sed -E 's/\.sh.$/.sh/' || true)
   while IFS= read -r seg; do
     read -ra w <<<"${seg//[\"\']/}" || true
     # Any word, not only the command word, since bash -c, sudo or a wrapper
@@ -148,18 +177,20 @@ scripts_of() {
     done
     word="${w[i]:-}"
     case "$word" in
-      ./* | ../*) printf '%s\n' "$word" ;;
-      . | source) [ -z "${w[i + 1]:-}" ] || printf '%s\n' "${w[i + 1]}" ;;
+      ./* | ../*) script_word "$word" ;;
+      . | source) [ -z "${w[i + 1]:-}" ] || script_word "${w[i + 1]}" ;;
       bash | sh)
+        noexec=
         for ((i = i + 1; i < ${#w[@]}; i++)); do
+          [[ ! "${w[i]}" =~ ^-[^-]*n ]] || noexec=1
           case "${w[i]}" in
             --rcfile | --init-file) i=$((i + 1)) ;;
             --*) ;;
             -*c*) break ;;
             [-+]*[oO]) i=$((i + 1)) ;;
-            -*) ;;
+            -* | +*) ;;
             *)
-              printf '%s\n' "${w[i]}"
+              [ -n "$noexec" ] || script_word "${w[i]}"
               break
               ;;
           esac
@@ -174,8 +205,14 @@ scripts_of() {
 # that changes directory and then names a relative script, since that script
 # would be resolved from the wrong place.
 text_of() {
-  local run="$1" wd="$2" name="$3" path scripts
+  local run="$1" wd="$2" name="$3" path scripts unresolved files file
   scripts="$(scripts_of "$run" | sort -u)"
+  unresolved="$(grep -m1 $'^\tvar ' <<<"$scripts" || true)"
+  if [ -n "$unresolved" ]; then
+    printf "::error::%s: step '%s' names a script through a variable or a quoted glob, %s, which this check cannot resolve\n" \
+      "$workflow" "$name" "${unresolved#$'\tvar '}" >&2
+    return 1
+  fi
   if grep -qx $'\tcd' <<<"$scripts" && grep -qv -e '^/' -e $'^\tcd$' <<<"$scripts"; then
     printf "::error::%s: step '%s' changes directory before running a relative script, which this check cannot resolve; set working-directory: instead\n" \
       "$workflow" "$name" >&2
@@ -188,11 +225,15 @@ text_of() {
       /*) ;;
       *) path="$root/${wd:+$wd/}$path" ;;
     esac
-    if [ ! -f "$path" ] || [ ! -r "$path" ]; then
-      printf '::error::%s: step runs %s, which cannot be read to tell whether it runs mysql:8\n' "$workflow" "$path" >&2
-      return 1
-    fi
-    cat "$path"
+    files="$path"
+    [[ "$path" != *$glob* ]] || files="$(compgen -G "$path" || printf '%s' "$path")"
+    while IFS= read -r file; do
+      if [ ! -f "$file" ] || [ ! -r "$file" ]; then
+        printf '::error::%s: step runs %s, which cannot be read to tell whether it runs mysql:8\n' "$workflow" "$file" >&2
+        return 1
+      fi
+      cat "$file"
+    done <<<"$files"
   done <<<"$scripts"
 }
 
@@ -200,11 +241,11 @@ mysql_ref='(^|[^[:alnum:]_.-])([[:alnum:]._-]+(:[0-9]+)?/)*mysql:8([^[:alnum:]_.
 engine='(^|[^[:alnum:]_.$-])([^[:space:]]*/)?(docker|podman|nerdctl)|\$\{?[[:alpha:]_][[:alnum:]_]*'
 flag='[[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?'
 start="($engine)[}\"]*($flag)*[[:space:]]+(container[[:space:]]+)?(run|create)([[:space:]]|\$)"
-compose="($engine)[}\"]*([[:space:]]+|-)compose([[:space:]]+[^[:space:]]+)*[[:space:]]+(up|run|create|start)([[:space:]]|\$)"
+compose="($engine)[}\"]*([[:blank:]]+|-)compose([[:blank:]]+[^[:space:];&|]+)*[[:blank:]]+(up|run|create|start)([[:space:]]|\$)"
 
 runs_mysql() {
   local code
-  code="$(grep -vE '^[[:space:]]*#' || true)"
+  code="$(grep -vE '^[[:space:]]*#' | tr -d '\r' | sed -E ':a;/\\$/{N;s/\\\n//;ba}' || true)"
   grep -qiE "$compose" <<<"$code" ||
     { grep -qE "$mysql_ref" <<<"$code" && grep -qiE "$start" <<<"$code"; }
 }
