@@ -19,8 +19,9 @@
 # variable, then any closing } and ", then any global flags, then run, create
 # or container run|create; or any compose up, run, create or start, which
 # counts whatever it names, since the compose file is not read. A line ending
-# in \ joins the next, and the words between compose and its verb stop at ;,
-# & or |, which end the compose command. The name and the start are tested
+# in \ joins the next, and the words between compose and its verb stop at a
+# ;, & or | that is not escaped, quoted or inside a ${{ }} expression, which
+# ends the compose command. The name and the start are tested
 # separately over the whole text, so a trailing comment can flag a step that
 # does neither.
 #
@@ -28,7 +29,8 @@
 # workflow level, and every script the run text names: a word ending in .sh,
 # a word starting ./ or ../ as a command, the operand of . or source, and the
 # first operand of a bash or sh command after its flags and any --rcfile
-# argument, unless -c is one of them, or -n, which parses without running.
+# argument, unless -c is one of them, or -n with no later +n, which parses
+# without running.
 # An unquoted glob reads every file it matches. Each is read one level deep:
 # a script that starts another script is not followed. A relative path
 # resolves from $2, the repository root, joined with the step's
@@ -183,6 +185,7 @@ scripts_of() {
         noexec=
         for ((i = i + 1; i < ${#w[@]}; i++)); do
           [[ ! "${w[i]}" =~ ^-[^-]*n ]] || noexec=1
+          [[ ! "${w[i]}" =~ ^\+[^+]*n ]] || noexec=
           case "${w[i]}" in
             --rcfile | --init-file) i=$((i + 1)) ;;
             --*) ;;
@@ -243,10 +246,45 @@ flag='[[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?'
 start="($engine)[}\"]*($flag)*[[:space:]]+(container[[:space:]]+)?(run|create)([[:space:]]|\$)"
 compose="($engine)[}\"]*([[:blank:]]+|-)compose([[:blank:]]+[^[:space:];&|]+)*[[:blank:]]+(up|run|create|start)([[:space:]]|\$)"
 
+# Prints each line with every ;, & and | that is escaped, quoted or inside a
+# ${{ }} expression turned into _, since those do not end a command. A quote
+# this misreads only
+# masks more, which lets the compose words run on further and can only flag
+# more steps.
+mask_quoted() {
+  awk '{
+    s = $0; out = ""; state = 0; back = 0
+    for (i = 1; i <= length(s); i++) {
+      c = substr(s, i, 1)
+      if (state == 3) {
+        if (substr(s, i, 2) == "}}") { out = out "}}"; i++; state = back; continue }
+      } else if (substr(s, i, 3) == "${{") {
+        out = out "${{"; i += 2; back = state; state = 3; continue
+      } else if (state == 1) {
+        if (c == "\047") state = 0
+      } else if (c == "\\") {
+        d = substr(s, i + 1, 1); i++
+        if (d ~ /[;&|]/) d = "_"
+        out = out c d; continue
+      } else if (state == 2) {
+        if (c == "\"") state = 0
+      } else if (c == "\047") {
+        state = 1
+      } else if (c == "\"") {
+        state = 2
+      }
+      if (state != 0 && c ~ /[;&|]/) c = "_"
+      out = out c
+    }
+    print out
+  }'
+}
+
 runs_mysql() {
-  local code
+  local code masked
   code="$(grep -vE '^[[:space:]]*#' | tr -d '\r' | sed -E ':a;/\\$/{N;s/\\\n//;ba}' || true)"
-  grep -qiE "$compose" <<<"$code" ||
+  masked="$(mask_quoted <<<"$code")"
+  grep -qiE "$compose" <<<"$masked" ||
     { grep -qE "$mysql_ref" <<<"$code" && grep -qiE "$start" <<<"$code"; }
 }
 

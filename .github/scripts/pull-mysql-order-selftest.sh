@@ -11,7 +11,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=72
+expected=76
 
 root="$work/root"
 mkdir -p "$root/.github/scripts" "$root/sub"
@@ -118,7 +118,10 @@ for form in "direct=./db" 'flagged=bash -e "db"' "quoted=bash 'db.sh'" 'yaml="ba
   "bundled o=bash -euo pipefail db" "lone o=bash -o pipefail db" "dot=. ./db" "source=source ./db" \
   'braced="{ bash db; }"' "command=command bash db" "timeout kill=timeout -k 5 10 bash db" \
   "rcfile=bash --rcfile php.sh db" "plus x=bash +x db" "plus e=bash +e db" \
-  "timeout signal=timeout --signal=KILL 5m ./db" "glob=bash dbs/*.sh"; do
+  "timeout signal=timeout --signal=KILL 5m ./db" "glob=bash dbs/*.sh" "noexec undone=bash -n +n db" \
+  "$(printf "compose ternary=%s compose -f \${{ github.event_name == 'push' && 'a.yml' || 'b.yml' }} up -d" "$engine")" \
+  "$(printf "compose expression=%s compose -p \${{ inputs.p || 'dev' }} up -d" "$engine")" \
+  "$(printf "compose quoted=%s compose --profile 'a;b' up -d" "$engine")"; do
   workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/form.yml"
   expect "${form%%=*} before the pull" fail "step '${form%%=*}' runs mysql:8 before" "$work/form.yml" "$root"
 done
