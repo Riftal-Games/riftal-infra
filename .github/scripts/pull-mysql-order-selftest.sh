@@ -11,7 +11,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=39
+expected=59
 
 root="$work/root"
 mkdir -p "$root/.github/scripts" "$root/sub"
@@ -112,10 +112,55 @@ expect "missing workflow" fail 'cannot read' "$work/none.yml" "$root"
 for form in "direct=./db" 'flagged=bash -e "db"' "quoted=bash 'db.sh'" 'yaml="bash db"' \
   "podman=bash podman.sh" "cased=bash cased.sh" "variable=bash var.sh" "global flag=bash flag.sh" \
   "registry=bash registry.sh" "compose=bash compose.sh" \
-  "bundled o=bash -euo pipefail db" "lone o=bash -o pipefail db"; do
+  "bundled o=bash -euo pipefail db" "lone o=bash -o pipefail db" "dot=. ./db" "source=source ./db" \
+  'braced="{ bash db; }"' "command=command bash db" "timeout kill=timeout -k 5 10 bash db" \
+  "rcfile=bash --rcfile php.sh db"; do
   workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/form.yml"
   expect "${form%%=*} before the pull" fail "step '${form%%=*}' runs mysql:8 before" "$work/form.yml" "$root"
 done
+
+# A run scalar continued on more-indented lines is one command, bash db.
+for form in 'plain|bash\n          db' 'double quoted|"bash\n          db"' 'folded|>\n          bash\n          db'; do
+  {
+    workflow job:a
+    printf "      - name: lines\n        run: ${form#*|}\n"
+    workflow "$pull" "db=bash db.sh" | sed 1,4d
+  } >"$work/lines.yml"
+  expect "${form%%|*} run over two lines before the pull" fail "step 'lines' runs mysql:8 before" "$work/lines.yml" "$root"
+done
+
+# The image is named only in env:, at each level it can be set.
+envrun="$(printf '%s run --rm "$IMAGE" true' "$engine")"
+{
+  workflow job:a
+  printf '      - name: env\n        env: { IMAGE: mysql:8 }\n        run: %s\n' "$envrun"
+  workflow "$pull" "db=bash db.sh" | sed 1,4d
+} >"$work/env.yml"
+expect "step env: before the pull" fail "step 'env' runs mysql:8 before" "$work/env.yml" "$root"
+workflow job:a "env=$envrun" "$pull" "db=bash db.sh" |
+  sed 's/^    steps:$/    env:\n      IMAGE: mysql:8\n    steps:/' >"$work/env.yml"
+expect "job env: before the pull" fail "step 'env' runs mysql:8 before" "$work/env.yml" "$root"
+workflow job:a "env=$envrun" "$pull" "db=bash db.sh" | sed 's/^jobs:$/env:\n  IMAGE: mysql:8\njobs:/' >"$work/env.yml"
+expect "workflow env: before the pull" fail "step 'env' runs mysql:8 before" "$work/env.yml" "$root"
+
+# start.sh at the root runs php only, so reading it in place of sub/start.sh
+# finds nothing. Under bash -c the cd is not the segment's first word.
+for form in 'cd=cd sub && ./start.sh' 'pushd=pushd sub && ./start.sh' 'bash c=bash -c "cd sub && ./start.sh"' \
+  "sh c=sh -c 'cd sub; ./start.sh'"; do
+  workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/cd.yml"
+  expect "${form%%=*} before a script" fail "step '${form%%=*}' changes directory before running" "$work/cd.yml" "$root"
+done
+
+for cond in 'always()' '${{ failure() }}' 'cancelled()'; do
+  workflow job:a "$pull" "db=bash db.sh" | sed "s/^      - name: db\$/&\n        if: $cond/" >"$work/if.yml"
+  expect "mysql step after the pull with if: $cond" fail "step 'db' runs mysql:8 under if:" "$work/if.yml" "$root"
+done
+
+badroot="$work/badroot"
+cp -r "$root" "$badroot"
+printf '%s run --rm mysql:8 true\n' "$engine" >"$badroot/.github/scripts/pull-mysql.sh"
+workflow job:a "$pull" "db=bash db.sh" >"$work/pull-self.yml"
+expect "a pull script that runs mysql:8" fail "pull step 'pull' runs mysql:8 itself" "$work/pull-self.yml" "$badroot"
 
 workflow job:a "$pull" "db=bash db.sh" "prose=echo built with sh today" >"$work/prose.yml"
 expect "a sh word in prose is not a script" pass 'precedes all 1 step(s)' "$work/prose.yml" "$root"
