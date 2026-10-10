@@ -104,15 +104,32 @@ q "INSERT INTO $DB.balances VALUES (1, 500);
    CREATE TABLE $DB.stray_unmigrated (id INT PRIMARY KEY);
    INSERT INTO $DB.stray_unmigrated VALUES (1);"
 
-# The fresh set is backup.sh's own, so a timestamp format backup.sh no longer
-# writes fails the confirmed wipe below rather than only every real wipe.
+# A zone the container cannot parse would read as UTC and prove nothing, in
+# backup.sh's run below or in the age cases.
+for zone in RIFT-14:+1400 RIFT+12:-1200; do
+  [ "$(docker exec -e TZ="${zone%%:*}" "$C" date +%z)" = "${zone#*:}" ] \
+    || { echo "TZ=${zone%%:*} does not read as ${zone#*:} in $C" >&2; exit 1; }
+done
+# The fresh set is backup.sh's own, so a timestamp format other than
+# backup.sh's fails the confirmed wipe below rather than only every real wipe.
+# It runs 14 hours east of UTC, so a stamp taken in local time reads as a set
+# from the future and fails that wipe too.
 sh_in "mkdir -p /tmp/worlds/riftal_smoke_vol && printf 'x\n' > /tmp/worlds/riftal_smoke_vol/level.dat"
-env_run -e MYSQL_DATABASE="$DB" -e BACKUP_ROOT=/tmp/backups -e WORLDS_DIR=/tmp/worlds "$C" bash /deploy/backup.sh \
-  >"$LOGS/backup.log" 2>&1 || { cat "$LOGS/backup.log"; exit 1; }
+env_run -e TZ=RIFT-14 -e MYSQL_DATABASE="$DB" -e BACKUP_ROOT=/tmp/backups -e WORLDS_DIR=/tmp/worlds \
+  "$C" bash /deploy/backup.sh >"$LOGS/backup.log" 2>&1 || { cat "$LOGS/backup.log"; exit 1; }
 sh_in 'sets=(/tmp/backups/[0-9]*); [ "${#sets[@]}" = 1 ] && cp -r "${sets[0]}" /tmp/set'
+# backup.sh's own date format, read from its one ts= line, so the stale and
+# future sets below follow it wherever it goes. Its zone flag is left behind:
+# these stamps are always taken in UTC, and the fresh set above is what tests
+# backup.sh's zone.
+STAMP_FORMAT="$(sed -n 's/^ts="\$(date [^+]*+\([^ )]*\))"$/\1/p' "$SCRIPT_DIR/backup.sh")"
+if [ -z "$STAMP_FORMAT" ] || [ "$(printf '%s\n' "$STAMP_FORMAT" | wc -l)" -ne 1 ]; then
+  echo "backup.sh holds no single ts=\"\$(date ... +FORMAT)\" line to read its stamp format from" >&2
+  exit 1
+fi
 # Prints a manifest's timestamp line as backup.sh writes it, for a set taken
 # at the given date -d time.
-stamp_cmd() { printf "date -u -d '%s' +'timestamp: %%Y%%m%%dT%%H%%M%%S%%NZ'" "$1"; }
+stamp_cmd() { echo "date -u -d '$1' +'timestamp: $STAMP_FORMAT'"; }
 NOW="grep '^timestamp: ' /tmp/set/manifest.txt"
 # A set restore.sh accepts holds worlds/ with at least one tar that lists.
 TAR=riftal_smoke_vol.tar.gz
@@ -188,12 +205,7 @@ refused bad-time "not a valid UTC time" wipe "$DB" "$DB" /tmp/badtime
 refused eight-nanos "not in backup.sh's format" wipe riftal_smoke_absent riftal_smoke_absent /tmp/eightnanos
 refused ten-nanos "not in backup.sh's format" wipe riftal_smoke_absent riftal_smoke_absent /tmp/tennanos
 # backup.sh's stamp is UTC whatever TZ it ran under, so a fresh set passes the
-# age check, reaching the absent database, under a zone either side of UTC. A
-# zone the container cannot parse would read as UTC and prove nothing.
-for zone in RIFT-14:+1400 RIFT+12:-1200; do
-  [ "$(docker exec -e TZ="${zone%%:*}" "$C" date +%z)" = "${zone#*:}" ] \
-    || { echo "TZ=${zone%%:*} does not read as ${zone#*:} in $C" >&2; exit 1; }
-done
+# age check, reaching the absent database, under a zone either side of UTC.
 WIPE_TZ=RIFT-14 refused tz-east-fresh "no database riftal_smoke_absent" \
   wipe riftal_smoke_absent riftal_smoke_absent /tmp/absent
 WIPE_TZ=RIFT+12 refused tz-west-fresh "no database riftal_smoke_absent" \
