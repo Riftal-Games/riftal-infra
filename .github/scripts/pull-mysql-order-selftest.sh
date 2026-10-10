@@ -11,7 +11,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=55
+expected=59
 
 root="$work/root"
 mkdir -p "$root/.github/scripts" "$root/sub"
@@ -144,11 +144,14 @@ workflow job:a "env=$envrun" "$pull" "db=bash db.sh" | sed 's/^jobs:$/env:\n  IM
 expect "workflow env: before the pull" fail "step 'env' runs mysql:8 before" "$work/env.yml" "$root"
 
 # start.sh at the root runs php only, so reading it in place of sub/start.sh
-# finds nothing.
-workflow job:a "cd=cd sub && ./start.sh" "$pull" "db=bash db.sh" >"$work/cd.yml"
-expect "cd before a script" fail "step 'cd' changes directory before running" "$work/cd.yml" "$root"
+# finds nothing. Under bash -c the cd is not the segment's first word.
+for form in 'cd=cd sub && ./start.sh' 'pushd=pushd sub && ./start.sh' 'bash c=bash -c "cd sub && ./start.sh"' \
+  "sh c=sh -c 'cd sub; ./start.sh'"; do
+  workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/cd.yml"
+  expect "${form%%=*} before a script" fail "step '${form%%=*}' changes directory before running" "$work/cd.yml" "$root"
+done
 
-for cond in 'always()' '${{ failure() }}'; do
+for cond in 'always()' '${{ failure() }}' 'cancelled()'; do
   workflow job:a "$pull" "db=bash db.sh" | sed "s/^      - name: db\$/&\n        if: $cond/" >"$work/if.yml"
   expect "mysql step after the pull with if: $cond" fail "step 'db' runs mysql:8 under if:" "$work/if.yml" "$root"
 done

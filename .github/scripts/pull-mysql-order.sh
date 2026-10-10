@@ -33,8 +33,8 @@
 # What it cannot place, it refuses rather than skips: a job-level services:
 # or container:, a working-directory: outside a step as under defaults:, a
 # steps: key with a value on its line, a job indented less than the first, a
-# run that runs cd or pushd and names a relative script, and a script it
-# cannot read. Reads files only.
+# run that has cd or pushd as a word anywhere, inside bash -c included, and
+# names a relative script, and a script it cannot read. Reads files only.
 set -euo pipefail
 
 workflow="${1:-.github/workflows/ci.yml}"
@@ -136,6 +136,11 @@ scripts_of() {
   grep -oE "[^[:space:]\"'=<>;&|()]+\.sh([^[:alnum:]_.-]|\$)" <<<"$code" | sed -E 's/\.sh.$/.sh/' || true
   while IFS= read -r seg; do
     read -ra w <<<"${seg//[\"\']/}" || true
+    # Any word, not only the command word, since bash -c, sudo or a wrapper
+    # this loop does not know can put the cd behind other words.
+    for word in "${w[@]}"; do
+      [[ "$word" != cd && "$word" != pushd ]] || printf '\tcd\n'
+    done
     i=0
     while [ "$i" -lt "${#w[@]}" ] &&
       [[ "${w[i]}" =~ ^(exec|sudo|env|time|nohup|command|builtin|then|do|else|if|while|until|!|\{|timeout|-.*|[[:alpha:]_][[:alnum:]_]*=.*|[0-9][0-9.]*[smhd]?)$ ]]; do
@@ -145,7 +150,6 @@ scripts_of() {
     case "$word" in
       ./* | ../*) printf '%s\n' "$word" ;;
       . | source) [ -z "${w[i + 1]:-}" ] || printf '%s\n' "${w[i + 1]}" ;;
-      cd | pushd) printf '\tcd\n' ;;
       bash | sh)
         for ((i = i + 1; i < ${#w[@]}; i++)); do
           case "${w[i]}" in
