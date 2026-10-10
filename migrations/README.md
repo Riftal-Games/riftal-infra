@@ -162,7 +162,9 @@ runs them, are:
 - a broken migration halts loudly and is not recorded
 - two invocations racing the same lock name do not double-apply
 - a lock connection that dies early fails cleanly
+- a lock session that stops reading before GET_LOCK fails cleanly
 - a run whose lock session dies mid-run fails
+- a lock session that stops reading before RELEASE_LOCK fails
 - a lock held elsewhere times out naming its holder
 - a lock failure says which read of its holder came back unusable
 - a lock timeout that is not a whole number is refused before connecting
