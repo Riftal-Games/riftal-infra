@@ -11,7 +11,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=74
+expected=84
 
 root="$work/root"
 mkdir -p "$root/.github/scripts" "$root/sub"
@@ -44,6 +44,18 @@ printf '%s run --rm ${IMG-mysql:8} true\n' "$engine" >"$root/defaulted-bare.sh"
 printf '%s run --rm ${IMGS[0]:-mysql:8} true\n' "$engine" >"$root/defaulted-element.sh"
 printf "%s 'run' --rm mysql:8 true\n" "$engine" >"$root/verb-single.sh"
 printf '"%s" "run" --rm mysql:8 true\n' "$engine" >"$root/verb-double.sh"
+# Each verb is its own argument, so no line here puts the engine beside it.
+for verb in 'backslash=\run' "ansi=\$'run'" "ansi-escaped=\$'\\x72un'" 'locale=$"run"'; do
+  printf '%s %s --rm mysql:8 true\n' "$engine" "${verb#*=}" >"$root/verb-${verb%%=*}.sh"
+done
+# Bash reads the $ in 'ok$' as a literal, so a scan that takes it for a $'...'
+# opener pairs it with the real opener that follows and never decodes the verb.
+for verb in "run=\$'run' --rm mysql:8" "escaped=\$'\\x72un' --rm mysql:8" "compose=\$'\\x63ompose' up -d" \
+  "image=\$'run' --rm \$'mysql:\\x38'"; do
+  printf "grep -q 'ok\$' /dev/null; %s %s true\n" "$engine" "${verb#*=}" >"$root/anchored-${verb%%=*}.sh"
+done
+printf "grep -q 'ok\$' /dev/null; %s%s' run --rm mysql:8 true\n" "\$'\\x64" "${engine#d}" >"$root/anchored-engine.sh"
+printf "grep -q 'ok\$' /dev/null\n%s %s --rm mysql:8 true\n" "$engine" "\$'\\x72un'" >"$root/anchored-above.sh"
 printf '%s compose up;\n' "$engine" >"$root/compose-semi.sh"
 printf '%s compose up&& true\n' "$engine" >"$root/compose-and.sh"
 printf '%s compose up|cat\n' "$engine" >"$root/compose-pipe.sh"
@@ -141,7 +153,12 @@ for form in "direct=./db" 'flagged=bash -e "db"' "quoted=bash 'db.sh'" 'yaml="ba
   "defaulted=bash defaulted.sh" "defaulted bare=bash defaulted-bare.sh" "compose semicolon=bash compose-semi.sh" \
   "compose and=bash compose-and.sh" "compose pipe=bash compose-pipe.sh" "compose quoted=bash compose-quoted.sh" \
   "defaulted element=bash defaulted-element.sh" "verb single quoted=bash verb-single.sh" \
-  "verb double quoted=bash verb-double.sh"; do
+  "verb double quoted=bash verb-double.sh" "verb backslash=bash verb-backslash.sh" \
+  "verb ansi-c quoted=bash verb-ansi.sh" "verb ansi-c escaped=bash verb-ansi-escaped.sh" \
+  "verb locale quoted=bash verb-locale.sh" "anchored ansi-c verb=bash anchored-run.sh" \
+  "anchored ansi-c escaped verb=bash anchored-escaped.sh" "anchored ansi-c compose=bash anchored-compose.sh" \
+  "anchored ansi-c image=bash anchored-image.sh" "anchored ansi-c engine=bash anchored-engine.sh" \
+  "anchored on the line above=bash anchored-above.sh"; do
   workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/form.yml"
   expect "${form%%=*} before the pull" fail "step '${form%%=*}' runs mysql:8 before" "$work/form.yml" "$root"
 done
