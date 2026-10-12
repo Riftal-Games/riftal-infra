@@ -7,7 +7,7 @@ migration run against a database that instances are using. Newest constraints
 go at the end; an entry stays as long as a database or an image tag it
 describes can still be met.
 
-## The general rule: a migration whose effect needs a matching plugin build
+## The general rule: a migration or grants change that needs a matching plugin build
 
 Most migrations are additive and safe under the serial rollout: an instance on
 the previous image tag keeps working against the migrated schema, so instances
@@ -18,19 +18,30 @@ plugin build, running against the migrated schema, fails or writes rows the
 schema now treats differently. The other direction, a newer build against the
 unmigrated schema, is not part of the test: migrations always run before any
 instance starts on the newer build, so the procedure already rules it out.
-For a coupled migration:
 
-- The migration and the plugin build that matches it reach every instance
-  together. No instance runs the older build against a schema with the
-  migration applied, and no instance runs the newer build against a schema
-  without it.
+A `grants.sql` change is coupled the same way. `run-migrations.sh` applies the
+`GRANTS_FILE` it is given on every run, a run with nothing pending included
+(`../migrations/run-migrations.sh:304`), so the file's REVOKEs reach the
+database on every run, and on a fresh server a role holds only what the file
+grants. A change is coupled
+when a plugin build that an instance may still run, or be rolled back to,
+needs a privilege the file revokes or does not grant: every statement of that
+build that uses it fails with ERROR 1142 or 1143.
+
+For a coupled migration or grants change:
+
+- The migration or grants change and the plugin build that matches it reach
+  every instance together. No instance runs the older build against a schema
+  with the migration applied or grants with the change, and no instance runs
+  the newer build against a schema without the migration.
 - Since one image serves every instance, that means stopping every instance
-  cleanly before the migration runs, then starting each on the new image tag.
+  cleanly before the migration run, then starting each on the new image tag.
   The serial, one-at-a-time replacement does not apply to that window: the
   window is a full stop, so announce it in Discord before it opens.
-- The previous image tag is not a rollback target once the migration has
-  applied. The only rollback is an image tag that carries the matching build
-  of every coupled migration the run applied.
+- The previous image tag is not a rollback target once the migration or the
+  grants change has applied. The only rollback is an image tag that carries
+  the matching build of every coupled migration and every coupled grants
+  change the run applied.
 - Every instance stops before anything else in the window happens, the
   backup included.
 - The backup is one `backup.sh` run taken after that stop, its set name
@@ -41,14 +52,15 @@ For a coupled migration:
   players did since the backup is gone), it is never a rollback, and it is
   Nasir's call.
 - Write the coupled pair into the release's "what is shipping" list and into
-  its rollback path before the window opens, naming the migration number and
-  the plugin change.
-- The runner applies every pending migration in one run, so a run can cross
-  several coupled migrations. The image tag the instances start on, and every
-  rollback tag, must carry the matching build of each coupled migration that
-  run applies, not only the first.
-- Whoever lands a coupled migration in `riftal-game` files an `owner:infra`
-  issue to add its entry here.
+  its rollback path before the window opens, naming the migration number or
+  the `grants.sql` change, and the plugin change.
+- The runner applies every pending migration in one run, then the whole
+  grants file, so a run can cross several coupled migrations and coupled
+  grants changes. The image tag the instances start on, and every rollback
+  tag, must carry the matching build of each coupled migration and each
+  coupled grants change that run applies, not only the first.
+- Whoever lands a coupled migration or grants change in `riftal-game` files
+  an `owner:infra` issue to add its entry here.
 
 ## The window's backup and restore
 
@@ -142,7 +154,16 @@ Before it:
      must read `nothing pending` (`run-migrations.sh:299`); anything applied
      means the directory is not that release's, so stop there. Then start
      each instance on the previous tag. The database holds none of the run's
-     migrations, so no entry's bar on older tags applies to it.
+     migrations, so no migration entry's bar on older tags applies to it.
+     That run applies the previous release's `grants.sql`, and its GRANTs
+     give back what a newer file revoked from the builds it shipped with:
+     riftal-game CI runs every statement of each plugin's SQL file as that
+     plugin's login against the same tree's file (`lib/tests/mysql/grants.sh`,
+     run by `.github/workflows/ci.yml:123` at `cea814f`). So no grants
+     entry's bar applies either. A previous tag whose plugins were built from
+     before riftal-game PR #454 (`cea814f`), a release with no `grants.sql`,
+     is not a rollback in this file, serial or by restore: it is barred, and
+     riftal-infra#1032 owns it.
 
 ### A migration that fails partway
 
@@ -182,7 +203,7 @@ restore then.
 
 Every migration in `riftal-game/lib/resources/sql/migrations/` from `0001` to
 `0020_create_gang_vault_slots.sql` has been checked against the rule above, at
-riftal-game `main` `164184c`. Coupled: 0010, 0014 and 0015, each with its
+riftal-game `main` `205e6e1`. Coupled: 0010, 0014 and 0015, each with its
 entry below. A migration numbered above 0020 is unaudited until it is listed
 here.
 
@@ -191,9 +212,8 @@ running against the migrated schema, fails or writes rows the schema treats
 differently. A newer build against an unmigrated schema fails for nearly
 every migration whose table or procedure it uses, which is why the rule
 leaves that direction to the migrations-first order; a coupled entry names it
-only to explain what the entry's procedure prevents. This
-audit covers migrations only, not `grants.sql`, which the runner reapplies on
-every run.
+only to explain what the entry's procedure prevents. `grants.sql` has its own
+audit, below.
 
 Not coupled:
 
@@ -217,7 +237,8 @@ Not coupled:
 - 0016: an economy build from before PR #891 (`9a80ef1`) moves balances with
   no `economy_ledger` row. ADR 006 (riftal-pm `docs/decisions/006`,
   Consequences) accepts that window under the serial rollout and pins the
-  balance snapshot to after it.
+  balance snapshot to after it. The `grants.sql` from PR #923 closes that
+  window: see its entry below.
 - 0017: a gangs build from before PR #808 (`fec6736`) passes a levels list
   with no `contested_mine` marker, so its raises leave the flag `FALSE`. The
   next raise by a newer build sets it (`0017:22-28`), the same lag 0017 gives
@@ -231,6 +252,46 @@ Not coupled:
   `gang_vault_slots` or calls `gangs_vault_deposit`. On such a build, an item
   already deposited stays in its slot row, out of reach until a build with
   `/gang vault` (PR #1124, `a09b00a`) runs again.
+
+## Audited `grants.sql`
+
+Every version of `riftal-game/lib/resources/sql/grants.sql`, from PR #454
+(`cea814f`) through PR #1022 (`7fa533e`), its last change on riftal-game
+`main` `205e6e1`, has been checked against the rule above. Coupled: PR #923's
+REVOKE, with its entry below. A `grants.sql` change after `7fa533e` is
+unaudited until it is listed here.
+
+The audit covers plugin builds from riftal-game PR #454 (`cea814f`) onward,
+the first release with a `grants.sql`. A rollback to a tag whose plugins
+were built from before PR #454, serial or by restore, is not a rollback in
+this file: it is barred, and riftal-infra#1032 owns it (When a restore is a
+rollback, step 3).
+
+Each check is whether a plugin build from PR #454 onward needs a privilege
+that version revokes or never grants. A run that stops at a failed migration
+applies grants too (`../migrations/run-migrations.sh:275-278`), but no
+instance starts after one (A migration that fails partway, step 1).
+
+Not coupled:
+
+- PRs #264, #337, #344, #651, #675, #735, #884 and #1022 only add GRANTs, so
+  an older build keeps every privilege it had.
+- PR #647 (`cfe968b`) revokes `riftal_role_accounts`, the `accounts` write
+  role, from the five plugin roles (`grants.sql:38`). No plugin build writes
+  `accounts` through one of them: no plugin's `src/` constructs
+  `AccountResolver` before PR #473 (`11d8997`), which moved the
+  `accounts.resolve` upsert into the `accounts` plugin, whose login keeps the
+  role.
+- `mines` and `riots`: every version of `mines.sql` (PRs #112, #251, #884)
+  and `riots.sql` (PRs #146, #935, #1051, #1112) assigns only columns the file
+  grants UPDATE on, and deletes nothing.
+- Every plugin build from PR #454 onward: riftal-game CI runs every
+  statement of each plugin's SQL file as that plugin's login against the same
+  tree's `grants.sql` (`lib/tests/mysql/grants.sh`, run on every pull request
+  by `.github/workflows/ci.yml:123` at `cea814f`), and every later version
+  except PRs #647 and #923 only adds GRANTs, so a build keeps every privilege
+  its own release granted. PR #647 has its bullet above and PR #923 its entry
+  below.
 
 ## 0010 and the gangs `mark_founded` build ship together
 
@@ -283,8 +344,9 @@ So, for any release that takes a database from before 0010 to after it:
    `founded_backfilled`. Confirm that number equals the count taken before the
    run, and that `schema_migrations` records `0010_add_gang_founded_marker.sql`.
 4. Start every instance on an image tag that carries the matching build of
-   every coupled migration the run applied: PR #266 for 0010, and PR #675
-   for 0014 and PR #712 for 0015 when the run crosses them too (see below).
+   every coupled migration and grants change the run applied: PR #266 for
+   0010, and PR #675 for 0014, PR #712 for 0015 and PR #891 for PR #923's
+   `grants.sql` when the run crosses them too (see below).
 5. Rollback is an image tag that meets the same condition. Until the first
    instance on the new tag admits a player, it can also be the restore in
    When a restore is a rollback, above; after that, nothing else. No image
@@ -325,7 +387,8 @@ So, for any release that takes a database from before 0015 to after it:
 3. Run the migrations and confirm `schema_migrations` records
    `0015_raise_gang_level_with_contribution.sql`.
 4. Start every instance on an image tag whose `gangs` plugin carries PR #712,
-   and the matching build of any other coupled migration the run applied.
+   and the matching build of any other coupled migration or grants change the
+   run applied.
 5. Rollback is an image tag that meets the same condition. Until the first
    instance on the new tag admits a player, it can also be the restore in
    When a restore is a rollback, above; after that, nothing else. No image
@@ -370,8 +433,65 @@ So, for any release that takes a database from before 0014 to after it:
 3. Run the migrations and confirm `schema_migrations` records
    `0014_add_player_ranks_claim.sql`.
 4. Start every instance on an image tag whose `ranks` plugin carries PR #675,
-   and the matching build of any other coupled migration the run applied.
+   and the matching build of any other coupled migration or grants change the
+   run applied.
 5. Rollback is an image tag that meets the same condition. Until the first
    instance on the new tag admits a player, it can also be the restore in
    When a restore is a rollback, above; after that, nothing else. No image
    tag older than PR #675 runs against a database with 0014 applied.
+
+## PR #923's `grants.sql` and the economy build that calls the ledger procedures ship together
+
+Grants change: riftal-game PR #923 (merge commit `b6860bb`), in
+`riftal-game/lib/resources/sql/grants.sql`. Matching build: any `economy`
+build carrying riftal-game PR #891 (merge commit `9a80ef1`), which moved every
+balance change into `CALL economy_ledger_credit` and `CALL
+economy_ledger_debit` (`economy/resources/sql/economy.sql:35`, `:47` at
+`9a80ef1`). PR #891 is an ancestor of PR #923. Related: riftal-infra#944
+would have `/deploy-release` stage 1 refuse a `grants.sql` REVOKE newer
+than the oldest instance's tag.
+
+What PR #923 does: leaves `riftal_role_economy` only `UPDATE (account_id)` on
+`balances`, for the ensure upsert, and revokes `UPDATE (balance_minor_units,
+updated_by_instance)` from it (`grants.sql:52-54` at `7fa533e`). Every run
+from then on applies that REVOKE.
+
+Why the two cannot be split:
+
+- **Older build, newer grants.** An `economy` build from before PR #891
+  moves a balance with a direct `UPDATE balances SET balance_minor_units`
+  (`economy.sql:30`, `:43` at `9a80ef1^`), so every credit and debit fails
+  with ERROR 1143, reproduced on mysql:8 8.4.11: the statement succeeds as
+  the economy login under the file at `b6860bb^` and is denied on
+  `balance_minor_units` once the file at `7fa533e` is applied over it.
+- **Newer build, older grants.** Not a constraint: a build from PR #891
+  onward needs EXECUTE on the two ledger procedures, which every file from
+  PR #735 (`58888cf`) grants.
+
+So, for any release whose run applies a `grants.sql` from PR #923 onward to a
+database whose last run applied one from before it:
+
+1. Stop every instance cleanly.
+2. Back up as in The window's backup and restore, above, and record the set
+   name. Restoring it is a rollback only until the first instance on the new
+   tag admits a player; after that it is Nasir's call, never a rollback.
+3. Run the migrations. The log reads `applying grants from <file>`
+   (`run-migrations.sh:262`) with no `failed` after it. Confirm the REVOKE
+   held: the `balances` line of
+
+   ```sh
+   timeout 120 wslc run --rm --network riftal-dev \
+     -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
+     mysql:8 mysql --host=mysql --user=root -N -B \
+     -e 'SHOW GRANTS FOR riftal_role_economy'
+   ```
+
+   grants UPDATE on `account_id` alone.
+4. Start every instance on an image tag whose `economy` plugin carries PR
+   #891, and the matching build of any other coupled migration or grants
+   change the run applied.
+5. Rollback is an image tag that meets the same condition. Until the first
+   instance on the new tag admits a player, it can also be the restore in
+   When a restore is a rollback, above; after that, nothing else. No
+   `economy` build older than PR #891 runs against a database whose grants
+   came from PR #923 onward.
