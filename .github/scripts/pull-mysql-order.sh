@@ -14,15 +14,19 @@
 #
 # A step runs mysql:8 when it is `uses: docker://` with a mysql:8 image, or
 # when its text, full-line comments dropped, both names mysql:8 as its own
-# token or as the default of a ${VAR-...} or ${VAR[i]-...} expansion, after
-# any registry or namespace path, and starts a container. A start is docker,
-# podman or nerdctl, by any path and in any case, or a shell variable, then
-# any closing } and ", then any global flags, then run, create or container
-# run|create; or any compose up, run, create or start, ended by anything but a
-# word character or -, which counts whatever it names, since the compose file
-# is not read. The name and the start are tested separately over the whole
-# text, as written, with backslash-continued lines joined, and with every
-# quote removed, so a trailing comment can flag a step that does neither.
+# token or as the default of a ${VAR-...} or ${VAR[...]-...} expansion, with
+# any subscript text but ], after any registry or namespace path, and starts a
+# container. A start is docker, podman or nerdctl, by any path and in any
+# case, or a shell variable, then any closing } and ", then any global flags,
+# then run, create or container run|create; or any compose up, run, create or
+# start, ended by anything but a word character or -, which counts whatever it
+# names, since the compose file is not read.
+#
+# The name and the start are tested separately, so a trailing comment that
+# names mysql:8 can flag a step that does not run it. Both are tested over
+# the whole text as written, with backslash-continued lines joined, with
+# every quote removed, and with every backslash removed after each $'...' is
+# decoded and each $"..." read as "...".
 #
 # A step's text is its run text, every env: in scope at step, job and
 # workflow level, and every script the run text names: a word ending in .sh,
@@ -217,6 +221,18 @@ runs_mysql() {
   # "docker" start a container as their bare words do. A copy without quotes
   # goes beside the rest for the same reason the joined copy does.
   code+=$'\n'"${code//[\"\']/}"
+  # Bash also drops a backslash outside quotes, decodes the escapes in $'...'
+  # and reads $"..." as "...", so \run, $'run', $'\x72un' and $"run" each
+  # start a container as run does. This copy drops every backslash, even one
+  # bash keeps inside double quotes, which can only add a match beside the
+  # rest. Each decode shortens the text, so the loop ends.
+  local plain="$code" body
+  while [[ "$plain" =~ \$\'(([^\'\\]|\\.)*)\' ]]; do
+    body="${BASH_REMATCH[1]}"
+    plain="${plain/"${BASH_REMATCH[0]}"/"${body@E}"}"
+  done
+  plain="${plain//\$\"/\"}"
+  code+=$'\n'"${plain//[\"\'\\]/}"
   grep -qiE "$compose" <<<"$code" ||
     { grep -qE "$mysql_ref" <<<"$code" && grep -qiE "$start" <<<"$code"; }
 }
