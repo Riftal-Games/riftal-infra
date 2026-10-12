@@ -25,7 +25,7 @@ schema. For a coupled migration:
 - Since one image serves every instance, that means stopping every instance
   cleanly before the migration runs, then starting each on the new image tag.
   The serial, one-at-a-time replacement does not apply to that window: the
-  window is a full stop.
+  window is a full stop, so announce it in Discord before it opens.
 - The previous image tag is not a rollback target once the migration has
   applied. Rollback is either an image tag that already carries the matching
   build, or a restore of the backup taken before the migration, which restarts
@@ -33,8 +33,12 @@ schema. For a coupled migration:
 - Write the coupled pair into the release's "what is shipping" list and into
   its rollback path before the window opens, naming the migration number and
   the plugin change.
+- The runner applies every pending migration in one run, so a run can cross
+  several coupled migrations. The image tag the instances start on, and every
+  rollback tag, must carry the matching build of each coupled migration that
+  run applies, not only the first.
 - Whoever lands a coupled migration in `riftal-game` files an `owner:infra`
-  issue to add its entry here, the same way riftal-infra#1015 added the first.
+  issue to add its entry here.
 
 ## 0010 and the gangs `mark_founded` build ship together
 
@@ -61,7 +65,10 @@ Why the two cannot be split:
   column default, `founded = FALSE`. The database then refuses every
   contribution to that gang, and an instance on a build from riftal-game
   PR #724 (`aed36a6`) onward does not find it through `gangs.find_by_name`
-  for a join.
+  for a join. The other readers that filter on `founded = TRUE` refuse it the
+  same way: `gangs_join` (`0012_add_gang_level_and_join.sql:40`),
+  `gangs_vault_deposit` (`0020_create_gang_vault_slots.sql:64`) and
+  `gangs.contested_mine_eligible` (`gangs/resources/sql/gangs.sql:165`).
   Nothing marks those rows later: the backfill ran once and 0010 is recorded
   as applied.
 - **Newer build, unmigrated schema.** The build from PR #266 onward reads and
@@ -79,10 +86,45 @@ So, for any release that takes a database from before 0010 to after it:
    followed by a bare number, the backfilled row count, never the label
    `founded_backfilled`. Confirm that number equals the count taken before the
    run, and that `schema_migrations` records `0010_add_gang_founded_marker.sql`.
-4. Start every instance on an image tag whose `gangs` plugin includes PR #266.
-5. Rollback is an image tag that also includes PR #266, or the step 1 backup.
-   No image tag older than PR #266 runs against this database again.
+4. Start every instance on an image tag whose `gangs` plugin carries the
+   matching build of every coupled migration the run applied: PR #266 for
+   0010, and PR #712 for 0015 when the run crosses it too (see below).
+5. Rollback is an image tag that meets the same condition, or the step 1
+   backup. No image tag older than PR #266 runs against this database again.
 
 If gangs were created by an older build after 0010 was applied, they stay
 unfounded. Marking them founded changes player data and is not a step of the
 rollout; it needs Nasir's call.
+
+## 0015 and the gangs build that passes `:levels` ship together
+
+Migration: `riftal-game/lib/resources/sql/migrations/0015_raise_gang_level_with_contribution.sql`.
+Matching build: any `gangs` build carrying riftal-game PR #712 (merge commit
+`829565d`), which landed the migration and the 11-argument
+`CALL gangs_ledger_contribute(..., :instance_id, :levels, @gangs_ledger_outcome)`
+(`riftal-game/gangs/resources/sql/gangs.sql:75`) in the same commit. PR #712
+descends from PR #266, so a tag carrying it also meets the 0010 condition.
+
+What 0015 does: drops `gangs_ledger_contribute` and recreates it with an
+`IN p_levels JSON` parameter before `OUT p_outcome` (`0015:22`), 11 parameters
+where 0009 and 0010 declare 10, so it raises the gang level inside the
+contribution's transaction. The `founded = TRUE` condition stays (`0015:40`).
+
+Why the two cannot be split:
+
+- **Older build, migrated schema.** A build from before PR #712 calls the
+  procedure with 10 arguments, so every contribution CALL fails on the
+  argument count.
+- **Newer build, unmigrated schema.** A build from PR #712 onward calls it
+  with 11, which the 0010 definition refuses the same way.
+
+So, for any release that takes a database from before 0015 to after it:
+
+1. Back up the database.
+2. Stop every instance cleanly.
+3. Run the migrations and confirm `schema_migrations` records
+   `0015_raise_gang_level_with_contribution.sql`.
+4. Start every instance on an image tag whose `gangs` plugin carries PR #712,
+   and the matching build of any other coupled migration the run applied.
+5. Rollback is an image tag that meets the same condition, or the step 1
+   backup. No image tag older than PR #712 runs against this database again.
