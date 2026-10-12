@@ -43,6 +43,15 @@ survive; the migration run reapplies their grants anyway.
    and is a backstop, not a lock. Anything else holding a connection, such as
    a backup in progress or a client left open, must be closed too. See The
    session check, below.
+
+   **Stop the `backup` service** too, and keep it stopped through step 7. Left
+   running, a scheduled run between steps 4 and 7 stores a set of the empty
+   database, takes one of the `BACKUP_RETENTION` slots, and brings the step 3
+   set one run closer to being pruned. Stop it between runs, when its log's
+   last run has reached `applying retention` and no `dumping database` line
+   follows. A run stopped part way leaves its `.lock` behind (`README.md`,
+   Stale lock sweep), and step 3's run then fails until that lock is
+   `LOCK_MAX_AGE_MINUTES` old.
 3. **Back up.** One `backup.sh` run as in `README.md`. Note the set directory
    it prints as `backup <ts>: complete at <set>`. It is the rollback, and
    `wipe.sh` refuses without it. Retention prunes it after `BACKUP_RETENTION`
@@ -59,15 +68,22 @@ survive; the migration run reapplies their grants anyway.
    each table that is not (`wipe-check <database>: FAIL <table> holds <n>
    row(s)`). It passes with `wipe-check <database>: ok, <n> migration(s)
    applied, <n> table(s) all empty`.
-7. **Start the instances**, one at a time, per `../CLAUDE.md`'s rollout order.
+7. **Start the instances**, one at a time, per `../CLAUDE.md`'s rollout order,
+   then start the `backup` service. `backup-loop.sh` runs `backup.sh` at once
+   on start, so the first set after the wipe is taken then.
 
-**Rollback**, at any step after 4: `restore.sh` with the step 3 set, then step
-5. It also rebuilds every world volume from that set, which is the state they
-were stopped in at step 2.
+**Rollback**, once step 4 has dropped the database: repeat step 2 first if any
+instance or the `backup` service is running, since `restore.sh` makes no
+session check before it drops the database and clears every world volume. Then
+`restore.sh` with the step 3 set, then step 5, then step 7. It rebuilds every
+world volume from that set, which is the state they were stopped in at step 2,
+so a rollback after step 7 also discards every block changed and every row
+written since the instances came back.
 
-The binary log still holds the wiped rows for up to 30 days (`README.md`,
-Binary log retention). A wipe does not purge it; purging it early deletes data
-and is Nasir's.
+The binary log holds every change written in the last 30 days, the wiped
+rows' history among them (`README.md`, Binary log retention). A row last
+written before that window is in no binary log, only in the step 3 set. A wipe
+does not purge the log; purging it early deletes data and is Nasir's.
 
 ## The session check
 
