@@ -1,0 +1,9 @@
+# Expected: discovered, and valid compose.
+#
+# The .yml spelling of uppercase-extension.YAML. Each extension is its own
+# discovery pattern, so each needs a file only a case-insensitive match finds.
+services:
+  mine-h:
+    image: ghcr.io/riftal-games/riftal-core:fixture
+    expose:
+      - "19132"

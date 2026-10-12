@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=125
+EXPECTED_ASSERTIONS=200
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -133,9 +133,10 @@ expect_dockerfile_skipped() {
   fi
 }
 
-# Each dotted name form is its own -name alternative in scan.sh, so each needs
+# Each dotted name form is its own -iname alternative in scan.sh, so each needs
 # its own case: dropping one alternative leaves the bare names and every other
-# form still found.
+# form still found. Each form also needs a spelling only a case-insensitive
+# match finds, or narrowing one alternative to -name leaves every case green.
 expect_dockerfile_found() {
   local dir out status
   dir="$(mktemp -d)"
@@ -149,6 +150,61 @@ expect_dockerfile_found() {
     pass "Dockerfile discovery finds $1"
   else
     fail "$1 is a Dockerfile or Containerfile name and must be handed to hadolint, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+# Created neither in C order nor its reverse, so neither a filesystem that
+# lists by creation time nor one that lists newest first hands find(1) the
+# expected order. The expected list is written out rather than computed with
+# sort, and it differs from a locale-aware collation: uppercase before
+# underscore before lowercase, space before dot, and b.Dockerfile before
+# b/Dockerfile.
+#
+# The scan runs under COLLATING_LOCALE with FAKE_SORT loaded through BASH_ENV,
+# so a bare sort in scan.sh folds case and only scan.sh pinning its own
+# LC_ALL=C gives the expected list, whichever sort and locales the host has.
+# The first check runs the stub the same way the scan does and proves it
+# orders the names differently from C, so a stub that stops loading turns the
+# order check red instead of letting it pass for the reason C order would.
+COLLATING_LOCALE=en_US.UTF-8
+FAKE_SORT="$FIXTURES/fake-locale-sort.bash"
+
+expect_dockerfiles_sorted() {
+  local dir name out status got want collated sort_err
+  dir="$(mktemp -d)"
+  sort_err="$(mktemp)"
+  mkdir "$dir/b"
+  for name in a.Dockerfile b/Dockerfile Dockerfile _.Containerfile dockerfile.dev \
+    Z.Dockerfile 'a b.Dockerfile' Containerfile b.Dockerfile; do
+    printf 'FROM ubuntu:24.04\n' > "$dir/$name"
+  done
+  # Bash warns on stderr that it cannot set a locale the host lacks, so stderr
+  # is kept apart and shown only if the stub printed nothing.
+  collated="$(find "$dir" -type f -print0 \
+    | BASH_ENV="$FAKE_SORT" LC_ALL="$COLLATING_LOCALE" bash -c 'sort -z' 2>"$sort_err" \
+    | tr '\0' '\n' | sed "s#^$dir/##")"
+  out="$(HADOLINT=true BASH_ENV="$FAKE_SORT" LC_ALL="$COLLATING_LOCALE" \
+    bash "$SCAN" dockerfiles "$dir" 2>&1)"
+  status=$?
+  rm -rf "$dir"
+  got="$(printf '%s\n' "$out" | sed -n "s#^checking $dir/##p")"
+  want="$(printf '%s\n' Containerfile Dockerfile Z.Dockerfile _.Containerfile \
+    'a b.Dockerfile' a.Dockerfile b.Dockerfile b/Dockerfile dockerfile.dev)"
+  if [ -z "$collated" ]; then
+    fail "a bare sort with $(rel "$FAKE_SORT") under $COLLATING_LOCALE printed nothing, so the order check below cannot tell a bare sort from LC_ALL=C sort"
+    cat "$sort_err"
+  elif [ "$collated" = "$want" ]; then
+    fail "a bare sort with $(rel "$FAKE_SORT") under $COLLATING_LOCALE orders the fixture names as C does, so the order check below cannot tell a bare sort from LC_ALL=C sort"
+    printf '%s\n' "$collated"
+  else
+    pass "a bare sort with $(rel "$FAKE_SORT") under $COLLATING_LOCALE orders the fixture names differently from C"
+  fi
+  rm -f "$sort_err"
+  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'found 9 ' && [ "$got" = "$want" ]; then
+    pass "Dockerfile discovery checks files in LC_ALL=C order"
+  else
+    fail "expected Dockerfile discovery to check its 9 files in LC_ALL=C order, exit $status"
     printf '%s\n' "$out"
   fi
 }
@@ -529,26 +585,40 @@ section "hadolint reaches Containerfile, not only Dockerfile"
 expect_scan_ok dockerfiles "$FIXTURES/good/Containerfile"
 expect_scan_bad dockerfiles "$FIXTURES/bad/Containerfile" DL3007
 
+section "hadolint reaches a name in any case"
+expect_scan_bad dockerfiles "$FIXTURES/bad/lowercase/dockerfile" DL3007
+expect_scan_bad dockerfiles "$FIXTURES/bad/lowercase/containerfile" DL3007
+
 section "Dockerfile discovery, every dotted name form found, near misses skipped"
 expect_dockerfile_found Dockerfile.dev
 expect_dockerfile_found app.Dockerfile
 expect_dockerfile_found Containerfile.dev
 expect_dockerfile_found app.Containerfile
-expect_dockerfile_skipped dockerfile
+expect_dockerfile_found dockerfile.dev
+expect_dockerfile_found app.dockerfile
+expect_dockerfile_found containerfile.dev
+expect_dockerfile_found app.CONTAINERFILE
+expect_dockerfile_found dockerfile
 expect_dockerfile_skipped MyDockerfile
 expect_dockerfile_skipped Dockerfile_old
-expect_dockerfile_skipped containerfile
+expect_dockerfile_found containerfile
 expect_dockerfile_skipped AppContainerfile
 expect_dockerfile_skipped Containerfile_old
+
+section "Dockerfile discovery reports in LC_ALL=C order, as compose discovery does"
+expect_dockerfiles_sorted
 
 section "compose discovery, by content and not by filename"
 expect_listed "$FIXTURES/good" compose.yaml
 expect_listed "$FIXTURES/good" stack.yaml
 expect_not_listed "$FIXTURES/good" rollout.yml
+expect_listed "$FIXTURES/good" uppercase-extension.YAML
+expect_listed "$FIXTURES/good" uppercase-extension.YML
 
 section "compose validation, through scan.sh's own check_compose"
 expect_scan_ok compose "$FIXTURES/good/compose.yaml"
 expect_scan_ok compose "$FIXTURES/good/stack.yaml"
+expect_scan_ok compose "$FIXTURES/good/uppercase-extension.YAML"
 expect_scan_bad compose "$FIXTURES/bad/schema.compose.yaml" ports
 expect_scan_bad compose "$FIXTURES/bad/unparseable.compose.yml" yaml
 
@@ -566,6 +636,121 @@ section "the exact invocation ci.yml uses: a kind, no root, no prune argument"
 expect_real_scan dockerfiles "$FIXTURES/bad/Dockerfile"
 expect_real_scan compose "$FIXTURES/bad/schema.compose.yaml"
 
+PINS="$REPO_ROOT/.github/scripts/action-pins.sh"
+PIN_WORKFLOWS="$FIXTURES/bad/action-pins/.github/workflows"
+
+# The checked count is asserted because a good file passes just as well when
+# the check stops recognising a uses: line at all.
+expect_pins_clean() {
+  local file="$1" count="$2" out status
+  out="$(bash "$PINS" "$file" 2>&1)"
+  status=$?
+  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'found 1 ' \
+    && printf '%s' "$out" | grep -qxF "checked $count uses: line(s)"; then
+    pass "$(rel "$file") passes action-pins.sh with $count uses: lines checked"
+  else
+    fail "expected $(rel "$file") to pass action-pins.sh with $count uses: lines checked, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+# Exactly one line reported, and it is the fixture's one defect.
+expect_pins_bad() {
+  local file="$1" line="$2" out status
+  out="$(bash "$PINS" "$file" 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qF "$file:$line: " \
+    && [ "$(printf '%s\n' "$out" | grep -c ': an action not pinned')" = 1 ]; then
+    pass "$(rel "$file") rejected by action-pins.sh at line $line only"
+  else
+    fail "expected action-pins.sh to reject $(rel "$file") at line $line and nowhere else, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+expect_real_pins() {
+  local planted="$PLANTED_DIR/.github/workflows" out status
+  mkdir -p "$planted"
+  cp "$PIN_WORKFLOWS/tag.yml" "$planted/tag.yml"
+  out="$(cd "$REPO_ROOT" && bash "$PINS" 2>&1)"
+  status=$?
+  rm -rf "$PLANTED_DIR"
+  if [ "$status" -ne 0 ] \
+    && printf '%s' "$out" | grep -qF './.ci-realscan-planted/.github/workflows/tag.yml:8: ' \
+    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    pass "the real action-pins.sh invocation finds a planted workflow and excludes ci-fixtures"
+  else
+    fail "expected the real action-pins.sh invocation to flag the planted workflow and skip ci-fixtures, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+section "every uses: names a commit sha, a local path or an image digest"
+expect_pins_clean "$FIXTURES/good/action-pins/.github/workflows/pinned.yml" 11
+expect_pins_bad "$PIN_WORKFLOWS/tag.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/short-sha.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/long-sha.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/uppercase-sha.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/double-quoted-tag.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/single-quoted-tag.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/sha-in-comment.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/trailing-word.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/url.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/no-ref.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/docker-tag.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/spaced-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/reusable-branch.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-mapping.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-mapping-line-start.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/double-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/single-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-sequence.yml" 7
+expect_pins_bad "$PIN_WORKFLOWS/flow-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/tagged-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/anchored-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/escaped-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/nested-sequence.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-tagged-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/tagged-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-anchored-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-tagged-anchored-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-sequence-explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/comma-explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/tagged-single-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-sequence-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/comma-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/alias-key-value-next-line.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-key-value-next-line.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-key-comment.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-escaped-key-value-next-line.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-alias-key-value-next-line.yml" 11
+expect_pins_bad "$PIN_WORKFLOWS/column-zero-alias-key.yml" 7
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-value-next-line.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-brace.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-bracket.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-trailing-space.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-tagged-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-anchored-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-double-quoted-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-single-quoted-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-indented-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-blank.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-comment.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-double-quoted-hash.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-single-quoted-hash.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-quoted-hash-comment.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-multiline-quoted-hash.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-three-hash-cuts.yml" 9
+expect_pins_bad "$FIXTURES/bad/action-pins/composite/action.yml" 8
+expect_real_pins
+
 printf '\n'
 ran=$((PASSES + FAILURES))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
@@ -577,5 +762,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed. A check has stopped discriminating.\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed, both sides for hadolint, discovery, compose, php lint and container cleanup.\n' "$PASSES"
+printf 'all %s assertions passed, both sides for hadolint, discovery, compose, php lint, container cleanup and action pins.\n' "$PASSES"
 printf 'scan.sh itself is exercised end to end: discovery, both check functions, the loop, and the exact no-argument invocation ci.yml uses.\n'

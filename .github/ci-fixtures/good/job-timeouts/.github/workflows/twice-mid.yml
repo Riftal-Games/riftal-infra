@@ -1,0 +1,10 @@
+# Called twice by calls-twice.yml two directories up, never asserted on its own.
+on: workflow_call
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - run: "true"
+  deeper:
+    uses: ./.github/workflows/twice-leaf.yml

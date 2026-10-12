@@ -12,6 +12,9 @@ from designer.config import PROJECT_ROOT, SIBLING_GAME_DIR
 SPEC_PATH = PROJECT_ROOT / "specs" / "lumber.json"
 FRAGMENT = Path("mines") / "resources" / "worlds" / "lumber.json"
 
+# MineDefinition::fromFragment in riftal-game rejects a fragment without any of these.
+REQUIRED_KEYS = {"interior", "floor_y", "ores"}
+
 
 def _fragment_path() -> Path:
     """RiftalMines' lumber fragment, from RIFTAL_GAME_DIR or the sibling checkout.
@@ -35,5 +38,8 @@ def test_lumber_fragment_matches_what_build_mine_computes() -> None:
     fragment = json.loads(_fragment_path().read_text(encoding="utf-8"))
     spec = MineSpec.from_dict(json.loads(SPEC_PATH.read_text(encoding="utf-8")))
     mine_reset = build_mine(spec, Palette.load("mine_stone")).extras["mine_reset"]
-    assert "interior" in fragment
+    missing = REQUIRED_KEYS - fragment.keys()
+    assert not missing, f"fragment lacks keys MineDefinition requires: {sorted(missing)}"
+    unknown = fragment.keys() - mine_reset.keys()
+    assert not unknown, f"fragment carries keys build_mine does not compute: {sorted(unknown)}"
     assert {key: mine_reset[key] for key in fragment} == fragment

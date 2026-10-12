@@ -58,7 +58,7 @@ wslc run -d -i --name riftal-instance-b --network riftal-dev \
   -e "INSTANCE_ID=${INSTANCE_B_ID}" \
   -e "RIFTAL_DEV_ENV=1" \
   -e "POCKETMINE_ARGS=--level-name=plots_b --level-type=flat --xbox-auth=false --motd=riftal-dev-b --riftal-dev-bots=on --auto-report.enabled=0" \
-  local-pocketmine-mp bash /plugins/deliver-world-index.sh start-pocketmine
+  local-pocketmine-mp bash /plugins/deliver-world-index.sh bash /plugins/require-custody.sh start-pocketmine
 
 wslc logs riftal-instance-b
 ```
@@ -74,6 +74,9 @@ different worlds rather than one world cloned onto a second port.
 `RIFTAL_DEV_ENV=1` is the same on both: `images/plugins/RiftalDevBots.php`
 admits bots only with it set, alongside `--riftal-dev-bots=on` and
 `--xbox-auth=false`, so an `instance-b` created without it refuses every bot.
+The command chain is the same as compose's too: `require-custody.sh` stops the
+boot before PocketMine when `images/plugins/RiftalCustody.phar` is missing or
+empty, so build it first (`images/README.md`, RiftalCustody).
 
 - [ ] The log reaches `Done (` for `riftal-instance-b`, same checks as the
       primary instance in step 4: no `[.../CRITICAL]`, `[.../EMERGENCY]`,

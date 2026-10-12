@@ -200,8 +200,8 @@ undelivered() {
 }
 check "instance and instance-b both run the delivery with the designer index mounted" \
   '[ -z "$(undelivered "$real")" ] &&
-    [ "$(jq -c ".services.instance.command[2:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-only/start-instance.sh\"]" ] &&
-    [ "$(jq -c ".services[\"instance-b\"].command[2:]" <<<"$real")" = "[\"start-pocketmine\"]" ]'
+    [ "$(jq -c ".services.instance.command[-2:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-only/start-instance.sh\"]" ] &&
+    [ "$(jq -c ".services[\"instance-b\"].command[-1:]" <<<"$real")" = "[\"start-pocketmine\"]" ]'
 check "an instance without the index mounted is caught" \
   '[ "$(undelivered "$(edited "0,/world_index.json:ro/{/world_index.json:ro/d}")")" = instance ]'
 

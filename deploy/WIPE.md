@@ -39,14 +39,15 @@ survive; the migration run reapplies their grants anyway.
    rollout rules.
 2. **Stop every instance** with `stop` on stdin, waiting for the shutdown line.
    Never kill one. `wipe.sh` refuses while any other session is connected to
-   the database or to no database, but that check reads one moment and is a
-   backstop, not a lock. Sessions on another default database are not counted.
-   See The session check, below.
+   the server, whatever its default database, but that check reads one moment
+   and is a backstop, not a lock. Anything else holding a connection, such as
+   a backup in progress or a client left open, must be closed too. See The
+   session check, below.
 3. **Back up.** One `backup.sh` run as in `README.md`. Note the set directory
-   it prints as `backup <ts>: complete at <set>`. It is the rollback, and `wipe.sh` refuses without it. Retention
-   prunes it after `BACKUP_RETENTION` more runs (2.5 days at the defaults); if
-   it must be kept longer, copy it out of `BACKUP_ROOT` first, and where to is
-   Nasir's call.
+   it prints as `backup <ts>: complete at <set>`. It is the rollback, and
+   `wipe.sh` refuses without it. Retention prunes it after `BACKUP_RETENTION`
+   more runs (2.5 days at the defaults); if it must be kept longer, copy it
+   out of `BACKUP_ROOT` first, and where to is Nasir's call.
 4. **Wipe.** `wipe.sh`, below, with the database named twice and the set from
    step 3. On success it prints
    `wipe <database>: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh`.
@@ -76,28 +77,26 @@ printed as `wipe <database>: refused: <reason>`:
 
 | Reason printed | Cause |
 |---|---|
-| `<user> lacks a direct PROCESS grant, so it cannot see every session` | Without `PROCESS` the processlist shows only the account's own threads, so it would count 0 whatever is connected. `PROCESS` held through a role is not seen, and refuses too |
+| `<user> lacks PROCESS, directly or through an active role, so it cannot see every session` | Without `PROCESS` the processlist shows only the account's own threads, so it would count 0 whatever is connected. It is read from `SHOW GRANTS` in the same session as the count, so `PROCESS` through a role counts only when that role is active at login, as a default role is |
 | `the processlist does not show this session, so it cannot see the others; is performance_schema off?` | The count is trusted only once it shows the script's own connection. With `performance_schema` off the processlist is empty, and any other blindness looks the same |
-| `<n> other session(s) are connected to <database> or to no database; stop every instance first` | A session with no default database can still write by qualified name, so it counts. `Daemon` threads do not |
+| `<n> other session(s) are connected to <host>:<port>; close every other connection, instances first` | Every session counts whatever its default database, since any of them can write by qualified name. `Daemon` threads do not |
 
 ## Environment
 
 `wipe.sh` and `wipe-check.sh` take `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`,
 `MYSQL_PASSWORD` and `MYSQL_DATABASE` as in `README.md`. `wipe.sh` needs an
-account that can drop and create the database and holds `PROCESS` granted
-directly, not through a role. It also requires:
+account that can drop and create the database and holds `PROCESS`, granted
+directly or through a default role. It also requires:
 
 | Variable | Meaning |
 |---|---|
 | `WIPE_CONFIRM` | Must equal `MYSQL_DATABASE` exactly. There is no default |
-| `BACKUP_SET` | The step 3 set. Its `mysql.sql` must be non-empty and its `manifest.txt` must hold the line `mysql_database: <MYSQL_DATABASE>` |
+| `BACKUP_SET` | The step 3 set. Its `mysql.sql` must be non-empty, and its `manifest.txt` must hold the line `mysql_database: <MYSQL_DATABASE>` and exactly one `timestamp:` line in `backup.sh`'s format, no older than `WIPE_BACKUP_MAX_AGE_MINUTES` and not in the future. It must also pass the checks `restore.sh` makes before touching anything, since it is the rollback: a `worlds/` directory holding at least one `.tar.gz`, each of which lists with `tar -tzf` |
+| `WIPE_BACKUP_MAX_AGE_MINUTES` | Optional, default `60`, see `README.md`. A whole number of minutes |
 
 `wipe.sh` also refuses a database name outside `[A-Za-z0-9_]`, and a database
 that does not exist. Every refusal happens before the drop, and leaves the
 database as it was.
-
-The set's age, what a restore of it would need, and `PROCESS` through a role
-are open in #498.
 
 ## Running it
 
