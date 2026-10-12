@@ -59,20 +59,26 @@ Why the two cannot be split:
 - **Older build, migrated schema.** A `gangs` build from before PR #266 never
   calls `mark_founded`, so every gang it creates after 0010 is left at the
   column default, `founded = FALSE`. The database then refuses every
-  contribution to that gang, and `gangs.find_by_name` no longer finds it for a
-  join. Nothing marks those rows later: the backfill ran once and 0010 is
-  recorded as applied.
+  contribution to that gang, and an instance on a build from riftal-game
+  PR #724 (`aed36a6`) onward does not find it through `gangs.find_by_name`
+  for a join.
+  Nothing marks those rows later: the backfill ran once and 0010 is recorded
+  as applied.
 - **Newer build, unmigrated schema.** The build from PR #266 onward reads and
-  writes `gangs.founded` (`mark_founded`, `delete_reservation`, `find_by_name`,
-  `member.find_gang`), which does not exist until 0010 runs, so gang creation
-  and contributions fail.
+  writes `gangs.founded` (`mark_founded`, `delete_reservation`,
+  `member.find_gang`, and from PR #724 `find_by_name`), which does not exist
+  until 0010 runs, so gang creation and contributions fail.
 
 So, for any release that takes a database from before 0010 to after it:
 
 1. Back up the database.
 2. Stop every instance cleanly.
-3. Run the migrations, and confirm the log shows `founded_backfilled` and
-   `schema_migrations` records `0010_add_gang_founded_marker.sql`.
+3. Count the rows in `gangs`, then run the migrations. The runner prints
+   result sets without column names (`migrations/run-migrations.sh` calls
+   `mysql -N -B`), so the log shows `applying 0010_add_gang_founded_marker.sql`
+   followed by a bare number, the backfilled row count, never the label
+   `founded_backfilled`. Confirm that number equals the count taken before the
+   run, and that `schema_migrations` records `0010_add_gang_founded_marker.sql`.
 4. Start every instance on an image tag whose `gangs` plugin includes PR #266.
 5. Rollback is an image tag that also includes PR #266, or the step 1 backup.
    No image tag older than PR #266 runs against this database again.
