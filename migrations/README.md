@@ -117,6 +117,12 @@ account allowed to create a routine under any definer.
 Same `mysql:8` image the dev stack already runs, so nothing new to pull.
 Run this after `riftal-mysql` is up and **before** the instance, per the
 rollout order in `../CLAUDE.md`: migrations, then instances, then the proxy.
+A migration whose effect needs a matching plugin build cannot follow that
+order one instance at a time. `../deploy/ROLLOUT.md` records what each known
+one needs: `0010_add_gang_founded_marker.sql` and
+`0015_raise_gang_level_with_contribution.sql`. The other migrations have not
+been audited for coupling yet; that audit is riftal-infra#1020, so do not read
+the file as a complete list until it closes.
 
 ```sh
 export MSYS_NO_PATHCONV=1
