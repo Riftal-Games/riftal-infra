@@ -118,11 +118,13 @@ Same `mysql:8` image the dev stack already runs, so nothing new to pull.
 Run this after `riftal-mysql` is up and **before** the instance, per the
 rollout order in `../CLAUDE.md`: migrations, then instances, then the proxy.
 A migration whose effect needs a matching plugin build cannot follow that
-order one instance at a time. `../deploy/ROLLOUT.md` records what each known
-one needs: `0010_add_gang_founded_marker.sql` and
-`0015_raise_gang_level_with_contribution.sql`. The other migrations have not
-been audited for coupling yet; that audit is riftal-infra#1020, so do not read
-the file as a complete list until it closes.
+order one instance at a time. `../deploy/ROLLOUT.md` records what each one
+needs: `0010_add_gang_founded_marker.sql`,
+`0014_add_player_ranks_claim.sql` and
+`0015_raise_gang_level_with_contribution.sql`. Its Audited migrations section
+covers every migration through `0020_create_gang_vault_slots.sql` and gives
+the reason each other one is not coupled; a later migration is unaudited until
+it is listed there.
 
 ```sh
 export MSYS_NO_PATHCONV=1
