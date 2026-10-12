@@ -12,10 +12,11 @@ nothing else.
 ## Scope
 
 The shared MySQL database only. What a wipe does to world volumes and to
-PocketMine's per-player data files (inventories) is not decided, so this
-runbook does not touch them; riftal-pm#696 decides it. Until it is decided, a
-wipe that clears balances and leaves inventories is a choice Nasir makes
-knowingly, not a default.
+PocketMine's per-player data files (inventories) is not decided, so the wipe
+does not touch them; riftal-pm#696 decides it. Until it is decided, a wipe
+that clears balances and leaves inventories is a choice Nasir makes
+knowingly, not a default. A rollback is not a wipe: `restore.sh` rebuilds
+every world volume from the step 3 set (see Rollback).
 
 ## Why the schema is dropped, not emptied table by table
 
@@ -49,14 +50,21 @@ survive; the migration run reapplies their grants anyway.
    database, takes one of the `BACKUP_RETENTION` slots, and brings the step 3
    set one run closer to being pruned. Stop it between runs, when its log's
    last run has reached `applying retention` and no `dumping database` line
-   follows. A run stopped part way leaves its `.lock` behind (`README.md`,
-   Stale lock sweep), and step 3's run then fails until that lock is
-   `LOCK_MAX_AGE_MINUTES` old.
+   follows. The run holds its lock until its `pruning` lines, if any, are
+   done, usually under a second, so wait a few seconds after the last line
+   before stopping it. A run stopped part way leaves its `.lock` behind
+   (`README.md`, Stale lock sweep), and step 3's run then fails until that
+   lock is `LOCK_MAX_AGE_MINUTES` old.
 3. **Back up.** One `backup.sh` run as in `README.md`. Note the set directory
    it prints as `backup <ts>: complete at <set>`. It is the rollback, and
-   `wipe.sh` refuses without it. Retention prunes it after `BACKUP_RETENTION`
-   more runs (2.5 days at the defaults); if it must be kept longer, copy it
-   out of `BACKUP_ROOT` first, and where to is Nasir's call.
+   `wipe.sh` refuses without it. Retention prunes it in the run that leaves
+   `BACKUP_RETENTION` newer sets. With `backup` stopped from step 2, the
+   first of those is the run step 7 starts, so the set is gone
+   `BACKUP_RETENTION - 1` intervals after step 7: 9 x 21600 s, 54 hours or
+   about 2.25 days, at the defaults (`../images/compose.yaml`). Any other
+   `backup.sh` run into the same `BACKUP_ROOT` brings that forward. If it
+   must be kept longer, copy it out of `BACKUP_ROOT` before step 7, and where
+   to is Nasir's call.
 4. **Wipe.** `wipe.sh`, below, with the database named twice and the set from
    step 3. On success it prints
    `wipe <database>: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh`.
@@ -80,10 +88,14 @@ world volume from that set, which is the state they were stopped in at step 2,
 so a rollback after step 7 also discards every block changed and every row
 written since the instances came back.
 
+**A run that stops before step 4**, for example because `wipe.sh` refused,
+has dropped nothing and needs no rollback. Every instance and the `backup`
+service are still stopped from step 2, so go straight to step 7.
+
 The binary log holds every change written in the last 30 days, the wiped
 rows' history among them (`README.md`, Binary log retention). A row last
-written before that window is in no binary log, only in the step 3 set. A wipe
-does not purge the log; purging it early deletes data and is Nasir's.
+written before that window may be in no binary log, only in the step 3 set.
+A wipe does not purge the log; purging it early deletes data and is Nasir's.
 
 ## The session check
 
