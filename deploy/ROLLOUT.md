@@ -48,6 +48,59 @@ schema. For a coupled migration:
 - Whoever lands a coupled migration in `riftal-game` files an `owner:infra`
   issue to add its entry here.
 
+## Audited migrations
+
+Every migration in `riftal-game/lib/resources/sql/migrations/` from `0001` to
+`0020_create_gang_vault_slots.sql` has been checked against the rule above, at
+riftal-game `main` `164184c`. Coupled: 0010, 0014 and 0015, each with its
+entry below. A migration numbered above 0020 is unaudited until it is listed
+here.
+
+Each check asks whether a build from before the migration's PR, running
+against the migrated schema, fails or writes rows the schema treats
+differently. A newer build against an unmigrated schema fails for nearly
+every migration whose table or procedure it uses, and running migrations
+first keeps that from happening, so it is named only in a coupled entry. This
+audit covers migrations only, not `grants.sql`, which the runner reapplies on
+every run.
+
+Not coupled:
+
+- 0001 to 0006 and 0008: each creates a table in the same riftal-game PR as
+  the first plugin code that uses it (#46, #60, #112, #146, #148, #174), so no
+  older build reads it.
+- 0007: `cumulative_contribution_minor_units` is `NOT NULL DEFAULT 0`, so a
+  gang an older build creates starts where any new gang starts.
+- 0009: a gangs build from before PR #217 (`a113487`) raises
+  `cumulative_contribution_minor_units` with a direct `UPDATE` and writes no
+  ledger row. That increment still lands, and the table and procedure 0009
+  creates are ones that build never touches.
+- 0011: an economy build from before PR #264 (`9bfc4df`) moves a balance
+  without setting the nullable `updated_by_instance`, so that row keeps naming
+  an earlier writer. No plugin reads the column.
+- 0012: a gangs build from before PR #344 (`ba16152`) never raises `level`.
+  The level is a high-water mark of the cumulative total, so the next raise
+  by a newer build catches it up, the same lag 0012 gives every existing gang.
+- 0013: PR #422 (`835ea66`) changes no plugin code, and `accounts.username`
+  has no unique key (`0001:5-12`), so the collation change merges no rows.
+- 0016: an economy build from before PR #891 (`9a80ef1`) moves balances with
+  no `economy_ledger` row. ADR 006 (riftal-pm `docs/decisions/006`,
+  Consequences) accepts that window under the serial rollout and pins the
+  balance snapshot to after it.
+- 0017: a gangs build from before PR #808 (`fec6736`) passes a levels list
+  with no `contested_mine` marker, so its raises leave the flag `FALSE`. The
+  next raise by a newer build sets it (`0017:22-28`), the same lag 0017 gives
+  every gang already at the level, and nothing writes it back to `FALSE`.
+- 0018: no plugin build calls `economy_balance_snapshot_take` or `_void`.
+- 0019: a mines build from before PR #884 (`1105889`) never reads or clears
+  the unstable ore columns. A position it leaves set holds a block its refill
+  wrote, and the next reset claim on a newer build clears it
+  (`mines/resources/sql/mines.sql:39`, `:49`).
+- 0020: no gangs build from before PR #1022 (`7fa533e`) reads
+  `gang_vault_slots` or calls `gangs_vault_deposit`. On such a build, an item
+  already deposited stays in its slot row, out of reach until a build with
+  `/gang vault` (PR #1124, `a09b00a`) runs again.
+
 ## 0010 and the gangs `mark_founded` build ship together
 
 Migration: `riftal-game/lib/resources/sql/migrations/0010_add_gang_founded_marker.sql`.
@@ -95,9 +148,9 @@ So, for any release that takes a database from before 0010 to after it:
    followed by a bare number, the backfilled row count, never the label
    `founded_backfilled`. Confirm that number equals the count taken before the
    run, and that `schema_migrations` records `0010_add_gang_founded_marker.sql`.
-4. Start every instance on an image tag whose `gangs` plugin carries the
-   matching build of every coupled migration the run applied: PR #266 for
-   0010, and PR #712 for 0015 when the run crosses it too (see below).
+4. Start every instance on an image tag that carries the matching build of
+   every coupled migration the run applied: PR #266 for 0010, and PR #675
+   for 0014 and PR #712 for 0015 when the run crosses them too (see below).
 5. Rollback is an image tag that meets the same condition, and nothing else.
    No image tag older than PR #266 runs against this database again.
 
@@ -138,3 +191,44 @@ So, for any release that takes a database from before 0015 to after it:
    and the matching build of any other coupled migration the run applied.
 5. Rollback is an image tag that meets the same condition, and nothing else.
    No image tag older than PR #712 runs against this database again.
+
+## 0014 and the ranks build that holds a rank-up claim ship together
+
+Migration: `riftal-game/lib/resources/sql/migrations/0014_add_player_ranks_claim.sql`.
+Matching build: any `ranks` build carrying riftal-game PR #675 (merge commit
+`0a1d21d`), which landed the migration and the claim queries `ranks.advance`,
+`ranks.settle` and `ranks.revert`
+(`riftal-game/ranks/resources/sql/ranks.sql:42-77`) in the same commit.
+Source: ADR 021 (riftal-pm#1029).
+
+What 0014 does: adds six nullable claim columns to `player_ranks`, all set or
+all `NULL` under a CHECK (`0014:15-20`). A held claim is a rank-up whose debit
+has not answered: the block counter is zeroed and `current_rank` has not
+moved, because `current_rank` holds only a paid rank (`0014:2-3`).
+
+Why the two cannot be split:
+
+- **Older build, migrated schema.** A `ranks` build from riftal-game PR #651
+  (`e5deb31`) up to before PR #675 advances on `current_rank = :from_rank AND
+  blocks_mined_since_rankup = :mined` alone (`ranks.sql:40-41` at
+  `0a1d21d^`) and never reads the claim columns. On a row holding a claim it
+  moves `current_rank` anyway, debiting for a rank the claim may already have
+  paid for, and it never settles, reverts or takes over that claim. When a
+  build from PR #693 (`59e68bf`) onward takes the claim after its lease, its
+  revert adds `claim_mined` to the counter of the rank the older build moved
+  to. A `ranks` build from before PR #651 has no rank-up.
+- **Newer build, unmigrated schema.** A build from PR #675 onward reads and
+  writes the claim columns (`ranks.progress`, `ranks.advance`), which do not
+  exist until 0014 runs, so every rank-up fails.
+
+So, for any release that takes a database from before 0014 to after it:
+
+1. Stop every instance cleanly.
+2. Back up as the general rule above points to. A restore is Nasir's call,
+   never a rollback.
+3. Run the migrations and confirm `schema_migrations` records
+   `0014_add_player_ranks_claim.sql`.
+4. Start every instance on an image tag whose `ranks` plugin carries PR #675,
+   and the matching build of any other coupled migration the run applied.
+5. Rollback is an image tag that meets the same condition, and nothing else.
+   No image tag older than PR #675 runs against this database again.
