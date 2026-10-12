@@ -19,8 +19,8 @@
 # nerdctl, by any path and in any case, or a shell variable, then any closing
 # } and ", then any global flags, then run, create or container run|create; or
 # any compose up, run, create or start, ended by anything but a word
-# character, which counts whatever it names, since the compose file is not
-# read. The name and the start are tested separately over the whole text, both
+# character or -, which counts whatever it names, since the compose file is
+# not read. The name and the start are tested separately over the whole text, both
 # as written and with backslash-continued lines joined, so a trailing comment
 # can flag a step that does neither.
 #
@@ -207,9 +207,11 @@ compose="($engine)[}\"]*([[:space:]]+|-)compose([[:space:]]+[^[:space:]]+)*[[:sp
 runs_mysql() {
   local code
   code="$(grep -vE '^[[:space:]]*#' || true)"
-  # A line ending in a backslash, before a CR or not, goes on to the next, and
-  # grep reads one line at a time. The joined copy is tested beside the lines
-  # as written, so joining can only add a match.
+  # In bash a line ending in a backslash goes on to the next, and grep reads
+  # one line at a time. A backslash before a CR is joined too, though bash
+  # does not join it, so a CRLF file is read as its author meant and the
+  # check fails closed. The joined copy is tested beside the lines as written,
+  # so joining can only add a match.
   code+=$'\n'"$(tr -d '\r' <<<"$code" | sed -E -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}')"
   grep -qiE "$compose" <<<"$code" ||
     { grep -qE "$mysql_ref" <<<"$code" && grep -qiE "$start" <<<"$code"; }

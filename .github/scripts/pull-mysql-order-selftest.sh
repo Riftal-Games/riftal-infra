@@ -11,7 +11,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=70
+expected=71
 
 root="$work/root"
 mkdir -p "$root/.github/scripts" "$root/sub"
@@ -38,6 +38,7 @@ printf '%s compose -f compose.yaml \\\n  up -d mysql\n' "$engine" >"$root/compos
 printf '%s compose -f compose.yaml \\\r\n  up -d mysql\r\n' "$engine" >"$root/compose-crlf.sh"
 printf '%s \\\n  run --rm mysql:8 true\n' "$engine" >"$root/engine-cont.sh"
 printf '%s \\\r\n  run --rm mysql:8 true\r\n' "$engine" >"$root/engine-crlf.sh"
+printf '%s \\\n  --context x \\\n  run --rm mysql:8 true\n' "$engine" >"$root/engine-three.sh"
 printf '%s run --rm ${IMG:-mysql:8} true\n' "$engine" >"$root/defaulted.sh"
 printf '%s run --rm ${IMG-mysql:8} true\n' "$engine" >"$root/defaulted-bare.sh"
 printf '%s compose up;\n' "$engine" >"$root/compose-semi.sh"
@@ -133,6 +134,7 @@ for form in "direct=./db" 'flagged=bash -e "db"' "quoted=bash 'db.sh'" 'yaml="ba
   'braced="{ bash db; }"' "command=command bash db" "timeout kill=timeout -k 5 10 bash db" \
   "rcfile=bash --rcfile php.sh db" "compose continued=bash compose-cont.sh" \
   "compose crlf=bash compose-crlf.sh" "engine continued=bash engine-cont.sh" "engine crlf=bash engine-crlf.sh" \
+  "engine three lines=bash engine-three.sh" \
   "defaulted=bash defaulted.sh" "defaulted bare=bash defaulted-bare.sh" "compose semicolon=bash compose-semi.sh" \
   "compose and=bash compose-and.sh" "compose pipe=bash compose-pipe.sh" "compose quoted=bash compose-quoted.sh"; do
   workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/form.yml"
