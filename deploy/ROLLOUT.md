@@ -22,7 +22,7 @@ instance starts on the newer build, so the procedure already rules it out.
 A `grants.sql` change is coupled the same way. `run-migrations.sh` applies the
 `GRANTS_FILE` it is given on every run, a run with nothing pending included
 (`../migrations/run-migrations.sh:304`), so the file's REVOKEs reach the
-database on every run, and on a fresh server so does every privilege it never
+database on every run, and on a fresh server a role holds only what the file
 grants. A change is coupled
 when a plugin build that an instance may still run, or be rolled back to,
 needs a privilege the file revokes or does not grant: every statement of that
@@ -155,12 +155,14 @@ Before it:
      means the directory is not that release's, so stop there. Then start
      each instance on the previous tag. The database holds none of the run's
      migrations, so no migration entry's bar on older tags applies to it.
-     When the previous release has a `grants.sql`, from riftal-game PR #454
-     (`cea814f`) onward, that run applies it, and its GRANTs give back what a
-     newer file revoked from the builds it shipped with, so no grants entry's
-     bar applies either. Going back by restore to a previous tag whose
-     plugins were built from before riftal-game PR #454, a release with no
-     `grants.sql`, is not a rollback in this file: it is barred, and
+     That run applies the previous release's `grants.sql`, and its GRANTs
+     give back what a newer file revoked from the builds it shipped with:
+     riftal-game CI runs every statement of each plugin's SQL file as that
+     plugin's login against the same tree's file (`lib/tests/mysql/grants.sh`,
+     run by `.github/workflows/ci.yml:123` at `cea814f`). So no grants
+     entry's bar applies either. A previous tag whose plugins were built from
+     before riftal-game PR #454 (`cea814f`), a release with no `grants.sql`,
+     is not a rollback in this file, serial or by restore: it is barred, and
      riftal-infra#1032 owns it.
 
 ### A migration that fails partway
@@ -259,20 +261,16 @@ Every version of `riftal-game/lib/resources/sql/grants.sql`, from PR #454
 REVOKE, with its entry below. A `grants.sql` change after `7fa533e` is
 unaudited until it is listed here.
 
-Each check is whether a build in a plausible rollback range needs a
-privilege that version revokes or never grants. The range is narrowed by the
-migration entries: the file was born at PR #454 with migrations through 0010
-in the same tree, and a run applies the migrations of the same release as its
-grants file. Two paths break that pairing, and both are excluded: a run that
-stops at a failed migration applies grants too
-(`../migrations/run-migrations.sh:275-278`), but no instance starts after one
-(A migration that fails partway, step 1), and a restore onto a tag from before
-PR #454 leaves the window's grants on the server roles, but it is barred
-(When a restore is a rollback, step 3; riftal-infra#1032). With both
-excluded, every database an instance runs against under a `grants.sql` has
-0010. So, with no instance started after a failed migration and no restore
-onto a pre-#454 tag, `gangs` builds before PR #712 and `ranks` builds before
-PR #675 are already barred from it by the 0010, 0015 and 0014 entries.
+The audit covers plugin builds from riftal-game PR #454 (`cea814f`) onward,
+the first release with a `grants.sql`. A rollback to a tag whose plugins
+were built from before PR #454, serial or by restore, is not a rollback in
+this file: it is barred, and riftal-infra#1032 owns it (When a restore is a
+rollback, step 3).
+
+Each check is whether a plugin build from PR #454 onward needs a privilege
+that version revokes or never grants. A run that stops at a failed migration
+applies grants too (`../migrations/run-migrations.sh:275-278`), but no
+instance starts after one (A migration that fails partway, step 1).
 
 Not coupled:
 
@@ -287,19 +285,13 @@ Not coupled:
 - `mines` and `riots`: every version of `mines.sql` (PRs #112, #251, #884)
   and `riots.sql` (PRs #146, #935, #1051, #1112) assigns only columns the file
   grants UPDATE on, and deletes nothing.
-- `gangs` from PR #712 and `ranks` from PR #675: no later version narrows
-  their roles, and riftal-game CI runs every statement of each plugin's SQL
-  file as that plugin's login against the same tree's `grants.sql`
-  (`lib/tests/mysql/grants.sh`, from PR #454).
-- No version grants the `gangs` role UPDATE on
-  `gangs.cumulative_contribution_minor_units`, which a `gangs` build from
-  before PR #217 (`a113487`) assigns directly (`gangs.sql:50` at `a113487^`).
-  Such a build fails every contribution with ERROR 1143, reproduced on
-  mysql:8 8.4.11 against the file at `7fa533e`. PR #217 is an ancestor of PR
-  #266, so the 0010 entry bars that build from every database an instance
-  runs against under a `grants.sql`, given both exclusions above: no instance
-  starts after a failed migration, and a restore onto a tag from before PR
-  #454 is barred (riftal-infra#1032).
+- Every plugin build from PR #454 onward: riftal-game CI runs every
+  statement of each plugin's SQL file as that plugin's login against the same
+  tree's `grants.sql` (`lib/tests/mysql/grants.sh`, run on every pull request
+  by `.github/workflows/ci.yml:123` at `cea814f`), and every later version
+  except PRs #647 and #923 only adds GRANTs, so a build keeps every privilege
+  its own release granted. PR #647 has its bullet above and PR #923 its entry
+  below.
 
 ## 0010 and the gangs `mark_founded` build ship together
 
