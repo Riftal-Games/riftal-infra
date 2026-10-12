@@ -222,11 +222,14 @@ HOLD_TAG=
 sleeping() { q "SELECT COUNT(*) FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP(% AS $HOLD_TAG'"; }
 # A session that never connects would let the next refusal case run a real
 # wipe on the fixture, so it stops the self-test rather than muddy every later
-# assertion.
+# assertion. The session ends only when released() kills it: a hold that timed
+# itself out could end on a slow runner while a refusal case still needed it,
+# and that case's wipe would drop the fixture. The SLEEP length only bounds a
+# hold that released() never reaches.
 hold() {
   HOLDS=$((HOLDS + 1))
   HOLD_TAG="held$HOLDS"
-  docker exec -d "$C" mysql -uroot -pselftest "$@" -e "SELECT SLEEP(8) AS $HOLD_TAG"
+  docker exec -d "$C" mysql -uroot -pselftest "$@" -e "SELECT SLEEP(600) AS $HOLD_TAG"
   for _ in $(seq 1 20); do [ "$(sleeping)" = "1" ] && return; sleep 0.5; done
   echo "the session $HOLD_TAG held on $C with default database '${1:-none}' never connected" >&2
   exit 1
@@ -235,7 +238,15 @@ hold() {
 # hold's refusal case pass against this session rather than its own, so either
 # stops the self-test.
 released() {
-  local n=
+  local id n=
+  id="$(q "SELECT ID FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP(% AS $HOLD_TAG'")" || id=
+  case "$id" in
+    '' | *[!0-9]*)
+      echo "the session $HOLD_TAG held on $C was not connected to be released; its id read '${id:-unreadable}'" >&2
+      exit 1
+      ;;
+  esac
+  q "KILL $id" || { echo "the session $HOLD_TAG held on $C, id $id, could not be killed" >&2; exit 1; }
   for _ in $(seq 1 30); do
     n="$(sleeping)" || n=
     [ "$n" = "0" ] && return
