@@ -162,8 +162,8 @@ Before it:
      run by `.github/workflows/ci.yml:123` at `cea814f`). So no grants
      entry's bar applies either. A previous tag whose plugins were built from
      before riftal-game PR #454 (`cea814f`), a release with no `grants.sql`,
-     is not a rollback in this file, serial or by restore: it is barred, and
-     riftal-infra#1032 owns it.
+     is never a rollback, serial or by restore: see No rollback to a plugin
+     build from before riftal-game PR #454, below.
 
 ### A migration that fails partway
 
@@ -262,10 +262,9 @@ REVOKE, with its entry below. A `grants.sql` change after `7fa533e` is
 unaudited until it is listed here.
 
 The audit covers plugin builds from riftal-game PR #454 (`cea814f`) onward,
-the first release with a `grants.sql`. A rollback to a tag whose plugins
-were built from before PR #454, serial or by restore, is not a rollback in
-this file: it is barred, and riftal-infra#1032 owns it (When a restore is a
-rollback, step 3).
+the first release with a `grants.sql`. A tag whose plugins were built from
+before PR #454 is never a rollback, serial or by restore: see No rollback to
+a plugin build from before riftal-game PR #454, below.
 
 Each check is whether a plugin build from PR #454 onward needs a privilege
 that version revokes or never grants. A run that stops at a failed migration
@@ -495,3 +494,70 @@ database whose last run applied one from before it:
    When a restore is a rollback, above; after that, nothing else. No
    `economy` build older than PR #891 runs against a database whose grants
    came from PR #923 onward.
+
+## No rollback to a plugin build from before riftal-game PR #454
+
+An image tag whose plugins were built from before riftal-game PR #454
+(`cea814f`) is never a rollback target, serial or by restore. The bar is
+permanent.
+
+What the release that first ships `grants.sql` leaves: its run creates the
+file's roles and grants and provisions one login per
+`RIFTAL_DB_PASSWORD_<NAME>`, the six of ADR 008 item 1 (`accounts`,
+`economy`, `gangs`, `mines`, `ranks`, `riots`;
+`../migrations/run-migrations.sh:304-331`). Neither rollback undoes any of
+it:
+
+- Serial: nothing runs against the server, so every role, grant, login and
+  password stays as that run left it.
+- By restore onto the same server: `restore.sh` drops and recreates only the
+  database (`restore.sh:53-55`). Roles, logins and their grants live in the
+  `mysql` schema and stay, procedure grants included: on mysql:8 8.4.11,
+  `mysql.tables_priv`, `columns_priv` and `procs_priv` held 12, 30 and 6 rows
+  for the schema before the drop and the same after it. The pre-#454
+  release's run changes none of it: given that release's absent
+  `GRANTS_FILE`, or any `RIFTAL_DB_PASSWORD_*`, it refuses before connecting
+  (`run-migrations.sh:83-86`); given neither, it applies no grants (`:268`)
+  and provisions no login.
+- By restore onto a fresh server: no role or login exists.
+
+Which login a pre-#454 build connects as: its config's `database.username`.
+Each plugin's `resources/config.yml` has named its own login, with
+`password: ""`, since the plugin's scaffold: `economy` (PR #60, `f55afcc`),
+`mines` (PR #121, `48f1e8d`), `riots` (PR #146, `cca42db`), `gangs` (PR #148,
+`2ba7d0f`), `ranks` (PR #174, `bd8f121`). None connects as `accounts`: that
+plugin starts at PR #473 (`11d8997`). The password comes from
+`database.password` alone: `DatabaseSettings::fromConfig` takes no
+environment before PR #454
+(`lib/src/RiftalGames/Lib/Database/DatabaseSettings.php:38` at `cea814f^`).
+
+Why no pre-#454 build runs under what either rollback leaves:
+
+- With the shipped empty password, a login the window provisioned refuses
+  it, `ERROR 1045 (28000): Access denied for user 'economy'@'localhost'
+  (using password: NO)` on mysql:8 8.4.11, and on a fresh server the login
+  does not exist. Every database plugin fails to enable.
+- Giving that build a password means writing it into its `config.yml` under
+  `/data/plugin_data`, on the world volume every backup set tars, which ADR
+  008 item 5 forbids (riftal-pm `docs/decisions/008`). Pointing it at root
+  instead is the exposure that ADR's Context describes. Neither is a rollback
+  step.
+- Authenticated anyway, `gangs` and `economy` fail on the window's grants. As
+  `gangs`, a build from before PR #217 (`a113487`) raises the gang total
+  with a direct `UPDATE`, which every `grants.sql` version denies: `ERROR
+  1143 (42000) ... for column 'cumulative_contribution_minor_units'`. As
+  `economy`, a pre-#454 credit's `UPDATE balances SET balance_minor_units`
+  gets ERROR 1143 under any file from PR #923 on. Both reproduced on mysql:8
+  8.4.11 under the file at `7fa533e`. Every pre-#454 `gangs` build is also
+  older than PR #712, and every `ranks` build older than PR #675, so the 0015
+  and 0014 entries bar them wherever the run applied those migrations. Only `mines` and `riots` would pass on privileges (Audited
+  `grants.sql`), and they still fail to authenticate.
+
+The bar is not lifted for `mines` and `riots`, because the only way past
+authentication is a credential on the world volume. It costs no reachable
+rollback: no production deploy predates PR #454, so a production previous
+tag is a pre-#454 one only if such a tag is first deployed new, which fails
+on authentication the same way. A window
+whose previous tag would be one has only the retry path in When a restore is
+a rollback, step 3; if that cannot finish, the server stays down and it is
+Nasir's call.
