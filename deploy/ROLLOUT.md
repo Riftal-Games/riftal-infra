@@ -33,12 +33,12 @@ For a coupled migration:
   of every coupled migration the run applied.
 - Every instance stops before anything else in the window happens, the
   backup included.
-- The backup before the migration follows the Rollout rules in `../CLAUDE.md`
-  and the backup and restore rules in `README.md`. This file gives no backup
-  or restore procedure; the window's procedure is riftal-infra#1023.
-- A restore after a coupled migration is not a rollback. It is destructive
-  (`README.md`, Restore: the database is dropped and every world directory is
-  cleared, so everything players did since the backup is gone), and it is
+- The backup is one `backup.sh` run taken after that stop, its set name
+  recorded, as in The window's backup and restore, below.
+- A restore of that set is a rollback only until the first instance on the
+  new tag admits a player. After that it is destructive (`README.md`, Restore:
+  the database is dropped and every world directory is cleared, so everything
+  players did since the backup is gone), it is never a rollback, and it is
   Nasir's call.
 - Write the coupled pair into the release's "what is shipping" list and into
   its rollback path before the window opens, naming the migration number and
@@ -49,6 +49,134 @@ For a coupled migration:
   run applies, not only the first.
 - Whoever lands a coupled migration in `riftal-game` files an `owner:infra`
   issue to add its entry here.
+
+## The window's backup and restore
+
+A restore is never a routine step of a window. The backup below is taken in
+every window; the restore is the recovery for a window that cannot go on.
+
+Commands are for the dev stack, with the variables set as in `README.md`,
+Running it locally. Elsewhere they take that environment's network, volume
+names and credentials, and the same scripts.
+
+### Take the backup
+
+Every instance has stopped cleanly: `stop` on stdin, then its shutdown line.
+
+1. Run `backup.sh` once, with one read-only mount per instance world volume,
+   the same list the `backup` service mounts in `../images/compose.yaml`:
+
+   ```sh
+   timeout 120 wslc run --rm --network riftal-dev \
+     -v "$INFRA/deploy:/deploy:ro" \
+     -v riftal-backups:/backups \
+     -v riftal-world:/worlds/riftal-world:ro \
+     -v riftal-world-b:/worlds/riftal-world-b:ro \
+     -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
+     -e MYSQL_DATABASE=riftal_dev -e BACKUP_RETENTION="${BACKUP_RETENTION:-10}" \
+     mysql:8 bash /deploy/backup.sh
+   ```
+
+2. Read its log. Success is `backup <ts>: complete at <set>`, for example
+   `complete at /backups/20261012T120000000000000Z` (`backup.sh:265`). A run
+   that ends any other way left no set behind (`backup.sh:172`); fix the cause
+   and run it again. `another run already holds the lock` means the `backup`
+   service's scheduled run is under way: wait for it to finish, then run
+   again. Record this run's set only, never a scheduled one.
+3. Write `<set>` into the release's rollback path before the migrations run.
+   Read its `manifest.txt`: `world_volumes:` must list every instance world
+   volume, since a restore rebuilds only the worlds the set holds.
+4. Nothing stands in for the set, a database-only dump least of all.
+   `restore.sh` refuses a set with no `worlds/` directory or no world tar in
+   it (`restore.sh:29`, `:34`).
+5. Retention prunes the set once `BACKUP_RETENTION` later runs complete,
+   scheduled ones included: 2.5 days at the defaults (`README.md`, Retention).
+   A window that could outlast that copies the set out of `BACKUP_ROOT` first,
+   and where to is Nasir's call.
+
+### Count `gangs` before a run that applies 0010
+
+After the backup and before the migrations:
+
+```sh
+timeout 120 wslc run --rm --network riftal-dev \
+  -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
+  mysql:8 mysql --host=mysql --user=root -N -B riftal_dev \
+  -e 'SELECT COUNT(*) FROM gangs'
+```
+
+It prints one bare number. Record it next to the set name; 0010's step 3
+compares the backfill count with it. Every instance is stopped, so nothing
+writes to `gangs` in between.
+
+### When a restore is a rollback
+
+Restoring the recorded set rebuilds the database and every world volume to
+the moment of the stop. That loses nothing a player did only until the first
+instance on the new tag admits a player. An instance has admitted one once
+any of its logs since it started on the new tag holds a `logged in with
+entity id` line (pmmp-core `resources/translations/eng.ini:557`). A bot
+counts. A log that cannot be read in full counts as an admission.
+
+After the first admission, there is no restore step in this file. A restore
+then is destructive, never a rollback, and Nasir's call (`../CLAUDE.md`,
+Rollout rules).
+
+Before it:
+
+1. Stop cleanly every instance that started on the new tag.
+2. Run `restore.sh` with `BACKUP_SET` the recorded set, as in `README.md`,
+   Running it locally. Success is `restore <set>: complete, database <db> and
+   <n> world volume(s) rebuilt` (`restore.sh:72`), `<n>` the count in the
+   manifest's `world_volumes:`.
+3. Run `../migrations/run-migrations.sh`, which every restore needs for its
+   grants and logins (`README.md`, Restore). The directories it is given
+   decide where the window goes:
+   - To retry, the new release's `MIGRATIONS_DIR` and `GRANTS_FILE`, once the
+     cause of the failure is found and fixed. That run is the entry's step 3
+     again, its checks included, and the window goes on from there. The
+     `gangs` count taken before the first run still holds, since the restore
+     put the table back to the stop.
+   - To go back to the previous tag, the `MIGRATIONS_DIR` and `GRANTS_FILE`
+     of the riftal-game commit that tag's plugins were built from. Its log
+     must read `nothing pending` (`run-migrations.sh:299`); anything applied
+     means the directory is not that release's, so stop there. Then start
+     each instance on the previous tag. The database holds none of the run's
+     migrations, so no entry's bar on older tags applies to it.
+
+### A migration that fails partway
+
+`run-migrations.sh` stops at the first migration that errors and leaves it
+unrecorded (`../migrations/README.md`, step 4). It does the same when a
+migration applied but its `schema_migrations` row could not be written. The
+log names either: `migration <id> failed` or `<id> applied but could not be
+recorded as applied`, each followed by `applying grants for what did apply,
+then stopping` (`run-migrations.sh:276`, `:290`, `:294`).
+
+What ran before the failing statement stays: MySQL DDL commits implicitly and
+is never rolled back. For 0010 that is `ALTER TABLE gangs ADD COLUMN founded`
+(`0010_add_gang_founded_marker.sql:4`), so a retry fails on that line with a
+duplicate column error and never reaches the backfill or the procedure. A
+failure after its `DROP PROCEDURE IF EXISTS gangs_ledger_contribute` (`:16`)
+also leaves no procedure at all, and 0015 drops the same procedure before it
+recreates it (`0015_raise_gang_level_with_contribution.sql:9`).
+
+Inside the window:
+
+1. Start no instance. A partly applied migration matches no build.
+2. Repair nothing by hand: no dropping the column, recreating the procedure,
+   or writing the `schema_migrations` row. The failed run's log is the only
+   record of what committed, and a hand repair is a second, unrecorded
+   migration.
+3. Restore the recorded set as in When a restore is a rollback, above, and
+   take its retry path once the cause is fixed. No instance has admitted a
+   player, so this loses nothing.
+4. If the cause is not found and fixed inside the window, take the
+   previous-tag path above. If neither path can finish, the server stays down
+   and it is Nasir's call.
+
+A partial apply found after the first admission is Nasir's call, like any
+restore then.
 
 ## Audited migrations
 
@@ -144,9 +272,11 @@ Why the two cannot be split:
 So, for any release that takes a database from before 0010 to after it:
 
 1. Stop every instance cleanly.
-2. Back up as the general rule above points to. A restore is Nasir's call,
-   never a rollback.
-3. Count the rows in `gangs`, then run the migrations. The runner prints
+2. Back up as in The window's backup and restore, above, and record the set
+   name. Restoring it is a rollback only until the first instance on the new
+   tag admits a player; after that it is Nasir's call, never a rollback.
+3. Count the rows in `gangs` with the command in Count `gangs` before a run
+   that applies 0010, above, then run the migrations. The runner prints
    result sets without column names (`migrations/run-migrations.sh` calls
    `mysql -N -B`), so the log shows `applying 0010_add_gang_founded_marker.sql`
    followed by a bare number, the backfilled row count, never the label
@@ -155,8 +285,10 @@ So, for any release that takes a database from before 0010 to after it:
 4. Start every instance on an image tag that carries the matching build of
    every coupled migration the run applied: PR #266 for 0010, and PR #675
    for 0014 and PR #712 for 0015 when the run crosses them too (see below).
-5. Rollback is an image tag that meets the same condition, and nothing else.
-   No image tag older than PR #266 runs against this database again.
+5. Rollback is an image tag that meets the same condition. Until the first
+   instance on the new tag admits a player, it can also be the restore in
+   When a restore is a rollback, above; after that, nothing else. No image
+   tag older than PR #266 runs against a database with 0010 applied.
 
 If gangs were created by an older build after 0010 was applied, they stay
 unfounded. Marking them founded changes player data and is not a step of the
@@ -187,14 +319,17 @@ Why the two cannot be split:
 So, for any release that takes a database from before 0015 to after it:
 
 1. Stop every instance cleanly.
-2. Back up as the general rule above points to. A restore is Nasir's call,
-   never a rollback.
+2. Back up as in The window's backup and restore, above, and record the set
+   name. Restoring it is a rollback only until the first instance on the new
+   tag admits a player; after that it is Nasir's call, never a rollback.
 3. Run the migrations and confirm `schema_migrations` records
    `0015_raise_gang_level_with_contribution.sql`.
 4. Start every instance on an image tag whose `gangs` plugin carries PR #712,
    and the matching build of any other coupled migration the run applied.
-5. Rollback is an image tag that meets the same condition, and nothing else.
-   No image tag older than PR #712 runs against this database again.
+5. Rollback is an image tag that meets the same condition. Until the first
+   instance on the new tag admits a player, it can also be the restore in
+   When a restore is a rollback, above; after that, nothing else. No image
+   tag older than PR #712 runs against a database with 0015 applied.
 
 ## 0014 and the ranks build that holds a rank-up claim ship together
 
@@ -229,11 +364,14 @@ Why the two cannot be split:
 So, for any release that takes a database from before 0014 to after it:
 
 1. Stop every instance cleanly.
-2. Back up as the general rule above points to. A restore is Nasir's call,
-   never a rollback.
+2. Back up as in The window's backup and restore, above, and record the set
+   name. Restoring it is a rollback only until the first instance on the new
+   tag admits a player; after that it is Nasir's call, never a rollback.
 3. Run the migrations and confirm `schema_migrations` records
    `0014_add_player_ranks_claim.sql`.
 4. Start every instance on an image tag whose `ranks` plugin carries PR #675,
    and the matching build of any other coupled migration the run applied.
-5. Rollback is an image tag that meets the same condition, and nothing else.
-   No image tag older than PR #675 runs against this database again.
+5. Rollback is an image tag that meets the same condition. Until the first
+   instance on the new tag admits a player, it can also be the restore in
+   When a restore is a rollback, above; after that, nothing else. No image
+   tag older than PR #675 runs against a database with 0014 applied.
