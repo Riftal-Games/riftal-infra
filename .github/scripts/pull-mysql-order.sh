@@ -14,15 +14,15 @@
 #
 # A step runs mysql:8 when it is `uses: docker://` with a mysql:8 image, or
 # when its text, full-line comments dropped, both names mysql:8 as its own
-# token or as the default of a ${VAR-...} expansion, after any registry or
-# namespace path, and starts a container. A start is docker, podman or
-# nerdctl, by any path and in any case, or a shell variable, then any closing
-# } and ", then any global flags, then run, create or container run|create; or
-# any compose up, run, create or start, ended by anything but a word
-# character or -, which counts whatever it names, since the compose file is
-# not read. The name and the start are tested separately over the whole text, both
-# as written and with backslash-continued lines joined, so a trailing comment
-# can flag a step that does neither.
+# token or as the default of a ${VAR-...} or ${VAR[i]-...} expansion, after
+# any registry or namespace path, and starts a container. A start is docker,
+# podman or nerdctl, by any path and in any case, or a shell variable, then
+# any closing } and ", then any global flags, then run, create or container
+# run|create; or any compose up, run, create or start, ended by anything but a
+# word character or -, which counts whatever it names, since the compose file
+# is not read. The name and the start are tested separately over the whole
+# text, as written, with backslash-continued lines joined, and with every
+# quote removed, so a trailing comment can flag a step that does neither.
 #
 # A step's text is its run text, every env: in scope at step, job and
 # workflow level, and every script the run text names: a word ending in .sh,
@@ -198,7 +198,7 @@ text_of() {
   done <<<"$scripts"
 }
 
-mysql_ref='(^|[^[:alnum:]_.-]|[{][[:alnum:]_]+:?-)([[:alnum:]._-]+(:[0-9]+)?/)*mysql:8([^[:alnum:]_.:-]|$)'
+mysql_ref='(^|[^[:alnum:]_.-]|[{][[:alnum:]_]+(\[[^]]*\])?:?-)([[:alnum:]._-]+(:[0-9]+)?/)*mysql:8([^[:alnum:]_.:-]|$)'
 engine='(^|[^[:alnum:]_.$-])([^[:space:]]*/)?(docker|podman|nerdctl)|\$\{?[[:alpha:]_][[:alnum:]_]*'
 flag='[[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?'
 start="($engine)[}\"]*($flag)*[[:space:]]+(container[[:space:]]+)?(run|create)([[:space:]]|\$)"
@@ -213,6 +213,10 @@ runs_mysql() {
   # check fails closed. The joined copy is tested beside the lines as written,
   # so joining can only add a match.
   code+=$'\n'"$(tr -d '\r' <<<"$code" | sed -E -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}')"
+  # Bash drops the quotes around a word before running it, so 'run' and
+  # "docker" start a container as their bare words do. A copy without quotes
+  # goes beside the rest for the same reason the joined copy does.
+  code+=$'\n'"${code//[\"\']/}"
   grep -qiE "$compose" <<<"$code" ||
     { grep -qE "$mysql_ref" <<<"$code" && grep -qiE "$start" <<<"$code"; }
 }
