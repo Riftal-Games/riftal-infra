@@ -14,9 +14,11 @@ the previous image tag keeps working against the migrated schema, so instances
 can be replaced one at a time and rolled back to the previous tag.
 
 A migration is **coupled** when that is not true: when an instance on an older
-plugin build, running against the migrated schema, writes rows the schema now
-treats differently, or when the newer build cannot run against the unmigrated
-schema. For a coupled migration:
+plugin build, running against the migrated schema, fails or writes rows the
+schema now treats differently. The other direction, a newer build against the
+unmigrated schema, is not part of the test: migrations always run before any
+instance starts on the newer build, so the procedure already rules it out.
+For a coupled migration:
 
 - The migration and the plugin build that matches it reach every instance
   together. No instance runs the older build against a schema with the
@@ -56,19 +58,20 @@ riftal-game `main` `164184c`. Coupled: 0010, 0014 and 0015, each with its
 entry below. A migration numbered above 0020 is unaudited until it is listed
 here.
 
-Each check asks whether a build from before the migration's PR, running
-against the migrated schema, fails or writes rows the schema treats
+Each check is the rule above: whether a build from before the migration's PR,
+running against the migrated schema, fails or writes rows the schema treats
 differently. A newer build against an unmigrated schema fails for nearly
-every migration whose table or procedure it uses, and running migrations
-first keeps that from happening, so it is named only in a coupled entry. This
+every migration whose table or procedure it uses, which is why the rule
+leaves that direction to the migrations-first order; a coupled entry names it
+only to explain what the entry's procedure prevents. This
 audit covers migrations only, not `grants.sql`, which the runner reapplies on
 every run.
 
 Not coupled:
 
 - 0001 to 0006 and 0008: each creates a table in the same riftal-game PR as
-  the first plugin code that uses it (#46, #60, #112, #146, #148, #174), so no
-  older build reads it.
+  the first plugin code that uses it (#46, #60, #112, #146, #148, #174; #148
+  carries both 0005 and 0006), so no older build reads it.
 - 0007: `cumulative_contribution_minor_units` is `NOT NULL DEFAULT 0`, so a
   gang an older build creates starts where any new gang starts.
 - 0009: a gangs build from before PR #217 (`a113487`) raises
@@ -106,7 +109,8 @@ Not coupled:
 Migration: `riftal-game/lib/resources/sql/migrations/0010_add_gang_founded_marker.sql`.
 Matching build: any `gangs` build carrying riftal-game PR #266 (merge commit
 `67f6089`), which landed the migration and `gangs.mark_founded`
-(`riftal-game/gangs/resources/sql/gangs.sql:28-31`) in the same commit. Source:
+(`riftal-game/gangs/resources/sql/gangs.sql:28-31` at riftal-game `main`
+`164184c`) in the same commit. Source:
 riftal-game#247, ADR 004 Decision item 12.
 
 What 0010 does:
@@ -198,7 +202,8 @@ Migration: `riftal-game/lib/resources/sql/migrations/0014_add_player_ranks_claim
 Matching build: any `ranks` build carrying riftal-game PR #675 (merge commit
 `0a1d21d`), which landed the migration and the claim queries `ranks.advance`,
 `ranks.settle` and `ranks.revert`
-(`riftal-game/ranks/resources/sql/ranks.sql:42-77`) in the same commit.
+(`riftal-game/ranks/resources/sql/ranks.sql:42-77` at riftal-game `main`
+`164184c`) in the same commit.
 Source: ADR 021 (riftal-pm#1029).
 
 What 0014 does: adds six nullable claim columns to `player_ranks`, all set or
