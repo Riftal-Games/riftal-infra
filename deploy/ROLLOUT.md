@@ -27,12 +27,17 @@ schema. For a coupled migration:
   The serial, one-at-a-time replacement does not apply to that window: the
   window is a full stop, so announce it in Discord before it opens.
 - The previous image tag is not a rollback target once the migration has
-  applied. Rollback is either an image tag that already carries the matching
-  build, or a restore of the backup taken before the migration, which restarts
-  the window.
-- That backup is taken after every instance has stopped, never before the
-  stop: a write that lands between the backup and the stop is lost or
-  duplicated when the backup is restored.
+  applied. The only rollback is an image tag that carries the matching build
+  of every coupled migration the run applied.
+- Every instance stops before anything else in the window happens, the
+  backup included.
+- The backup before the migration follows the Rollout rules in `../CLAUDE.md`
+  and the backup and restore rules in `README.md`. This file gives no backup
+  or restore procedure; the window's procedure is riftal-infra#1023.
+- A restore after a coupled migration is not a rollback. It is destructive
+  (`README.md`, Restore: the database is dropped and every world directory is
+  cleared, so everything players did since the backup is gone), and it is
+  Nasir's call.
 - Write the coupled pair into the release's "what is shipping" list and into
   its rollback path before the window opens, naming the migration number and
   the plugin change.
@@ -82,7 +87,8 @@ Why the two cannot be split:
 So, for any release that takes a database from before 0010 to after it:
 
 1. Stop every instance cleanly.
-2. Back up the database.
+2. Back up as the general rule above points to. A restore is Nasir's call,
+   never a rollback.
 3. Count the rows in `gangs`, then run the migrations. The runner prints
    result sets without column names (`migrations/run-migrations.sh` calls
    `mysql -N -B`), so the log shows `applying 0010_add_gang_founded_marker.sql`
@@ -92,8 +98,8 @@ So, for any release that takes a database from before 0010 to after it:
 4. Start every instance on an image tag whose `gangs` plugin carries the
    matching build of every coupled migration the run applied: PR #266 for
    0010, and PR #712 for 0015 when the run crosses it too (see below).
-5. Rollback is an image tag that meets the same condition, or the step 2
-   backup. No image tag older than PR #266 runs against this database again.
+5. Rollback is an image tag that meets the same condition, and nothing else.
+   No image tag older than PR #266 runs against this database again.
 
 If gangs were created by an older build after 0010 was applied, they stay
 unfounded. Marking them founded changes player data and is not a step of the
@@ -124,10 +130,11 @@ Why the two cannot be split:
 So, for any release that takes a database from before 0015 to after it:
 
 1. Stop every instance cleanly.
-2. Back up the database.
+2. Back up as the general rule above points to. A restore is Nasir's call,
+   never a rollback.
 3. Run the migrations and confirm `schema_migrations` records
    `0015_raise_gang_level_with_contribution.sql`.
 4. Start every instance on an image tag whose `gangs` plugin carries PR #712,
    and the matching build of any other coupled migration the run applied.
-5. Rollback is an image tag that meets the same condition, or the step 2
-   backup. No image tag older than PR #712 runs against this database again.
+5. Rollback is an image tag that meets the same condition, and nothing else.
+   No image tag older than PR #712 runs against this database again.
