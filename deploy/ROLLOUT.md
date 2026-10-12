@@ -158,18 +158,10 @@ Before it:
      When the previous release has a `grants.sql`, from riftal-game PR #454
      (`cea814f`) onward, that run applies it, and its GRANTs give back what a
      newer file revoked from the builds it shipped with, so no grants entry's
-     bar applies either. A release from before PR #454 has none: the run
-     prints `no grants file at <file>, no grants applied`
-     (`run-migrations.sh:268`), and the roles keep what the window's run gave
-     them, REVOKEs included, since roles and logins live on the server and
-     `restore.sh` drops only the database (`restore.sh:55`). Every grants
-     entry's bar then applies to that tag. No riftal-game build before PR
-     #454 creates a role or a login (`git log -S` for `CREATE ROLE`,
-     `CREATE USER` and `riftal_role` at `cea814f^` finds none), yet each
-     plugin's default config names its own login (`username: "economy"` in
-     `economy/resources/config.yml:10` at `cea814f^`, and likewise for
-     `gangs`, `mines`, `ranks` and `riots`), so on that tag a plugin logs in
-     as a login a later run provisioned, under that run's role.
+     bar applies either. Going back by restore to a previous tag whose
+     plugins were built from before riftal-game PR #454, a release with no
+     `grants.sql`, is not a rollback in this file: it is barred, and
+     riftal-infra#1032 owns it.
 
 ### A migration that fails partway
 
@@ -271,12 +263,16 @@ Each check is whether a build in a plausible rollback range needs a
 privilege that version revokes or never grants. The range is narrowed by the
 migration entries: the file was born at PR #454 with migrations through 0010
 in the same tree, and a run applies the migrations of the same release as its
-grants file. A run that stops at a failed migration applies grants too
+grants file. Two paths break that pairing, and both are excluded: a run that
+stops at a failed migration applies grants too
 (`../migrations/run-migrations.sh:275-278`), but no instance starts after one
-(A migration that fails partway, step 1), so every database an instance runs
-against under a `grants.sql` has 0010.
-`gangs` builds before PR #712 and `ranks` builds before PR #675 are already
-barred from it by the 0010, 0015 and 0014 entries.
+(A migration that fails partway, step 1), and a restore onto a tag from before
+PR #454 leaves the window's grants on the server roles, but it is barred
+(When a restore is a rollback, step 3; riftal-infra#1032). With both
+excluded, every database an instance runs against under a `grants.sql` has
+0010. So, with no instance started after a failed migration and no restore
+onto a pre-#454 tag, `gangs` builds before PR #712 and `ranks` builds before
+PR #675 are already barred from it by the 0010, 0015 and 0014 entries.
 
 Not coupled:
 
@@ -300,8 +296,10 @@ Not coupled:
   before PR #217 (`a113487`) assigns directly (`gangs.sql:50` at `a113487^`).
   Such a build fails every contribution with ERROR 1143, reproduced on
   mysql:8 8.4.11 against the file at `7fa533e`. PR #217 is an ancestor of PR
-  #266, so the 0010 entry already bars that build from every database a
-  `grants.sql` reaches.
+  #266, so the 0010 entry bars that build from every database an instance
+  runs against under a `grants.sql`, given both exclusions above: no instance
+  starts after a failed migration, and a restore onto a tag from before PR
+  #454 is barred (riftal-infra#1032).
 
 ## 0010 and the gangs `mark_founded` build ship together
 
