@@ -21,8 +21,9 @@ instance starts on the newer build, so the procedure already rules it out.
 
 A `grants.sql` change is coupled the same way. `run-migrations.sh` applies the
 `GRANTS_FILE` it is given on every run, a run with nothing pending included
-(`../migrations/run-migrations.sh:304`), so the file's REVOKEs, and every
-privilege it never grants, reach the database together. A change is coupled
+(`../migrations/run-migrations.sh:304`), so the file's REVOKEs reach the
+database on every run, and on a fresh server so does every privilege it never
+grants. A change is coupled
 when a plugin build that an instance may still run, or be rolled back to,
 needs a privilege the file revokes or does not grant: every statement of that
 build that uses it fails with ERROR 1142 or 1143.
@@ -154,9 +155,21 @@ Before it:
      means the directory is not that release's, so stop there. Then start
      each instance on the previous tag. The database holds none of the run's
      migrations, so no migration entry's bar on older tags applies to it.
-     That run also applies the previous release's `grants.sql`, whose GRANTs
-     give back what a newer file revoked from the builds it shipped with, so
-     no grants entry's bar applies either.
+     When the previous release has a `grants.sql`, from riftal-game PR #454
+     (`cea814f`) onward, that run applies it, and its GRANTs give back what a
+     newer file revoked from the builds it shipped with, so no grants entry's
+     bar applies either. A release from before PR #454 has none: the run
+     prints `no grants file at <file>, no grants applied`
+     (`run-migrations.sh:268`), and the roles keep what the window's run gave
+     them, REVOKEs included, since roles and logins live on the server and
+     `restore.sh` drops only the database (`restore.sh:55`). Every grants
+     entry's bar then applies to that tag. No riftal-game build before PR
+     #454 creates a role or a login (`git log -S` for `CREATE ROLE`,
+     `CREATE USER` and `riftal_role` at `cea814f^` finds none), yet each
+     plugin's default config names its own login (`username: "economy"` in
+     `economy/resources/config.yml:10` at `cea814f^`, and likewise for
+     `gangs`, `mines`, `ranks` and `riots`), so on that tag a plugin logs in
+     as a login a later run provisioned, under that run's role.
 
 ### A migration that fails partway
 
@@ -196,7 +209,7 @@ restore then.
 
 Every migration in `riftal-game/lib/resources/sql/migrations/` from `0001` to
 `0020_create_gang_vault_slots.sql` has been checked against the rule above, at
-riftal-game `main` `164184c`. Coupled: 0010, 0014 and 0015, each with its
+riftal-game `main` `205e6e1`. Coupled: 0010, 0014 and 0015, each with its
 entry below. A migration numbered above 0020 is unaudited until it is listed
 here.
 
@@ -250,7 +263,7 @@ Not coupled:
 
 Every version of `riftal-game/lib/resources/sql/grants.sql`, from PR #454
 (`cea814f`) through PR #1022 (`7fa533e`), its last change on riftal-game
-`main` `9b344c1`, has been checked against the rule above. Coupled: PR #923's
+`main` `205e6e1`, has been checked against the rule above. Coupled: PR #923's
 REVOKE, with its entry below. A `grants.sql` change after `7fa533e` is
 unaudited until it is listed here.
 
@@ -258,7 +271,10 @@ Each check is whether a build in a plausible rollback range needs a
 privilege that version revokes or never grants. The range is narrowed by the
 migration entries: the file was born at PR #454 with migrations through 0010
 in the same tree, and a run applies the migrations of the same release as its
-grants file, so any database that has had a `grants.sql` applied has 0010.
+grants file. A run that stops at a failed migration applies grants too
+(`../migrations/run-migrations.sh:275-278`), but no instance starts after one
+(A migration that fails partway, step 1), so every database an instance runs
+against under a `grants.sql` has 0010.
 `gangs` builds before PR #712 and `ranks` builds before PR #675 are already
 barred from it by the 0010, 0015 and 0014 entries.
 
@@ -441,8 +457,8 @@ Grants change: riftal-game PR #923 (merge commit `b6860bb`), in
 build carrying riftal-game PR #891 (merge commit `9a80ef1`), which moved every
 balance change into `CALL economy_ledger_credit` and `CALL
 economy_ledger_debit` (`economy/resources/sql/economy.sql:35`, `:47` at
-`9a80ef1`). PR #891 is an ancestor of PR #923. Related: riftal-infra#944,
-open, would have `/deploy-release` stage 1 refuse a `grants.sql` REVOKE newer
+`9a80ef1`). PR #891 is an ancestor of PR #923. Related: riftal-infra#944
+would have `/deploy-release` stage 1 refuse a `grants.sql` REVOKE newer
 than the oldest instance's tag.
 
 What PR #923 does: leaves `riftal_role_economy` only `UPDATE (account_id)` on
