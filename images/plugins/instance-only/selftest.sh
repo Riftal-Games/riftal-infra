@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
-# and RiftalAccounts (riftal-infra#465) and RiftalRanks (riftal-infra#558),
-# and for start-instance.sh and require-accounts.sh, the scripts that load
+# and RiftalAccounts (riftal-infra#465), RiftalRanks (riftal-infra#558) and
+# RiftalEconomy (riftal-infra#887), and for start-instance.sh and require-accounts.sh, the scripts that load
 # them. Also pins crash auto-report off on every PocketMine service,
 # designer/stack's included, and covers deliver-world-index.sh and the index
 # mount both instances boot with (riftal-infra#293).
@@ -9,7 +9,7 @@
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
 # stubbed. It starts no container, so it needs neither the dev stack nor a
-# built RiftalMines.phar or RiftalRanks.phar.
+# built RiftalMines.phar, RiftalRanks.phar or RiftalEconomy.phar.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,12 +21,13 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 ACCOUNTS_PW=selftestAccountsPassword01
 RANKS_PW=selftestRanksPassword0001
-printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\n' \
-  "$ACCOUNTS_PW" "$RANKS_PW" > "$work/env"
+ECONOMY_PW=selftestEconomyPassword01
+printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\n' \
+  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=61
+EXPECTED_ASSERTIONS=68
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -123,14 +124,16 @@ printf '\n== start-instance.sh keeps what start-pocketmine does for instance-b\n
 # are environment assignments. The shared /plugins starts with Cached.phar.
 # With MINES set, RiftalMines.phar is built, contracts.phar sits at the top of
 # /plugins as on the real stack, and a config rendered by hand with a password
-# no stack has sits next to it. With RANKS set, RiftalRanks.phar is built.
+# no stack has sits next to it. With RANKS set, RiftalRanks.phar is built,
+# and with ECONOMY set, RiftalEconomy.phar.
 boot() {
   local owner="$1" root="$work/boot"
   shift
   rm -rf "$root"
   mkdir -p "$root/plugins" "$root/data" "$root/pm" "$root/bin"
   : > "$root/plugins/Cached.phar"
-  cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$DIR/RiftalRanks.config.yml" "$root/"
+  cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$DIR/RiftalRanks.config.yml" \
+    "$DIR/RiftalEconomy.config.yml" "$root/"
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
     : > "$root/plugins/contracts.phar"
@@ -138,6 +141,9 @@ boot() {
   fi
   if [ -n "${RANKS:-}" ]; then
     : > "$root/RiftalRanks.phar"
+  fi
+  if [ -n "${ECONOMY:-}" ]; then
+    : > "$root/RiftalEconomy.phar"
   fi
   sed -e "s#/plugins#$root/plugins#g; s#/data#$root/data#g" \
     -e "s#/opt/pocketmine#$root/pm#g; s#-user pocketmine#-user $owner#g" \
@@ -208,6 +214,24 @@ check "with RiftalRanks.phar built, an unset RIFTAL_DB_PASSWORD_RANKS stops the 
   '! RANKS=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_RANKS is not set" "$b/out"'
 check "without RiftalRanks.phar, no ranks config lands and no ranks password is needed" \
   'boot "$me" && [ ! -e "$ranks_on_volume" ] && ! grep -q RiftalRanks "$b/roster"'
+
+printf '\n== RiftalEconomy connects as the economy login, its password only in the environment (riftal-infra#887)\n'
+ECONOMY_CONFIG="$DIR/RiftalEconomy.config.yml"
+economy_on_volume="$b/data/plugin_data/RiftalEconomy/config.yml"
+check "the economy config names the compose mysql, its schema and the economy login, with no password" \
+  '[ "$(db host "$ECONOMY_CONFIG")" = mysql ] && [ "$(db username "$ECONOMY_CONFIG")" = economy ] &&
+    [ "$(db schema "$ECONOMY_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
+    grep -qx "  password: \"\"" "$ECONOMY_CONFIG"'
+check "instance gets RIFTAL_DB_PASSWORD_ECONOMY from images/.env and instance-b gets none" \
+  'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_ECONOMY == \"$ECONOMY_PW\"
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_ECONOMY == null" <<<"$real" >/dev/null'
+check "with RiftalEconomy.phar built, the tracked config lands on the volume and the phar joins the roster" \
+  'ECONOMY=1 boot "$me" RIFTAL_DB_PASSWORD_ECONOMY="$ECONOMY_PW" &&
+    cmp -s "$ECONOMY_CONFIG" "$economy_on_volume" && grep -qx RiftalEconomy.phar "$b/roster"'
+check "with RiftalEconomy.phar built, an unset RIFTAL_DB_PASSWORD_ECONOMY stops the boot before php, naming it" \
+  '! ECONOMY=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_ECONOMY is not set" "$b/out"'
+check "without RiftalEconomy.phar, no economy config lands and no economy password is needed" \
+  'boot "$me" && [ ! -e "$economy_on_volume" ] && ! grep -q RiftalEconomy "$b/roster"'
 
 printf '\n== RiftalAccounts loads on every instance as the accounts login (riftal-infra#465)\n'
 ACCOUNTS_CONFIG="$DIR/../RiftalAccounts.config.yml"
@@ -376,9 +400,16 @@ drift "every line in riftal-game's accounts config.yml but the schema matches th
 drift "a shipped database.port the accounts config does not carry is caught" \
   'sed "s/^  port:.*/  port: 3307/" "$ACCOUNTS_SHIPPED" > "$mutated" &&
     [ "$(settings "$mutated")" != "$(settings "$ACCOUNTS_CONFIG")" ]' "$ACCOUNTS_SHIPPED"
+ECONOMY_SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/economy/resources/config.yml"
+drift "every line in riftal-game's economy config.yml but the schema matches the economy config" \
+  '[ -n "$(settings "$ECONOMY_SHIPPED")" ] && [ "$(settings "$ECONOMY_SHIPPED")" = "$(settings "$ECONOMY_CONFIG")" ]' \
+  "$ECONOMY_SHIPPED"
+drift "a shipped sell shop price the economy config does not carry is caught" \
+  'sed "s/^    \"minecraft:coal\": .*/    \"minecraft:coal\": 6/" "$ECONOMY_SHIPPED" > "$mutated" &&
+    [ "$(settings "$mutated")" != "$(settings "$ECONOMY_CONFIG")" ]' "$ECONOMY_SHIPPED"
 if [ "$SKIPPED" -ne 0 ]; then
-  printf '::warning::%s assertions skipped: no riftal-game config at %s, %s or %s; set RIFTAL_GAME_DIR\n' \
-    "$SKIPPED" "$SHIPPED" "$RANKS_SHIPPED" "$ACCOUNTS_SHIPPED"
+  printf '::warning::%s assertions skipped: no riftal-game config at %s, %s, %s or %s; set RIFTAL_GAME_DIR\n' \
+    "$SKIPPED" "$SHIPPED" "$RANKS_SHIPPED" "$ACCOUNTS_SHIPPED" "$ECONOMY_SHIPPED"
 fi
 
 printf '\n'
