@@ -97,7 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/capture-harness/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
@@ -105,7 +105,7 @@ jobs:
           docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/capture-harness/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -124,6 +124,18 @@ jobs:
 
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
+
+      - name: Capture plugin self-test
+        run: bash images/plugins/capture-selftest.sh
+
+      # The self-test above runs the plugin against fakes of the core. This
+      # boots the core itself, where the fakes and the server can disagree.
+      # A healthy run takes under a minute. Ten covers its worst case that
+      # still ends: every wait in harness.sh running out, both boots at their
+      # 120 seconds and both stops at their 60, about nine minutes.
+      - name: Capture plugin in-server harness
+        timeout-minutes: 10
+        run: bash images/plugins/capture-harness/harness.sh
 
       - name: Dev bots join order self-test
         run: bash images/plugins/join-order/selftest.sh
