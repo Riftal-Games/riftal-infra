@@ -130,8 +130,11 @@ jobs:
 
       # The self-test above runs the plugin against fakes of the core. This
       # boots the core itself, where the fakes and the server can disagree.
+      # A healthy run takes under a minute. Ten covers its worst case that
+      # still ends: every wait in harness.sh running out, both boots at their
+      # 120 seconds and both stops at their 60, about nine minutes.
       - name: Capture plugin in-server harness
-        timeout-minutes: 4
+        timeout-minutes: 10
         run: bash images/plugins/capture-harness/harness.sh
 
       - name: Dev bots join order self-test

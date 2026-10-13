@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN="$SCRIPT_DIR/RiftalCapture.php"
-EXPECTED_ASSERTIONS=14
+EXPECTED_ASSERTIONS=18
 
 output="$(docker run --rm -i -v "$PLUGIN:/plugin.php:ro" php:8.3-cli-alpine php <<'PHP' 2>&1
 <?php
@@ -20,8 +20,16 @@ namespace pocketmine\plugin{
 		public function getScheduler() : object{ return $this->scheduler; }
 	}
 }
+namespace pocketmine\event{
+	interface Listener{}
+}
 namespace pocketmine\scheduler{
 	final class ClosureTask{ public function __construct(public \Closure $run){} }
+	final class TaskHandler{
+		public bool $cancelled = false;
+		public function __construct(public ClosureTask $task, public int $delay, public int $period){}
+		public function cancel() : void{ $this->cancelled = true; }
+	}
 }
 namespace Symfony\Component\Filesystem{
 	final class Path{
@@ -32,6 +40,7 @@ namespace Symfony\Component\Filesystem{
 namespace{
 require "/plugin.php";
 use pocketmine\scheduler\ClosureTask;
+use pocketmine\scheduler\TaskHandler;
 use riftal\capture\CaptureRequest;
 use riftal\capture\Main;
 use riftal\capture\Stage;
@@ -88,6 +97,8 @@ foreach(["$root/missing" => "an unreadable players directory", "nocopy://players
 
 $worlds = new class{
 	public bool $on = true;
+	public int $interval = 6000;
+	public function getAutoSaveInterval() : int{ return $this->interval; }
 	public function getAutoSave() : bool{ return $this->on; }
 	public function setAutoSave(bool $on) : void{ $this->on = $on; $GLOBALS["events"][] = "autosave " . ($on ? "on" : "off"); }
 	/** Like World::save: nothing when autosave is off and the save is unforced, else its WorldSaveEvent's placer saves write a player file. */
@@ -98,16 +109,23 @@ $worlds = new class{
 $server = new class{
 	public function getWorldManager() : object{ return $GLOBALS["worlds"]; }
 	public function getDataPath() : string{ return $GLOBALS["root"]; }
-	public function getOnlinePlayers() : array{ return [new class{ public function save() : void{ $GLOBALS["events"][] = "player save"; file_put_contents($GLOBALS["root"] . "/players/p.dat", "saved"); } }]; }
+	public function getPluginManager() : object{ return new class{ public function registerEvents(object $listener, object $plugin) : void{} }; }
+	public function getOnlinePlayers() : array{ return $GLOBALS["players"]; }
 };
+$players = [new class{ public bool $spawned = true; public function save() : void{ $GLOBALS["events"][] = "player save"; file_put_contents($GLOBALS["root"] . "/players/p.dat", "saved"); } }];
 $scheduler = new class{
 	public array $repeating = [], $delayed = [];
-	public function scheduleRepeatingTask(ClosureTask $task, int $period) : void{ $this->repeating[] = $task; }
+	public function scheduleRepeatingTask(ClosureTask $task, int $period) : TaskHandler{ return $this->repeating[] = new TaskHandler($task, -1, $period); }
+	public function scheduleDelayedRepeatingTask(ClosureTask $task, int $delay, int $period) : TaskHandler{ return $this->repeating[] = new TaskHandler($task, $delay, $period); }
 	public function scheduleDelayedTask(ClosureTask $task, int $delay) : void{ $this->delayed[] = $task; }
+	/** Every repeating task runs once a tick whatever its period, so one run of the player saves stands for one interval. */
 	public function tick() : void{
 		[$due, $this->delayed] = [$this->delayed, []];
-		foreach([...$due, ...$this->repeating] as $task){ ($task->run)(); }
+		foreach($due as $task){ ($task->run)(); }
+		foreach($this->repeating as $handler){ $handler->cancelled || ($handler->task->run)(); }
 	}
+	/** @return TaskHandler[] the live repeating tasks other than the 20-tick poll */
+	public function others() : array{ return array_values(array_filter($this->repeating, fn(TaskHandler $h) => !$h->cancelled && $h->period !== 20)); }
 };
 $logger = new class{ public function __call(string $level, array $args) : void{} };
 $tick = function(?string $id, int $ttl = 600) use ($scheduler) : void{
@@ -141,6 +159,24 @@ $worlds->on = true;
 $tick("m3");
 (fn() => $this->onDisable())->call($main);
 check($worlds->on && !file_exists("$root/.capture/m3"), "disabling during a hold restores autosave before the worlds unload");
+
+// Core cancels a disabled plugin's tasks; what follows is a fresh enable.
+$scheduler->repeating = [];
+$worlds->interval = 4321;
+$players[] = new class{ public bool $spawned = false; public function save() : void{ $GLOBALS["events"][] = "unspawned save"; } };
+file_put_contents("/capture/request", "s1 " . (time() + 600) . "\n");
+$main = new Main($server, $logger, $scheduler);
+(fn() => $this->onEnable())->call($main);
+check(@file_get_contents("$root/.capture/s1/ack") === "s1\n", "a request live at enable is captured as the plugin enables, before its first scheduled poll");
+$saves = $scheduler->others();
+check(count($saves) === 1 && $saves[0]->delay === 4321 && $saves[0]->period === 4321, "a hold saves players on the server's own autosave interval, read at capture");
+$events = [];
+$scheduler->tick();
+check($events === ["player save"], "each run of those saves saves every spawned player and no other");
+$tick(null);
+$events = [];
+$scheduler->tick();
+check($saves[0]->cancelled && $scheduler->others() === [] && $events === [], "release stops the player saves");
 }
 PHP
 )" || true
@@ -158,4 +194,4 @@ if [ "$failures" -ne 0 ]; then
   printf '::error::%s self-test assertion(s) failed\n' "$failures"
   exit 1
 fi
-printf 'all %s assertions passed: requests parse safely, a lease is taken once and never extended, one tick saves then stages and acks, and release restores autosave.\n' "$passes"
+printf 'all %s assertions passed: requests parse safely, a lease is taken once and never extended, one tick saves then stages and acks, a hold saves spawned players on the server autosave interval, and release restores autosave and stops those saves.\n' "$passes"
