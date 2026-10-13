@@ -7,7 +7,7 @@
   "floor_y": 40,
   "entrance": {"side": "south", "width": 3, "height": 3},
   "exit_path": {"length": 6, "width": 3},
-  "ores": {"minecraft:coal_ore": 1.0, "minecraft:iron_ore": 0.5},
+  "ores": {"minecraft:stone": 1.0, "minecraft:coal_ore": 0.5},
   "fill": "solid",
   "seed": 20260907,
   "lights_every": 4,

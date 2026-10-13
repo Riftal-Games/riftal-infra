@@ -1,0 +1,9 @@
+# Must fail job-timeouts.sh: the timeout is an expression, so no file read can
+# say how long the job runs.
+on: push
+jobs:
+  only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ vars.JOB_TIMEOUT }}
+    steps:
+      - run: "true"

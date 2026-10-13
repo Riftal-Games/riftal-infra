@@ -1,0 +1,6 @@
+# Called by calls-cycle.yml two directories up, never asserted on its own.
+# Calls cycle-b.yml, which calls this file back.
+on: workflow_call
+jobs:
+  next:
+    uses: ./.github/workflows/cycle-b.yml

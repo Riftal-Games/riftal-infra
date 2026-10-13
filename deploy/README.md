@@ -160,6 +160,11 @@ cleared, so a corrupt tar for one world in a multi-world set aborts the whole
 restore instead of being found only after earlier worlds have already been
 cleared and left neither restored nor in their pre-restore state.
 
+Wiping the shared database between MVPs is its own runbook,
+[`WIPE.md`](WIPE.md). It drops and recreates the database only, leaving world
+volumes alone, and its rollback is this restore with the backup set taken
+just before the wipe. Every wipe of alpha or production data is Nasir's.
+
 ## Binary log retention
 
 The shared database keeps its binary log for **30 days**
@@ -218,6 +223,54 @@ wslc run --rm --network riftal-dev \
   mysql:8 bash /deploy/binlog-check.sh
 ```
 
+## Custody alert check
+
+`custody-alert-check.sh <log> [<log> ...]` reads one instance's logs, one file
+per process lifetime, oldest first, and alerts when a RiftalCustody
+`emergency` repeats (the riftal-pm workspace's ADR 017 item 4). It reads files
+only and stops, restarts or parks nothing; acting on an alert is a separate,
+later decision. It prints one `CUSTODY ALERT:` line per finding and exits 1
+when two consecutive logs each hold an instance-wide custody stop, when one
+player is refused twice or more anywhere in the logs given (names compared
+case-insensitively), or when an `EMERGENCY` line mentioning RiftalCustody
+matches no known shape, so a reworded custody line alerts rather than going
+quiet. Otherwise it prints one `CUSTODY OK:` line and exits 0. Exit 2 is a
+usage error, an unreadable log, a log holding more than one boot, a log after
+the first holding no boot, or a first log holding no boot but a custody
+`EMERGENCY` line, never a pass.
+
+An instance's `server.log` is not one lifetime per file. PocketMine appends to
+it across restarts and archives it into `log_archive/` by size, even mid-run
+(pmmp-core `src/utils/MainLoggerThread.php:95`, `:137-139`), so one file holds
+every boot since the last archive, a restart loop in it would read as one
+log's stops, and one lifetime can start in an archive and end in `server.log`.
+The check counts each boot's `Loading server configuration` line (pmmp-core
+`src/Server.php:813`, logged once per process and never translated) and exits 2
+when a file holds more than one. Concatenate a copy of every
+`log_archive/*.log`, oldest first, ahead of `server.log`, split that at the
+boot line, and pass the pieces in order. Archive names carry their timestamp,
+so the glob sorts them oldest first:
+
+```bash
+cat log_archive/*.log server.log \
+  | awk '/\/INFO\]: Loading server configuration/ { n++ } { print > sprintf("life-%03d.log", n) }'
+deploy/custody-alert-check.sh life-*.log
+```
+
+Splitting each file on its own would leave the tail of an archived lifetime as
+a piece with no boot line, and the empty head piece before it would hide two
+consecutive stops, so every piece after the first must hold a boot line or the
+check exits 2. `life-000.log`, when written, holds what precedes the oldest
+boot line: performance warnings, or the end of a lifetime whose start is no
+longer kept. It passes when it holds no custody line, since it then changes no
+finding, and exits 2 when it holds one, since that lifetime's start is
+missing. A boot's performance warnings come just before its boot line and so
+land in the piece before; they carry no custody line. `../images/loads-check.sh`
+already fails one boot on any `EMERGENCY` line; this is the view across boots.
+A log left out of the middle of the list makes two stops look consecutive or
+hides one between them, so give it every lifetime in order.
+`custody-alert-check-selftest.sh` proves each rule in CI against fixture logs.
+
 ## Environment
 
 | Variable | Required | Default | Meaning |
@@ -234,6 +287,7 @@ wslc run --rm --network riftal-dev \
 | `PARTIAL_MAX_AGE_MINUTES` | no | `360` | Age past which a leftover `.partial` is swept |
 | `LOCK_MAX_AGE_MINUTES` | no | `90` | Age past which a held `.lock` is presumed abandoned and swept |
 | `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
+| `WIPE_BACKUP_MAX_AGE_MINUTES` | no, `wipe.sh` only | `60` | Age past which `wipe.sh` refuses its `BACKUP_SET`, read from the manifest's `timestamp:` line. The set is taken with every instance stopped, just before the wipe, so an older one was likely taken while they still wrote |
 
 ## Concurrency
 

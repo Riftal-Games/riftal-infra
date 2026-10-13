@@ -1,0 +1,12 @@
+# Must pass job-timeouts.sh under a 1200-second cutoff: a top-level key after
+# jobs holds a child indented two spaces, so a check that does not end the jobs
+# block there reads that child as a job with neither runs-on nor uses.
+on: push
+jobs:
+  only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - run: "true"
+env:
+  GREETING: hello

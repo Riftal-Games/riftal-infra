@@ -26,7 +26,11 @@ fails on either.
 carries a real database password. Only `RiftalMines.config.yml.template` is
 tracked.
 
-## Build `RiftalMines.phar`
+## Build `RiftalMines.phar` and `contracts.phar`
+
+`contracts.phar` lands one level up, at the top of `plugins/`, because every
+instance loads it beside `RiftalAccounts` (`../../README.md`,
+`RiftalAccounts`), whose recipe there builds the same file.
 
 `mines` has real Composer dependencies (`sof3/libasynql`, the `lib` path-repo
 virion), so it needs `pharynx`, the same tool and pin
@@ -43,41 +47,61 @@ php /tmp/composer-setup.php --install-dir=/tmp --filename=composer.phar
 
 GAME=../../../../riftal-game
 BUILD=$(mktemp -d)
-mkdir -p "$BUILD/mines" "$BUILD/lib"
-cp -r "$GAME/mines/." "$BUILD/mines/"
-cp -r "$GAME/lib/." "$BUILD/lib/"
+for pkg in mines lib contracts; do
+  mkdir -p "$BUILD/$pkg"
+  cp -r "$GAME/$pkg/." "$BUILD/$pkg/"
+done
 
 docker run --rm \
-  -v "$BUILD:/build" -v "$PWD:/out" \
+  -v "$BUILD:/build" -v "$PWD/..:/out" \
   -v /tmp/pharynx.phar:/pharynx.phar:ro -v /tmp/composer.phar:/composer.phar:ro \
-  -w /build/mines -e COMPOSER_ALLOW_SUPERUSER=1 -e HOME=/tmp \
+  -w /build -e COMPOSER_ALLOW_SUPERUSER=1 -e HOME=/tmp \
   local-pocketmine-mp sh -c '
-    php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev
-    php -dphar.readonly=0 /pharynx.phar -i . -c "-p=/out/RiftalMines.phar"
+    set -e
+    for pair in contracts:contracts mines:instance-only/RiftalMines; do
+      cd "/build/${pair%%:*}"
+      php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev
+      php -dphar.readonly=0 /pharynx.phar -i . -c "-p=/out/${pair#*:}.phar"
+    done
   '
 ```
 
-Building from a copy of `mines/` and `lib/`, not a bind mount, keeps
-`composer install`'s `vendor/` out of a working tree another lane may have
+`contracts.phar` is named after its folder, as
+`riftal-game/.github/scripts/packages.sh` names every phar it builds;
+PocketMine loads a plugin by its `plugin.yml` name, `RiftalContracts`, not
+by file name. `contracts/` has to be copied even for `RiftalMines.phar`
+alone: `mines` and `lib` both name `../contracts` as a Composer path
+repository, so `composer install` stops without it, although `--no-dev`
+keeps its classes out of `RiftalMines.phar`. Those classes load once, from
+`contracts.phar`, so every plugin fires and hears the same events.
+
+Building from a copy of `mines/`, `lib/` and `contracts/`, not a bind mount,
+keeps `composer install`'s `vendor/` out of a working tree another lane may have
 open. Under `wslc`, translate the `-v` and `-w` flags as `/dev-stack` does.
 
-Confirm the build holds a `plugin.yml`, the same check
+Confirm each build holds a `plugin.yml`, the same check
 `riftal-game/.github/scripts/packages.sh`'s `phar_one()` runs on every phar it
 builds:
 
 ```sh
-docker run --rm -v "$PWD/RiftalMines.phar:/p.phar:ro" local-pocketmine-mp php -r '
-  foreach (new RecursiveIteratorIterator(new Phar("/p.phar")) as $f) {
-    if (basename((string) $f) === "plugin.yml") { exit(0); }
-  }
-  fwrite(STDERR, "no plugin.yml found inside the built phar\n");
-  exit(1);
-'
+for phar in ../contracts RiftalMines; do
+  docker run --rm -v "$PWD/$phar.phar:/p.phar:ro" local-pocketmine-mp php -r '
+    foreach (new RecursiveIteratorIterator(new Phar("/p.phar")) as $f) {
+      if (basename((string) $f) === "plugin.yml") { exit(0); }
+    }
+    fwrite(STDERR, "no plugin.yml found inside the built phar\n");
+    exit(1);
+  ' || echo "$phar.phar is broken"
+done
 ```
 
-A phar that was never built is skipped without a word (see below), so this
-check, or reading `Loading RiftalMines` in the boot log, is the only way to
-catch a boot that silently never had the plugin at all.
+A `RiftalMines.phar` that was never built is skipped without a word (see
+below), so this check, or reading `Loading RiftalContracts` then `Loading
+RiftalMines` in the boot log, is the only way to catch a boot that silently
+never had the plugin at all. A missing `contracts.phar` is not skipped:
+`require-accounts.sh` stops every instance's boot before PocketMine starts,
+naming the file, because PocketMine itself would log `Unknown dependency:
+RiftalContracts` and force-shut the whole server down.
 
 ## The config override
 
@@ -93,13 +117,21 @@ file rendered into this folder is read.
 ## Why an override is required, not optional
 
 `mines/resources/config.yml`'s shipped default (`host: riftal-mysql, schema:
-riftal, username: mines`) matches nothing on this stack: the MySQL service's
-actual resolvable alias is `mysql` under both the compose and wslc forms, the
-database compose creates is `riftal_dev`, and no `mines` MySQL user has ever
-been provisioned here. Loading the phar without this override does not fail
-the plugin alone: `RiftalGames\Lib\Database\ConnectionProvider::open()` in
-`Main::onEnable()` connects synchronously, so a `SqlError` there is uncaught
-and takes the whole server down within 4 seconds of boot (verified
+riftal, username: mines`) matches nothing on this stack under compose: the
+`mysql` service sets no `container_name`, so on `riftal-dev` it answers to
+`mysql` and not to `riftal-mysql` (checked 2026-10-06 with `getent hosts` on
+a throwaway compose network of the same shape), the database compose creates
+is `riftal_dev`, and no `mines` MySQL user has ever been provisioned here.
+Under the `wslc run` form, the database container is named `riftal-mysql`
+on `riftal-dev` and is started with `--network-alias mysql`, which is meant
+to make it answer to `mysql` as the compose service does. Whether either
+name resolves there has not been checked (riftal-infra#265). The template
+names `mysql` for compose.
+
+Loading the phar without this override does not fail the plugin alone:
+`RiftalGames\Lib\Database\ConnectionProvider::open()` in `Main::onEnable()`
+connects synchronously, so a `SqlError` there is uncaught and takes the
+whole server down within 4 seconds of boot (verified
 2026-09-28: `SQL CONNECT error: ... getaddrinfo for riftal-mysql failed`).
 A config rendered with a password `mysql` does not have fails the same way,
 with `Access denied for user 'root'`, which is why it is rendered at boot

@@ -1,0 +1,9 @@
+# Expected: hadolint DL3007, and nothing else. Same defect as bad/Dockerfile,
+# under an all-lowercase name, so discovery that matches names case-sensitively
+# skips it, reports zero files and passes, and goes red here.
+#
+# A directory of its own, because on a case-insensitive checkout this name and
+# bad/Dockerfile are the same file.
+FROM ubuntu:latest
+
+CMD ["/bin/bash"]

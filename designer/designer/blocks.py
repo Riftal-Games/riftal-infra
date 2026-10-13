@@ -13,6 +13,9 @@ log = logging.getLogger("designer.blocks")
 
 AIR = "minecraft:air"
 NAMESPACE = "minecraft:"
+# What the core loads in place of a block it has no mapping for (LevelDB.php), so the
+# block the world really holds, and its collision, are unknown to the toolkit.
+UNMAPPED = "minecraft:info_update"
 
 # Wire order of a region's runs and axis order of every decoded array,
 # outermost first: ``blocks[y][z][x]``, x varies fastest.
@@ -111,6 +114,12 @@ def _pitcher_crop(states: Mapping[str, str]) -> BlockClass:
     return _by_box_top((3 if growth == 0 else 5) / 16)
 
 
+# An open gate has no collision box (FenceGate.php:70), so a player walks and
+# falls through it. ``open_bit`` is Bedrock's key (BlockStateNames::OPEN_BIT).
+def _fence_gate(states: Mapping[str, str]) -> BlockClass:
+    return BlockClass.PASSABLE if states.get("open_bit") == "true" else BlockClass.SOLID
+
+
 # First match wins, on the base name. A seeded rule whose class is a function
 # decides from the block's states, for a block whose collision a state
 # changes. ``register_rule(front=True)`` inserts at index 0 to beat every
@@ -118,6 +127,9 @@ def _pitcher_crop(states: Mapping[str, str]) -> BlockClass:
 CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
     *(("exact", n, BlockClass.AIR) for n in ("air", "cave_air", "void_air")),
     *(("exact", n, BlockClass.LIQUID) for n in ("water", "flowing_water", "bubble_column")),
+    # Always waterlogged in Bedrock, but DesignBridge reads only a chunk's main block layer
+    # (RegionReadJob, Chunk::getBlockStateId), so the water under them never arrives.
+    *(("exact", n, BlockClass.LIQUID) for n in ("kelp", "seagrass")),
     *(("exact", n, BlockClass.DANGER) for n in (
         "lava", "flowing_lava", "fire", "soul_fire", "magma", "cactus",
         "sweet_berry_bush", "wither_rose", "powder_snow", "campfire", "soul_campfire")),
@@ -126,9 +138,10 @@ CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
     ("exact", "end_portal", BlockClass.DANGER),
     ("exact", "snow_layer", _snow_layer),
     ("exact", "pitcher_crop", _pitcher_crop),
+    ("suffix", "fence_gate", _fence_gate),
     *(("exact", n, BlockClass.PASSABLE) for n in (
         "lever", "ladder", "vine", "fern", "large_fern", "dead_bush",
-        "redstone_wire", "lily_pad", "waterlily", "kelp", "seagrass",
+        "redstone_wire", "lily_pad", "waterlily",
         "sugar_cane", "reeds", "bamboo_sapling", "hanging_roots", "dandelion", "poppy", "blue_orchid",
         "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley",
         "sunflower", "lilac", "rose_bush", "peony", "pitcher_plant",
@@ -150,6 +163,30 @@ CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
         "tulip", "banner", "fungus", "_vines", "_grass", "_coral", "_coral_fan", "_coral_wall_fan")),
     ("contains", "torch", BlockClass.PASSABLE),
 ]
+
+
+# Fences, walls and closed fence gates are 1.5 blocks tall (Fence.php, Wall.php, FenceGate.php), so a
+# player standing on one reaches half a block into the third cell above it, not the second.
+TALL_FLOOR_SUFFIXES = ("fence", "_wall")
+
+
+def is_tall_floor(name: str) -> bool:
+    """A block whose collision box tops out above 1, so standing on it needs a third clear cell."""
+    base, states = parse_name(name)
+    base = base.rpartition(":")[2]
+    if base.endswith("fence_gate"):
+        return states.get("open_bit") != "true"
+    return base.endswith(TALL_FLOOR_SUFFIXES)
+
+
+def is_unmapped(name: str) -> bool:
+    """A block the core could not map, which classes SOLID but may be anything in the world."""
+    return parse_name(name)[0] == UNMAPPED
+
+
+def tall_floor_lut(palette: Sequence[str]) -> np.ndarray:
+    """Palette index to ``is_tall_floor``, for ``lut[blocks]`` over a whole region."""
+    return np.array([is_tall_floor(name) for name in palette], dtype=bool)
 
 
 def register_rule(kind: str, pattern: str, cls: BlockClass, front: bool = True) -> None:
@@ -182,10 +219,16 @@ def _classify(name: str) -> BlockClass:
     return BlockClass.SOLID
 
 
+# Every palette entry ``class_lut`` has warned about in this process; a region is re-classed after
+# every edit, tile and render, so warning per call would repeat the same entry endlessly.
+_WARNED: set[str] = set()
+
+
 # A malformed state says nothing about the box, so the block is SOLID, the
 # class given to any block that cannot be read, rather than one bad palette
 # entry failing ``class_lut`` for the whole region.
 def classify(name: str) -> BlockClass:
+    """The class of one block; silent on a malformed state, which ``class_lut`` is the path that reports."""
     try:
         return _classify(name)
     except _MalformedState:
@@ -195,7 +238,7 @@ def classify(name: str) -> BlockClass:
 def class_lut(palette: Sequence[str]) -> np.ndarray:
     """Palette index to ``BlockClass``, for ``lut[blocks]`` over a whole region.
 
-    Warns once per distinct palette entry with a malformed state, since a
+    Warns once per process for each distinct palette entry with a malformed state, since a
     bridge sending bad state values would otherwise change classes unnoticed.
     """
     classes: list[BlockClass] = []
@@ -207,6 +250,9 @@ def class_lut(palette: Sequence[str]) -> np.ndarray:
             classes.append(BlockClass.SOLID)
             malformed.setdefault(name, err)
     for name, err in malformed.items():
+        if name in _WARNED:
+            continue
+        _WARNED.add(name)
         log.warning("block %r has malformed state %s, classified SOLID", name, err)
     return np.array(classes, dtype=np.uint8)
 
