@@ -23,10 +23,10 @@ fails on either.
 
 `*.phar` is gitignored by the repo root's `.gitignore`, and
 `RiftalMines.config.yml` by this folder's own, since a copy rendered by hand
-carries a real database password. Two config files are tracked:
-`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml`, which holds
-no password because the `ranks` login's comes from the environment (see
-below).
+carries a real database password. Three config files are tracked:
+`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml` and
+`RiftalEconomy.config.yml`, which hold no password because each login's
+comes from the environment (see below).
 
 ## Build `RiftalMines.phar` and `contracts.phar`
 
@@ -144,6 +144,29 @@ creates `ranks`, grants it `riftal_role_ranks`, and resets its password to
 that value on every run, so after editing it in `images/.env` run the
 runner again before the next boot. A grant `ranks` lacks surfaces on this
 stack as ERROR 1142, which is the point.
+
+## `RiftalEconomy` and the `economy` login
+
+`RiftalEconomy.phar`, the sell shop and the balance ledger, loads on
+`instance` alone the same way (riftal-infra#887). The recipe above stops
+on it at pharynx, `Failed to read file
+./vendor/pocketmine/pocketmine-mp/composer.json`, because nothing links the
+package `axolotl-pm/pocketmine-mp` replaces. Build it the way riftal-game's
+CI does instead: in the same container, with the same copies of `lib/`,
+`contracts/` and `economy/` and a Composer on `PATH` as `composer`, run
+`bash packages.sh phar /build /pharynx.phar /out` from riftal-game's
+`.github/scripts/`, then move `/out/economy.phar` to
+`instance-only/RiftalEconomy.phar`. It declares `depend: [RiftalContracts]` and `softdepend: [RiftalCustody]`, both
+met at the top of `plugins/`.
+
+Everything said of `ranks` above holds with `economy` in its place:
+`start-instance.sh` copies `RiftalEconomy.config.yml` to
+`/data/plugin_data/RiftalEconomy/config.yml` on every boot, the file differs
+from the shipped one only in its schema, the password comes from
+`RIFTAL_DB_PASSWORD_ECONOMY`, the boot stops naming it when it is unset, and
+the migration runner provisions `economy` with `riftal_role_economy`. Its
+sell locations come from the `world_index.json` `deliver-world-index.sh`
+puts in the same folder.
 
 ## Why an override is required, not optional
 
