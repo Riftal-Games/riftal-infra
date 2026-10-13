@@ -123,10 +123,10 @@ boot() {
   [ "${3:-}" = nowait ] || await 'Done (' "$slog" 120 || { cat "$slog"; return 1; }
 }
 
-# Every proof starts with no instance running and no live request.
+# Every proof starts with no instance, no live request, and no lock left by a killed run.
 begin() {
   halt
-  docker run --rm -m 1g --cpus 1 -v "$CAP:/c" "$IMG" rm -f /c/request
+  docker run --rm -m 1g --cpus 1 -v "$CAP:/c" -v "$SETS:/s" "$IMG" rm -rf /c/request /s/.lock
   boot "$@"
 }
 
@@ -317,7 +317,7 @@ p5_lease() {
 # $1 the mutant's name; $2 the sed that makes it from backup.sh; $3 the proof
 # run against it; $4 the tag of the assertion it must turn red.
 mutant() {
-  local script="$work/$1.sh" want="$4"
+  local script="$work/$1.sh" want="$4" name="$1"
   sed "$2" "$DIR/backup.sh" >"$script"
   printf '\n== mutant %s, against %s\n' "$1" "$3"
   diff "$DIR/backup.sh" "$script" || true
@@ -328,7 +328,8 @@ mutant() {
   fi
   under=""
   printf '%s' "$RED"
-  check "mutant $1 turns $want red" '[[ $RED == *"$want"* ]]'
+  check "mutant $1 turns $want red, its run having taken the lock and written its request" \
+    '[[ $RED == *"$want"* ]] && grep -qF "requesting a held capture $name-" "$blog"'
 }
 
 mkdir "$WITH" "$WITHOUT"
