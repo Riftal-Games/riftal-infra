@@ -216,18 +216,26 @@ write_request() {
   mv -f "$CAPTURE_DIR/request.tmp" "$CAPTURE_DIR/request"
 }
 
-# ADR 015 item 5: name, type, size and mtime of everything a start, a restart
-# or a level write leaves on the volume. A held volume's players/ is not
-# read, since its stage stands in for it. Absent paths list as nothing.
+# ADR 015 item 5: name, size and mtime, to the fraction of a second because on
+# a held volume this listing alone guards worlds/ and .capture/, and whole
+# seconds would miss a same-size rewrite. A held volume lists only what holds
+# an item or marks a restart; its stage stands in for players/, and its
+# server.log holds no item. A down volume adds both, since a start appends to
+# server.log before any player joins. Absent paths list as nothing.
 list_volume() {
-  local paths=(worlds .capture server.lock server.log)
-  [ "$2" = held ] || paths+=(players)
-  { (cd "$1" && find "${paths[@]}" -printf '%y %p %s %T@\n' 2>/dev/null) || true; } | LC_ALL=C sort
+  local paths=(worlds .capture server.lock)
+  [ "$2" = held ] || paths+=(players server.log)
+  { (cd "$1" && find "${paths[@]}" -printf '%p %s %T@\n' 2>/dev/null) || true; } | LC_ALL=C sort
 }
 
 # $1 a listing; $2 a path within the volume. True when the listing shows it.
 listed() {
-  awk -v p="$2" '$2 == p { found = 1 } END { exit !found }' <<<"$1"
+  awk -v p="$2" '$1 == p { found = 1 } END { exit !found }' <<<"$1"
+}
+
+# Every entry of listing $1 that listing $2 lacks, one per line.
+entries_missing() {
+  LC_ALL=C comm -23 <(printf '%s' "${1:+$1$'\n'}") <(printf '%s' "${2:+$2$'\n'}")
 }
 
 # The ack is two lines: the request id, then the server's start time in whole
@@ -256,6 +264,10 @@ unlock_volume() {
 await_volume() {
   local name="$1" vol="$WORLDS_DIR/$1" fd listing why
   local deadline=$(( $(date +%s) + CAPTURE_ACK_TIMEOUT_SECONDS ))
+  # On a retry this run may still hold the volume's exclusive lock from its
+  # first try. flock locks each open file description, so the test below would
+  # then find this run's own lock and wait out the ack timeout.
+  unlock_volume "$name"
   while :; do
     if [ -e "$vol/server.lock" ] && exec {fd}<"$vol/server.lock"; then
       if flock -xn "$fd"; then
@@ -289,10 +301,16 @@ await_volume() {
 }
 
 # ADR 015 items 4 and 5. A held volume is tarred without its live players/,
-# with the stage from its held tick stored as players/ in its place. False
-# when the volume changed between its first listing and the end of its tar.
+# with the stage from its held tick stored as players/ in its place. False,
+# with the tar discarded, when the volume must be tarred again.
+#
+# GNU tar exits 1 under --create when a file changed while it was read, and 2
+# on a fatal error. A held instance keeps writing files that hold no item, so
+# there exit 1 is left to the listings; nothing may write a down volume, so
+# there it is a change. Exit 2 with a changed listing is a restart removing
+# the stage, which a retry fixes; with an unchanged one, a retry would not.
 capture_volume() {
-  local name="$1" vol="$WORLDS_DIR/$1" out="$tmp_dir/worlds/$1.tar.gz" after
+  local name="$1" vol="$WORLDS_DIR/$1" out="$tmp_dir/worlds/$1.tar.gz" after rc=0
   if [ "${mode[$name]}" = held ]; then
     first[$name]="$(list_volume "$vol" held)"
     if ! listed "${first[$name]}" ".capture/$request_id/ack"; then
@@ -300,16 +318,25 @@ capture_volume() {
       return 1
     fi
     tar -czf "$out" --anchored --exclude=./players --exclude=./.capture \
-      -C "$vol" . -C "$vol/.capture/$request_id" players \
-      || fail "tar of volume $name exited nonzero"
+      -C "$vol" . -C "$vol/.capture/$request_id" players || rc=$?
   else
-    tar -czf "$out" --anchored --exclude=./.capture -C "$vol" . \
-      || fail "tar of volume $name exited nonzero"
+    tar -czf "$out" --anchored --exclude=./.capture -C "$vol" . || rc=$?
   fi
+  echo "backup $ts: tar of volume $name, ${mode[$name]}, exited $rc"
+  [ "$rc" -le 2 ] || fail "tar of volume $name exited $rc, no set is written"
   after="$(list_volume "$vol" "${mode[$name]}")"
   unlock_volume "$name"
   if [ "$after" != "${first[$name]}" ]; then
     echo "backup $ts: volume $name changed during its tar"
+    entries_missing "${first[$name]}" "$after" | sed "s|^|backup $ts: volume $name before its tar: |"
+    entries_missing "$after" "${first[$name]}" | sed "s|^|backup $ts: volume $name after its tar: |"
+    rm -f "$out"
+    return 1
+  fi
+  [ "$rc" -ne 2 ] || fail "tar of volume $name exited 2 with its listing unchanged, no set is written"
+  if [ "$rc" -eq 1 ] && [ "${mode[$name]}" = stopped ]; then
+    echo "backup $ts: volume $name is down and tar saw a file change"
+    rm -f "$out"
     return 1
   fi
 }
