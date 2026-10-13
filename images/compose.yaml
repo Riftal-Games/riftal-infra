@@ -54,9 +54,14 @@ services:
     # where Docker would create the mountpoint as root: in the ./plugins that
     # instance-b loads from, or as a /data/plugin_data PocketMine then cannot
     # write to. See plugins/instance-only/README.md.
+    #
+    # RiftalCustody loads on every instance from the top of ./plugins, and
+    # require-custody.sh stops a boot where it is not built (ADR 013 item 11).
     command:
       - bash
       - /plugins/deliver-world-index.sh
+      - bash
+      - /plugins/require-custody.sh
       - bash
       - /plugins/instance-only/start-instance.sh
     environment:
@@ -137,7 +142,8 @@ services:
       - ./plugins:/plugins
       # The same file `instance` gets. It names worlds, never instances.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
-    command: ["bash", "/plugins/deliver-world-index.sh", "start-pocketmine"]
+    # See RiftalCustody on `instance`, above.
+    command: ["bash", "/plugins/deliver-world-index.sh", "bash", "/plugins/require-custody.sh", "start-pocketmine"]
     environment:
       INSTANCE_ID: ${INSTANCE_B_ID}
       # See RIFTAL_DEV_ENV on `instance`, above; same reason, same value.

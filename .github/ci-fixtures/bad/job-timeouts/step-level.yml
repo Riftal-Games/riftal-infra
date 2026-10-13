@@ -1,0 +1,9 @@
+# Must fail job-timeouts.sh: the job's only timeout-minutes is on a step, which
+# bounds that step and not the job.
+on: push
+jobs:
+  only:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: "true"
+        timeout-minutes: 5

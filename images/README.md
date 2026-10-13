@@ -37,6 +37,57 @@ changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
 path. A `wslc run` of either instance needs the same `-v` and command.
 
+## RiftalCustody
+
+Every instance loads riftal-game's `custody` plugin, `RiftalCustody`, which
+keeps item entities out of every chunk save and players out of tiles (ADR 013,
+riftal-pm `docs/decisions/013-item-yielding-entities-are-never-saved.md`).
+It sits at the top of `plugins/`, so `instance-b` loads it straight from
+`/plugins` and `start-instance.sh` copies it into `instance`'s roster. Both
+instances start through `plugins/require-custody.sh`, after the world index
+delivery, which stops the boot before PocketMine when
+`plugins/RiftalCustody.phar` is missing or empty. The phar is gitignored, so
+build it once per clone, and again when `custody` or `lib` changes, with
+riftal-game's own CI script, which links the fork for pharynx and checks the
+phar holds a `plugin.yml`:
+
+```sh
+GAME=../../riftal-game
+BUILD=$(mktemp -d) OUT=$(mktemp -d)
+git -C "$GAME" archive origin/main custody lib .github/scripts/packages.sh | tar -x -C "$BUILD"
+curl -fsSLo "$BUILD/pharynx.phar" \
+  https://github.com/SOF3/pharynx/releases/download/0.3.8/pharynx.phar
+echo "de84964df51d595a9d521ee42df010cf6e817b1e5ceef17de6ef884c41b28133  $BUILD/pharynx.phar" | sha256sum -c -
+curl -fsSLo "$BUILD/composer-setup.php" https://getcomposer.org/installer
+
+docker run --rm -m 2g --cpus 2 --user "$(id -u):$(id -g)" -v "$BUILD:/build" -v "$OUT:/out" \
+  -e COMPOSER_ALLOW_SUPERUSER=1 -e HOME=/tmp --entrypoint bash local-pocketmine-mp -c '
+    mkdir -p /tmp/bin
+    php /build/composer-setup.php --install-dir=/tmp/bin --filename=composer --quiet
+    PATH=/tmp/bin:$PATH bash /build/.github/scripts/packages.sh phar /build /build/pharynx.phar /out
+  '
+cp "$OUT/custody.phar" plugins/RiftalCustody.phar
+```
+
+`custody` is the only folder in that copy with a `plugin.yml`, so it is the
+one phar built. `lib` rides along shaded in. `--user` lets the container write
+into the two `mktemp` directories, which only their owner can open.
+
+A boot's LOADS verdict, P13 included, is read from its log, never from an exit
+code:
+
+```sh
+docker compose logs --no-color --no-log-prefix instance > /tmp/instance.log
+bash loads-check.sh /tmp/instance.log
+```
+
+It fails unless the log reaches `Done (`, holds no line above `WARNING`, and
+shows `Enabling RiftalCustody` before the first `Preparing world`. Run it on a
+log captured after `stop` and it also catches a plugin left enabled past
+`RiftalCustody` at shutdown, which `RiftalCustody` logs as an `ERROR`. Every
+script plugin here lists `@softdepend RiftalCustody` in its header for that
+reason, and `custody-selftest.sh` fails on one that does not.
+
 The full production `/add-instance` runbook already exists as a skill; this
 table exists so the mechanism (env var, not mounted config) is written down
 somewhere editable in a normal PR.

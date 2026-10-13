@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=158
+EXPECTED_ASSERTIONS=200
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -161,38 +161,46 @@ expect_dockerfile_found() {
 # underscore before lowercase, space before dot, and b.Dockerfile before
 # b/Dockerfile.
 #
-# The runner's LANG is C.UTF-8, which orders ASCII exactly as C does, so the
-# scan runs under COLLATING_LOCALE: a bare sort in scan.sh inherits it, and
-# only scan.sh pinning its own LC_ALL=C gives the expected list. That locale
-# is not in the runner's `locale -a`. It collates anyway because the runner's
-# sort is uutils, which collates any non-C locale name itself; GNU sort would
-# fall back to C order for a locale that is not installed. The first check
-# proves the locale collates with the sort this machine has, so the order
-# check fails loudly instead of passing for the same reason C.UTF-8 would.
+# The scan runs under COLLATING_LOCALE with FAKE_SORT loaded through BASH_ENV,
+# so a bare sort in scan.sh folds case and only scan.sh pinning its own
+# LC_ALL=C gives the expected list, whichever sort and locales the host has.
+# The first check runs the stub the same way the scan does and proves it
+# orders the names differently from C, so a stub that stops loading turns the
+# order check red instead of letting it pass for the reason C order would.
 COLLATING_LOCALE=en_US.UTF-8
+FAKE_SORT="$FIXTURES/fake-locale-sort.bash"
 
 expect_dockerfiles_sorted() {
-  local dir name out status got want collated
+  local dir name out status got want collated sort_err
   dir="$(mktemp -d)"
+  sort_err="$(mktemp)"
   mkdir "$dir/b"
   for name in a.Dockerfile b/Dockerfile Dockerfile _.Containerfile dockerfile.dev \
     Z.Dockerfile 'a b.Dockerfile' Containerfile b.Dockerfile; do
     printf 'FROM ubuntu:24.04\n' > "$dir/$name"
   done
-  collated="$(find "$dir" -type f -print0 | LC_ALL="$COLLATING_LOCALE" sort -z \
+  # Bash warns on stderr that it cannot set a locale the host lacks, so stderr
+  # is kept apart and shown only if the stub printed nothing.
+  collated="$(find "$dir" -type f -print0 \
+    | BASH_ENV="$FAKE_SORT" LC_ALL="$COLLATING_LOCALE" bash -c 'sort -z' 2>"$sort_err" \
     | tr '\0' '\n' | sed "s#^$dir/##")"
-  out="$(HADOLINT=true LC_ALL="$COLLATING_LOCALE" bash "$SCAN" dockerfiles "$dir" 2>&1)"
+  out="$(HADOLINT=true BASH_ENV="$FAKE_SORT" LC_ALL="$COLLATING_LOCALE" \
+    bash "$SCAN" dockerfiles "$dir" 2>&1)"
   status=$?
   rm -rf "$dir"
   got="$(printf '%s\n' "$out" | sed -n "s#^checking $dir/##p")"
   want="$(printf '%s\n' Containerfile Dockerfile Z.Dockerfile _.Containerfile \
     'a b.Dockerfile' a.Dockerfile b.Dockerfile b/Dockerfile dockerfile.dev)"
-  if [ -n "$collated" ] && [ "$collated" != "$want" ]; then
-    pass "a bare sort under $COLLATING_LOCALE orders the fixture names differently from C"
-  else
-    fail "a bare sort under $COLLATING_LOCALE orders the fixture names as C does, so the order check below cannot tell a bare sort from LC_ALL=C sort"
+  if [ -z "$collated" ]; then
+    fail "a bare sort with $(rel "$FAKE_SORT") under $COLLATING_LOCALE printed nothing, so the order check below cannot tell a bare sort from LC_ALL=C sort"
+    cat "$sort_err"
+  elif [ "$collated" = "$want" ]; then
+    fail "a bare sort with $(rel "$FAKE_SORT") under $COLLATING_LOCALE orders the fixture names as C does, so the order check below cannot tell a bare sort from LC_ALL=C sort"
     printf '%s\n' "$collated"
+  else
+    pass "a bare sort with $(rel "$FAKE_SORT") under $COLLATING_LOCALE orders the fixture names differently from C"
   fi
+  rm -f "$sort_err"
   if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'found 9 ' && [ "$got" = "$want" ]; then
     pass "Dockerfile discovery checks files in LC_ALL=C order"
   else
@@ -698,6 +706,48 @@ expect_pins_bad "$PIN_WORKFLOWS/double-quoted-key.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/single-quoted-key.yml" 8
 expect_pins_bad "$PIN_WORKFLOWS/flow-sequence.yml" 7
 expect_pins_bad "$PIN_WORKFLOWS/flow-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/tagged-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/anchored-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/escaped-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/nested-sequence.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-tagged-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/tagged-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-anchored-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-tagged-anchored-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-sequence-explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/comma-explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/tagged-single-quoted-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-sequence-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/comma-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/alias-key-value-next-line.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-key.yml" 8
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-alias-key.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-key-value-next-line.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-key-comment.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-escaped-key-value-next-line.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-unspaced-explicit-alias-key-value-next-line.yml" 11
+expect_pins_bad "$PIN_WORKFLOWS/column-zero-alias-key.yml" 7
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-value-next-line.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-brace.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-bracket.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-trailing-space.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-tagged-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-anchored-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-double-quoted-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-single-quoted-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-indented-key.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-blank.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-comment.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-double-quoted-hash.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-single-quoted-hash.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-quoted-hash-comment.yml" 9
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-multiline-quoted-hash.yml" 10
+expect_pins_bad "$PIN_WORKFLOWS/flow-continuation-unspaced-explicit-key-after-three-hash-cuts.yml" 9
 expect_pins_bad "$FIXTURES/bad/action-pins/composite/action.yml" 8
 expect_real_pins
 

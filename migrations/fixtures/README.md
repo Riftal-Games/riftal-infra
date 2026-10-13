@@ -34,6 +34,22 @@ only real source of those; these exist only so `selftest.sh` can prove
 - `definer-grants/` creates `riftal_role_tally` with `SELECT` on `tallies` and
   `EXECUTE` on `tallies_bump`, and no `UPDATE`, so the self-test can show a
   login writing the table only through the procedure.
+- `regrant/` holds `0002`, which drops and recreates `tallies_bump`, and a
+  broken `0003`, run over the `definer/` fixture, so the self-test can show a
+  failed run still restoring the role's `EXECUTE` on the recreated procedure.
+- `regrant-grants/` is `definer-grants/` with a grant on `gizmos`, a table no
+  fixture creates, ahead of `EXECUTE`, so the grants applied on a failed run
+  must carry on past an error to restore it.
+- `lock-reads/` holds a `mysql` function, sourced through `BASH_ENV`, that
+  makes the runner's `IS_USED_LOCK` read answer NULL or fail, or its
+  processlist read fail, and a `mysql` stand-in it puts first on `PATH` that
+  answers `GET_LOCK` with NULL, so the self-test can reach each holder message
+  a real server gives only inside a window it cannot time.
+- `lock-pipe/` holds a `stdbuf` stand-in it puts first on `PATH`, which
+  starts the lock session with its stdin closed, either at once or after
+  answering `GET_LOCK` with 1, and a `printf` function, sourced through
+  `BASH_ENV`, that holds the runner's next write to that session until it is
+  closed, so the write meets a pipe with no reader every time.
 - `version-floor/` holds a shell function, sourced through `BASH_ENV`, that
   makes the runner's `VERSION()` query report a chosen version, so the
   self-test can show a server below 8.0.30 refused without one.
