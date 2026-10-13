@@ -28,6 +28,10 @@ tracked.
 
 ## Build `RiftalMines.phar` and `contracts.phar`
 
+`contracts.phar` lands one level up, at the top of `plugins/`, because every
+instance loads it beside `RiftalAccounts` (`../../README.md`,
+`RiftalAccounts`), whose recipe there builds the same file.
+
 `mines` has real Composer dependencies (`sof3/libasynql`, the `lib` path-repo
 virion), so it needs `pharynx`, the same tool and pin
 `riftal-game/.github/workflows/ci.yml` uses, run against a PHP that carries
@@ -49,12 +53,12 @@ for pkg in mines lib contracts; do
 done
 
 docker run --rm \
-  -v "$BUILD:/build" -v "$PWD:/out" \
+  -v "$BUILD:/build" -v "$PWD/..:/out" \
   -v /tmp/pharynx.phar:/pharynx.phar:ro -v /tmp/composer.phar:/composer.phar:ro \
   -w /build -e COMPOSER_ALLOW_SUPERUSER=1 -e HOME=/tmp \
   local-pocketmine-mp sh -c '
     set -e
-    for pair in contracts:contracts mines:RiftalMines; do
+    for pair in contracts:contracts mines:instance-only/RiftalMines; do
       cd "/build/${pair%%:*}"
       php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev
       php -dphar.readonly=0 /pharynx.phar -i . -c "-p=/out/${pair#*:}.phar"
@@ -80,7 +84,7 @@ Confirm each build holds a `plugin.yml`, the same check
 builds:
 
 ```sh
-for phar in contracts RiftalMines; do
+for phar in ../contracts RiftalMines; do
   docker run --rm -v "$PWD/$phar.phar:/p.phar:ro" local-pocketmine-mp php -r '
     foreach (new RecursiveIteratorIterator(new Phar("/p.phar")) as $f) {
       if (basename((string) $f) === "plugin.yml") { exit(0); }
@@ -94,9 +98,9 @@ done
 A `RiftalMines.phar` that was never built is skipped without a word (see
 below), so this check, or reading `Loading RiftalContracts` then `Loading
 RiftalMines` in the boot log, is the only way to catch a boot that silently
-never had the plugin at all. `RiftalMines.phar` without `contracts.phar` is
-not skipped: `start-instance.sh` stops before PocketMine starts and names
-`contracts.phar`, because PocketMine itself would log `Unknown dependency:
+never had the plugin at all. A missing `contracts.phar` is not skipped:
+`require-accounts.sh` stops every instance's boot before PocketMine starts,
+naming the file, because PocketMine itself would log `Unknown dependency:
 RiftalContracts` and force-shut the whole server down.
 
 ## The config override
