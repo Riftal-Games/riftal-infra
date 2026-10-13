@@ -14,13 +14,21 @@
 #
 # A step runs mysql:8 when it is `uses: docker://` with a mysql:8 image, or
 # when its text, full-line comments dropped, both names mysql:8 as its own
-# token, after any registry or namespace path, and starts a container. A start
-# is docker, podman or nerdctl, by any path and in any case, or a shell
-# variable, then any closing } and ", then any global flags, then run, create
-# or container run|create; or any compose up, run, create or start, which
-# counts whatever it names, since the compose file is not read. The name and
-# the start are tested separately over the whole text, so a trailing comment
-# can flag a step that does neither.
+# token or as the default of a ${VAR-...} or ${VAR[...]-...} expansion, with
+# any subscript text but ], after any registry or namespace path, and starts a
+# container. A start is docker, podman or nerdctl, by any path and in any
+# case, or a shell variable, then any closing } and ", then any global flags,
+# then run, create or container run|create; or any compose up, run, create or
+# start, ended by anything but a word character or -, which counts whatever it
+# names, since the compose file is not read.
+#
+# The name and the start are tested separately, so a trailing comment that
+# names mysql:8 can flag a step that does not run it. Both are tested over
+# the whole text as written, with backslash-continued lines joined, with
+# every quote removed, and with every quote and backslash removed after
+# $'...' is decoded and each $"..." read as "...". Since a $' inside '...' is
+# not told from one that opens $'...', the decode runs from the start of the
+# text and again from each $' in it, and every result is tested.
 #
 # A step's text is its run text, every env: in scope at step, job and
 # workflow level, and every script the run text names: a word ending in .sh,
@@ -196,15 +204,63 @@ text_of() {
   done <<<"$scripts"
 }
 
-mysql_ref='(^|[^[:alnum:]_.-])([[:alnum:]._-]+(:[0-9]+)?/)*mysql:8([^[:alnum:]_.:-]|$)'
+mysql_ref='(^|[^[:alnum:]_.-]|[{][[:alnum:]_]+(\[[^]]*\])?:?-)([[:alnum:]._-]+(:[0-9]+)?/)*mysql:8([^[:alnum:]_.:-]|$)'
 engine='(^|[^[:alnum:]_.$-])([^[:space:]]*/)?(docker|podman|nerdctl)|\$\{?[[:alpha:]_][[:alnum:]_]*'
 flag='[[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?'
 start="($engine)[}\"]*($flag)*[[:space:]]+(container[[:space:]]+)?(run|create)([[:space:]]|\$)"
-compose="($engine)[}\"]*([[:space:]]+|-)compose([[:space:]]+[^[:space:]]+)*[[:space:]]+(up|run|create|start)([[:space:]]|\$)"
+compose="($engine)[}\"]*([[:space:]]+|-)compose([[:space:]]+[^[:space:]]+)*[[:space:]]+(up|run|create|start)([^[:alnum:]_-]|\$)"
+
+# Prints $1 with each $'...' decoded, scanning left to right, each $"..." read
+# as "...", and every quote and backslash dropped. Each decode shortens the
+# text, so the loop ends.
+decoded() {
+  local plain="$1" body
+  while [[ "$plain" =~ \$\'(([^\'\\]|\\.)*)\' ]]; do
+    body="${BASH_REMATCH[1]}"
+    plain="${plain/"${BASH_REMATCH[0]}"/"${body@E}"}"
+  done
+  plain="${plain//\$\"/\"}"
+  printf '%s\n' "${plain//[\"\'\\]/}"
+}
 
 runs_mysql() {
   local code
   code="$(grep -vE '^[[:space:]]*#' || true)"
+  # In bash a line ending in a backslash goes on to the next, and grep reads
+  # one line at a time. A backslash before a CR is joined too, though bash
+  # does not join it, so a CRLF file is read as its author meant and the
+  # check fails closed. The joined copy is tested beside the lines as written,
+  # so joining can only add a match.
+  local joined
+  joined="$(tr -d '\r' <<<"$code" | sed -E -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}')"
+  code+=$'\n'"$joined"
+  # Bash drops the quotes around a word before running it, so 'run' and
+  # "docker" start a container as their bare words do. A copy without quotes
+  # goes beside the rest for the same reason the joined copy does.
+  code+=$'\n'"${code//[\"\']/}"
+  # Bash also drops a backslash outside quotes, decodes the escapes in $'...'
+  # and reads $"..." as "...", so \run, $'run', $'\x72un' and $"run" each
+  # start a container as run does. These copies drop every backslash, even one
+  # bash keeps inside double quotes, which can only add a match beside the
+  # rest.
+  code+=$'\n'"$(decoded "$code")"
+  # A $' inside '...' is literal to bash, as in grep 'ok$', yet a scan that
+  # does not track quotes pairs it with the next ' and so swallows a real
+  # $'...' that follows. Telling which $' opens one needs a shell parser, so
+  # each $' in the joined text gets a copy that decodes from it onward. The
+  # copy is led by its own line up to that $', which holds the engine before
+  # the verb, with quotes and backslashes dropped but nothing decoded, since a
+  # decode there would pair a 'ok$' in it with the $' again.
+  local head="" lead tail="$joined"
+  while [[ "$tail" == *"\$'"* ]]; do
+    head+="${tail%%"\$'"*}"
+    tail="\$'${tail#*"\$'"}"
+    lead="${head##*$'\n'}"
+    lead="${lead//\$[\"\']/}"
+    code+=$'\n'"${lead//[\"\'\\]/}$(decoded "$tail")"
+    head+="\$'"
+    tail="${tail:2}"
+  done
   grep -qiE "$compose" <<<"$code" ||
     { grep -qE "$mysql_ref" <<<"$code" && grep -qiE "$start" <<<"$code"; }
 }

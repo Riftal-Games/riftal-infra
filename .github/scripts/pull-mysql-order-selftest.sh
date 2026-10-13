@@ -11,7 +11,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=59
+expected=84
 
 root="$work/root"
 mkdir -p "$root/.github/scripts" "$root/sub"
@@ -34,6 +34,32 @@ printf '%s run --rm mysql:8 true\n' '"${engine}"' >"$root/var.sh"
 printf '%s --context x run --rm mysql:8 true\n' "$engine" >"$root/flag.sh"
 printf '%s run --rm docker.io/library/mysql:8 true\n' "$engine" >"$root/registry.sh"
 printf '%s compose -f compose.yaml up -d mysql\n' "$engine" >"$root/compose.sh"
+printf '%s compose -f compose.yaml \\\n  up -d mysql\n' "$engine" >"$root/compose-cont.sh"
+printf '%s compose -f compose.yaml \\\r\n  up -d mysql\r\n' "$engine" >"$root/compose-crlf.sh"
+printf '%s \\\n  run --rm mysql:8 true\n' "$engine" >"$root/engine-cont.sh"
+printf '%s \\\r\n  run --rm mysql:8 true\r\n' "$engine" >"$root/engine-crlf.sh"
+printf '%s \\\n  --context x \\\n  run --rm mysql:8 true\n' "$engine" >"$root/engine-three.sh"
+printf '%s run --rm ${IMG:-mysql:8} true\n' "$engine" >"$root/defaulted.sh"
+printf '%s run --rm ${IMG-mysql:8} true\n' "$engine" >"$root/defaulted-bare.sh"
+printf '%s run --rm ${IMGS[0]:-mysql:8} true\n' "$engine" >"$root/defaulted-element.sh"
+printf "%s 'run' --rm mysql:8 true\n" "$engine" >"$root/verb-single.sh"
+printf '"%s" "run" --rm mysql:8 true\n' "$engine" >"$root/verb-double.sh"
+# Each verb is its own argument, so no line here puts the engine beside it.
+for verb in 'backslash=\run' "ansi=\$'run'" "ansi-escaped=\$'\\x72un'" 'locale=$"run"'; do
+  printf '%s %s --rm mysql:8 true\n' "$engine" "${verb#*=}" >"$root/verb-${verb%%=*}.sh"
+done
+# Bash reads the $ in 'ok$' as a literal, so a scan that takes it for a $'...'
+# opener pairs it with the real opener that follows and never decodes the verb.
+for verb in "run=\$'run' --rm mysql:8" "escaped=\$'\\x72un' --rm mysql:8" "compose=\$'\\x63ompose' up -d" \
+  "image=\$'run' --rm \$'mysql:\\x38'"; do
+  printf "grep -q 'ok\$' /dev/null; %s %s true\n" "$engine" "${verb#*=}" >"$root/anchored-${verb%%=*}.sh"
+done
+printf "grep -q 'ok\$' /dev/null; %s%s' run --rm mysql:8 true\n" "\$'\\x64" "${engine#d}" >"$root/anchored-engine.sh"
+printf "grep -q 'ok\$' /dev/null\n%s %s --rm mysql:8 true\n" "$engine" "\$'\\x72un'" >"$root/anchored-above.sh"
+printf '%s compose up;\n' "$engine" >"$root/compose-semi.sh"
+printf '%s compose up&& true\n' "$engine" >"$root/compose-and.sh"
+printf '%s compose up|cat\n' "$engine" >"$root/compose-pipe.sh"
+printf "bash -c '%s compose up'\n" "$engine" >"$root/compose-quoted.sh"
 
 # Prints a workflow with one job per argument group. Each step is name=run,
 # and a job starts at an argument job:<key>.
@@ -91,6 +117,13 @@ expect "inline run block before the pull" fail "step 'inline' runs mysql:8 befor
 
 {
   workflow job:a "php=bash php.sh"
+  printf '      - name: inline\n        run: |\n          %s compose -f x.yml \\\n            up -d\n' "$engine"
+  workflow "$pull" "db=bash db.sh" | sed 1,4d
+} >"$work/inline.yml"
+expect "inline compose continued before the pull" fail "step 'inline' runs mysql:8 before" "$work/inline.yml" "$root"
+
+{
+  workflow job:a "php=bash php.sh"
   printf '      - name: subdir\n        working-directory: sub\n        run: bash start.sh\n'
   workflow "$pull" | sed 1,4d
 } >"$work/subdir.yml"
@@ -114,7 +147,18 @@ for form in "direct=./db" 'flagged=bash -e "db"' "quoted=bash 'db.sh'" 'yaml="ba
   "registry=bash registry.sh" "compose=bash compose.sh" \
   "bundled o=bash -euo pipefail db" "lone o=bash -o pipefail db" "dot=. ./db" "source=source ./db" \
   'braced="{ bash db; }"' "command=command bash db" "timeout kill=timeout -k 5 10 bash db" \
-  "rcfile=bash --rcfile php.sh db"; do
+  "rcfile=bash --rcfile php.sh db" "compose continued=bash compose-cont.sh" \
+  "compose crlf=bash compose-crlf.sh" "engine continued=bash engine-cont.sh" "engine crlf=bash engine-crlf.sh" \
+  "engine three lines=bash engine-three.sh" \
+  "defaulted=bash defaulted.sh" "defaulted bare=bash defaulted-bare.sh" "compose semicolon=bash compose-semi.sh" \
+  "compose and=bash compose-and.sh" "compose pipe=bash compose-pipe.sh" "compose quoted=bash compose-quoted.sh" \
+  "defaulted element=bash defaulted-element.sh" "verb single quoted=bash verb-single.sh" \
+  "verb double quoted=bash verb-double.sh" "verb backslash=bash verb-backslash.sh" \
+  "verb ansi-c quoted=bash verb-ansi.sh" "verb ansi-c escaped=bash verb-ansi-escaped.sh" \
+  "verb locale quoted=bash verb-locale.sh" "anchored ansi-c verb=bash anchored-run.sh" \
+  "anchored ansi-c escaped verb=bash anchored-escaped.sh" "anchored ansi-c compose=bash anchored-compose.sh" \
+  "anchored ansi-c image=bash anchored-image.sh" "anchored ansi-c engine=bash anchored-engine.sh" \
+  "anchored on the line above=bash anchored-above.sh"; do
   workflow job:a "$form" "$pull" "db=bash db.sh" >"$work/form.yml"
   expect "${form%%=*} before the pull" fail "step '${form%%=*}' runs mysql:8 before" "$work/form.yml" "$root"
 done
