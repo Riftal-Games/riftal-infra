@@ -30,6 +30,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGINS="$(cd "$DIR/.." && pwd)"
 INDEX="$(cd "$DIR/../../../designer" && pwd)/world_index.json"
 CAPTURE_PLUGIN="${CAPTURE_PLUGIN:-$PLUGINS/RiftalCapture.php}"
+# shellcheck source-path=SCRIPTDIR source=../../core-image.sh
 . "$DIR/../../core-image.sh"
 core_image || { printf 'the capture was never booted\n'; exit 1; }
 IMAGE="$CORE_IMAGE"
