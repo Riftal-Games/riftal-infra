@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from designer.blocks import RLEError
+from designer.blocks import AIR, RLEError
 from designer.bridge import Bridge
 from designer.region import Bounds, LightRegion, Region, decode_light, fetch_light
 from designer.verify import HOLES_REPORTED, LIGHT_WORST, light_ok, no_holes
@@ -94,18 +94,18 @@ def test_no_holes_finds_the_hole_and_nothing_else(flat_plane_with_hole: Region) 
     walkway = np.ones((40, 40), dtype=bool)
     walkway[:3, :3] = False
     found = no_holes(flat_plane_with_hole, 4, walkway)
-    assert not found.ok and found.detail == "4 holes in the walkway" and found.data == {"holes": 4}
+    assert not found.ok and found.detail == "4 holes in the walkway" and found.data == {"holes": 4, "unmapped": 0}
     assert found.coords == [(19, 3, 19), (20, 3, 19), (19, 3, 20), (20, 3, 20)]
     walkway[19:21, 19:21] = False
     assert no_holes(flat_plane_with_hole, 4, walkway).ok
     flat_plane_with_hole.set(5, 4, 5, "minecraft:stone")
     found = no_holes(flat_plane_with_hole, 4, walkway)
-    assert not found.ok and found.coords == [(5, 4, 5)] and found.data == {"holes": 1}
+    assert not found.ok and found.coords == [(5, 4, 5)] and found.data == {"holes": 1, "unmapped": 0}
     flat_plane_with_hole.set(5, 4, 5, "minecraft:carpet")
     assert no_holes(flat_plane_with_hole, 4, walkway).ok
     flat_plane_with_hole.fill(Bounds((0, 3, 30), (39, 3, 31)), "minecraft:air")
     found = no_holes(flat_plane_with_hole, 4, walkway)
-    assert found.data == {"holes": 80} and len(found.coords) == HOLES_REPORTED and found.coords[0] == (0, 3, 30)
+    assert found.data == {"holes": 80, "unmapped": 0} and len(found.coords) == HOLES_REPORTED and found.coords[0] == (0, 3, 30)
     with pytest.raises(ValueError, match="floor_y"):
         no_holes(flat_plane_with_hole, 0, walkway)
     with pytest.raises(ValueError, match="walkway mask shape"):
@@ -116,12 +116,12 @@ def test_a_walkway_over_the_lava_corner_is_a_hole(flat_plane_with_hole: Region) 
     walkway = np.zeros((40, 40), dtype=bool)
     walkway[:3, :3] = True
     found = no_holes(flat_plane_with_hole, 4, walkway)
-    assert not found.ok and found.detail == "9 holes in the walkway" and found.data == {"holes": 9}
+    assert not found.ok and found.detail == "9 holes in the walkway" and found.data == {"holes": 9, "unmapped": 0}
     assert found.coords == [(x, 3, z) for z in range(3) for x in range(3)]
     flat_plane_with_hole.set(1, 3, 1, "minecraft:water")
-    assert no_holes(flat_plane_with_hole, 4, walkway).data == {"holes": 9}
+    assert no_holes(flat_plane_with_hole, 4, walkway).data == {"holes": 9, "unmapped": 0}
     flat_plane_with_hole.set(1, 3, 1, "minecraft:stone")
-    assert no_holes(flat_plane_with_hole, 4, walkway).data == {"holes": 8}
+    assert no_holes(flat_plane_with_hole, 4, walkway).data == {"holes": 8, "unmapped": 0}
 
 
 def test_liquid_and_danger_at_walkway_level_are_obstructions(flat_plane_with_hole: Region) -> None:
@@ -130,4 +130,18 @@ def test_liquid_and_danger_at_walkway_level_are_obstructions(flat_plane_with_hol
     flat_plane_with_hole.set(10, 4, 10, "minecraft:water")
     flat_plane_with_hole.set(11, 4, 10, "minecraft:lava")
     found = no_holes(flat_plane_with_hole, 4, walkway)
-    assert not found.ok and found.coords == [(10, 4, 10), (11, 4, 10)] and found.data == {"holes": 2}
+    assert not found.ok and found.coords == [(10, 4, 10), (11, 4, 10)] and found.data == {"holes": 2, "unmapped": 0}
+
+
+def test_a_walkway_over_an_unmapped_floor_names_it_after_any_hole(flat_plane_with_hole: Region) -> None:
+    walkway = np.zeros((40, 40), dtype=bool)
+    walkway[10, 10:13] = True
+    flat_plane_with_hole.set(11, 3, 10, "minecraft:info_update")
+    flat_plane_with_hole.set(12, 3, 10, "info_update")
+    found = no_holes(flat_plane_with_hole, 4, walkway)
+    note = "a block the core does not map (minecraft:info_update)"
+    assert not found.ok and found.detail == f"2 walkway floor cells are {note}"
+    assert found.coords == [(11, 3, 10), (12, 3, 10)] and found.data == {"holes": 0, "unmapped": 2}
+    flat_plane_with_hole.set(10, 3, 10, AIR)
+    found = no_holes(flat_plane_with_hole, 4, walkway)
+    assert found.detail == "1 holes in the walkway" and found.coords == [(10, 3, 10)] and found.data == {"holes": 1, "unmapped": 2}

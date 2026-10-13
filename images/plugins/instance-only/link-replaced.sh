@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run from a plugin folder after composer install and before pharynx. Its twin
-# is link_replaced() in riftal-game/.github/scripts/packages.sh, which arrives
-# with riftal-game#566 alongside the fork pin; keep the two in step.
+# is link_replaced() in riftal-game/.github/scripts/packages.sh; keep the two
+# in step.
 #
 # pharynx follows each virion's require into vendor/<name> by name alone and
 # never reads replace. libasynql requires pocketmine/pocketmine-mp, which the
