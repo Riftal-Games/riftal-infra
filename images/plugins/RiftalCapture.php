@@ -100,11 +100,20 @@ final class Lease{
 /**
  * The staged copy and its ack. The ack goes in last, through a rename, so a
  * backup that sees it also sees every staged file whole.
+ *
+ * The ack is two lines, each ending "\n": the request id, then the time the
+ * server process started, as whole microseconds since the Unix epoch. The
+ * second line is the server's own start time, fixed for the life of the
+ * process, so the same id acked with a different second line was staged again
+ * by a restarted server (ADR 015 items 1.4 and 2).
  */
 final class Stage{
 
-	/** @return int the number of player files staged */
-	public static function write(string $players, string $root, string $id) : int{
+	/**
+	 * @param float $started the server process start time, in epoch seconds
+	 * @return int the number of player files staged
+	 */
+	public static function write(string $players, string $root, string $id, float $started) : int{
 		$dir = "$root/$id";
 		self::remove($dir);
 		$names = is_dir($players) ? scandir($players) : false;
@@ -124,7 +133,8 @@ final class Stage{
 			}
 			$count++;
 		}
-		if(@file_put_contents("$dir/ack.tmp", "$id\n") === false || !@rename("$dir/ack.tmp", "$dir/ack")){
+		$micros = (int) round($started * 1e6);
+		if(@file_put_contents("$dir/ack.tmp", "$id\n$micros\n") === false || !@rename("$dir/ack.tmp", "$dir/ack")){
 			throw new \RuntimeException("cannot write $dir/ack");
 		}
 		return $count;
@@ -149,8 +159,8 @@ final class Stage{
 }
 
 /**
- * Polls the request at enable and once a second. Every step of a capture runs inside one
- * scheduled task, so in one main-thread tick: no player save can land
+ * Polls the request at enable and once a second. Every step of a capture runs
+ * in one call on the main thread, so in one tick: no player save can land
  * between the saves and the copy, because player files are written only on
  * the main thread.
  */
@@ -252,7 +262,7 @@ final class Main extends PluginBase implements Listener{
 			$world->save(true);
 		}
 		try{
-			$count = Stage::write(Path::join($server->getDataPath(), "players"), $this->root(), $request->id);
+			$count = Stage::write(Path::join($server->getDataPath(), "players"), $this->root(), $request->id, $server->getStartTime());
 		}catch(\RuntimeException $e){
 			$this->getLogger()->error("capture $request->id not acked: " . $e->getMessage());
 			$this->release();
