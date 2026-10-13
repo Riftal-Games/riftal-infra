@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # In-server harness for RiftalCapture.php (riftal-infra#553, ADR 015 items 1, 2
 # and 8). capture-selftest.sh runs the plugin against fakes of the core; this
-# boots the real local-pocketmine-mp image in instance-b's shape with this
+# boots the pinned core image from ../../core-image.sha, which only the
+# self-hosted runners' Docker daemon holds, in instance-b's shape with this
 # tree's plugins, where World::save's force gate and the shutdown order
 # (plugins disabled, then worlds unloaded with an unforced save) are the
 # core's own. It drives captures through a bind-mounted /capture and the
@@ -29,10 +30,12 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGINS="$(cd "$DIR/.." && pwd)"
 INDEX="$(cd "$DIR/../../../designer" && pwd)/world_index.json"
 CAPTURE_PLUGIN="${CAPTURE_PLUGIN:-$PLUGINS/RiftalCapture.php}"
-IMAGE=local-pocketmine-mp
+. "$DIR/../../core-image.sh"
+core_image || { printf 'the capture was never booted\n'; exit 1; }
+IMAGE="$CORE_IMAGE"
 TOOL=php:8.3-cli-alpine
 LEVEL=/data/worlds/plots_b/level.dat
-EXPECTED_ASSERTIONS=20
+EXPECTED_ASSERTIONS=21
 
 PASSES=0
 FAILURES=0
@@ -136,6 +139,12 @@ live() {
   docker exec "$name" sh -c "$1"
 }
 
+# $1 an ack as read, its final newline gone: true when it holds the id $2
+# and then a start time in microseconds, as Stage in RiftalCapture.php writes it
+ack_is() {
+  [[ "$1" =~ ^"$2"$'\n'[0-9]{16}$ ]]
+}
+
 level_now() {
   live "sha256sum $LEVEL" | cut -d' ' -f1 || true
 }
@@ -170,8 +179,8 @@ saved="$(level_now)"
 request r1 600
 await 'capture r1 held' 1 10 || true
 sleep 1
-check "a. the capture acks r1 and stages each player file byte for byte" \
-  '[ "$(live "cat /data/.capture/r1/ack")" = r1 ] &&
+check "a. the capture acks r1 with the start time and stages each player file byte for byte" \
+  'ack_is "$(live "cat /data/.capture/r1/ack")" r1 &&
    live "for i in 1 2 3; do cmp /data/players/h\$i.dat /data/.capture/r1/players/h\$i.dat || exit 1; done"'
 check "a. the server holds autosave off through the hold" '[ "$(autosave)" = off ]'
 check "a. the held tick force-saves the world, under autosave off" '[ "$(level_now)" != "$saved" ]'
@@ -217,6 +226,12 @@ check "d. after release the chunk unloads, and read back from disk it holds the 
   'grep -qF "chunk-unload: true, loaded: no" "$log" && grep -qF "chunk-read: glass" "$log"'
 check "d. after release the same level unloads" 'grep -qF "level-drop: true" "$log"'
 
+request e0 600
+await 'capture e0 held' 1 10 || true
+ack_one="$(live "cat /data/.capture/e0/ack" || true)"
+rm -f "$cap/request"
+await 'capture e0 released' 1 10 || true
+
 echo save-off >&3
 await 'Turned off world auto-saving' 1 10 || true
 request r3 600
@@ -242,6 +257,9 @@ check "e. a request live at boot is captured as the plugin enables, before the s
   'held_at="$(grep -nF "capture e0 held" "$log" | head -n 1 | cut -d: -f1)"
    done_at="$(grep -nF "Done (" "$log" | head -n 1 | cut -d: -f1)"
    [ -n "$held_at" ] && [ "$held_at" -lt "$done_at" ]'
+check "e. e0 acked by boot one and again by this restarted process: same id line, different start time line" \
+  'ack_two="$(live "cat /data/.capture/e0/ack")" &&
+   ack_is "$ack_one" e0 && ack_is "$ack_two" e0 && [ "$ack_one" != "$ack_two" ]'
 request e1 600
 await 'capture e1 held' 1 10 || true
 sleep 1

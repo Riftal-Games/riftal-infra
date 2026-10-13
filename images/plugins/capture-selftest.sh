@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN="$SCRIPT_DIR/RiftalCapture.php"
-EXPECTED_ASSERTIONS=18
+EXPECTED_ASSERTIONS=19
 
 output="$(docker run --rm -i -v "$PLUGIN:/plugin.php:ro" php:8.3-cli-alpine php <<'PHP' 2>&1
 <?php
@@ -60,6 +60,9 @@ final class NoCopy{
 	public function stream_open(string $path, string $mode, int $options, ?string &$opened) : bool{ return false; }
 }
 stream_wrapper_register("nocopy", NoCopy::class);
+/** The fake server's process start time, and the ack it gives each id. */
+const STARTED = 1700000000.123456;
+$ack = fn(string $id) : string => "$id\n1700000000123456\n";
 $r = CaptureRequest::parse("20260929T0600-1 1700000900\n");
 check($r !== null && $r->id === "20260929T0600-1" && $r->deadline === 1700000900, "a well-formed request parses to its id and deadline");
 
@@ -77,17 +80,17 @@ check(is_dir("$root/.capture") && scandir("$root/.capture") === [".", ".."], "le
 file_put_contents("$root/players/alice.dat", random_bytes(4096));
 file_put_contents("$root/players/bob.dat", "");
 file_put_contents("$root/players/sub/x", "not a player file");
-$count = Stage::write("$root/players", "$root/.capture", "r1");
+$count = Stage::write("$root/players", "$root/.capture", "r1", STARTED);
 $staged = "$root/.capture/r1";
 check($count === 2
 	&& file_get_contents("$staged/players/alice.dat") === file_get_contents("$root/players/alice.dat")
 	&& file_get_contents("$staged/players/bob.dat") === ""
 	&& !file_exists("$staged/players/sub")
-	&& file_get_contents("$staged/ack") === "r1\n"
-	&& !file_exists("$staged/ack.tmp"), "every player file is staged byte for byte, and the ack holds the id");
+	&& file_get_contents("$staged/ack") === $ack("r1")
+	&& !file_exists("$staged/ack.tmp"), "every player file is staged byte for byte, and the ack holds the id, then the start time in microseconds");
 foreach(["$root/missing" => "an unreadable players directory", "nocopy://players" => "a player file that cannot be copied"] as $players => $what){
 	try{
-		Stage::write($players, "$root/.capture", "r2");
+		Stage::write($players, "$root/.capture", "r2", STARTED);
 		$threw = false;
 	}catch(\RuntimeException $e){
 		$threw = true;
@@ -111,6 +114,7 @@ $server = new class{
 	public function getDataPath() : string{ return $GLOBALS["root"]; }
 	public function getPluginManager() : object{ return new class{ public function registerEvents(object $listener, object $plugin) : void{} }; }
 	public function getOnlinePlayers() : array{ return $GLOBALS["players"]; }
+	public function getStartTime() : float{ return STARTED; }
 };
 $players = [new class{ public bool $spawned = true; public function save() : void{ $GLOBALS["events"][] = "player save"; file_put_contents($GLOBALS["root"] . "/players/p.dat", "saved"); } }];
 $scheduler = new class{
@@ -140,12 +144,13 @@ $events = [];
 $tick("m0", 0);
 check($events === [] && !file_exists("$root/.capture/m0"), "a request already at its deadline is not captured");
 $tick("m1");
+$ackM1 = @file_get_contents("$root/.capture/m1/ack");
 check($events === ["autosave off", "player save", "world save"]
 	&& @file_get_contents("$root/.capture/m1/players/p.dat") === "saved"
 	&& @file_get_contents("$root/.capture/m1/players/w.dat") === "placed"
-	&& @file_get_contents("$root/.capture/m1/ack") === "m1\n", "one poll turns autosave off, saves players then worlds, and stages and acks the files both saves wrote in that tick");
+	&& $ackM1 === $ack("m1"), "one poll turns autosave off, saves players then worlds, and stages and acks the files both saves wrote in that tick");
 $tick("e1", 3);
-check(!$worlds->on && !file_exists("$root/.capture/m1") && @file_get_contents("$root/.capture/e1/ack") === "e1\n", "a request naming another id releases the held one and is captured in the same poll");
+check(!$worlds->on && !file_exists("$root/.capture/m1") && @file_get_contents("$root/.capture/e1/ack") === $ack("e1"), "a request naming another id releases the held one and is captured in the same poll");
 $tick("e1");
 check(!$worlds->on && is_file("$root/.capture/e1/ack"), "rewriting the held request with a later deadline does not release it");
 sleep(3);
@@ -167,7 +172,10 @@ $players[] = new class{ public bool $spawned = false; public function save() : v
 file_put_contents("/capture/request", "s1 " . (time() + 600) . "\n");
 $main = new Main($server, $logger, $scheduler);
 (fn() => $this->onEnable())->call($main);
-check(@file_get_contents("$root/.capture/s1/ack") === "s1\n", "a request live at enable is captured as the plugin enables, before its first scheduled poll");
+$ackS1 = @file_get_contents("$root/.capture/s1/ack");
+check($ackS1 === $ack("s1"), "a request live at enable is captured as the plugin enables, before its first scheduled poll");
+check(explode("\n", (string) $ackM1)[1] === explode("\n", (string) $ackS1)[1] && $ackM1 === $ack("m1"),
+	"captures three seconds apart in one process ack the same start time, the server's own, not the time of capture");
 $saves = $scheduler->others();
 check(count($saves) === 1 && $saves[0]->delay === 4321 && $saves[0]->period === 4321, "a hold saves players on the server's own autosave interval, read at capture");
 $events = [];
