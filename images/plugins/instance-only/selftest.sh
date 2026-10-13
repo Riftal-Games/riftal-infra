@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
-# and RiftalAccounts (riftal-infra#465), and for start-instance.sh and
-# require-accounts.sh, the scripts that load them. Also pins crash
-# auto-report off on every PocketMine service, designer/stack's included, and
-# covers deliver-world-index.sh and the index mount both instances boot with
-# (riftal-infra#293).
+# and RiftalAccounts (riftal-infra#465) and RiftalRanks (riftal-infra#558),
+# and for start-instance.sh and require-accounts.sh, the scripts that load
+# them. Also pins crash auto-report off on every PocketMine service,
+# designer/stack's included, and covers deliver-world-index.sh and the index
+# mount both instances boot with (riftal-infra#293).
 #
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
 # stubbed. It starts no container, so it needs neither the dev stack nor a
-# built RiftalMines.phar.
+# built RiftalMines.phar or RiftalRanks.phar.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,12 +20,13 @@ command -v jq >/dev/null || { printf '::error::jq is required\n'; exit 1; }
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 ACCOUNTS_PW=selftestAccountsPassword01
-printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\n' \
-  "$ACCOUNTS_PW" > "$work/env"
+RANKS_PW=selftestRanksPassword0001
+printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\n' \
+  "$ACCOUNTS_PW" "$RANKS_PW" > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=53
+EXPECTED_ASSERTIONS=61
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -122,18 +123,21 @@ printf '\n== start-instance.sh keeps what start-pocketmine does for instance-b\n
 # are environment assignments. The shared /plugins starts with Cached.phar.
 # With MINES set, RiftalMines.phar is built, contracts.phar sits at the top of
 # /plugins as on the real stack, and a config rendered by hand with a password
-# no stack has sits next to it.
+# no stack has sits next to it. With RANKS set, RiftalRanks.phar is built.
 boot() {
   local owner="$1" root="$work/boot"
   shift
   rm -rf "$root"
   mkdir -p "$root/plugins" "$root/data" "$root/pm" "$root/bin"
   : > "$root/plugins/Cached.phar"
-  cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$root/"
+  cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$DIR/RiftalRanks.config.yml" "$root/"
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
     : > "$root/plugins/contracts.phar"
     MYSQL_ROOT_PASSWORD=stale bash "$root/render-config.sh" "$root/RiftalMines.config.yml"
+  fi
+  if [ -n "${RANKS:-}" ]; then
+    : > "$root/RiftalRanks.phar"
   fi
   sed -e "s#/plugins#$root/plugins#g; s#/data#$root/data#g" \
     -e "s#/opt/pocketmine#$root/pm#g; s#-user pocketmine#-user $owner#g" \
@@ -186,6 +190,24 @@ check "the config on the volume carries MYSQL_ROOT_PASSWORD, not the stale rende
     grep -qx contracts.phar "$b/roster"'
 check "an unset MYSQL_ROOT_PASSWORD stops the boot before php, naming it" \
   '! MINES=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "MYSQL_ROOT_PASSWORD is not set" "$b/out"'
+
+printf '\n== RiftalRanks connects as the ranks login, its password only in the environment (riftal-infra#558)\n'
+RANKS_CONFIG="$DIR/RiftalRanks.config.yml"
+ranks_on_volume="$b/data/plugin_data/RiftalRanks/config.yml"
+check "the ranks config names the compose mysql, its schema and the ranks login, with no password" \
+  '[ "$(db host "$RANKS_CONFIG")" = mysql ] && [ "$(db username "$RANKS_CONFIG")" = ranks ] &&
+    [ "$(db schema "$RANKS_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
+    grep -qx "  password: \"\"" "$RANKS_CONFIG"'
+check "instance gets RIFTAL_DB_PASSWORD_RANKS from images/.env and instance-b gets none" \
+  'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_RANKS == \"$RANKS_PW\"
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_RANKS == null" <<<"$real" >/dev/null'
+check "with RiftalRanks.phar built, the tracked config lands on the volume and the phar joins the roster" \
+  'RANKS=1 boot "$me" RIFTAL_DB_PASSWORD_RANKS="$RANKS_PW" &&
+    cmp -s "$RANKS_CONFIG" "$ranks_on_volume" && grep -qx RiftalRanks.phar "$b/roster"'
+check "with RiftalRanks.phar built, an unset RIFTAL_DB_PASSWORD_RANKS stops the boot before php, naming it" \
+  '! RANKS=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_RANKS is not set" "$b/out"'
+check "without RiftalRanks.phar, no ranks config lands and no ranks password is needed" \
+  'boot "$me" && [ ! -e "$ranks_on_volume" ] && ! grep -q RiftalRanks "$b/roster"'
 
 printf '\n== RiftalAccounts loads on every instance as the accounts login (riftal-infra#465)\n'
 ACCOUNTS_CONFIG="$DIR/../RiftalAccounts.config.yml"
@@ -328,6 +350,22 @@ drift "a shipped scalar whose key holds a digit or hyphen is caught" \
 drift "a shipped section the template lacks is caught" \
   '{ cat "$SHIPPED"; printf "messages:\n  reset: x\n"; } > "$mutated" &&
     [ "$(missing "$mutated")" = "messages:" ]'
+RANKS_SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/ranks/resources/config.yml"
+drift "riftal-game's ranks config.yml has no top-level key or scalar value the ranks config lacks" \
+  '[ -n "$(keys "$RANKS_SHIPPED")" ] && [ -z "$(comm -23 <(keys "$RANKS_SHIPPED") <(keys "$RANKS_CONFIG"))" ] &&
+    [ "$(tuning "$RANKS_SHIPPED")" = "$(tuning "$RANKS_CONFIG")" ]' "$RANKS_SHIPPED"
+# The lines inside the top-level database section, comments dropped, schema
+# excepted: the one line the ranks config overrides on purpose.
+dbsection() {
+  sed -n '/^database:/,/^[^[:space:]]/{/^[[:space:]]/p}' "$1" |
+    grep -vE '^[[:space:]]*(#|schema:)' | sed 's/[[:space:]]*$//'
+}
+drift "every database line in riftal-game's ranks config.yml but the schema matches the ranks config" \
+  '[ -n "$(dbsection "$RANKS_SHIPPED")" ] && [ "$(dbsection "$RANKS_SHIPPED")" = "$(dbsection "$RANKS_CONFIG")" ]' \
+  "$RANKS_SHIPPED"
+drift "a shipped database.port the ranks config does not carry is caught" \
+  'sed "s/^  port:.*/  port: 3307/" "$RANKS_SHIPPED" > "$mutated" &&
+    [ "$(dbsection "$mutated")" != "$(dbsection "$RANKS_CONFIG")" ]' "$RANKS_SHIPPED"
 ACCOUNTS_SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/accounts/resources/config.yml"
 # Every line but comments, blanks and the schema, the one line the accounts
 # config overrides on purpose.
@@ -339,8 +377,8 @@ drift "a shipped database.port the accounts config does not carry is caught" \
   'sed "s/^  port:.*/  port: 3307/" "$ACCOUNTS_SHIPPED" > "$mutated" &&
     [ "$(settings "$mutated")" != "$(settings "$ACCOUNTS_CONFIG")" ]' "$ACCOUNTS_SHIPPED"
 if [ "$SKIPPED" -ne 0 ]; then
-  printf '::warning::%s assertions skipped: no riftal-game mines config at %s; set RIFTAL_GAME_DIR\n' \
-    "$SKIPPED" "$SHIPPED"
+  printf '::warning::%s assertions skipped: no riftal-game config at %s, %s or %s; set RIFTAL_GAME_DIR\n' \
+    "$SKIPPED" "$SHIPPED" "$RANKS_SHIPPED" "$ACCOUNTS_SHIPPED"
 fi
 
 printf '\n'

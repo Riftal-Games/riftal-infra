@@ -23,8 +23,10 @@ fails on either.
 
 `*.phar` is gitignored by the repo root's `.gitignore`, and
 `RiftalMines.config.yml` by this folder's own, since a copy rendered by hand
-carries a real database password. Only `RiftalMines.config.yml.template` is
-tracked.
+carries a real database password. Two config files are tracked:
+`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml`, which holds
+no password because the `ranks` login's comes from the environment (see
+below).
 
 ## Build `RiftalMines.phar` and `contracts.phar`
 
@@ -113,6 +115,35 @@ it passes `mysql`, so the two cannot disagree; a `wslc run` of `instance`
 needs `-e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD"` for the same reason.
 Unset, the boot stops before PocketMine starts and names the variable. No
 file rendered into this folder is read.
+
+## `RiftalRanks` and the `ranks` login
+
+`RiftalRanks.phar` loads on `instance` alone, like `RiftalMines`
+(riftal-infra#558), so `instance-b` is given no `ranks` login. Build it with
+the recipe above, `ranks` in place of `mines` in the copy loop and
+`ranks:instance-only/RiftalRanks` in place of the `mines` pair. `ranks` names
+`../contracts` as a Composer path repository too, so `contracts/` is copied
+either way. It declares `depend: [RiftalContracts]`, met by the
+`contracts.phar` at the top of `plugins/`, which `require-accounts.sh`
+refuses to boot without.
+
+It connects as the `ranks` login of ADR 008, never as root. With the phar
+present, `start-instance.sh` copies `RiftalRanks.config.yml` to
+`/data/plugin_data/RiftalRanks/config.yml` on every boot. That file differs
+from the shipped one only in its schema, `riftal_dev`, and carries no
+password: `DatabaseSettings` reads it from `RIFTAL_DB_PASSWORD_RANKS`, which
+compose passes `instance` from `images/.env`. A `wslc run` of `instance`
+needs `-e RIFTAL_DB_PASSWORD_RANKS` for the same reason. Unset, the boot
+stops before PocketMine starts and names the variable.
+
+The login itself is made by the migration runner, not by the instance. Run it
+before `instance`, with `grants.sql` mounted and
+`-e RIFTAL_DB_PASSWORD_RANKS` exported from the same `images/.env`, as
+`../../../migrations/README.md` shows under "Running it locally". The runner
+creates `ranks`, grants it `riftal_role_ranks`, and resets its password to
+that value on every run, so after editing it in `images/.env` run the
+runner again before the next boot. A grant `ranks` lacks surfaces on this
+stack as ERROR 1142, which is the point.
 
 ## Why an override is required, not optional
 

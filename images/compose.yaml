@@ -51,9 +51,11 @@ services:
       # Outside /data for the same root-mountpoint reason given below;
       # deliver-world-index.sh copies it into each consuming plugin's folder.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
-    # RiftalMines resets the worlds this instance hosts and no others, so it
-    # loads here alone. start-instance.sh adds it to this container's own copy of
-    # the plugin roster rather than mounting a file into ./plugins or /data,
+    # RiftalMines resets the worlds this instance hosts and no others, and
+    # RiftalRanks is wanted on this instance alone (riftal-infra#558), so
+    # instance-b holds no ranks login. start-instance.sh adds both to this
+    # container's own copy of the plugin roster rather than mounting a file
+    # into ./plugins or /data,
     # where Docker would create the mountpoint as root: in the ./plugins that
     # instance-b loads from, or as a /data/plugin_data PocketMine then cannot
     # write to. See plugins/instance-only/README.md.
@@ -83,6 +85,11 @@ services:
       # instance-b loads no plugin that connects as root, so it is not given
       # it.
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # RiftalRanks connects as the ranks login (ADR 008), and riftal-game's
+      # DatabaseSettings reads its password from here, never from a file on
+      # the volume. The migration runner provisions the login from the same
+      # images/.env value. instance-b loads no ranks and is not given it.
+      RIFTAL_DB_PASSWORD_RANKS: ${RIFTAL_DB_PASSWORD_RANKS}
       # Flags beat server.properties in ServerConfigGroup, so the instance
       # needs no config file mounted in and the world volume stays the only
       # durable state.
