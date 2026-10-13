@@ -30,6 +30,9 @@ holds no password because the `accounts` login's comes from the environment
 
 ## Build `RiftalMines.phar` and `contracts.phar`
 
+This recipe alone yields an instance that refuses to boot: it also needs
+`RiftalAccounts.phar`, built as the `RiftalAccounts` section below describes.
+
 `mines` has real Composer dependencies (`sof3/libasynql`, the `lib` path-repo
 virion), so it needs `pharynx`, the same tool and pin
 `riftal-game/.github/workflows/ci.yml` uses, run against a PHP that carries
@@ -96,10 +99,12 @@ done
 A `RiftalMines.phar` that was never built is skipped without a word (see
 below), so this check, or reading `Loading RiftalContracts` then `Loading
 RiftalMines` in the boot log, is the only way to catch a boot that silently
-never had the plugin at all. `RiftalMines.phar` without `contracts.phar` is
-not skipped: `start-instance.sh` stops before PocketMine starts and names
-`contracts.phar`, because PocketMine itself would log `Unknown dependency:
-RiftalContracts` and force-shut the whole server down.
+never had the plugin at all. `RiftalMines.phar` alone is not skipped:
+`start-instance.sh` stops before PocketMine starts, naming
+`RiftalAccounts.phar` when that is missing and `contracts.phar` when only
+that is, because PocketMine itself would log `Unknown dependency:
+RiftalContracts` and force-shut the whole server down (see the
+`RiftalAccounts` section below).
 
 ## The config override
 

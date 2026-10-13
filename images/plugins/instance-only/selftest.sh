@@ -190,9 +190,10 @@ check "the config on the volume carries MYSQL_ROOT_PASSWORD, not the stale rende
   'MINES=1 ACCOUNTS=1 boot "$me" MYSQL_ROOT_PASSWORD="$password" RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" &&
     [ "$(db password "$mines_config")" = "$password" ] && grep -qx RiftalMines.phar "$b/roster" &&
     grep -qx contracts.phar "$b/roster"'
-check "RiftalMines without contracts.phar stops the boot before php, naming it" \
+check "RiftalMines plus RiftalAccounts without contracts.phar stops the boot before php, naming it" \
   '! MINES=1 NO_CONTRACTS=1 ACCOUNTS=nocontracts boot "$me" MYSQL_ROOT_PASSWORD="$password" \
-    RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" && [ ! -e "$b/args" ] && grep -q "contracts.phar is not" "$b/out"'
+    RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" && [ ! -e "$b/args" ] &&
+    grep -qF "RiftalAccounts.phar is built and contracts.phar is not" "$b/out"'
 check "an unset MYSQL_ROOT_PASSWORD stops the boot before php, naming it" \
   '! MINES=1 ACCOUNTS=1 boot "$me" RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" && [ ! -e "$b/args" ] &&
     grep -q "MYSQL_ROOT_PASSWORD is not set" "$b/out"'

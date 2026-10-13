@@ -74,14 +74,6 @@ if [ "${#game[@]}" -gt 0 ]; then
 fi
 
 if [ -f "$here/RiftalMines.phar" ]; then
-	# RiftalMines declares depend: [RiftalContracts]. Without contracts.phar
-	# PocketMine force-shuts the server down after loading, so the boot stops
-	# here instead, naming the file.
-	if [ ! -f "$here/contracts.phar" ]; then
-		echo "RiftalMines.phar is present but contracts.phar is not; build both, see instance-only/README.md" >&2
-		exit 1
-	fi
-	cp "$here/contracts.phar" "$roster/"
 	# The plugin's bundled config names a schema and user this stack never
 	# provisions, and it connects on enable, so a config with the wrong
 	# password takes the whole server down. Rendering from this container's
