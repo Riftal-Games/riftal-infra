@@ -28,7 +28,11 @@ carries a real database password. Two config files are tracked:
 no password because the `ranks` login's comes from the environment (see
 below).
 
-## Build `RiftalMines.phar`
+## Build `RiftalMines.phar` and `contracts.phar`
+
+`contracts.phar` lands one level up, at the top of `plugins/`, because every
+instance loads it beside `RiftalAccounts` (`../../README.md`,
+`RiftalAccounts`), whose recipe there builds the same file.
 
 `mines` has real Composer dependencies (`sof3/libasynql`, the `lib` path-repo
 virion), so it needs `pharynx`, the same tool and pin
@@ -45,41 +49,61 @@ php /tmp/composer-setup.php --install-dir=/tmp --filename=composer.phar
 
 GAME=../../../../riftal-game
 BUILD=$(mktemp -d)
-mkdir -p "$BUILD/mines" "$BUILD/lib"
-cp -r "$GAME/mines/." "$BUILD/mines/"
-cp -r "$GAME/lib/." "$BUILD/lib/"
+for pkg in mines lib contracts; do
+  mkdir -p "$BUILD/$pkg"
+  cp -r "$GAME/$pkg/." "$BUILD/$pkg/"
+done
 
 docker run --rm \
-  -v "$BUILD:/build" -v "$PWD:/out" \
+  -v "$BUILD:/build" -v "$PWD/..:/out" \
   -v /tmp/pharynx.phar:/pharynx.phar:ro -v /tmp/composer.phar:/composer.phar:ro \
-  -w /build/mines -e COMPOSER_ALLOW_SUPERUSER=1 -e HOME=/tmp \
+  -w /build -e COMPOSER_ALLOW_SUPERUSER=1 -e HOME=/tmp \
   local-pocketmine-mp sh -c '
-    php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev
-    php -dphar.readonly=0 /pharynx.phar -i . -c "-p=/out/RiftalMines.phar"
+    set -e
+    for pair in contracts:contracts mines:instance-only/RiftalMines; do
+      cd "/build/${pair%%:*}"
+      php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev
+      php -dphar.readonly=0 /pharynx.phar -i . -c "-p=/out/${pair#*:}.phar"
+    done
   '
 ```
 
-Building from a copy of `mines/` and `lib/`, not a bind mount, keeps
-`composer install`'s `vendor/` out of a working tree another lane may have
+`contracts.phar` is named after its folder, as
+`riftal-game/.github/scripts/packages.sh` names every phar it builds;
+PocketMine loads a plugin by its `plugin.yml` name, `RiftalContracts`, not
+by file name. `contracts/` has to be copied even for `RiftalMines.phar`
+alone: `mines` and `lib` both name `../contracts` as a Composer path
+repository, so `composer install` stops without it, although `--no-dev`
+keeps its classes out of `RiftalMines.phar`. Those classes load once, from
+`contracts.phar`, so every plugin fires and hears the same events.
+
+Building from a copy of `mines/`, `lib/` and `contracts/`, not a bind mount,
+keeps `composer install`'s `vendor/` out of a working tree another lane may have
 open. Under `wslc`, translate the `-v` and `-w` flags as `/dev-stack` does.
 
-Confirm the build holds a `plugin.yml`, the same check
+Confirm each build holds a `plugin.yml`, the same check
 `riftal-game/.github/scripts/packages.sh`'s `phar_one()` runs on every phar it
 builds:
 
 ```sh
-docker run --rm -v "$PWD/RiftalMines.phar:/p.phar:ro" local-pocketmine-mp php -r '
-  foreach (new RecursiveIteratorIterator(new Phar("/p.phar")) as $f) {
-    if (basename((string) $f) === "plugin.yml") { exit(0); }
-  }
-  fwrite(STDERR, "no plugin.yml found inside the built phar\n");
-  exit(1);
-'
+for phar in ../contracts RiftalMines; do
+  docker run --rm -v "$PWD/$phar.phar:/p.phar:ro" local-pocketmine-mp php -r '
+    foreach (new RecursiveIteratorIterator(new Phar("/p.phar")) as $f) {
+      if (basename((string) $f) === "plugin.yml") { exit(0); }
+    }
+    fwrite(STDERR, "no plugin.yml found inside the built phar\n");
+    exit(1);
+  ' || echo "$phar.phar is broken"
+done
 ```
 
-A phar that was never built is skipped without a word (see below), so this
-check, or reading `Loading RiftalMines` in the boot log, is the only way to
-catch a boot that silently never had the plugin at all.
+A `RiftalMines.phar` that was never built is skipped without a word (see
+below), so this check, or reading `Loading RiftalContracts` then `Loading
+RiftalMines` in the boot log, is the only way to catch a boot that silently
+never had the plugin at all. A missing `contracts.phar` is not skipped:
+`require-accounts.sh` stops every instance's boot before PocketMine starts,
+naming the file, because PocketMine itself would log `Unknown dependency:
+RiftalContracts` and force-shut the whole server down.
 
 ## The config override
 
@@ -94,12 +118,14 @@ file rendered into this folder is read.
 
 ## `RiftalRanks` and the `ranks` login
 
-`RiftalRanks.phar` loads on `instance` alone, like `RiftalMines`, because
-`instance-b` loads no plugin that connects to MySQL (ADR 008 item 6). Build it
-with the recipe above, `ranks` in place of `mines` and `RiftalRanks.phar` as
-the output. It declares `depend: [RiftalContracts]`, so PocketMine refuses it
-unless `RiftalContracts.phar` is in the roster too; placing that phar is
-riftal-infra#305.
+`RiftalRanks.phar` loads on `instance` alone, like `RiftalMines`
+(riftal-infra#558), so `instance-b` is given no `ranks` login. Build it with
+the recipe above, `ranks` in place of `mines` in the copy loop and
+`ranks:instance-only/RiftalRanks` in place of the `mines` pair. `ranks` names
+`../contracts` as a Composer path repository too, so `contracts/` is copied
+either way. It declares `depend: [RiftalContracts]`, met by the
+`contracts.phar` at the top of `plugins/`, which `require-accounts.sh`
+refuses to boot without.
 
 It connects as the `ranks` login of ADR 008, never as root. With the phar
 present, `start-instance.sh` copies `RiftalRanks.config.yml` to

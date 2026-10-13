@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Stands in for the lock session's mysql client. MySQL answers GET_LOCK with
+# NULL only on an error, such as the waiting thread being killed, so this
+# session answers NULL to the runner's GET_LOCK on its own lock name. Any other
+# statement is an error that ends the session, so a runner sending the wrong
+# statement fails getlock-null instead of passing it. A call passing -e is one
+# of the runner's own queries and goes to the real client, by its absolute
+# path because this directory is first on PATH.
+for arg in "$@"; do
+  if [ "$arg" = -e ]; then
+    exec /usr/bin/mysql "$@"
+  fi
+done
+shopt -s extglob
+while IFS= read -r line; do
+  case "$line" in
+    # The runner sends a whole-number timeout, so any other timeout means it
+    # built the statement wrong, and that falls through to the error below.
+    "SELECT GET_LOCK('$MIGRATIONS_LOCK_NAME', "+([0-9])");")
+      printf 'NULL\n'
+      ;;
+    # The lock is held by another session, which is what a real server
+    # answers 0 for.
+    "SELECT RELEASE_LOCK('$MIGRATIONS_LOCK_NAME');")
+      printf '0\n'
+      ;;
+    *)
+      printf 'ERROR 1064 (42000): lock-reads stand-in did not expect: %s\n' "$line" >&2
+      exit 1
+      ;;
+  esac
+done

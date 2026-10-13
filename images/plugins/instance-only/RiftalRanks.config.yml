@@ -19,3 +19,14 @@ database:
   worker-limit: 1
 
 rank_order: ["A", "B", "C"]
+
+anti_afk_min_break_interval_ms: 100
+
+rankup:
+  B: {cost_minor_units: 100, blocks_mined: 50}
+  C: {cost_minor_units: 100, blocks_mined: 50}
+
+rankup_claim:
+  lease_seconds: 180
+  reconcile_interval_seconds: 60
+  reconcile_batch: 50

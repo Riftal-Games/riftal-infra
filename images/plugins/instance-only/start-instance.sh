@@ -48,6 +48,10 @@ for plugin in "${poggit[@]}"; do
 done
 
 if [ -f "$here/RiftalMines.phar" ]; then
+	# RiftalMines declares depend: [RiftalContracts]. contracts.phar sits at
+	# the top of /plugins, already in the roster, and require-accounts.sh has
+	# stopped the boot before this script runs when it is not built.
+	#
 	# The plugin's bundled config names a schema and user this stack never
 	# provisions, and it connects on enable, so a config with the wrong
 	# password takes the whole server down. Rendering from this container's
@@ -59,6 +63,9 @@ if [ -f "$here/RiftalMines.phar" ]; then
 fi
 
 if [ -f "$here/RiftalRanks.phar" ]; then
+	# RiftalRanks declares depend: [RiftalContracts], met by contracts.phar
+	# as for RiftalMines above.
+	#
 	# Without the variable the plugin connects with the config's empty
 	# password, MySQL refuses it, and PocketMine shuts the whole server down
 	# because a plugin failed to enable. Stopping here names the cause.
