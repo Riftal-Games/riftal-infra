@@ -6,7 +6,9 @@
 # (plugins disabled, then worlds unloaded with an unforced save) are the
 # core's own. It drives captures through a bind-mounted /capture and the
 # console, and asserts on the server log and the files under /data.
-# CaptureProbe.php logs the autosave flag the server actually holds.
+# CaptureProbe.php logs the autosave flag the server actually holds, and
+# answers console probes that set a block, unload a chunk or a level, and read
+# the block back.
 #
 # CAPTURE_PLUGIN names another RiftalCapture.php to load in place of this
 # tree's, which is how a mutant is shown to go red here.
@@ -30,7 +32,7 @@ CAPTURE_PLUGIN="${CAPTURE_PLUGIN:-$PLUGINS/RiftalCapture.php}"
 IMAGE=local-pocketmine-mp
 TOOL=php:8.3-cli-alpine
 LEVEL=/data/worlds/plots_b/level.dat
-EXPECTED_ASSERTIONS=15
+EXPECTED_ASSERTIONS=20
 
 PASSES=0
 FAILURES=0
@@ -91,13 +93,14 @@ await() {
   done
 }
 
-# $1 a label for this boot
+# $1 a label for this boot; $2, if given, a request id written before the server starts
 boot() {
   local run="$work/$1"
   name="riftal_smoke_capture_$$_$1"
   log="$run/server.log"
   cap="$run/capture"
   mkdir -p "$run/plugins" "$cap"
+  [ -z "${2:-}" ] || request "$2" 600
   cp -R "$PLUGINS/." "$run/plugins/"
   cp "$CAPTURE_PLUGIN" "$run/plugins/RiftalCapture.php"
   cp "$DIR/CaptureProbe.php" "$run/plugins/"
@@ -191,6 +194,29 @@ check "c. autosave is back on and the staged copy is gone" \
 check "c. r2 is not captured again, three polls after its lease" '[ "$(grep -cF "capture r2 held" "$log")" = 1 ]'
 rm -f "$cap/request"
 
+echo probe level-make >&3
+await 'level-make: ' 1 10 || true
+request u1 600
+await 'capture u1 held' 1 10 || true
+echo probe chunk-set >&3
+await 'chunk-set: ' 1 20 || true
+echo probe chunk-unload >&3
+echo probe level-drop >&3
+await 'level-drop: ' 1 10 || true
+check "a. during a hold, the chunk holding a block set in it refuses to unload and stays loaded" \
+  'grep -qF "chunk-set: done" "$log" && grep -qF "chunk-unload: false, loaded: yes" "$log"'
+check "b. during a hold, an unforced unload of a level that is not the default is refused" \
+  'grep -qF "level-make: true" "$log" && grep -qF "level-drop: false" "$log"'
+rm -f "$cap/request"
+await 'capture u1 released' 1 10 || true
+echo probe chunk-unload >&3
+echo probe chunk-read >&3
+echo probe level-drop >&3
+await 'level-drop: ' 2 10 || true
+check "d. after release the chunk unloads, and read back from disk it holds the block set during the hold" \
+  'grep -qF "chunk-unload: true, loaded: no" "$log" && grep -qF "chunk-read: glass" "$log"'
+check "d. after release the same level unloads" 'grep -qF "level-drop: true" "$log"'
+
 echo save-off >&3
 await 'Turned off world auto-saving' 1 10 || true
 request r3 600
@@ -211,7 +237,11 @@ clean_log one
 docker volume rm "$name" >/dev/null
 
 printf '\n== boot two: e, stop during a hold\n'
-boot two
+boot two e0
+check "e. a request live at boot is captured as the plugin enables, before the server's first tick" \
+  'held_at="$(grep -nF "capture e0 held" "$log" | head -n 1 | cut -d: -f1)"
+   done_at="$(grep -nF "Done (" "$log" | head -n 1 | cut -d: -f1)"
+   [ -n "$held_at" ] && [ "$held_at" -lt "$done_at" ]'
 request e1 600
 await 'capture e1 held' 1 10 || true
 sleep 1
@@ -234,4 +264,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '::error::%s harness assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed on the real core: a capture under autosave off, release on delete, on the lease and on stop, and a stop with nothing held that leaves autosave alone.\n' "$PASSES"
+printf 'all %s assertions passed on the real core: a capture under autosave off, at enable too, chunk and level unloads refused only while held, release on delete, on the lease and on stop, and a stop with nothing held that leaves autosave alone.\n' "$PASSES"

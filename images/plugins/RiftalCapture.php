@@ -13,8 +13,12 @@ declare(strict_types=1);
 
 namespace riftal\capture;
 
+use pocketmine\event\Listener;
+use pocketmine\event\world\ChunkUnloadEvent;
+use pocketmine\event\world\WorldUnloadEvent;
 use pocketmine\plugin\PluginBase;
 use pocketmine\scheduler\ClosureTask;
+use pocketmine\scheduler\TaskHandler;
 use Symfony\Component\Filesystem\Path;
 use function copy;
 use function file_get_contents;
@@ -145,17 +149,18 @@ final class Stage{
 }
 
 /**
- * Polls the request once a second. Every step of a capture runs inside one
+ * Polls the request at enable and once a second. Every step of a capture runs inside one
  * scheduled task, so in one main-thread tick: no player save can land
  * between the saves and the copy, because player files are written only on
  * the main thread.
  */
-final class Main extends PluginBase{
+final class Main extends PluginBase implements Listener{
 
 	private const REQUEST = "/capture/request";
 
 	private Lease $lease;
 	private bool $autoSaveBefore = true;
+	private ?TaskHandler $playerSaves = null;
 
 	protected function onEnable() : void{
 		$this->lease = new Lease();
@@ -163,7 +168,48 @@ final class Main extends PluginBase{
 		if(!is_dir(Path::getDirectory(self::REQUEST))){
 			$this->getLogger()->warning("no " . Path::getDirectory(self::REQUEST) . " mount, so no backup can capture this instance");
 		}
+		$this->getServer()->getPluginManager()->registerEvents($this, $this);
 		$this->getScheduler()->scheduleRepeatingTask(new ClosureTask($this->poll(...)), 20);
+		$this->poll();
+	}
+
+	/**
+	 * Under the hold's autosave off, core drops an unloading chunk without
+	 * saving it, so a block broken in it would come back while its drops stay
+	 * in an inventory. A cancelled unload stays queued, and once autosave is
+	 * back the chunk unloads with its save.
+	 *
+	 * @priority HIGHEST
+	 */
+	public function onChunkUnload(ChunkUnloadEvent $event) : void{
+		if($this->lease->heldId() !== null){
+			$event->cancel();
+		}
+	}
+
+	/**
+	 * Core ignores this cancel on a forced unload, which only shutdown makes,
+	 * and shutdown disables this plugin, releasing the hold, first.
+	 *
+	 * @priority HIGHEST
+	 */
+	public function onWorldUnload(WorldUnloadEvent $event) : void{
+		if($this->lease->heldId() !== null){
+			$event->cancel();
+		}
+	}
+
+	/**
+	 * Core's periodic player save runs only under its autosave flag, which the
+	 * hold turns off. The backup reads the staged copy, so these saves keep a
+	 * crash during the hold from losing more than one outside it (ADR 015, Why).
+	 */
+	private function savePlayers() : void{
+		foreach($this->getServer()->getOnlinePlayers() as $player){
+			if($player->spawned){
+				$player->save();
+			}
+		}
 	}
 
 	/**
@@ -196,6 +242,8 @@ final class Main extends PluginBase{
 		$this->autoSaveBefore = $worlds->getAutoSave();
 		$worlds->setAutoSave(false);
 		$this->lease->hold($request);
+		$interval = $worlds->getAutoSaveInterval();
+		$this->playerSaves = $this->getScheduler()->scheduleDelayedRepeatingTask(new ClosureTask($this->savePlayers(...)), $interval, $interval);
 
 		foreach($server->getOnlinePlayers() as $player){
 			$player->save();
@@ -219,6 +267,8 @@ final class Main extends PluginBase{
 		if($id === null){
 			return;
 		}
+		$this->playerSaves?->cancel();
+		$this->playerSaves = null;
 		$this->getServer()->getWorldManager()->setAutoSave($this->autoSaveBefore);
 		Stage::remove(Path::join($this->root(), $id));
 		$this->getLogger()->info("capture $id released, autosave " . ($this->autoSaveBefore ? "on" : "off"));
