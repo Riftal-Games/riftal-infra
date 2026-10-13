@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
-# and RiftalAccounts (riftal-infra#465), and for start-instance.sh, the
-# script that loads them. Also pins crash
+# and RiftalAccounts (riftal-infra#465), and for start-instance.sh and
+# require-accounts.sh, the scripts that load them. Also pins crash
 # auto-report off on every PocketMine service, designer/stack's included, and
 # covers deliver-world-index.sh and the index mount both instances boot with
 # (riftal-infra#293).
@@ -25,7 +25,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=50
+EXPECTED_ASSERTIONS=53
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -120,25 +120,19 @@ printf '\n== start-instance.sh keeps what start-pocketmine does for instance-b\n
 # scratch root and php and wget stubbed, so nothing boots and nothing is
 # fetched. $1 is the uid the ownership check treats as pocketmine; the rest
 # are environment assignments. The shared /plugins starts with Cached.phar.
-# With MINES set, RiftalMines.phar is built, contracts.phar too unless
-# NO_CONTRACTS is set, and a config rendered by hand with a password no stack
-# has sits next to it. With ACCOUNTS set, RiftalAccounts.phar is built, and
-# contracts.phar too unless it is "nocontracts".
+# With MINES set, RiftalMines.phar is built, contracts.phar sits at the top of
+# /plugins as on the real stack, and a config rendered by hand with a password
+# no stack has sits next to it.
 boot() {
   local owner="$1" root="$work/boot"
   shift
   rm -rf "$root"
   mkdir -p "$root/plugins" "$root/data" "$root/pm" "$root/bin"
-  cp "$DIR/RiftalAccounts.config.yml" "$root/"
-  if [ -n "${ACCOUNTS:-}" ]; then
-    : > "$root/RiftalAccounts.phar"
-    if [ "$ACCOUNTS" != nocontracts ]; then : > "$root/contracts.phar"; fi
-  fi
   : > "$root/plugins/Cached.phar"
   cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$root/"
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
-    if [ -z "${NO_CONTRACTS:-}" ]; then : > "$root/contracts.phar"; fi
+    : > "$root/plugins/contracts.phar"
     MYSQL_ROOT_PASSWORD=stale bash "$root/render-config.sh" "$root/RiftalMines.config.yml"
   fi
   sed -e "s#/plugins#$root/plugins#g; s#/data#$root/data#g" \
@@ -187,40 +181,74 @@ check "no ownership warning when pocketmine owns everything" \
 printf '\n== RiftalMines gets the password its container boots with (riftal-infra#266)\n'
 mines_config="$b/data/plugin_data/RiftalMines/config.yml"
 check "the config on the volume carries MYSQL_ROOT_PASSWORD, not the stale rendered file" \
-  'MINES=1 ACCOUNTS=1 boot "$me" MYSQL_ROOT_PASSWORD="$password" RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" &&
+  'MINES=1 boot "$me" MYSQL_ROOT_PASSWORD="$password" &&
     [ "$(db password "$mines_config")" = "$password" ] && grep -qx RiftalMines.phar "$b/roster" &&
     grep -qx contracts.phar "$b/roster"'
-check "RiftalMines plus RiftalAccounts without contracts.phar stops the boot before php, naming it" \
-  '! MINES=1 NO_CONTRACTS=1 ACCOUNTS=nocontracts boot "$me" MYSQL_ROOT_PASSWORD="$password" \
-    RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" && [ ! -e "$b/args" ] &&
-    grep -qF "RiftalAccounts.phar is built and contracts.phar is not" "$b/out"'
 check "an unset MYSQL_ROOT_PASSWORD stops the boot before php, naming it" \
-  '! MINES=1 ACCOUNTS=1 boot "$me" RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" && [ ! -e "$b/args" ] &&
-    grep -q "MYSQL_ROOT_PASSWORD is not set" "$b/out"'
+  '! MINES=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "MYSQL_ROOT_PASSWORD is not set" "$b/out"'
 
-printf '\n== RiftalAccounts loads beside any game plugin as the accounts login (riftal-infra#465)\n'
-ACCOUNTS_CONFIG="$DIR/RiftalAccounts.config.yml"
-accounts_on_volume="$b/data/plugin_data/RiftalAccounts/config.yml"
+printf '\n== RiftalAccounts loads on every instance as the accounts login (riftal-infra#465)\n'
+ACCOUNTS_CONFIG="$DIR/../RiftalAccounts.config.yml"
 check "the accounts config names the compose mysql, its schema and the accounts login, with no password" \
   '[ "$(db host "$ACCOUNTS_CONFIG")" = mysql ] && [ "$(db username "$ACCOUNTS_CONFIG")" = accounts ] &&
     [ "$(db schema "$ACCOUNTS_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
     grep -qx "  password: \"\"" "$ACCOUNTS_CONFIG"'
-check "instance gets RIFTAL_DB_PASSWORD_ACCOUNTS from images/.env and no other service does" \
-  'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_ACCOUNTS == \"$ACCOUNTS_PW\"
-    and ([.[] | select(.environment.RIFTAL_DB_PASSWORD_ACCOUNTS != null)] | length == 1)" <<<"$real" >/dev/null'
-check "with RiftalAccounts.phar built, its config lands on the volume and it joins the roster with contracts.phar" \
-  'ACCOUNTS=1 boot "$me" RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" && cmp -s "$ACCOUNTS_CONFIG" "$accounts_on_volume" &&
-    [ "$(cat "$b/roster")" = "$(printf "%s\n" Cached.phar RiftalAccounts.phar contracts.phar)" ]'
-check "with RiftalAccounts.phar built, an unset RIFTAL_DB_PASSWORD_ACCOUNTS stops the boot before php, naming it" \
-  '! ACCOUNTS=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_ACCOUNTS is not set" "$b/out"'
-check "with RiftalAccounts.phar built and no contracts.phar, the boot stops before php, naming it" \
-  '! ACCOUNTS=nocontracts boot "$me" RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" && [ ! -e "$b/args" ] &&
-    grep -q "contracts.phar is not" "$b/out"'
-check "a game plugin built without RiftalAccounts.phar stops the boot before php, naming both" \
-  '! MINES=1 boot "$me" MYSQL_ROOT_PASSWORD=x RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" && [ ! -e "$b/args" ] &&
-    grep -q "RiftalMines.phar built without RiftalAccounts.phar" "$b/out"'
-check "without any game plugin, no accounts config lands and no accounts password is needed" \
-  'boot "$me" && [ ! -e "$accounts_on_volume" ] && [ "$(cat "$b/roster")" = Cached.phar ]'
+# Holds when instance and instance-b get the password from images/.env and no
+# other service gets it.
+password_to_both=".services | .instance.environment.RIFTAL_DB_PASSWORD_ACCOUNTS == \"$ACCOUNTS_PW\"
+  and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_ACCOUNTS == \"$ACCOUNTS_PW\"
+  and ([.[] | select(.environment.RIFTAL_DB_PASSWORD_ACCOUNTS != null)] | length == 2)"
+check "instance and instance-b get RIFTAL_DB_PASSWORD_ACCOUNTS from images/.env and no other service does" \
+  'jq -e "$password_to_both" <<<"$real" >/dev/null'
+check "an instance-b without the password is caught" \
+  '! jq -e "$password_to_both" <<<"$(edited "/instance-b:/,\$ {/RIFTAL_DB_PASSWORD_ACCOUNTS:/d}")" >/dev/null'
+# PocketMine services whose command does not hand over to require-accounts.sh
+# ahead of the script that starts PocketMine.
+unaccounted() {
+  jq -r '.services | to_entries[] | select(.value.image | test("pocketmine"))
+    | select((.value.command | index(["bash", "/plugins/require-accounts.sh"])) as $at
+      | $at == null or $at + 2 >= (.value.command | length))
+    | .key' <<<"$1"
+}
+check "instance and instance-b both run require-accounts.sh before their start script" \
+  '[ -z "$(unaccounted "$real")" ]'
+check "an instance-b that skips it is caught" \
+  '[ "$(unaccounted "$(edited "s#\"bash\", \"/plugins/require-accounts.sh\", ##")")" = instance-b ]'
+
+# Runs a copy of require-accounts.sh with /plugins and /data moved under a
+# scratch root, handing over to a printf. /plugins holds RiftalCustody.phar,
+# the accounts config and each path in $1; the rest are environment
+# assignments.
+accounts() {
+  local root="$work/accounts" phar
+  rm -rf "$root"
+  mkdir -p "$root/plugins/instance-only" "$root/data"
+  printf phar > "$root/plugins/RiftalCustody.phar"
+  cp "$ACCOUNTS_CONFIG" "$root/plugins/"
+  for phar in $1; do printf phar > "$root/plugins/$phar"; done
+  shift
+  sed -e "s#/plugins#$root/plugins#g; s#/data#$root/data#g" "$DIR/../require-accounts.sh" > "$root/require.sh"
+  env -i PATH="$PATH" "$@" bash "$root/require.sh" printf '%s|' a "b c" > "$root/out" 2>&1
+}
+a="$work/accounts"
+both="RiftalAccounts.phar contracts.phar"
+check "with both phars and the password, the config lands on the volume and the start command runs intact" \
+  'accounts "$both" RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" &&
+    cmp -s "$ACCOUNTS_CONFIG" "$a/data/plugin_data/RiftalAccounts/config.yml" && [ "$(cat "$a/out")" = "a|b c|" ]'
+check "an unset RIFTAL_DB_PASSWORD_ACCOUNTS stops the boot before the start command, naming it" \
+  '! accounts "$both" && ! grep -q "a|" "$a/out" && grep -q "RIFTAL_DB_PASSWORD_ACCOUNTS is not set" "$a/out"'
+check "no contracts.phar stops the boot before the start command, naming it" \
+  '! accounts RiftalAccounts.phar RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" && ! grep -q "a|" "$a/out" &&
+    grep -qF "plugins/contracts.phar is not built" "$a/out"'
+check "RiftalMines in instance-only without contracts.phar stops the boot before the start command, naming it" \
+  '! accounts "RiftalAccounts.phar instance-only/RiftalMines.phar" RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" &&
+    ! grep -q "a|" "$a/out" && grep -qF "plugins/contracts.phar is not built" "$a/out"'
+check "RiftalMines in instance-only without RiftalAccounts.phar stops the boot before the start command, naming it" \
+  '! accounts "contracts.phar instance-only/RiftalMines.phar" RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" &&
+    ! grep -q "a|" "$a/out" && grep -qF "plugins/RiftalAccounts.phar is not built" "$a/out"'
+check "instance-b's roster, RiftalCustody alone at the top of /plugins, stops the boot before the start command, naming RiftalAccounts.phar" \
+  '! accounts "" RIFTAL_DB_PASSWORD_ACCOUNTS="$ACCOUNTS_PW" && ! grep -q "a|" "$a/out" &&
+    grep -qF "plugins/RiftalAccounts.phar is not built" "$a/out" && [ ! -e "$a/data/plugin_data" ]'
 
 printf '\n== the world index reaches every plugin that reads it (riftal-infra#293)\n'
 INDEX="$DIR/../../../designer/world_index.json"

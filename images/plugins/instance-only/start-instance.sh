@@ -3,8 +3,8 @@
 # plugins from one flat directory and /plugins is the ./plugins bind
 # instance-b shares, so this instance's roster is assembled in the
 # container's own disposable filesystem: every plugin at the top of /plugins,
-# plus the phars built into this folder. It mounts nothing and runs as uid
-# 1000, so /data/plugin_data on a fresh volume stays writable by PocketMine.
+# plus RiftalMines.phar once built. It mounts nothing and runs as uid 1000,
+# so /data/plugin_data on a fresh volume stays writable by PocketMine.
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
 # docker/start.sh), which instance-b runs and which cannot be reused here
@@ -46,34 +46,11 @@ for plugin in "${poggit[@]}"; do
 	fi
 done
 
-# RiftalAccounts is the only writer of the accounts table, and every instance
-# that runs a game plugin resolves logins through it (steward ruling on
-# riftal-game#176), so a game plugin built without it is refused here.
-game=("$here"/Riftal*.phar)
-if [ "${#game[@]}" -gt 0 ]; then
-	if [ ! -f "$here/RiftalAccounts.phar" ]; then
-		echo "start-instance.sh: ${game[*]##*/} built without RiftalAccounts.phar, which every instance with a game plugin loads; see instance-only/README.md" >&2
-		exit 1
-	fi
-	# Without the variable the plugin connects with the config's empty
-	# password, MySQL refuses it, and PocketMine shuts the whole server down
-	# because a plugin failed to enable. Stopping here names the cause.
-	if [ -z "${RIFTAL_DB_PASSWORD_ACCOUNTS:-}" ]; then
-		echo "start-instance.sh: RiftalAccounts.phar is built and RIFTAL_DB_PASSWORD_ACCOUNTS is not set; the instance takes it from images/.env" >&2
-		exit 1
-	fi
-	# RiftalAccounts declares depend: [RiftalContracts], and PocketMine shuts
-	# the server down after loading when a dependency is missing.
-	if [ ! -f "$here/contracts.phar" ]; then
-		echo "start-instance.sh: RiftalAccounts.phar is built and contracts.phar is not; build both, see instance-only/README.md" >&2
-		exit 1
-	fi
-	mkdir -p /data/plugin_data/RiftalAccounts
-	cp "$here/RiftalAccounts.config.yml" /data/plugin_data/RiftalAccounts/config.yml
-	cp "$here/RiftalAccounts.phar" "$here/contracts.phar" "$roster/"
-fi
-
 if [ -f "$here/RiftalMines.phar" ]; then
+	# RiftalMines declares depend: [RiftalContracts]. contracts.phar sits at
+	# the top of /plugins, already in the roster, and require-accounts.sh has
+	# stopped the boot before this script runs when it is not built.
+	#
 	# The plugin's bundled config names a schema and user this stack never
 	# provisions, and it connects on enable, so a config with the wrong
 	# password takes the whole server down. Rendering from this container's

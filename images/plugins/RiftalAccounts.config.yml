@@ -1,5 +1,5 @@
-# start-instance.sh copies this to /data/plugin_data/RiftalAccounts/config.yml
-# on every boot, so this file stays authoritative;
+# require-accounts.sh copies this to /data/plugin_data/RiftalAccounts/config.yml
+# on every boot of every instance, so this file stays authoritative;
 # PluginBase::saveDefaultConfig() never overwrites a file that already exists
 # there.
 #
