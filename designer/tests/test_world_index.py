@@ -11,7 +11,7 @@ from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
 from designer.region import Bounds
-from designer.world_index import Location, NamedRegion, WorldIndex
+from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
 SPEC_WORLDS = {"mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm", "contested", "plots"}
 STAMP = "2026-09-07T12:00:00+00:00"
@@ -157,6 +157,13 @@ def test_a_contested_world_refuses_a_safe_zone_region_on_add_and_load(index: Wor
     index.add_region(NamedRegion("yard", "mine_a", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
 
 
+
+def test_the_safe_zone_refusal_follows_the_world_role_not_its_name() -> None:
+    index = WorldIndex(worlds=[WorldEntry("arena", "normal", 0, "contested"), WorldEntry("contested", "normal", 0, "ore_mine")])
+    with pytest.raises(ValueError, match="region 'pit' carries safe_zone in 'arena'"):
+        index.add_region(NamedRegion("pit", "arena", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
+    index.add_region(NamedRegion("yard", "contested", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
+
 def test_register_refuses_a_taken_name_unless_replace(index: WorldIndex) -> None:
     moved = Location("spawn", "design", (5, 64, 5)).to_json()
     with pytest.raises(ValueError, match="'spawn' is already defined"):
@@ -236,3 +243,69 @@ def test_select_filters_by_kind_and_tag_in_name_order(index: WorldIndex) -> None
         index.select("worlds", "spawn")
     with pytest.raises(ValueError, match="^kind must be one of worlds, locations, regions, not 'save'$"):
         index.select("save")
+
+
+@pytest.mark.parametrize("kind", ["locations", "regions"])
+@pytest.mark.parametrize("tag", [1, True, None, ["safe_zone"]])
+def test_load_refuses_an_entry_with_a_tag_that_is_not_a_string(index: WorldIndex, tmp_path: Path, kind: str, tag: object) -> None:
+    data = index.to_json()
+    data[kind][0]["tags"] = ["mine", tag]
+    (tmp_path / "bad.json").write_text(json.dumps(data), encoding="utf-8")
+    name = data[kind][0]["name"]
+    with pytest.raises(ValueError, match=f"^{'Location' if kind == 'locations' else 'NamedRegion'} '{name}' has a tag that is not a string"):
+        WorldIndex.load(tmp_path / "bad.json")
+
+
+@pytest.mark.parametrize("kind", ["locations", "regions"])
+@pytest.mark.parametrize("tags", ["safe_zone", {"safe_zone": True}, 1])
+def test_load_refuses_an_entry_whose_tags_are_not_a_list(index: WorldIndex, tmp_path: Path, kind: str, tags: object) -> None:
+    data = index.to_json()
+    data[kind][0]["tags"] = tags
+    (tmp_path / "bad.json").write_text(json.dumps(data), encoding="utf-8")
+    name = data[kind][0]["name"]
+    with pytest.raises(ValueError, match=f"^{'Location' if kind == 'locations' else 'NamedRegion'} '{name}' has tags that are not a list: {re.escape(repr(tags))}$"):
+        WorldIndex.load(tmp_path / "bad.json")
+
+
+PROBES = {
+    "locations": {"name": "probe", "world": "design", "pos": [1, 2, 3]},
+    "regions": {"name": "probe", "world": "design", "min": [0, 0, 0], "max": [1, 1, 1]},
+}
+
+
+def _write(index: WorldIndex, path: str, kind: str, entry: dict[str, object]) -> None:
+    locations, regions = ([entry], []) if kind == "locations" else ([], [entry])
+    if path == "add" and kind == "locations":
+        index.add_location(Location.from_json(entry))
+    elif path == "add":
+        index.add_region(NamedRegion.from_json(entry))
+    elif path == "register":
+        index.register(locations, regions)
+    else:
+        index.preflight(locations, regions)
+
+
+@pytest.mark.parametrize("path", ["add", "register", "preflight"])
+@pytest.mark.parametrize("kind", ["locations", "regions"])
+@pytest.mark.parametrize(
+    ("tags", "refusal"),
+    [
+        ("safe_zone", "has tags that are not a list: 'safe_zone'"),
+        ({"safe_zone": True}, "has tags that are not a list: {'safe_zone': True}"),
+        (1, "has tags that are not a list: 1"),
+        (["mine", 1], "has a tag that is not a string: 1"),
+        (["mine", None], "has a tag that is not a string: None"),
+    ],
+)
+def test_every_write_path_refuses_tags_the_plugins_cannot_match(index: WorldIndex, path: str, kind: str, tags: object, refusal: str) -> None:
+    before = index.to_json()
+    with pytest.raises(ValueError, match=f"^{'Location' if kind == 'locations' else 'NamedRegion'} 'probe' {re.escape(refusal)}$"):
+        _write(index, path, kind, {**PROBES[kind], "tags": tags})
+    assert index.to_json() == before
+
+
+@pytest.mark.parametrize("path", ["add", "register", "preflight"])
+@pytest.mark.parametrize("kind", ["locations", "regions"])
+def test_every_write_path_admits_a_list_of_string_tags(index: WorldIndex, path: str, kind: str) -> None:
+    _write(index, path, kind, {**PROBES[kind], "tags": ["mine", "safe_zone"]})
+    assert path == "preflight" or index.resolve("probe").tags == ["mine", "safe_zone"]

@@ -1,0 +1,10 @@
+# Expected: discovered, and valid compose.
+#
+# docker compose reads a file whatever the case of its extension, so discovery
+# that matches .yml and .yaml case-sensitively would validate nothing here and
+# still report success.
+services:
+  mine-h:
+    image: ghcr.io/riftal-games/riftal-core:fixture
+    expose:
+      - "19132"

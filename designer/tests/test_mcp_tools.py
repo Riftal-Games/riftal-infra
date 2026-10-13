@@ -13,12 +13,13 @@ from designer import config, mcp_server
 from designer.blocks import BlockClass
 from designer.builders import BUILDERS
 from designer.cli import main
-from designer.region import Bounds
+from designer.region import Bounds, Region
 from designer.verify import Check
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
+from tests.conftest import ARENA, REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, SMALL_STAIRS_SPEC, STONE_PALETTES
 from tests import fake_bridge
 from tests.fake_bridge import FakeBridge, FakeWorld
+from tests.test_snapshot import _break_deflate
 
 PAD = Bounds((0, 63, 0), (7, 65, 7))
 MUTATING = {
@@ -129,6 +130,33 @@ def test_timelapse_ignores_a_snapshot_taken_over_a_different_box(server: FakeBri
     assert call("snapshot", target={"min": [0, 70, 0], "max": [3, 70, 3]}, label="not_pad")["ok"]
     result = call("timelapse", region="pad")
     assert result["ok"] is False and "no snapshot of 'pad'" in result["error"]
+
+
+@pytest.mark.parametrize("damage", [b"", b"not a snapshot", b"PK\x03\x04truncated", _break_deflate], ids=["empty", "garbage", "zip", "deflate"])
+def test_timelapse_skips_a_damaged_snapshot_and_names_it(server: FakeBridge, damage: Any) -> None:
+    first = call("snapshot", target="pad", label="before")
+    second = call("snapshot", target="pad", label="after")
+    assert first["ok"] and second["ok"]
+    damaged = Path(first["path"])
+    if callable(damage):
+        damage(damaged)
+    else:
+        damaged.write_bytes(damage)
+    result = call("timelapse", region="pad")
+    assert result["ok"] and result["frames"] == 1 and Path(result["path"]).is_file()
+    [skip] = result["skipped"]
+    assert skip["path"] == str(damaged) and skip["code"] == "snapshot_unreadable" and skip["error"]
+
+
+def test_timelapse_with_only_damaged_snapshots_says_how_many_it_skipped(server: FakeBridge) -> None:
+    Path(call("snapshot", target="pad", label="before")["path"]).write_bytes(b"not a snapshot")
+    result = call("timelapse", region="pad")
+    assert result["ok"] is False and "no snapshot of 'pad'" in result["error"] and "1 unreadable" in result["error"]
+
+
+def test_timelapse_with_no_damage_skips_nothing(server: FakeBridge) -> None:
+    assert call("snapshot", target="pad", label="before")["ok"]
+    assert call("timelapse", region="pad")["skipped"] == []
 
 
 def test_timelapse_refuses_a_location_name(server: FakeBridge) -> None:
@@ -357,6 +385,74 @@ def test_undo_restores_the_fake(server: FakeBridge) -> None:
     assert call("undo")["count"] == 0 and _pristine(server)
 
 
+
+def test_undo_of_two_block_edits_reports_the_newest_undo_entry(server: FakeBridge) -> None:
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 1
+    assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
+    result = call("undo", n=2)
+    assert result["ok"] is True and (result["count"], result["undone"], result["undo_id"]) == (2, [2, 1], 4), result
+    [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 4]
+    assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and _pristine(server)
+
+def _fail_nth(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, op: str, nth: int) -> None:
+    real, seen = getattr(fake, f"op_{op}"), []
+
+    def failing(args: dict[str, Any]) -> Any:
+        seen.append(op)
+        if len(seen) == nth:
+            raise fake_bridge.FakeOpError("FAKE_DOWN", f"{op} number {nth} refused")
+        return real(args)
+
+    monkeypatch.setattr(fake, f"op_{op}", failing)
+
+
+def _assert_second_undo_failed(result: dict[str, Any], code: str = "FAKE_DOWN") -> None:
+    assert result["ok"] is False and result["code"] == code, result
+    assert (result["count"], result["undone"], result["undo_id"]) == (2, [2], 3), result
+    [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 3]
+    assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and Path(result["snapshot"]).is_file()
+    assert [(e["id"], e["restored"]) for e in call("list_undo")["entries"]] == [(3, False), (2, True), (1, False)]
+
+
+# The second restore snapshots its region before its write fails, so that snapshot is pushed as entry 4 and reported.
+def test_undo_that_fails_writing_its_second_restore_pushes_and_reports_that_restore_snapshot(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 1
+    assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
+    _fail_nth(server, monkeypatch, "set_blocks", 2)
+    result = call("undo", n=2)
+    assert result["ok"] is False and result["code"] == "FAKE_DOWN", result
+    assert (result["count"], result["undone"], result["undo_id"]) == (2, [2], 4), result
+    [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 4]
+    assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and Path(result["snapshot"]).is_file()
+    assert [(e["id"], e["restored"]) for e in call("list_undo")["entries"]] == [(4, False), (3, False), (2, True), (1, False)]
+
+
+# The second restore reads the region twice: once to find the cells that differ, once to snapshot them.
+@pytest.mark.parametrize("nth", [3, 4])
+def test_undo_that_fails_reading_the_region_for_its_second_restore_still_reports(
+    server: FakeBridge, monkeypatch: pytest.MonkeyPatch, nth: int,
+) -> None:
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 1
+    assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
+    _fail_nth(server, monkeypatch, "get_region", nth)
+    _assert_second_undo_failed(call("undo", n=2))
+
+
+# A truncated zip, bytes that are no archive at all, and an empty file each fail inside numpy differently.
+@pytest.mark.parametrize("damage", [None, b"PK\x03\x04truncated", b"not a snapshot", b""])
+def test_undo_whose_second_snapshot_cannot_be_loaded_still_reports(server: FakeBridge, damage: bytes | None) -> None:
+    first = call("fill", **MUTATING["fill"])
+    assert first["undo_id"] == 1
+    assert call("set_blocks", **MUTATING["set_blocks"])["undo_id"] == 2
+    if damage is None:
+        Path(first["snapshot"]).unlink()
+    else:
+        Path(first["snapshot"]).write_bytes(damage)
+    _assert_second_undo_failed(call("undo", n=2), code="snapshot_unreadable")
+
+
 def test_restore_by_manifest_id_and_by_path(server: FakeBridge) -> None:
     first = call("fill", **MUTATING["fill"])
     assert first["undo_id"] == 1 and not _pristine(server)
@@ -367,6 +463,52 @@ def test_restore_by_manifest_id_and_by_path(server: FakeBridge) -> None:
     assert again["ok"] and (again["blocks"], again["snapshot"], again["undo_id"]) == (0, None, None)
     assert call("restore", snapshot="99")["ok"] is False and call("restore", snapshot="nope.npz")["ok"] is False
     assert [(e["id"], e["op"]) for e in call("list_undo")["entries"]] == [(2, "restore"), (1, "fill")]
+
+
+@pytest.mark.parametrize("by_id", [True, False], ids=["id", "path"])
+@pytest.mark.parametrize("damage", [None, b"", b"not a snapshot", b"PK\x03\x04truncated", _break_deflate], ids=["missing", "empty", "garbage", "zip", "deflate"])
+def test_restore_of_a_damaged_snapshot_answers_snapshot_unreadable_as_undo_does(server: FakeBridge, damage: Any, by_id: bool) -> None:
+    first = call("fill", **MUTATING["fill"])
+    damaged = Path(first["snapshot"])
+    if damage is None:
+        damaged.unlink()
+    elif callable(damage):
+        damage(damaged)
+    else:
+        damaged.write_bytes(damage)
+    writes = _writes(server)
+    result = call("restore", snapshot=1 if by_id else str(damaged))
+    assert result["ok"] is False and result["code"] == "snapshot_unreadable" and str(damaged) in result["error"]
+    assert _writes(server) == writes and [e["id"] for e in call("list_undo")["entries"]] == [1]
+
+
+def test_restore_by_undo_id_refuses_a_snapshot_of_another_level_and_sends_nothing(server: FakeBridge) -> None:
+    server.worlds["other"] = FakeWorld()
+    first = call("fill", **MUTATING["fill"])
+    stray = mcp_server.snapshots.save(Region.empty("other", PAD, "minecraft:stone"), "fill")
+    stack = mcp_server.UndoStack()
+    entries = stack.entries()
+    entries[0]["path"] = str(stray)
+    stack._write(entries)
+    server.requests.clear()
+    result = call("restore", snapshot=first["undo_id"])
+    assert result["ok"] is False and result["code"] == "snapshot_unreadable"
+    assert "'other'" in result["error"] and "'design'" in result["error"]
+    assert server.requests == [] and [e["id"] for e in call("list_undo")["entries"]] == [1]
+
+
+def test_restore_reports_a_bug_in_load_as_itself_not_as_an_unreadable_snapshot(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(path: Path) -> None:
+        raise TypeError("load bug")
+
+    taken = call("snapshot", **MUTATING["snapshot"])
+    monkeypatch.setattr(mcp_server.snapshots, "load", broken)
+    result = call("restore", snapshot=taken["path"])
+    assert result == {"ok": False, "error": "load bug", "code": None}
+
+
+def test_restore_of_an_unknown_undo_id_is_not_an_unreadable_snapshot(server: FakeBridge) -> None:
+    assert call("restore", snapshot=99) == {"ok": False, "error": "no undo entry with id 99", "code": None}
 
 
 def test_restore_refuses_a_path_outside_the_snapshots_dir(server: FakeBridge, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -544,6 +686,9 @@ def test_build_without_register_index_lets_a_taken_name_through_and_leaves_the_i
 def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
     server: FakeBridge, refusable: FakeBridge, tmp_path: Path, kind: str, change: dict[str, Any], error: str, replace_index: bool,
 ) -> None:
+    listed = WorldIndex.load(tmp_path / "index.json")
+    listed.worlds.append(ARENA)
+    listed.save(tmp_path / "index.json")
     spec = {**SMALL_MINE_SPEC, **change}
     before = (tmp_path / "index.json").read_bytes()
     for dry_run in (True, False):
@@ -709,6 +854,15 @@ def test_undo_of_signage_completes_when_its_text_is_already_gone_and_restore_ref
     assert call("undo")["undone"] == [1] and every_role.texts == {}
 
 
+def test_undo_reports_the_block_undo_entry_when_the_oldest_undone_entry_is_text(every_role: FakeBridge) -> None:
+    assert call("build", kind="signage", spec=BUILD_SPECS["signage"][0], palette="test_every_role")["undo_id"] == 1
+    assert call("fill", **MUTATING["fill"])["undo_id"] == 2
+    result = call("undo", n=2)
+    assert result["ok"] is True and result["undone"] == [2, 1] and result["undo_id"] == 3, result
+    [entry] = [e for e in call("list_undo")["entries"] if e["id"] == 3]
+    assert (entry["op"], entry["path"]) == ("undo", result["snapshot"]) and _pristine(every_role)
+
+
 def _with_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A fresh index with ``far`` (reachable) and ``void`` (outside the fake terrain's extent), plus ``spawn``."""
     index = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
@@ -839,3 +993,17 @@ def test_every_tool_is_registered() -> None:
         "spawn_npc", "move_entity", "remove_entity", "set_spawn", "set_text", "remove_text",
         "save_world", "load_world", "create_world", "pregen", "run_command",
     }
+
+
+def test_a_write_that_fails_reports_the_blocks_applied_not_the_blocks_planned(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert call("fill", **MUTATING["fill"], dry_run=True)["blocks"] == 192
+    _fail_nth(server, monkeypatch, "fill", 1)
+    result = call("fill", **MUTATING["fill"])
+    assert result["ok"] is False and result["code"] == "FAKE_DOWN" and result["blocks"] == 0, result
+    assert result["undo_id"] == 1 and _pristine(server)
+
+
+def test_terraform_refuses_an_empty_edit_list_and_sends_nothing(server: FakeBridge) -> None:
+    result = call("terraform", target={"min": [300, 300], "max": [303, 303]}, mode="flatten", level=70)
+    assert result["ok"] is False and "nothing to do: the edit list is empty" in result["error"], result
+    assert _writes(server) == [] and call("list_undo")["entries"] == []

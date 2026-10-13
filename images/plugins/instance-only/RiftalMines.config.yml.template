@@ -8,14 +8,15 @@
 # plugin throws without and selftest.sh compares to that file. `worlds` names
 # only lumber: the shipped mine_a to mine_c entries have no built mine on this
 # stack, and mine_a here is a plain generated world. The database section
-# differs because that file's defaults name a host, schema and user that
-# exist nowhere on this stack: MYSQL_DATABASE is riftal_dev (images/compose.yaml),
-# and the dev stack has never provisioned a separate "mines" MySQL user, so
-# this uses the same root credentials the backup service already uses
-# rather than inventing a second, equally dev-only credential. "mysql" is
-# this stack's actual resolvable network alias for the database container,
-# under both the compose and wslc bring-up forms; "riftal-mysql" (the
-# plugin's shipped default) resolves under neither.
+# differs because that file's defaults name a schema and user this stack
+# never provisions, and a host the compose mysql service does not answer to:
+# MYSQL_DATABASE is riftal_dev (images/compose.yaml), and the dev stack has
+# never provisioned a separate "mines" MySQL user, so this uses the same root
+# credentials the backup service already uses rather than inventing a second,
+# equally dev-only credential. "mysql" is the compose service name, which
+# resolves on riftal-dev; "riftal-mysql" (the plugin's shipped default) does
+# not under compose. Name resolution under the wslc bring-up form is
+# unverified; see instance-only/README.md.
 database:
   host: "mysql"
   schema: "riftal_dev"

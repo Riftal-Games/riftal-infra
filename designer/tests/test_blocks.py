@@ -237,6 +237,19 @@ def test_pitcher_crop_class_follows_its_growth_and_half(name: str, cls: BlockCla
     assert classify(name) is cls
 
 
+# An open gate has no box (FenceGate.php:70); a closed one, or one with no
+# states, keeps its 1.5-tall box. Oak's Bedrock id is the bare ``fence_gate``.
+@pytest.mark.parametrize("name, cls", [
+    ("minecraft:fence_gate[direction=0,in_wall_bit=false,open_bit=true]", BlockClass.PASSABLE),
+    ("minecraft:spruce_fence_gate[open_bit=true]", BlockClass.PASSABLE),
+    ("minecraft:fence_gate[direction=0,in_wall_bit=false,open_bit=false]", BlockClass.SOLID),
+    ("minecraft:crimson_fence_gate[open_bit=false]", BlockClass.SOLID),
+    ("fence_gate", BlockClass.SOLID),
+])
+def test_fence_gate_class_follows_open_bit(name: str, cls: BlockClass) -> None:
+    assert classify(name) is cls
+
+
 @pytest.mark.parametrize("name", [
     "minecraft:snow_layer[covered_bit=false,height=abc]",
     "minecraft:snow_layer[covered_bit=false,height=2.5]",
@@ -250,6 +263,41 @@ def test_a_non_integer_state_classifies_solid(name: str) -> None:
 def test_a_non_integer_state_does_not_fail_the_region_lut() -> None:
     lut = class_lut([AIR, "minecraft:snow_layer[height=abc]", "minecraft:snow_layer[height=0]"])
     assert lut.tolist() == [BlockClass.AIR, BlockClass.SOLID, BlockClass.PASSABLE]
+
+
+@pytest.fixture
+def fresh_warnings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("designer.blocks._WARNED", set())
+
+
+@pytest.mark.usefixtures("fresh_warnings")
+def test_class_lut_warns_once_per_distinct_malformed_entry(caplog: pytest.LogCaptureFixture) -> None:
+    snow = "minecraft:snow_layer[height=abc]"
+    crop = "minecraft:pitcher_crop[growth=x,upper_block_bit=false]"
+    with caplog.at_level("WARNING", logger="designer.blocks"):
+        lut = class_lut([AIR, snow, "minecraft:snow_layer[height=0]", snow, crop])
+    assert lut.tolist() == [BlockClass.AIR, BlockClass.SOLID, BlockClass.PASSABLE, BlockClass.SOLID, BlockClass.SOLID]
+    warned = [r.getMessage() for r in caplog.records if r.name == "designer.blocks"]
+    assert len(warned) == 2
+    assert snow in warned[0] and "height='abc'" in warned[0]
+    assert crop in warned[1] and "growth='x'" in warned[1]
+
+
+@pytest.mark.usefixtures("fresh_warnings")
+def test_class_lut_does_not_warn_again_for_an_entry_a_later_call_repeats(caplog: pytest.LogCaptureFixture) -> None:
+    snow = "minecraft:snow_layer[height=abc]"
+    with caplog.at_level("WARNING", logger="designer.blocks"):
+        class_lut([AIR, snow])
+        class_lut([snow, AIR])
+        class_lut(["minecraft:snow_layer[height=xyz]"])
+    warned = [r.getMessage() for r in caplog.records if r.name == "designer.blocks"]
+    assert len(warned) == 2 and snow in warned[0] and "height=xyz" in warned[1]
+
+
+def test_class_lut_is_silent_on_well_formed_states(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING", logger="designer.blocks"):
+        class_lut([AIR, "minecraft:snow_layer[height=3]", "minecraft:pitcher_crop[growth=4]"])
+    assert not [r for r in caplog.records if r.name == "designer.blocks"]
 
 
 def test_register_rule_front_beats_the_snow_height_rule(rules: list) -> None:

@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from functools import reduce
 from typing import Any
 
-from designer.blocks import AIR
+from designer.blocks import AIR, is_tall_floor
 from designer.builders.base import Palette
+from designer.builders.stairs import HEADROOM
 from designer.coords import int_coord, int_coords, whole_int
 from designer.edits import EditList, Fill
 from designer.region import Bounds
@@ -16,9 +17,12 @@ from designer.world_index import NamedRegion
 
 Point2D = tuple[int, int]
 
-# Headroom above the flush floor a stand check needs: the floor itself plus
-# one cell each for feet and head, the same minimum ``stairs.HEADROOM`` relies on.
-CLEARANCE = 2
+
+def clearance(*floors: str) -> int:
+    """Air layers above the flush floor so a player stands clear on any of ``floors``: a cell each for feet
+    and head, as ``stairs.HEADROOM``, and a third when one is ``is_tall_floor``, whose top puts the head into
+    it, the cell ``entity_clear`` and ``stand_mask`` then demand."""
+    return HEADROOM + any(is_tall_floor(block) for block in floors)
 
 
 @dataclass(frozen=True)
@@ -90,7 +94,8 @@ def build_plot_grid(spec: PlotGridSpec, palette: Palette) -> EditList:
     road, edge = palette.block("road"), palette.block("plot_edge")
     boxes = {(r, c): spec.plot_bounds(r, c) for r in range(spec.rows) for c in range(spec.cols)}
     footprint = reduce(Bounds.union, boxes.values())
-    air = Bounds((footprint.min[0], spec.y + 1, footprint.min[2]), (footprint.max[0], spec.y + CLEARANCE, footprint.max[2]))
+    top = spec.y + clearance(road, edge)
+    air = Bounds((footprint.min[0], spec.y + 1, footprint.min[2]), (footprint.max[0], top, footprint.max[2]))
 
     ops: list[Fill] = [Fill(footprint, road), Fill(air, AIR)]
     regions, plots = [], {}

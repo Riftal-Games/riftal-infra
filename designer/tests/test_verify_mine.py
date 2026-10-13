@@ -1,7 +1,11 @@
+import json
+from dataclasses import replace
+
 import pytest
 
 from designer.blocks import AIR
 from designer.builders.mine_spec import MineSpec
+from designer.config import PROJECT_ROOT
 from designer.region import Bounds, Region
 from designer.verify import mine_valid
 from tests.conftest import MINE_SPEC
@@ -41,7 +45,10 @@ def test_the_box_mine_is_valid(box_mine_region: Fixture) -> None:
     found = mine_valid(region, spec)
     assert found.ok and found.detail == "mine valid" and found.coords == [] and found.leaks == []
     assert found.entrances_found == 1
-    assert found.data == {"undeclared": [], "floor_missing": 0, "platform_missing": 0, "platform_blocked": 0}
+    assert found.data == {
+        "undeclared": [], "wall_unmapped": 0, "floor_missing": 0, "floor_unmapped": 0, "platform_missing": 0, "platform_unmapped": 0,
+        "platform_blocked": 0,
+    }
     assert set(found.composition) == set(found.deviations) == set(spec.ores)
     assert found.composition["minecraft:stone"] == pytest.approx(0.6, abs=0.01)
     assert max(found.deviations.values()) < 0.01
@@ -64,14 +71,42 @@ def test_wrong_weights_fail_with_per_block_deviations(box_mine_region: Fixture) 
     assert not found.ok and found.detail == "composition off"
     assert found.deviations["minecraft:stone"] == pytest.approx(0.098, abs=0.01)
     assert found.deviations["minecraft:gold_ore"] == 0.1 and found.deviations["minecraft:coal_ore"] < 0.01
-    region.fill(Bounds((2, 2, 2), (17, 2, 17)), "minecraft:gravel")
+    region.fill(Bounds((2, 2, 2), (17, 2, 17)), "minecraft:gold_ore")
     found = mine_valid(region, spec)
-    assert not found.ok and found.deviations["minecraft:gravel"] == pytest.approx(1 / 6)
-    assert mine_valid(region, spec, tolerance=0.2).ok
-    layered = MineSpec.from_dict({**MINE_SPEC, "ore_layers": [{"y_from": 2, "y_to": 2, "ores": {"gravel": 1}}]})
+    assert not found.ok and found.deviations["minecraft:gold_ore"] == pytest.approx(1 / 6)
+    stray = "256 interior cells neither air nor in ores [(2, 2, 2), (3, 2, 2)"
+    assert mine_valid(region, spec, tolerance=0.2).detail.startswith(stray)
+    layered = MineSpec.from_dict({**MINE_SPEC, "ore_layers": [{"y_from": 2, "y_to": 2, "ores": {"gold_ore": 1}}]})
     found = mine_valid(region, layered)
-    assert found.ok and found.deviations["minecraft:gravel@2..2"] == 0.0 and "minecraft:gravel" not in found.deviations
-    assert found.composition["minecraft:gravel"] == pytest.approx(1 / 6)
+    assert found.detail.startswith(stray) and found.coords[0] == (2, 2, 2) and len(found.coords) == 20
+    assert found.deviations["minecraft:gold_ore@2..2"] == 0.0 and "minecraft:gold_ore" not in found.deviations
+    with_gold = MineSpec.from_dict({**MINE_SPEC, "ores": {**MINE_SPEC["ores"], "gold_ore": 20}})
+    assert mine_valid(region, with_gold).ok
+    assert found.composition["minecraft:gold_ore"] == pytest.approx(1 / 6)
+
+
+def test_one_stray_interior_block_fails_at_any_tolerance(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(5, 3, 6, "minecraft:torch")
+    region.set(6, 3, 6, AIR)
+    found = mine_valid(region, spec, tolerance=1.0)
+    assert not found.ok and found.detail == "1 interior cells neither air nor in ores [(5, 3, 6)]"
+    assert found.coords == [(5, 3, 6)]
+
+
+def test_a_block_read_back_with_states_counts_as_its_stateless_ores_key() -> None:
+    spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / "lumber.json").read_text(encoding="utf-8")))
+    geo = spec.geometry()
+    region = Region.empty(spec.world, geo.padding.union(geo.exit_platform))
+    region.fill(geo.outer, "minecraft:stone")
+    region.fill(geo.interior, "minecraft:oak_log[pillar_axis=y]")
+    region.fill(geo.entrance, AIR)
+    region.fill(geo.exit_platform, "minecraft:stone")
+    found = mine_valid(region, spec)
+    assert found.ok, found.detail
+    assert found.composition == {"minecraft:oak_log": 1.0} and found.deviations == {"minecraft:oak_log": 0.0}
+    sideways = replace(spec, ores={"minecraft:oak_log[pillar_axis=x]": 1.0})
+    assert "interior cells neither air nor in ores" in mine_valid(region, sideways).detail
 
 
 def test_an_undeclared_opening_is_detected(box_mine_region: Fixture) -> None:
@@ -116,9 +151,62 @@ def test_a_block_placed_on_the_exit_platform_is_reported(box_mine_region: Fixtur
     assert found.data["platform_blocked"] == 1 and found.data["platform_missing"] == 0
 
 
+def test_a_block_at_head_height_over_the_exit_lane_is_reported(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(10, 3, -3, "minecraft:stone")
+    found = mine_valid(region, spec)
+    assert not found.ok and found.detail == "1 exit platform cells blocked above" and found.coords == [(10, 3, -3)]
+    assert found.data["platform_blocked"] == 1 and found.data["platform_missing"] == 0
+
+
 def test_an_undeclared_opening_overlapping_the_entrance_only_counts_the_extra_cells(box_mine_region: Fixture) -> None:
     region, spec = box_mine_region
     region.set(10, 5, 0, AIR)
     found = mine_valid(region, spec)
     assert not found.ok and found.detail == "1 undeclared opening cells" and found.entrances_found == 1
     assert found.data["undeclared"] == [(10, 5, 0)]
+
+
+UNMAPPED = "a block the core does not map (minecraft:info_update)"
+
+
+def test_an_unmapped_floor_or_platform_block_is_named(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(5, 1, 6, "minecraft:info_update")
+    found = mine_valid(region, spec)
+    assert not found.ok and found.detail == f"1 floor cells are {UNMAPPED}" and found.coords == [(5, 1, 6)]
+    assert found.data["floor_unmapped"] == 1 and found.data["floor_missing"] == 0
+    region.set(5, 1, 6, "minecraft:stone")
+    region.set(10, 1, -3, "minecraft:info_update")
+    region.set(10, 1, -2, AIR)
+    found = mine_valid(region, spec)
+    assert not found.ok and found.detail == f"1 exit platform cells missing; 1 exit platform cells are {UNMAPPED}"
+    assert found.coords == [(10, 1, -2), (10, 1, -3)] and found.data["platform_unmapped"] == 1
+    assert found.data["wall_unmapped"] == 0
+
+
+def test_an_unmapped_wall_block_is_named_not_read_as_sealed(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(18, 3, 10, AIR)
+    region.set(19, 3, 10, "minecraft:info_update")
+    found = mine_valid(region, spec)
+    assert not found.ok and found.detail == f"1 wall cells are {UNMAPPED}" and found.coords == [(19, 3, 10)]
+    assert found.leaks == [] and found.data["wall_unmapped"] == 1
+    region.set(19, 3, 10, AIR)
+    region.set(20, 3, 10, "minecraft:info_update")
+    found = mine_valid(region, spec)
+    assert found.detail == f"1 undeclared opening cells; 1 wall cells are {UNMAPPED}"
+    assert found.coords == [(19, 3, 10), (20, 3, 10)]
+
+
+def test_an_unmapped_block_reached_from_inside_or_on_the_surface_is_named(box_mine_region: Fixture) -> None:
+    region, spec = box_mine_region
+    region.set(18, 3, 10, "minecraft:info_update")
+    found = mine_valid(region, spec)
+    assert found.detail == f"1 wall cells are {UNMAPPED}" and found.coords == [(18, 3, 10)]
+    region.set(18, 3, 10, "minecraft:stone")
+    region.set(0, 9, 5, "minecraft:info_update")
+    assert mine_valid(region, spec).coords == [(0, 9, 5)]
+    region.set(0, 9, 5, "minecraft:stone")
+    region.set(1, 1, 1, "minecraft:info_update")
+    assert mine_valid(region, spec).ok
