@@ -3,8 +3,9 @@
 # plugins from one flat directory and /plugins is the ./plugins bind
 # instance-b shares, so this instance's roster is assembled in the
 # container's own disposable filesystem: every plugin at the top of /plugins,
-# plus RiftalMines.phar once built. It mounts nothing and runs as uid 1000,
-# so /data/plugin_data on a fresh volume stays writable by PocketMine.
+# plus RiftalMines.phar and contracts.phar once built. It mounts nothing and
+# runs as uid 1000, so /data/plugin_data on a fresh volume stays writable by
+# PocketMine.
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
 # docker/start.sh), which instance-b runs and which cannot be reused here
@@ -47,6 +48,14 @@ for plugin in "${poggit[@]}"; do
 done
 
 if [ -f "$here/RiftalMines.phar" ]; then
+	# RiftalMines declares depend: [RiftalContracts]. Without contracts.phar
+	# PocketMine force-shuts the server down after loading, so the boot stops
+	# here instead, naming the file.
+	if [ ! -f "$here/contracts.phar" ]; then
+		echo "RiftalMines.phar is present but contracts.phar is not; build both, see instance-only/README.md" >&2
+		exit 1
+	fi
+	cp "$here/contracts.phar" "$roster/"
 	# The plugin's bundled config names a schema and user this stack never
 	# provisions, and it connects on enable, so a config with the wrong
 	# password takes the whole server down. Rendering from this container's
