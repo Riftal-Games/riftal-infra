@@ -30,8 +30,8 @@ jobs:
     runs-on: [self-hosted, linux, riftal]
     # ci-sweep-selftest.sh removes its other-job volumes once they are older
     # than its reap_after, as left by a run that has ended, and fails unless
-    # every job here times out sooner.
-    timeout-minutes: 15
+    # every job here times out sooner. The capture proofs take four of these.
+    timeout-minutes: 19
 
     steps:
       # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
@@ -172,6 +172,12 @@ jobs:
 
       - name: Wipe self-test
         run: bash deploy/wipe-selftest.sh
+
+      # ADR 015 proofs 3, 4 and 5 without bots, on the pinned core, and each
+      # mutant of backup.sh going red. A healthy run takes about four minutes.
+      - name: Capture proofs on the real core
+        timeout-minutes: 9
+        run: bash deploy/capture-proofs.sh
 
       # Runs before the host-side sync below, which writes designer/.venv. The
       # script mounts the project read-only, so a container run that tried to
