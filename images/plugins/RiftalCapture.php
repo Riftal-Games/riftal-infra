@@ -62,15 +62,17 @@ final class CaptureRequest{
 }
 
 /**
- * Which request is held, and when a hold ends. Each id is captured at most
- * once per process, so a lease that ran out is never taken up again by the
- * same request, and the deadline is the one read at capture: a request
- * rewritten with a later deadline does not extend it (ADR 015 item 8).
+ * Which request is held, and when a hold ends. Each id is held at most once
+ * per process, whatever other ids were held in between, so a lease that ran
+ * out is never taken up again by the same request, and the deadline is the
+ * one read at capture: a request rewritten with a later deadline does not
+ * extend it (ADR 015 items 2 and 8).
  */
 final class Lease{
 
 	private ?CaptureRequest $held = null;
-	private ?string $lastId = null;
+	/** @var array<string, true> every id held in this process */
+	private array $heldBefore = [];
 
 	public function heldId() : ?string{
 		return $this->held?->id;
@@ -82,12 +84,12 @@ final class Lease{
 	}
 
 	public function mayCapture(?CaptureRequest $request, int $now) : bool{
-		return $this->held === null && $request !== null && $request->id !== $this->lastId && $now < $request->deadline;
+		return $this->held === null && $request !== null && !isset($this->heldBefore[$request->id]) && $now < $request->deadline;
 	}
 
 	public function hold(CaptureRequest $request) : void{
 		$this->held = $request;
-		$this->lastId = $request->id;
+		$this->heldBefore[$request->id] = true;
 	}
 
 	public function release() : ?string{

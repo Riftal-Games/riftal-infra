@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN="$SCRIPT_DIR/RiftalCapture.php"
-EXPECTED_ASSERTIONS=19
+EXPECTED_ASSERTIONS=20
 
 output="$(docker run --rm -i -v "$PLUGIN:/plugin.php:ro" php:8.3-cli-alpine php <<'PHP' 2>&1
 <?php
@@ -156,6 +156,12 @@ check(!$worlds->on && is_file("$root/.capture/e1/ack"), "rewriting the held requ
 sleep(3);
 $tick("e1");
 check($worlds->on && !file_exists("$root/.capture/e1"), "the deadline read at capture ends the hold with the request still in place, restoring autosave on and removing the staged copy, and the id is not captured again");
+$tick("a1");
+$tick("b1");
+$events = [];
+$tick("a1");
+check($events === ["autosave on"] && $worlds->on && $scheduler->others() === [] && !file_exists("$root/.capture/a1") && !file_exists("$root/.capture/b1"),
+	"a, b, then a again with its deadline ahead: b releases, and a is not staged, acked or held a second time");
 $worlds->on = false;
 $tick("m2");
 $tick(null);
