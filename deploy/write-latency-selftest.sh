@@ -99,6 +99,22 @@ if [ "${1:-}" = --probe ]; then
   # shellcheck source=../images/core-image.sh
   . "$SCRIPT_DIR/../images/core-image.sh"
   core_image
+  # Options can point a volume at other storage, so a probe of a plain volume
+  # with the same driver would measure the wrong disk. The K and W config is
+  # valid, so only the options can refuse.
+  opt="riftal_smoke_latency_opt_$$"
+  docker volume create -o type=tmpfs -o device=tmpfs "$opt" >/dev/null
+  got=0
+  out="$(CORE_IMAGE="$CORE_IMAGE" CUSTODY_CONFIG="$DIR/k2w2.yml" INSTANCE_VOLUME="$opt" WRITES=100 \
+    bash "$SCRIPT_DIR/write-latency-probe.sh" 2>&1)" || got=$?
+  docker volume rm "$opt" >/dev/null
+  if [ "$got" -ne 2 ] || ! grep -q -E "REFUSED: $opt carries driver options" <<<"$out"; then
+    printf 'FAIL probe refuses a volume with driver options: exit %s, wanted 2\n%s\n' "$got" "$out"
+    failures=$((failures + 1))
+  else
+    printf 'ok   probe refuses a volume with driver options\n'
+  fi
+
   ref="riftal_smoke_latency_ref_$$"
   docker volume create "$ref" >/dev/null
   got=0
