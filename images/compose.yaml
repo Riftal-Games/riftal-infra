@@ -26,11 +26,18 @@ services:
       timeout: 5s
       retries: 24
       start_period: 30s
+    # An unbounded stack exhausted the dev PC's memory and froze it
+    # (riftal-infra#460).
+    mem_limit: 1G
+    cpus: 1
     networks:
       - riftal-dev
 
   instance:
     image: local-pocketmine-mp
+    # Same reason as on mysql, above.
+    mem_limit: 2G
+    cpus: 2
     # The server takes console commands on stdin, and `stop` on stdin is the
     # only clean shutdown. An abrupt halt can corrupt a world mid-write.
     stdin_open: true
@@ -156,13 +163,15 @@ services:
 
   # A second instance, same image and same MySQL, proving the instance-split
   # shape (riftal-infra#6, CLAUDE.md hard rule 5) before any gameplay depends
-  # on it. Everything below differs from `instance`, above, on purpose: its
-  # own instance_id, its own world, its own volume, its own published port.
-  # The one thing that must NOT differ is which MySQL it points at, and
+  # on it. Its instance_id, world, volume, published port and start command
+  # differ from `instance`'s on purpose; its image and limits match. The one
+  # thing that must NOT differ is which MySQL it points at, and
   # nothing here does, because neither service names one; both share
   # `riftal-dev` and reach the same `mysql` alias.
   instance-b:
     image: local-pocketmine-mp
+    mem_limit: 2G
+    cpus: 2
     stdin_open: true
     # A distinct host port. The container still listens on 19132 internally;
     # 19133 is only where the host maps it, same pattern as INSTANCE_BIND

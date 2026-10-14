@@ -4,7 +4,8 @@
 # RiftalEconomy (riftal-infra#887), and for start-instance.sh and require-accounts.sh, the scripts that load
 # them. Also pins crash auto-report off on every PocketMine service,
 # designer/stack's included, and covers deliver-world-index.sh and the index
-# mount both instances boot with (riftal-infra#293).
+# mount both instances boot with (riftal-infra#293), and the memory and CPU
+# limits on mysql and both instances (riftal-infra#460).
 #
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
@@ -27,7 +28,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=75
+EXPECTED_ASSERTIONS=78
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -88,6 +89,24 @@ check "--auto-report.enabled=false, which PocketMine reads as true, is caught" \
   '[ "$(uploaders "$(edited "/instance-b:/,\$s/--auto-report.enabled=0/--auto-report.enabled=false/")")" = instance-b ]'
 check "a service without the flag is caught" \
   '[ "$(uploaders "$(edited "0,/--auto-report.enabled=0/{/--auto-report.enabled=0/d}")")" = instance ]'
+
+printf '\n== mysql and both instances run bounded (riftal-infra#460)\n'
+# Services whose resolved mem_limit, in bytes, and cpus are not 1G and 1 for
+# mysql and 2G and 2 for each instance. `docker compose config` accepts a file
+# with a limit deleted, so only this catches one going missing.
+unbounded() {
+  jq -r '.services as $s
+    | {"mysql": ["1073741824", "1"], "instance": ["2147483648", "2"], "instance-b": ["2147483648", "2"]}
+    | to_entries[]
+    | select([($s[.key].mem_limit | tostring), ($s[.key].cpus | tostring)] != .value)
+    | .key' <<<"$1"
+}
+check "mysql resolves 1073741824 bytes and 1 CPU, instance and instance-b 2147483648 and 2" \
+  '[ -z "$(unbounded "$real")" ]'
+check "instance-b without mem_limit is caught" \
+  '[ "$(unbounded "$(edited "/^  instance-b:/,\$ {/mem_limit/d}")")" = instance-b ]'
+check "instance with cpus 4 is caught" \
+  '[ "$(unbounded "$(edited "0,/cpus: 2/s/cpus: 2/cpus: 4/")")" = instance ]'
 
 printf '\n== the rendered config points at this stack\n'
 cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$work/"
