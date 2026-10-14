@@ -29,14 +29,16 @@ either:
   (`../deploy/wipe.sh`), on top of the instances' own `RIFTAL_DEV_ENV`
   above.
 
-The wipe's dev path keys on the two together (steward ruling on riftal-pm#1312,
-built by riftal-infra#1110). The wipe runs as a one-off container that cannot
-see the instances' environment, so it takes its own `RIFTAL_DEV_ENV=1` and a
-`MYSQL_DATABASE` of `riftal_dev` that exists on the target server as the only
-proof it is wiping the dev stack. On that path a non-default level with no
-build is cleared and left absent rather than refused. A stack outside dev that
-named its database `riftal_dev`, or passed its wipe `RIFTAL_DEV_ENV=1`, would
-take that path, and the ruling reverses if one does.
+The reservation is a standing rule. It exists for the wipe's dev path, which
+riftal-infra#1110 is to build to the steward ruling on riftal-pm#1312. A wipe
+runs as a one-off container that cannot see the instances' environment, so
+that path takes two keys, each matched exactly: `RIFTAL_DEV_ENV=1` in the
+wipe's own environment, and a `MYSQL_DATABASE` of `riftal_dev` that exists on
+the target server. With both, a non-default level with no build is cleared and
+left absent. Any other combination is refused, `RIFTAL_DEV_ENV=1` against
+another database included. One key alone never takes the path, but a stack
+outside dev carrying either value is one key away from it, and the ruling
+reverses if one does.
 
 ## Dev faults
 

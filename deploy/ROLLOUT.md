@@ -70,8 +70,8 @@ every window; the restore is the recovery for a window that cannot go on.
 Commands are for the dev stack, with the variables set as in `README.md`,
 Running it locally. Elsewhere they take that environment's network, volume
 names, database name and credentials, and the same scripts. That database
-name is never `riftal_dev`: see `riftal_dev` and the wipe's `RIFTAL_DEV_ENV=1`
-belong to the dev stack, at the end of this file.
+name is never `riftal_dev`: see the section "`riftal_dev` and the wipe's
+`RIFTAL_DEV_ENV=1` belong to the dev stack" at the end of this file.
 
 ### Take the backup
 
@@ -570,10 +570,12 @@ No alpha or production stack names its database `riftal_dev`, and no alpha or
 production wipe run is given `RIFTAL_DEV_ENV=1`. Both are reserved for the dev
 stack (`../images/README.md`, Reserved for the dev stack).
 
-The wipe's dev path keys on them together (steward ruling on riftal-pm#1312,
-built by riftal-infra#1110): `RIFTAL_DEV_ENV=1` in the wipe's own environment,
-and a `MYSQL_DATABASE` of `riftal_dev` present on the target server. On that
-path a non-default level with no build is cleared and left absent; everywhere
-else the wipe refuses. A stack outside dev carrying either value is one key
-away from the dev path, and both make the wipe treat it as dev. The ruling
+The reservation is a standing rule. It exists for the wipe's dev path, which
+riftal-infra#1110 is to build to the steward ruling on riftal-pm#1312. That
+path takes two keys, each matched exactly: `RIFTAL_DEV_ENV=1` in the wipe's
+own environment, and a `MYSQL_DATABASE` of `riftal_dev` present on the target
+server. With both, a non-default level with no build is cleared and left
+absent. Any other combination is refused, `RIFTAL_DEV_ENV=1` against another
+database included. A stack outside dev carrying either value is one key away
+from the dev path, and both would make the wipe treat it as dev. The ruling
 reverses if one does.
