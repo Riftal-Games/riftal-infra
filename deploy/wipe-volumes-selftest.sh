@@ -52,13 +52,14 @@ sh_in "set -e; for v in a b; do d=/worlds/riftal_smoke_\$v
   done
 done
 mkdir -p /tmp/locks /tmp/built && printf '{}' > /tmp/built/mine_a.lock.json"
-q "CREATE TABLE riftal_dev.sentinel (id INT PRIMARY KEY); CREATE DATABASE riftal_smoke_other"
+q "CREATE TABLE riftal_dev.sentinel (id INT PRIMARY KEY); CREATE DATABASE riftal_smoke_other; CREATE DATABASE riftal"
 
 docker exec -e MYSQL_HOST=127.0.0.1 -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest -e MYSQL_DATABASE=riftal_dev \
   -e BACKUP_ROOT=/tmp/backups -e WORLDS_DIR=/worlds "$C" bash /deploy/backup.sh >"$LOGS/backup.log" 2>&1 \
   || { cat "$LOGS/backup.log"; exit 1; }
 sh_in 'set -e; sets=(/tmp/backups/[0-9]*); [ "${#sets[@]}" = 1 ]; cp -r "${sets[0]}" /tmp/set
   cp -r /tmp/set /tmp/other; sed -i "s/^mysql_database: .*/mysql_database: riftal_smoke_other/" /tmp/other/manifest.txt
+  cp -r /tmp/set /tmp/rig; sed -i "s/^mysql_database: .*/mysql_database: riftal/" /tmp/rig/manifest.txt
   cp -r /tmp/set /tmp/missing; rm /tmp/missing/worlds/riftal_smoke_b.tar.gz
   cp -r /tmp/set /tmp/extra; cp /tmp/set/worlds/riftal_smoke_a.tar.gz /tmp/extra/worlds/riftal_smoke_c.tar.gz'
 
@@ -70,7 +71,7 @@ kept >"$LOGS/kept.before"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=51
+EXPECTED_ASSERTIONS=55
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # wipe <database> <set> [docker exec -e flags]
@@ -78,8 +79,9 @@ wipe() {
   local db="$1" set="$2"
   shift 2
   docker exec -e MYSQL_HOST=127.0.0.1 -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest -e MYSQL_DATABASE="$db" \
-    -e WIPE_CONFIRM="$db" -e BACKUP_SET="$set" "$@" "$C" bash /deploy/wipe.sh
+    -e WIPE_CONFIRM="$db" -e BACKUP_SET="$set" "$@" "$C" bash "${RUN[@]}"
 }
+RUN=(/deploy/wipe.sh)
 refused() {
   local name="$1" reason="$2" log="$LOGS/$1.log"
   shift 2
@@ -111,9 +113,11 @@ refused dev-zero "only on the dev stack: RIFTAL_DEV_ENV is '0', not 1" \
   riftal_dev /tmp/set "${W[@]}" "${L[@]}" -e RIFTAL_DEV_ENV=0
 refused dev-other-db "only on the dev stack: RIFTAL_DEV_ENV is 1 against database riftal_smoke_other, not riftal_dev" \
   riftal_smoke_other /tmp/other "${W[@]}" "${L[@]}" "${DEV[@]}"
+refused dev-rig-db "only on the dev stack: RIFTAL_DEV_ENV is 1 against database riftal, not riftal_dev" \
+  riftal /tmp/rig "${W[@]}" "${L[@]}" "${DEV[@]}"
 
 printf '\n== on dev, every other refusal\n'
-refused built-level "level mine_a on riftal_smoke_a has an ADR 009 build to re-seed from, and re-seed not implemented" \
+refused built-level "level mine_a on riftal_smoke_a has an ADR 009 build to re-seed from, and re-seed is riftal-infra#1126" \
   riftal_dev /tmp/set "${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/built "${DEV[@]}"
 refused no-worlds-dir "WORLDS_DIR is required" riftal_dev /tmp/set "${L[@]}" "${DEV[@]}"
 refused no-locks-dir "LEVEL_LOCKS_DIR must name a directory" riftal_dev /tmp/set "${W[@]}" "${DEV[@]}"
@@ -123,6 +127,12 @@ refused volume-not-in-set "/tmp/missing holds no riftal_smoke_b.tar.gz, so resto
   riftal_dev /tmp/missing "${W[@]}" "${L[@]}" "${DEV[@]}"
 refused set-volume-not-mounted "/tmp/extra/worlds/riftal_smoke_c.tar.gz has no volume under /worlds" \
   riftal_dev /tmp/extra "${W[@]}" "${L[@]}" "${DEV[@]}"
+# Run by hand, every key the wipe reads set as on dev, it still clears nothing:
+# its checks are wipe.sh's, and the dev verdict is wipe.sh's alone.
+RUN=(/deploy/wipe-volumes.sh dev)
+refused direct "wipe-volumes.sh runs only inside wipe.sh" \
+  riftal_dev /tmp/set "${W[@]}" "${L[@]}" "${DEV[@]}"
+RUN=(/deploy/wipe.sh)
 [ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'riftal_dev'")" = "1" ] \
   && pass "every refusal left riftal_dev in place" || fail "a refused wipe changed riftal_dev"
 

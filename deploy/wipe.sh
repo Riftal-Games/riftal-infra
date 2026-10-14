@@ -118,7 +118,8 @@ read -r _ own sessions < <(grep '^counts' <<<"$probe") || true
 [ "$own" = "1" ] || fail "the processlist does not show this session, so it cannot see the others; is performance_schema off?"
 [ "$sessions" = "0" ] || fail "$sessions other session(s) are connected to $MYSQL_HOST:$MYSQL_PORT; close every other connection, instances first"
 
-bash "$(dirname "${BASH_SOURCE[0]}")/wipe-volumes.sh" "$dev"
+source "$(dirname "${BASH_SOURCE[0]}")/wipe-volumes.sh"
+wipe_volumes "$dev"
 
 echo "wipe $MYSQL_DATABASE: dropping and recreating at $MYSQL_HOST:$MYSQL_PORT, backup set $BACKUP_SET"
 sql "DROP DATABASE \`$MYSQL_DATABASE\`; CREATE DATABASE \`$MYSQL_DATABASE\`"
