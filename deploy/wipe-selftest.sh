@@ -128,7 +128,7 @@ done
 # It runs 14 hours east of UTC, so a stamp taken in local time reads as a set
 # from the future and fails that wipe too.
 sh_in "mkdir -p /tmp/worlds/riftal_smoke_vol && printf 'x\n' > /tmp/worlds/riftal_smoke_vol/level.dat"
-env_run -e TZ=RIFT-14 -e MYSQL_DATABASE="$DB" -e BACKUP_ROOT=/tmp/backups -e WORLDS_DIR=/tmp/worlds \
+env_run -e TZ=RIFT-14 -e MYSQL_USER=root -e MYSQL_DATABASE="$DB" -e BACKUP_ROOT=/tmp/backups -e WORLDS_DIR=/tmp/worlds \
   "$C" bash /deploy/backup.sh >"$LOGS/backup.log" 2>&1 || { cat "$LOGS/backup.log"; exit 1; }
 sh_in 'sets=(/tmp/backups/[0-9]*); [ "${#sets[@]}" = 1 ] && cp -r "${sets[0]}" /tmp/set'
 # backup.sh's own date format, read from its one ts= line, so the stale and

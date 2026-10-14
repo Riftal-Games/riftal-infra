@@ -77,7 +77,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=61
+EXPECTED_ASSERTIONS=66
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # The closing summary lists these titles, so a new section cannot be left out of it.
@@ -713,8 +713,73 @@ for half in LOCKEDPW OPENBLANK; do
   fi
 done
 
+section "the backup login needs no grants file, reads widgets, and is denied INSERT, UPDATE, DELETE, CREATE/ALTER/DROP TABLE, LOCK TABLES, CREATE EVENT, CREATE USER and GRANT"
+PW_E=selftestPasswordBackup000005
+run_migrations "$FIXTURES/good" riftal_selftest "selftest-prov-backup-$SUFFIX" \
+  -e RIFTAL_DB_PASSWORD_BACKUP="$PW_E" >"$LOGS"/out-prov-backup.log 2>&1 || true
+seen="$(as_login backup 'SELECT CURRENT_ROLE(), COUNT(*) FROM widgets' "$PW_E" 2>&1 || true)"
+if [ "$seen" = "$(printf '`riftal_role_backup`@`%%`\t1')" ]; then
+  pass "backup logs in with riftal_role_backup by default and reads widgets"
+else
+  fail "expected backup with riftal_role_backup to read 1 widget, got: $seen"
+  cat "$LOGS"/out-prov-backup.log
+fi
+written=()
+for stmt in "INSERT INTO widgets VALUES (2, 'x')" "UPDATE widgets SET name = 'x'" \
+    "DELETE FROM widgets" "CREATE TABLE w2 (id INT)" "ALTER TABLE widgets ADD c INT" \
+    "DROP TABLE widgets" "LOCK TABLES widgets WRITE" \
+    "CREATE EVENT e ON SCHEDULE EVERY 1 DAY DO SELECT 1" \
+    "CREATE USER 'x'@'%'" "GRANT SELECT ON widgets TO 'mines'@'%'"; do
+  if as_login backup "$stmt" "$PW_E" >/dev/null 2>&1; then written+=("$stmt"); fi
+done
+if [ "${#written[@]}" -eq 0 ] \
+   && [ "$(query riftal_selftest 'SELECT COUNT(*) FROM widgets')" = "1" ]; then
+  pass "backup is denied INSERT, UPDATE, DELETE, CREATE/ALTER/DROP TABLE, LOCK TABLES, CREATE EVENT, CREATE USER and GRANT"
+else
+  fail "backup was allowed: ${written[*]-none, but widgets changed}"
+fi
+# mysqldump needs TRIGGER to see a trigger, and MySQL ties creating and
+# dropping one to the same privilege. With the binlog on, as
+# ../deploy/binlog-check.sh requires, MySQL refuses only CREATE TRIGGER to a
+# login without SUPER. Each statement runs as its own client call, because a
+# batch stops at its first error and would never reach the DROP. Every
+# outcome is pinned, so a narrower or wider reach shows up here.
+create_trg="CREATE TRIGGER selftest_backup_trg BEFORE INSERT ON widgets FOR EACH ROW SET @x = 1"
+drop_trg="DROP TRIGGER selftest_backup_trg"
+triggers_sql="SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='riftal_selftest'"
+if ! as_login backup "$create_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-binlog.log 2>&1 \
+   && grep -q 'ERROR 1419' "$LOGS"/out-prov-backup-trg-binlog.log \
+   && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
+  pass "with the binlog on, backup cannot create a trigger"
+else
+  fail "expected backup's CREATE TRIGGER refused with ERROR 1419 and no trigger left"
+  cat "$LOGS"/out-prov-backup-trg-binlog.log
+fi
+query riftal_selftest "$create_trg"
+drop_rc=0
+as_login backup "$drop_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-drop.log 2>&1 || drop_rc=$?
+if [ "$drop_rc" -eq 0 ] && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
+  pass "known, accepted exception: with the binlog on, backup drops a trigger root created"
+else
+  fail "expected backup to drop root's trigger with the binlog on, got exit $drop_rc"
+  cat "$LOGS"/out-prov-backup-trg-drop.log
+fi
+query riftal_selftest "DROP TRIGGER IF EXISTS selftest_backup_trg"
+query riftal_selftest 'SET GLOBAL log_bin_trust_function_creators = 1'
+trigger_rc=0
+as_login backup "$create_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-trust.log 2>&1 || trigger_rc=$?
+query riftal_selftest 'SET GLOBAL log_bin_trust_function_creators = 0'
+created="$(query riftal_selftest "$triggers_sql")"
+query riftal_selftest "DROP TRIGGER IF EXISTS selftest_backup_trg"
+if [ "$trigger_rc" -eq 0 ] && [ "$created" = "1" ]; then
+  pass "with log_bin_trust_function_creators set, backup can create a trigger"
+else
+  fail "expected backup to create a trigger once the binlog guard is lifted, got exit $trigger_rc, triggers=$created"
+  cat "$LOGS"/out-prov-backup-trg-trust.log
+fi
+
 section "no provisioning run ever prints a password"
-if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e "$PW_T" -e 'Quote00001' -e selftestShort1 \
+if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e "$PW_E" -e "$PW_T" -e 'Quote00001' -e selftestShort1 \
      "$LOGS"/out-prov*.log; then
   fail "a password appeared in the log files above"
 else

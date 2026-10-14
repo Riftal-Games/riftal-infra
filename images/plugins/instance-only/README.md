@@ -15,7 +15,9 @@ does what `start-pocketmine` does for `instance-b`: the ownership warning,
 `POCKETMINE_ANSI`. `start-pocketmine` hard-codes `--plugins=/plugins`, so
 it cannot be reused. `selftest.sh` pins this script's copy of that
 behaviour but never reads core's `docker/start.sh`, so a change there has to
-be carried into `start-instance.sh` by hand. Nothing is
+be carried into `start-instance.sh` by hand. `boot-selftest.sh` boots
+the pinned core image with the script as it ships, with the phar unbuilt,
+built with no password, and built with one. Nothing is
 bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
 mountpoint as root: a stray in `./plugins` that `instance-b` then fails to
 load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
@@ -23,10 +25,10 @@ fails on either.
 
 `*.phar` is gitignored by the repo root's `.gitignore`, and
 `RiftalMines.config.yml` by this folder's own, since a copy rendered by hand
-carries a real database password. Two config files are tracked:
-`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml`, which holds
-no password because the `ranks` login's comes from the environment (see
-below).
+carries a real database password. Three config files are tracked:
+`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml` and
+`RiftalEconomy.config.yml`, which hold no password because each login's
+comes from the environment (see below).
 
 ## Build `RiftalMines.phar` and `contracts.phar`
 
@@ -154,6 +156,29 @@ that value on every run, so after editing it in `images/.env` run the
 runner again before the next boot. A grant `ranks` lacks surfaces on this
 stack as ERROR 1142, which is the point.
 
+## `RiftalEconomy` and the `economy` login
+
+`RiftalEconomy.phar`, the sell shop and the balance ledger, loads on
+`instance` alone the same way (riftal-infra#887). The recipe above stops
+on it at pharynx, `Failed to read file
+./vendor/pocketmine/pocketmine-mp/composer.json`, because nothing links the
+package `axolotl-pm/pocketmine-mp` replaces. Build it the way riftal-game's
+CI does instead: in the same container, with the same copies of `lib/`,
+`contracts/` and `economy/` and a Composer on `PATH` as `composer`, run
+`bash packages.sh phar /build /pharynx.phar /out` from riftal-game's
+`.github/scripts/`, then move `/out/economy.phar` to
+`instance-only/RiftalEconomy.phar`. It declares `depend: [RiftalContracts]` and `softdepend: [RiftalCustody]`, both
+met at the top of `plugins/`.
+
+Everything said of `ranks` above holds with `economy` in its place:
+`start-instance.sh` copies `RiftalEconomy.config.yml` to
+`/data/plugin_data/RiftalEconomy/config.yml` on every boot, the file differs
+from the shipped one only in its schema, the password comes from
+`RIFTAL_DB_PASSWORD_ECONOMY`, the boot stops naming it when it is unset, and
+the migration runner provisions `economy` with `riftal_role_economy`. Its
+sell locations come from the `world_index.json` `deliver-world-index.sh`
+puts in the same folder.
+
 ## Why an override is required, not optional
 
 `mines/resources/config.yml`'s shipped default (`host: riftal-mysql, schema:
@@ -184,14 +209,21 @@ fresh volume and each stopped with `stop` on stdin: without the phar,
 `RiftalMines` and reaches `Done` with the one `lumber` line below as its only
 error; `instance-b` booted afterwards reaches `Done` without `RiftalMines`;
 `/data/plugin_data` is owned by uid 1000 every time, and nothing new appears
-in `./plugins`.
+in `./plugins`. That boot predates riftal-game#294, which logs the `lumber`
+line as a WARNING, so a clean boot with the phar carries no ERROR line. This
+README records no boot since that change.
 
 ## `lumber` and the shared MySQL row
 
 `MineWorldLoader` (riftal-game#49) logs and skips a world with no folder on
 disk instead of crashing, so loading `RiftalMines.phar` before the `lumber`
-world exists in `riftal-world` is safe: the log carries one error line naming
-`lumber`, and the plugin otherwise enables normally. Land the built world
+world exists in `riftal-world` is safe: the log carries one WARNING line,
+`mines: registered world "lumber" has no world folder to load yet; skipping
+until the map builder produces one`, and the plugin otherwise enables
+normally. It is a warning because a boot log check fails on any ERROR line
+(riftal-game#294). A `worlds/lumber` folder that exists but will not load,
+such as an interrupted build with no `level.dat`, is a fault and is logged
+as an ERROR. Land the built world
 under `riftal-world`'s `worlds/lumber` once `riftal-game`'s DesignBridge
 plugin exposes the write ops `build_mine --apply` needs (`create_world`,
 `pregen`, `set_blocks`/`fill`; tracked under riftal-game's `lane:bridge`

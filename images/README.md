@@ -14,8 +14,22 @@ Set in `images/.env`, copied from `.env.example`. Never commit `.env`.
 | `INSTANCE_ID` | This instance's identity, read by `RiftalGames\Lib\InstanceIdentity::fromEnvironment()` in riftal-game's shared lib and tagged onto every shared-database row the instance writes. No safe default exists across a split, which is why the class throws rather than guess one; the dev stack's single instance ships `dev-1` in `.env.example` so the boot has something to read. When an instance is split out under `/add-instance`, its `INSTANCE_ID` is set the same way, as a container env var, never written into mounted `server.properties` or `pocketmine.yml`. |
 | `INSTANCE_B_BIND`, `INSTANCE_B_ID` | The same two settings for `instance-b`, the second core instance `compose.yaml` defines alongside `instance` to prove the instance-split shape on one shared MySQL (riftal-infra#6). Distinct names because both instances read a container env var literally named `INSTANCE_ID`; the `_B` suffix is only how `.env` tells them apart before substitution. |
 | `BACKUP_RETENTION`, `BACKUP_INTERVAL_SECONDS`, `PARTIAL_MAX_AGE_MINUTES`, `LOCK_MAX_AGE_MINUTES` | How many backup sets `../deploy/backup.sh` keeps, how often the `backup` service runs it, how old a leftover `.partial` must be before it sweeps it, and how old a held `.lock` must be before it presumes the lock abandoned and sweeps that too. See `../deploy/README.md`. |
+| `RIFTAL_DB_PASSWORD_BACKUP` | Password of `backup`, the login the `backup` service dumps with. The `dump-login` service runs `../migrations/run-migrations.sh` with it on every `docker compose up`, creating or rotating the login, and `backup` starts only once that run succeeds. Empty or unset, `dump-login` exits 1 naming the variable and `backup` never starts. `dump-login-selftest.sh` proves both. See `../deploy/README.md`. |
 | `RIFTAL_DB_PASSWORD_ACCOUNTS` | The `accounts` MySQL login's password (ADR 008). The migration runner provisions the login with it, and compose hands it to both instances, where `RiftalAccounts` reads it from the environment, never from its config. At least 24 characters, `[A-Za-z0-9]` only. See RiftalAccounts below. |
-| `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). |
+| `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). `plugins/RiftalDevFaults.php` exists under the same gate, or not at all. |
+
+## Dev faults
+
+`plugins/RiftalDevFaults.php` breaks a running dev instance on purpose, for
+ADR 017 P8 (riftal-infra#932). From the server console only:
+
+- `devfaults-flush-fail <player>` cancels every save of that player until the
+  process ends, so custody sees the player's flush fail.
+- `devfaults-probe-fail` makes `players/.custody-probe` an empty directory, so
+  custody's probe fails too and it kills the process. The next boot removes
+  the directory before `RiftalCustody` enables, so the restart is not killed
+  by custody's own boot probe. A boot without the gate leaves it there, and
+  custody stops that boot.
 
 ## The world index
 
@@ -37,6 +51,27 @@ names worlds, never instances, so every instance gets the same one and a split
 changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
 path. A `wslc run` of either instance needs the same `-v` and command.
+
+## Restarts
+
+Both instances run `restart: on-failure` with no retry cap, start through
+`plugins/restart/boot-gate.sh`, and are healthchecked by
+`plugins/restart/raknet-ping.php` (riftal-infra#355). A crash restarts. A clean
+`stop` exits 0 and stays down. A start that waits on core's `server.lock`
+while a backup holds a stopped volume exits 1 at core's lock check and is
+started again, as ADR 015 item 6 expects, unless it was the third of three
+starts each under 120 s apart, when the gate parks it. A deploy that cannot boot fails
+within seconds, and after three starts each under 120 s apart the gate stops starting
+PocketMine and parks the container Up and `unhealthy`, logging this line:
+
+```
+RIFTAL BOOT LOOP: 3 starts each under 120 s apart, PocketMine not started, container parked
+```
+
+Read the earlier boots in the same log, fix the cause, then restart the
+container, or replace it, which starts with no start times at all. A restart
+within 120 s of the last start parks again. `/dev-stack`'s `wslc run` lines
+carry none of the three yet.
 
 ## RiftalCustody
 

@@ -27,6 +27,37 @@ subdirectories `WORLDS_DIR` holds. What appears there is decided by
 instance world volume. Splitting a world onto a new instance (`/add-instance`)
 adds one line there; the script needs no change, per `CLAUDE.md` hard rule 5.
 
+## The dump login
+
+`backup.sh` dumps as the login `backup`, whose password is
+`RIFTAL_DB_PASSWORD_BACKUP`. `../migrations/run-migrations.sh` creates it on
+any run with that variable set, grants it `riftal_role_backup`, and rotates it
+when the variable changes. On the compose stack the `dump-login` service is
+that run, and the `backup` service starts only after it exits 0
+(`../images/README.md`). The role holds `SELECT`, `SHOW VIEW` and `TRIGGER`
+on the schema and the global `SHOW_ROUTINE`. The last two matter: without
+them `mysqldump` still exits 0 and silently leaves every trigger or stored
+procedure out of the set. `../migrations/selftest.sh` proves `backup` is
+denied `INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`, `ALTER TABLE`,
+`DROP TABLE`, `LOCK TABLES`, `CREATE EVENT`, `CREATE USER` and `GRANT`.
+MySQL ties seeing a trigger to creating and dropping
+one, so `TRIGGER` lets `backup` drop any existing trigger in the schema,
+whatever the binlog setting, and with it whatever that trigger enforces. With
+the binlog on, as `binlog-check.sh` requires, MySQL refuses only
+`CREATE TRIGGER` to a login without `SUPER`. With the binlog off, or
+`log_bin_trust_function_creators` set, `backup` can create triggers too, and
+a `SIGNAL` trigger can block writers. `../migrations/selftest.sh` pins each
+of these: the refused create, the accepted drop, and the create once the
+guard is lifted.
+`backup` can change its own password and default role and take named locks
+(`GET_LOCK`), including the runner's `riftal_schema_migrations`, because
+those need no privilege. It can take shared row locks
+(`SELECT ... FOR SHARE`), because they come with the `SELECT` the dump needs.
+Their effect is on availability only: backups or migrations stop, or writers
+wait, until the login is reprovisioned or its session ends.
+`restore.sh` runs as the admin account, because it drops and recreates
+the schema and recreates each procedure under its original `DEFINER`.
+
 ## Retention
 
 `BACKUP_RETENTION` (default 10, see `images/.env.example`) is how many backup
@@ -280,7 +311,7 @@ hides one between them, so give it every lifetime in order.
 |---|---|---|---|
 | `MYSQL_HOST` | yes | | Database host, `mysql` in this stack |
 | `MYSQL_PORT` | no | `3306` | |
-| `MYSQL_USER` | no | `root` | |
+| `MYSQL_USER` | no | `backup` for `backup.sh`, `root` for `restore.sh` | |
 | `MYSQL_PASSWORD` | yes | | Read via `MYSQL_PWD` internally, same as `../migrations/run-migrations.sh` |
 | `MYSQL_DATABASE` | yes | | `riftal_dev` in the local stack |
 | `BACKUP_ROOT` | no | `/backups` | Where backup sets land; must be a volume, never the container's own layer |
@@ -334,7 +365,7 @@ wslc run --rm --network riftal-dev \
   -v riftal-backups:/backups \
   -v riftal-world:/worlds/riftal-world:ro \
   -v riftal-world-b:/worlds/riftal-world-b:ro \
-  -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
+  -e MYSQL_HOST=mysql -e MYSQL_USER=backup -e MYSQL_PASSWORD="$RIFTAL_DB_PASSWORD_BACKUP" \
   -e MYSQL_DATABASE=riftal_dev -e BACKUP_RETENTION="${BACKUP_RETENTION:-10}" \
   mysql:8 bash /deploy/backup.sh
 ```
