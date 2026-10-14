@@ -198,14 +198,21 @@ fresh volume and each stopped with `stop` on stdin: without the phar,
 `RiftalMines` and reaches `Done` with the one `lumber` line below as its only
 error; `instance-b` booted afterwards reaches `Done` without `RiftalMines`;
 `/data/plugin_data` is owned by uid 1000 every time, and nothing new appears
-in `./plugins`.
+in `./plugins`. That boot predates riftal-game#294, which logs the `lumber`
+line as a WARNING, so a clean boot with the phar carries no ERROR line. This
+README records no boot since that change.
 
 ## `lumber` and the shared MySQL row
 
 `MineWorldLoader` (riftal-game#49) logs and skips a world with no folder on
 disk instead of crashing, so loading `RiftalMines.phar` before the `lumber`
-world exists in `riftal-world` is safe: the log carries one error line naming
-`lumber`, and the plugin otherwise enables normally. Land the built world
+world exists in `riftal-world` is safe: the log carries one WARNING line,
+`mines: registered world "lumber" has no world folder to load yet; skipping
+until the map builder produces one`, and the plugin otherwise enables
+normally. It is a warning because a boot log check fails on any ERROR line
+(riftal-game#294). A `worlds/lumber` folder that exists but will not load,
+such as an interrupted build with no `level.dat`, is a fault and is logged
+as an ERROR. Land the built world
 under `riftal-world`'s `worlds/lumber` once `riftal-game`'s DesignBridge
 plugin exposes the write ops `build_mine --apply` needs (`create_world`,
 `pregen`, `set_blocks`/`fill`; tracked under riftal-game's `lane:bridge`
