@@ -1,0 +1,9 @@
+# Must fail action-pins.sh at line 9 and nowhere else: an unspaced `?` uses
+# key opening a continuation line of a flow sequence whose `[` ends the line
+# before, which PyYAML reads as a single-pair mapping with an explicit key.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps: [
+?uses : actions/checkout@11d5960a326750d5838078e36cf38b85af677262]

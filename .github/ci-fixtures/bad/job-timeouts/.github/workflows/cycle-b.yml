@@ -1,0 +1,6 @@
+# Called by cycle-a.yml, never asserted on its own. Calls cycle-a.yml back,
+# a loop that only the call chain catches.
+on: workflow_call
+jobs:
+  back:
+    uses: ./.github/workflows/cycle-a.yml

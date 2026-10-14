@@ -179,7 +179,7 @@ How a scenario reaches the stack, from `riftal-pm/devtools`:
   docker compose exec designer cat /data/plugin_data/DesignBridge/designbridge.log
   ```
 
-Under the WSL docker engine (`wsl -d Ubuntu-26.04 -u runner -- docker ...`),
+Under the WSL docker engine (`wsl -d Ubuntu-26.04 -u runner --exec docker ...`),
 the distro's `127.0.0.1` is its own loopback, not Windows'.
 
 - **`19140` stays on the distro's loopback.** It has no bind override, because
@@ -187,14 +187,11 @@ the distro's `127.0.0.1` is its own loopback, not Windows'.
   the distro against `127.0.0.1:19140`: a shell from
   `wsl -d Ubuntu-26.04 -u runner`, or a container started with
   `--network host`.
-- **The game port has no private route to Windows. This is a known
-  limitation.** The distro is bridged onto the LAN, so every address in it
-  that Windows can reach is a LAN address. `hostname -I` prints the LAN
-  address first. Setting `DESIGNER_GAME_BIND` to that address lets the relay
-  reach the stack (`RELAY_UPSTREAM_HOST`, the address `dev-stack.ps1` gives
-  its own relay), and it also exposes the offline-mode game port to every
-  machine on the LAN. Where that is not acceptable, run bot scenarios under
-  `wslc`.
+- **The game port stays on the distro's loopback too, so Windows cannot
+  reach it.** The distro is bridged onto the LAN, so every address in it
+  that Windows can reach is a LAN address, and the server runs in offline
+  mode. A bot scenario against the designer stack waits for `wslc` and is
+  reported `SCENARIO BLOCKED: environment` (steward, riftal-infra#275).
 
 Stop cleanly as above, then `docker volume rm riftal_smoke_designbridge`.
 

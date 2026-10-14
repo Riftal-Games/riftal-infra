@@ -3,20 +3,32 @@
 /**
  * @name RiftalDevBots
  * @main riftal\dev\bots\Main
- * @version 0.2.1
+ * @version 0.2.2
  * @api 5.0.0
+ * @softdepend RiftalCustody
  * @description Dev stack only. Admits the headless player bots from devtools/bot.
  */
+
+// The softdepend keeps RiftalCustody enabled until this plugin has disabled, so
+// its shutdown sweep runs after anything this plugin drops (ADR 013, item 2).
 
 declare(strict_types=1);
 
 namespace riftal\dev\bots;
 
+use Logger;
+use pocketmine\command\Command;
+use pocketmine\command\CommandSender;
+use pocketmine\console\ConsoleCommandSender;
+use pocketmine\event\entity\EntityTeleportEvent;
 use pocketmine\event\EventPriority;
 use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\event\player\PlayerPreLoginEvent;
 use pocketmine\event\player\PlayerQuitEvent;
+use pocketmine\permission\DefaultPermissions;
+use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
+use pocketmine\utils\Process;
 use function is_string;
 use function strtolower;
 
@@ -50,8 +62,8 @@ final class DevEnvGate{
  * Bots mark themselves with ClientData DeviceModel "riftal-devbot". Once
  * admitted they are ordinary Player objects, so every gameplay plugin already
  * treats them as players. The one thing done to them is a return to spawn on
- * join, so scenarios are repeatable. A plugin placing players on join
- * overrides that return; see onJoin().
+ * join, so scenarios are repeatable. A plugin placing players on login or
+ * on join overrides that return; see onTeleport() and onJoin().
  *
  * Admission needs the riftal-dev-bots server option (the --riftal-dev-bots=on
  * flag or server.properties), xbox-auth off, and RIFTAL_DEV_ENV=1; see
@@ -69,7 +81,12 @@ final class Main extends PluginBase{
 
 	private bool $admitting = false;
 
-	/** @var array<string, true> lower-cased names of bots admitted but not yet joined */
+	/**
+	 * Lower-cased names of bots admitted but not yet joined => whether a
+	 * plugin has teleported the bot since its admission.
+	 *
+	 * @var array<string, bool>
+	 */
 	private array $pending = [];
 
 	/**
@@ -101,8 +118,13 @@ final class Main extends PluginBase{
 
 		$manager = $server->getPluginManager();
 		$manager->registerEvent(PlayerPreLoginEvent::class, $this->onPreLogin(...), EventPriority::LOWEST, $this);
+		$manager->registerEvent(EntityTeleportEvent::class, $this->onTeleport(...), EventPriority::MONITOR, $this);
 		$manager->registerEvent(PlayerJoinEvent::class, $this->onJoin(...), EventPriority::LOWEST, $this);
 		$manager->registerEvent(PlayerQuitEvent::class, $this->onQuit(...), EventPriority::MONITOR, $this);
+
+		if($this->admitting){
+			$server->getCommandMap()->register("riftaldevbots", new CrashCommand($this->getLogger()));
+		}
 	}
 
 	private function onPreLogin(PlayerPreLoginEvent $event) : void{
@@ -115,19 +137,37 @@ final class Main extends PluginBase{
 			$event->setKickFlag(PlayerPreLoginEvent::KICK_FLAG_PLUGIN, "dev bots are disabled on this server");
 			return;
 		}
-		$this->pending[strtolower($info->getUsername())] = true;
+		$this->pending[strtolower($info->getUsername())] = false;
 	}
 
 	/**
-	 * A bot starts every session at its current world's safe spawn. A player's
-	 * saved position carries over between sessions, which would make each
-	 * scenario begin wherever the last one ended and drift further out every
-	 * run. Inventory and everything else a player keeps still carries over.
+	 * Any teleport between admission and join is a plugin placing the bot,
+	 * such as the login-spawn teleport riftal-game#222 gives ranks on
+	 * PlayerLoginEvent, and it stands.
+	 * MONITOR sees only teleports no listener cancelled.
+	 */
+	private function onTeleport(EntityTeleportEvent $event) : void{
+		$entity = $event->getEntity();
+		if(!$entity instanceof Player){
+			return;
+		}
+		$key = strtolower($entity->getName());
+		if(isset($this->pending[$key])){
+			$this->pending[$key] = true;
+		}
+	}
+
+	/**
+	 * A bot starts every session at its current world's safe spawn, unless a
+	 * plugin placed it first. A player's saved position carries over between
+	 * sessions, which would make each scenario begin wherever the last one
+	 * ended and drift further out every run. Inventory and everything else a
+	 * player keeps still carries over.
 	 *
 	 * Registered at LOWEST so it runs first: any plugin placing players on join
 	 * at any priority after LOWEST, such as RiftalMines' join_teleport, has the
 	 * last word, and the bot lands where a real player would.
-	 * join-order/selftest.sh holds this order.
+	 * join-order/selftest.sh holds this order and the teleport watch.
 	 */
 	private function onJoin(PlayerJoinEvent $event) : void{
 		$player = $event->getPlayer();
@@ -136,9 +176,12 @@ final class Main extends PluginBase{
 		if(!isset($this->pending[$key])){
 			return;
 		}
+		$placed = $this->pending[$key];
 		unset($this->pending[$key]);
 		$this->bots[$key] = $player->getId();
-		$player->teleport($player->getWorld()->getSafeSpawn());
+		if(!$placed){
+			$player->teleport($player->getWorld()->getSafeSpawn());
+		}
 		$this->getLogger()->info("devbot joined $name");
 	}
 
@@ -149,5 +192,45 @@ final class Main extends PluginBase{
 			return;
 		}
 		unset($this->bots[$name]);
+	}
+}
+
+/**
+ * ADR 017's crash proofs need the server to die mid-tick with no save, no
+ * shutdown and no plugin disable, as a host crash or an OOM kill would. The
+ * guard refuses killing a server container from outside, so the process kills
+ * itself. SIGKILL cannot be caught, so nothing in the process runs after it.
+ *
+ * Registered only when Main admits dev bots, so a server without
+ * --riftal-dev-bots=on, xbox-auth off and RIFTAL_DEV_ENV=1 has no such
+ * command. Runnable only from the server console: a player who could run it
+ * could throw away every unsaved change on the instance at will.
+ * crash-hook/selftest.sh holds both.
+ */
+final class CrashCommand extends Command{
+
+	public const NAME = "devbots-crash";
+
+	public function __construct(private Logger $logger){
+		parent::__construct(self::NAME, "Dev stack only. Kills this server process with SIGKILL, for crash proofs.");
+		$this->setPermission(DefaultPermissions::ROOT_CONSOLE);
+	}
+
+	public function execute(CommandSender $sender, string $commandLabel, array $args) : bool{
+		if(!$sender instanceof ConsoleCommandSender){
+			$sender->sendMessage(self::NAME . " runs only from the server console");
+			return true;
+		}
+		$pid = Process::pid();
+		// The kernel drops a SIGKILL sent to a PID namespace's init from inside
+		// that namespace, so the server would carry on as if nothing happened.
+		// A crash proof run on it would measure a run with no crash in it.
+		if($pid === 1){
+			$this->logger->error(self::NAME . ": refused, this server is process 1 in its container, and a process 1 cannot SIGKILL itself; run the image with an init such as tini as process 1");
+			return true;
+		}
+		$this->logger->warning(self::NAME . ": killing process $pid with SIGKILL");
+		Process::kill($pid);
+		return true;
 	}
 }

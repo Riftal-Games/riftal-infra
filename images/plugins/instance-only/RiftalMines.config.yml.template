@@ -4,18 +4,21 @@
 # there.
 #
 # Every value below except the database section and `worlds` is the plugin's
-# own shipped default (riftal-game/mines/resources/config.yml), which the
-# plugin throws without and selftest.sh compares to that file. `worlds` names
+# own shipped default (riftal-game/mines/resources/config.yml), which
+# selftest.sh compares to that file. The plugin throws without any of the
+# scalars, and reads a missing join_teleport section as switched off, so that
+# one would drift in silence were it not carried here. `worlds` names
 # only lumber: the shipped mine_a to mine_c entries have no built mine on this
 # stack, and mine_a here is a plain generated world. The database section
-# differs because that file's defaults name a host, schema and user that
-# exist nowhere on this stack: MYSQL_DATABASE is riftal_dev (images/compose.yaml),
-# and the dev stack has never provisioned a separate "mines" MySQL user, so
-# this uses the same root credentials the backup service already uses
-# rather than inventing a second, equally dev-only credential. "mysql" is
-# this stack's actual resolvable network alias for the database container,
-# under both the compose and wslc bring-up forms; "riftal-mysql" (the
-# plugin's shipped default) resolves under neither.
+# differs because that file's defaults name a schema and user this stack
+# never provisions, and a host the compose mysql service does not answer to:
+# MYSQL_DATABASE is riftal_dev (images/compose.yaml), and the dev stack has
+# never provisioned a separate "mines" MySQL user, so this uses the same root
+# credentials the backup service already uses rather than inventing a second,
+# equally dev-only credential. "mysql" is the compose service name, which
+# resolves on riftal-dev; "riftal-mysql" (the plugin's shipped default) does
+# not under compose. Name resolution under the wslc bring-up form is
+# unverified; see instance-only/README.md.
 database:
   host: "mysql"
   schema: "riftal_dev"
@@ -29,6 +32,17 @@ worlds:
 
 default_reset_percent: 60
 
+refill_retry_limit: 1
+
+refill_retry_delay_ticks: 100
+
 refill_blocks_per_tick: 4096
 
 refill_tick_budget_ms: 15
+
+# Switching it on here is riftal-infra#319: with it on, a location missing from
+# the delivered world_index.json, or its world not loaded, rejects every join.
+join_teleport:
+  enabled: false
+  location: "mine_a_spawn"
+  world_index: "world_index.json"

@@ -6,8 +6,12 @@ from pathlib import Path
 import pytest
 
 from designer import world_index
+from designer.builders.base import Palette
+from designer.builders.mine import build_mine
+from designer.builders.mine_spec import MineSpec
+from designer.config import PROJECT_ROOT
 from designer.region import Bounds
-from designer.world_index import Location, NamedRegion, WorldIndex
+from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
 SPEC_WORLDS = {"mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm", "contested", "plots"}
 STAMP = "2026-09-07T12:00:00+00:00"
@@ -25,7 +29,17 @@ def test_committed_file_names_the_spec_worlds(index: WorldIndex) -> None:
     assert index.regions == [NamedRegion("lumber_safe_zone", "lumber", (-32, 40, -32), (31, 63, 31), ["mine", "safe_zone"])]
     assert {w.name: w.extra["rank"] for w in index.worlds if w.role == "ore_mine"} == {"mine_a": "A", "mine_b": "B", "mine_c": "C"}
     assert {(w.generator, w.seed) for w in index.worlds} == {("normal", 20260907)}
-    assert index.resolve_pos("spawn") == (0, 64, 0) and index.locations_tagged("spawn")[0].world == "design"
+    assert index.resolve_pos("spawn") == (256, 70, 256) and index.locations_tagged("spawn")[0].world == "design"
+
+
+def test_design_spawn_sits_on_chunks_a_fresh_level_generates(index: WorldIndex) -> None:
+    # PocketMine creates a level with its spawn at (256, 70, 256) and generates only a
+    # radius of 8 chunks around it (WorldCreationOptions, WorldManager::generateWorld).
+    # A spawn outside that area reads as ungenerated chunks until someone runs pregen.
+    boot_chunk, safe_offset = (256 >> 4, 256 >> 4), 4
+    x, _, z = index.resolve_pos("spawn")
+    assert index.resolve("spawn").world == index.default_world == "design"
+    assert max(abs((x >> 4) - boot_chunk[0]), abs((z >> 4) - boot_chunk[1])) <= safe_offset
 
 
 def test_save_is_byte_stable_and_name_ordered(index: WorldIndex, tmp_path: Path) -> None:
@@ -52,7 +66,7 @@ def test_save_is_byte_stable_and_name_ordered(index: WorldIndex, tmp_path: Path)
 
 def test_resolve_pos_accepts_every_form(index: WorldIndex) -> None:
     index.add_region(NamedRegion("yard", "design", (9, 70, 9), (-4, 60, -4)))
-    assert index.resolve_pos("spawn") == (0, 64, 0)
+    assert index.resolve_pos("spawn") == (256, 70, 256)
     assert index.resolve_pos("yard") == (3, 65, 3)
     assert index.resolve("yard").bounds == Bounds((-4, 60, -4), (9, 70, 9))
     assert Bounds.from_center(index.resolve_pos("yard"), index.resolve("yard").bounds.size) == index.resolve("yard").bounds
@@ -118,11 +132,43 @@ def test_preflight_returns_the_taken_names_and_raises_on_what_add_would_refuse(i
         index.preflight([gate], [{**yard, "name": "gate"}])
 
 
+def _contested_mine_regions(**changes: object) -> list[dict]:
+    data = {**json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8")), "name": "contested_mine", "world": "contested"}
+    data.pop("safe_zone")
+    return build_mine(MineSpec.from_dict({**data, **changes}), Palette.load("mine_stone")).extras["regions"]
+
+
+def test_preflight_refuses_a_contested_mine_spec_that_leaves_safe_zone_at_its_default(index: WorldIndex) -> None:
+    with pytest.raises(ValueError, match=r"^region 'contested_mine' carries safe_zone in 'contested', a contested world that is always PvP;"):
+        index.preflight([], _contested_mine_regions())
+    with pytest.raises(ValueError, match="carries safe_zone"):
+        index.preflight([], _contested_mine_regions(safe_zone=True))
+    assert index.preflight([], _contested_mine_regions(safe_zone=False)) == []
+
+
+def test_a_contested_world_refuses_a_safe_zone_region_on_add_and_load(index: WorldIndex, tmp_path: Path) -> None:
+    pit = NamedRegion("pit", "contested", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"])
+    with pytest.raises(ValueError, match="region 'pit' carries safe_zone in 'contested'"):
+        index.add_region(pit)
+    (tmp_path / "bad.json").write_text(json.dumps({**index.to_json(), "regions": [pit.to_json()]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="^NamedRegion 'pit' carries safe_zone in 'contested'"):
+        WorldIndex.load(tmp_path / "bad.json")
+    index.add_region(NamedRegion("pit", "contested", (0, 0, 0), (3, 3, 3), ["mine"]))
+    index.add_region(NamedRegion("yard", "mine_a", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
+
+
+
+def test_the_safe_zone_refusal_follows_the_world_role_not_its_name() -> None:
+    index = WorldIndex(worlds=[WorldEntry("arena", "normal", 0, "contested"), WorldEntry("contested", "normal", 0, "ore_mine")])
+    with pytest.raises(ValueError, match="region 'pit' carries safe_zone in 'arena'"):
+        index.add_region(NamedRegion("pit", "arena", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
+    index.add_region(NamedRegion("yard", "contested", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
+
 def test_register_refuses_a_taken_name_unless_replace(index: WorldIndex) -> None:
     moved = Location("spawn", "design", (5, 64, 5)).to_json()
     with pytest.raises(ValueError, match="'spawn' is already defined"):
         index.register([moved], [])
-    assert index.resolve("spawn").pos == (0, 64, 0)
+    assert index.resolve("spawn").pos == (256, 70, 256)
     index.register([moved], [], replace=True)
     assert index.resolve("spawn").pos == (5, 64, 5)
 
@@ -197,3 +243,69 @@ def test_select_filters_by_kind_and_tag_in_name_order(index: WorldIndex) -> None
         index.select("worlds", "spawn")
     with pytest.raises(ValueError, match="^kind must be one of worlds, locations, regions, not 'save'$"):
         index.select("save")
+
+
+@pytest.mark.parametrize("kind", ["locations", "regions"])
+@pytest.mark.parametrize("tag", [1, True, None, ["safe_zone"]])
+def test_load_refuses_an_entry_with_a_tag_that_is_not_a_string(index: WorldIndex, tmp_path: Path, kind: str, tag: object) -> None:
+    data = index.to_json()
+    data[kind][0]["tags"] = ["mine", tag]
+    (tmp_path / "bad.json").write_text(json.dumps(data), encoding="utf-8")
+    name = data[kind][0]["name"]
+    with pytest.raises(ValueError, match=f"^{'Location' if kind == 'locations' else 'NamedRegion'} '{name}' has a tag that is not a string"):
+        WorldIndex.load(tmp_path / "bad.json")
+
+
+@pytest.mark.parametrize("kind", ["locations", "regions"])
+@pytest.mark.parametrize("tags", ["safe_zone", {"safe_zone": True}, 1])
+def test_load_refuses_an_entry_whose_tags_are_not_a_list(index: WorldIndex, tmp_path: Path, kind: str, tags: object) -> None:
+    data = index.to_json()
+    data[kind][0]["tags"] = tags
+    (tmp_path / "bad.json").write_text(json.dumps(data), encoding="utf-8")
+    name = data[kind][0]["name"]
+    with pytest.raises(ValueError, match=f"^{'Location' if kind == 'locations' else 'NamedRegion'} '{name}' has tags that are not a list: {re.escape(repr(tags))}$"):
+        WorldIndex.load(tmp_path / "bad.json")
+
+
+PROBES = {
+    "locations": {"name": "probe", "world": "design", "pos": [1, 2, 3]},
+    "regions": {"name": "probe", "world": "design", "min": [0, 0, 0], "max": [1, 1, 1]},
+}
+
+
+def _write(index: WorldIndex, path: str, kind: str, entry: dict[str, object]) -> None:
+    locations, regions = ([entry], []) if kind == "locations" else ([], [entry])
+    if path == "add" and kind == "locations":
+        index.add_location(Location.from_json(entry))
+    elif path == "add":
+        index.add_region(NamedRegion.from_json(entry))
+    elif path == "register":
+        index.register(locations, regions)
+    else:
+        index.preflight(locations, regions)
+
+
+@pytest.mark.parametrize("path", ["add", "register", "preflight"])
+@pytest.mark.parametrize("kind", ["locations", "regions"])
+@pytest.mark.parametrize(
+    ("tags", "refusal"),
+    [
+        ("safe_zone", "has tags that are not a list: 'safe_zone'"),
+        ({"safe_zone": True}, "has tags that are not a list: {'safe_zone': True}"),
+        (1, "has tags that are not a list: 1"),
+        (["mine", 1], "has a tag that is not a string: 1"),
+        (["mine", None], "has a tag that is not a string: None"),
+    ],
+)
+def test_every_write_path_refuses_tags_the_plugins_cannot_match(index: WorldIndex, path: str, kind: str, tags: object, refusal: str) -> None:
+    before = index.to_json()
+    with pytest.raises(ValueError, match=f"^{'Location' if kind == 'locations' else 'NamedRegion'} 'probe' {re.escape(refusal)}$"):
+        _write(index, path, kind, {**PROBES[kind], "tags": tags})
+    assert index.to_json() == before
+
+
+@pytest.mark.parametrize("path", ["add", "register", "preflight"])
+@pytest.mark.parametrize("kind", ["locations", "regions"])
+def test_every_write_path_admits_a_list_of_string_tags(index: WorldIndex, path: str, kind: str) -> None:
+    _write(index, path, kind, {**PROBES[kind], "tags": ["mine", "safe_zone"]})
+    assert path == "preflight" or index.resolve("probe").tags == ["mine", "safe_zone"]

@@ -23,8 +23,14 @@ locations and regions in the index unless ``register_index`` is false or ``dry_r
 ``register_index`` is false, refuses a name that breaks the index's naming rules, names an
 unlisted world or appears twice in the build, and a name already taken unless ``replace_index``,
 a dry run included, so a dry run answers every refusal the build would; runs ``mine_valid`` when ``kind`` is
-``mine`` unless ``verify`` is false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
+``mine`` unless ``verify`` is false, and refuses a build that fails it before the snapshot, a dry run
+reporting the failure instead; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
 falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
+
+A build of floating text alone, ``signage``, touches no block, so it answers ``bounds`` and ``snapshot`` as null
+and takes no snapshot, and is undoable all the same: its undo entry is pushed once the texts are set, and
+``undo`` removes every text it set with ``remove_text``. An id that already carried text before the build is
+removed too, not put back as it was.
 
 ```json
 {"properties": {"dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "kind": {"title": "Kind", "type": "string"}, "palette": {"default": "mine_stone", "title": "Palette", "type": "string"}, "register_index": {"default": true, "title": "Register Index", "type": "boolean"}, "replace_index": {"default": false, "title": "Replace Index", "type": "boolean"}, "spec": {"anyOf": [{"additionalProperties": true, "type": "object"}, {"type": "string"}], "title": "Spec"}, "verify": {"default": true, "title": "Verify", "type": "boolean"}}, "required": ["kind", "spec"], "title": "buildArguments", "type": "object"}
@@ -42,7 +48,7 @@ Returns: passed, detail, coords, seconds.
 
 ## check_mine
 
-Whether the named ``region`` matches the mine ``spec`` (a path under ``specs/``): enclosure, entrances, ore mix, floor.
+Whether the named ``region`` matches the mine ``spec`` (a path under ``specs/``): enclosure, entrances, ore mix, floor, and an interior of only air and ``ores``.
 
 ```json
 {"properties": {"region": {"title": "Region", "type": "string"}, "spec": {"title": "Spec", "type": "string"}}, "required": ["region", "spec"], "title": "check_mineArguments", "type": "object"}
@@ -184,7 +190,9 @@ Returns: snapshots as [{path, world, timestamp, label, bytes, undo_id}].
 
 ## list_undo
 
-Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored.
+Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored, and texts.
+
+A floating-text entry has ``texts``, the ids its undo removes, and null ``path`` and ``bounds``.
 
 ```json
 {"properties": {"limit": {"default": 20, "title": "Limit", "type": "integer"}}, "title": "list_undoArguments", "type": "object"}
@@ -288,6 +296,8 @@ Returns: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs.
 ## restore
 
 Put a snapshot back by path or undo id, sending only the cells that differ; what it overwrites is pushed as a ``restore`` entry.
+
+A snapshot file that is missing or cannot be read, or an undo id whose snapshot names a level other than the one its entry recorded, fails with code ``snapshot_unreadable`` before anything is sent.
 
 ```json
 {"properties": {"dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "snapshot": {"anyOf": [{"type": "string"}, {"type": "integer"}], "title": "Snapshot"}}, "required": ["snapshot"], "title": "restoreArguments", "type": "object"}
@@ -404,15 +414,21 @@ A top-down PNG strip, one frame per snapshot on disk whose bounds exactly match 
 A frame is either an explicit ``snapshot`` call naming ``region`` or the automatic
 before-mutation snapshot a mutating tool takes when its own ``target`` was ``region``;
 a snapshot over any other box, such as a builder's own extras, is not one of its frames.
+A file in the world's folder that cannot be read is left out and listed in ``skipped``
+with code ``snapshot_unreadable``, so one damaged file costs one frame, not the strip.
 
 ```json
 {"properties": {"out": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "Out"}, "region": {"title": "Region", "type": "string"}}, "required": ["region"], "title": "timelapseArguments", "type": "object"}
 ```
-Returns: region, world, frames, path.
+Returns: region, world, frames, path, skipped as [{path, error, code}].
 
 ## undo
 
 Reverse the ``n`` newest edits not yet undone, from any session; each pushes an ``undo`` entry that plain ``undo`` skips.
+
+Stops at the first failure with ``ok`` false. ``undone`` still names what was reversed before it, and
+``snapshot`` and ``undo_id`` the newest snapshot pushed, the failed restore's own when it took one. An entry whose snapshot file is missing or cannot be read fails with code
+``snapshot_unreadable``.
 
 ```json
 {"properties": {"dry_run": {"default": false, "title": "Dry Run", "type": "boolean"}, "n": {"default": 1, "title": "N", "type": "integer"}}, "title": "undoArguments", "type": "object"}

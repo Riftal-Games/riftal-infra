@@ -1,0 +1,16 @@
+{
+  "name": "mine_b",
+  "world": "mine_b",
+  "origin": [-18, 38, -18],
+  "size": [36, 15, 36],
+  "wall_thickness": 2,
+  "floor_y": 40,
+  "entrance": {"side": "south", "width": 3, "height": 3},
+  "exit_path": {"length": 6, "width": 3},
+  "ores": {"minecraft:copper_ore": 1.0, "minecraft:iron_ore": 0.5},
+  "fill": "solid",
+  "seed": 20260907,
+  "lights_every": 4,
+  "reset_percent": 60,
+  "safe_zone": true
+}

@@ -7,7 +7,7 @@ dev stack's `19132`/`19133`) and verified the compose YAML with `docker compose
 config`, but had no working container runtime to boot both stacks at once and watch
 each answer its own pong. This is that boot, run once wslc's `ERROR_SHARING_VIOLATION`
 (riftal-pm#120) made way for the Docker fallback engine (riftal-pm#129):
-`wsl -d Ubuntu-26.04 -u runner -- docker ...`.
+`wsl -d Ubuntu-26.04 -u runner --exec docker ...`.
 
 Three PocketMine containers, one Docker daemon, one boot:
 
