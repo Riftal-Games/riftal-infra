@@ -9,6 +9,11 @@
 # volumes and the database as they were. The one passing combination must
 # clear the levels, players/ and plugin_data/, and leave every kept file byte
 # for byte.
+#
+# wipe-check.sh must fail on the seeded volumes, naming each level and folder
+# the wipe clears, and pass after the wipe with every kept file still there. A
+# level or a file that reappears after the wipe must fail it again, and a level
+# with an ADR 009 build must fail it naming riftal-infra#1126.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -71,7 +76,7 @@ kept >"$LOGS/kept.before"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=55
+EXPECTED_ASSERTIONS=66
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # wipe <database> <set> [docker exec -e flags]
@@ -101,6 +106,47 @@ refused() {
 W=(-e WORLDS_DIR=/worlds)
 L=(-e LEVEL_LOCKS_DIR=/tmp/locks)
 DEV=(-e RIFTAL_DEV_ENV=1)
+CHECK=()
+check() {
+  docker exec -e MYSQL_HOST=127.0.0.1 -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest -e MYSQL_DATABASE=riftal_dev \
+    "${CHECK[@]}" "$C" bash /deploy/wipe-check.sh
+}
+# check_fails <name> <reason>...: wipe-check, run with CHECK, fails naming each.
+check_fails() {
+  local name="$1" log="$LOGS/check-$1.log" reason missing=
+  shift
+  if check >"$log" 2>&1; then
+    fail "wipe-check $name: should fail"; cat "$log"; return
+  fi
+  for reason in "$@"; do
+    grep -F "wipe-check riftal_dev: FAIL " "$log" | grep -qF -- "$reason" || missing="$reason"
+  done
+  if [ -z "$missing" ]; then
+    pass "wipe-check $name: fails naming each of $# reason(s)"
+  else
+    fail "wipe-check $name: does not name '$missing'"; cat "$log"
+  fi
+}
+NOBUILD="has no ADR 009 build and should be absent after a wipe"
+BUILT="has an ADR 009 build, and checking it against its lock's content_sha256 is riftal-infra#1126"
+
+printf '\n== wipe-check fails on the seeded volumes\n'
+CHECK=("${W[@]}" "${L[@]}")
+check_fails seeded "level mine_a on riftal_smoke_a $NOBUILD" "level .dot_a on riftal_smoke_a $NOBUILD" \
+  "players/ on riftal_smoke_a holds 1 file(s)" "plugin_data/ on riftal_smoke_a holds 2 file(s)" \
+  "level mine_b on riftal_smoke_b $NOBUILD" "level .dot_b on riftal_smoke_b $NOBUILD" \
+  "players/ on riftal_smoke_b holds 1 file(s)" "plugin_data/ on riftal_smoke_b holds 2 file(s)"
+CHECK=("${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/built)
+check_fails built "level mine_a on riftal_smoke_a $BUILT" "level mine_b on riftal_smoke_b $NOBUILD"
+CHECK=("${L[@]}")
+check_fails no-worlds-dir "WORLDS_DIR is required"
+CHECK=("${W[@]}")
+check_fails no-locks-dir "LEVEL_LOCKS_DIR must name a directory"
+sh_in 'mkdir -p /tmp/novolumes'
+CHECK=(-e WORLDS_DIR=/tmp/novolumes "${L[@]}")
+check_fails no-volumes "no instance volumes found under /tmp/novolumes"
+state | cmp -s - "$LOGS/state.before" && pass "wipe-check changed neither volume" \
+  || fail "wipe-check changed a volume"
 
 printf '\n== every combination but RIFTAL_DEV_ENV=1 on riftal_dev refuses a level with no build\n'
 refused dev-unset "on riftal_smoke_a has no ADR 009 build, and a wipe clears one only on the dev stack: RIFTAL_DEV_ENV is unset" \
@@ -159,6 +205,28 @@ while read -r sum path; do
 done <"$LOGS/kept.before"
 [ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'riftal_dev'")" = "0" ] \
   && pass "riftal_dev is there and empty" || fail "riftal_dev should be there and empty"
+
+printf '\n== after the wipe, wipe-check passes with every kept file still there\n'
+# Stands in for the migrations, which wipe-selftest.sh runs, so the database
+# half of wipe-check passes and only the volumes decide it.
+q "CREATE TABLE riftal_dev.schema_migrations (version INT PRIMARY KEY); INSERT INTO riftal_dev.schema_migrations VALUES (1)"
+CHECK=("${W[@]}" "${L[@]}")
+if check >"$LOGS/check-wiped.log" 2>&1; then
+  pass "wipe-check passes on the wiped volumes"
+else
+  fail "wipe-check should pass on the wiped volumes"; cat "$LOGS/check-wiped.log"
+fi
+for v in a b; do
+  grep -qx "wipe-check riftal_dev: volume riftal_smoke_$v: ok, no level, and players/ and plugin_data/ hold no file" \
+    "$LOGS/check-wiped.log" && pass "riftal_smoke_$v: wipe-check reports the volume ok" \
+    || fail "riftal_smoke_$v: wipe-check does not report the volume ok"
+done
+sh_in 'set -e; mkdir -p /worlds/riftal_smoke_a/worlds/mine_a /worlds/riftal_smoke_b/plugin_data/RiftalMines/sub
+  printf x > /worlds/riftal_smoke_a/worlds/mine_a/level.dat
+  printf x > /worlds/riftal_smoke_b/plugin_data/RiftalMines/sub/state.json'
+check_fails regrown "level mine_a on riftal_smoke_a $NOBUILD" "plugin_data/ on riftal_smoke_b holds 1 file(s)"
+CHECK=("${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/built)
+check_fails regrown-built "level mine_a on riftal_smoke_a $BUILT"
 
 printf '\n'
 ran=$((PASSES + FAILURES))

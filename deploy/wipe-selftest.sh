@@ -107,7 +107,8 @@ wipe() {
     -e MYSQL_DATABASE="$1" -e WIPE_CONFIRM="$2" -e BACKUP_SET="$3" "$C" bash /deploy/wipe.sh
 }
 check() {
-  env_run -e MYSQL_DATABASE="$DB" "$C" bash /deploy/wipe-check.sh
+  env_run -e MYSQL_DATABASE="$DB" -e WORLDS_DIR=/tmp/worlds -e LEVEL_LOCKS_DIR=/tmp/locks \
+    "$C" bash /deploy/wipe-check.sh
 }
 snapshot_rows() { q "SELECT COUNT(*) FROM $DB.economy_balance_snapshot"; }
 
