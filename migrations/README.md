@@ -50,8 +50,8 @@ runs them; it never authors gameplay migrations.
 | `MYSQL_PASSWORD` | yes | | Read via `MYSQL_PWD` internally so it never appears in `ps` output |
 | `MYSQL_DATABASE` | yes | | `riftal_dev` in the local stack |
 | `MIGRATIONS_DIR` | no | sibling checkout's `riftal-game/lib/resources/sql/migrations` | Mount the real directory in explicitly rather than relying on the fallback |
-| `MIGRATIONS_LOCK_NAME` | no | `riftal_schema_migrations` | Override only for running more than one independent test in parallel |
-| `MIGRATIONS_LOCK_TIMEOUT` | no | `60` (seconds) | |
+| `MIGRATIONS_LOCK_NAME` | no | `riftal_schema_migrations` | Override only for running more than one independent test in parallel. 1 to 64 characters from `A-Z a-z 0-9 _ -`; anything else fails the run before it connects. Empty means the default |
+| `MIGRATIONS_LOCK_TIMEOUT` | no | `60` (seconds) | A whole number of seconds; anything else fails the run before it connects. Empty means the default |
 | `GRANTS_FILE` | no | sibling checkout's `riftal-game/lib/resources/sql/grants.sql` | Mount the real file in explicitly, as with `MIGRATIONS_DIR` |
 | `RIFTAL_DB_PASSWORD_<NAME>` | no | | One per plugin login to provision, e.g. `RIFTAL_DB_PASSWORD_MINES` for `mines`. At least 24 characters, `[A-Za-z0-9]` only |
 
@@ -117,6 +117,14 @@ account allowed to create a routine under any definer.
 Same `mysql:8` image the dev stack already runs, so nothing new to pull.
 Run this after `riftal-mysql` is up and **before** the instance, per the
 rollout order in `../CLAUDE.md`: migrations, then instances, then the proxy.
+A migration whose effect needs a matching plugin build cannot follow that
+order one instance at a time. `../deploy/ROLLOUT.md` records what each one
+needs: `0010_add_gang_founded_marker.sql`,
+`0014_add_player_ranks_claim.sql` and
+`0015_raise_gang_level_with_contribution.sql`. Its Audited migrations section
+covers every migration through `0020_create_gang_vault_slots.sql` and gives
+the reason each other one is not coupled; a later migration is unaudited until
+it is listed there.
 
 ```sh
 export MSYS_NO_PATHCONV=1
@@ -153,23 +161,44 @@ and a holder that disconnected between the two reads look the same. Only a
 ## Testing
 
 `selftest.sh` proves the runner against a real, throwaway `mysql:8`
-container using the fixtures in `fixtures/`: no-op on an empty directory,
-ordered apply with both files recorded, a no-op second run, a broken
-migration halting the run without being recorded, a migration failing after
-one that recreated a procedure still restoring the role's `EXECUTE` on it, a
-pending file sorting
-below the highest applied one refusing the run while files above it still
-apply, both of those decided bytewise under a stand-in case-folding locale,
-and two invocations racing
-the same lock name applying a pending migration exactly once, a lock held
-by another login timing out with that login named, each unusable read
-of the holder reported as what it is (a `GET_LOCK` NULL, an `IS_USED_LOCK`
-NULL or failure, a failed processlist query, and the empty row a login
-without `PROCESS` or any `performance_schema` grant reads), a server
-reporting 8.0.29 refused while 8.0.30 and 8.1.0 pass, and login
-provisioning against `fixtures/grants/`: a login created on an existing
-schema, an idempotent second run, rotation, a restore onto a fresh server,
-and the loud refusals, and the DEFINER procedure checks above. It calls
+container using the fixtures in `fixtures/`. Its sections, in the order it
+runs them, are:
+
+- empty migrations directory is a no-op success
+- applies pending migrations in order and records them
+- second run with nothing new is a no-op success
+- a broken migration halts loudly and is not recorded
+- two invocations racing the same lock name do not double-apply
+- a lock connection that dies early fails cleanly
+- a lock session that stops reading before GET_LOCK fails cleanly
+- a run whose lock session dies mid-run fails
+- a lock session that stops reading before RELEASE_LOCK fails
+- a lock held elsewhere times out naming its holder
+- a lock failure says which read of its holder came back unusable
+- a lock timeout that is not a whole number is refused before connecting
+- a lock name outside the safe character set is refused before connecting
+- a server below MySQL 8.0.30 is refused before anything is applied
+- a pending file sorting below the highest applied one is refused
+- filename order is bytewise whatever locale the container carries
+- provisioning on an existing schema creates the login with its role
+- a second provisioning run is idempotent
+- a changed password in the environment rotates the login
+- provisioning refuses bad input loudly and changes nothing
+- a restore onto a fresh server, then the step, rebuilds the login
+- a DEFINER procedure runs on its definer's privileges and survives a restore
+- a migration failing after one that recreates a procedure still applies grants
+- an empty or missing migrations directory still provisions
+- a run needing grants fails when the grants file is not a file
+- a plain login named like a role does not pass as the role
+- each half of the role check refuses on its own
+- no provisioning run ever prints a password
+
+The provisioning sections run against `fixtures/grants/`. The role check's
+decoys are two logins, one locked with a password and one open with none,
+each failing exactly one half of the check, so removing either half admits
+one of them. The self-test refuses to start unless these bullets match its
+`section` titles exactly and in order. On success, its closing lines list
+every section title. It calls
 `docker` directly, the same way `.github/workflows/ci.yml`'s PHP lint step
 does, so it runs in CI and, on Nasir's Windows machine, under the Docker
 inside the WSL distro that hosts the CI runners:

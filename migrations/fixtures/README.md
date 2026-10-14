@@ -45,6 +45,11 @@ only real source of those; these exist only so `selftest.sh` can prove
   processlist read fail, and a `mysql` stand-in it puts first on `PATH` that
   answers `GET_LOCK` with NULL, so the self-test can reach each holder message
   a real server gives only inside a window it cannot time.
+- `lock-pipe/` holds a `stdbuf` stand-in it puts first on `PATH`, which
+  starts the lock session with its stdin closed, either at once or after
+  answering `GET_LOCK` with 1, and a `printf` function, sourced through
+  `BASH_ENV`, that holds the runner's next write to that session until it is
+  closed, so the write meets a pipe with no reader every time.
 - `version-floor/` holds a shell function, sourced through `BASH_ENV`, that
   makes the runner's `VERSION()` query report a chosen version, so the
   self-test can show a server below 8.0.30 refused without one.

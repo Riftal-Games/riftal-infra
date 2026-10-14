@@ -1,0 +1,10 @@
+# Must fail action-pins.sh at line 9 and nowhere else: no space between the `?`
+# and a uses key after a `{`, with nothing after the key on its line and the
+# value on the next, which PyYAML reads as an explicit key.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - { ?uses
+          : actions/checkout@11d5960a326750d5838078e36cf38b85af677262 }

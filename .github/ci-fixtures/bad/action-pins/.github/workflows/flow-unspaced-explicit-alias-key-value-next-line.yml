@@ -1,0 +1,12 @@
+# Must fail action-pins.sh at line 11 and nowhere else: an alias directly after
+# a `?` in a flow mapping, with nothing after it on its line and the value on
+# the next, which PyYAML reads as an explicit key.
+on: push
+env:
+  KEY: &k uses
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - { ?*k
+          : actions/checkout@11d5960a326750d5838078e36cf38b85af677262 }

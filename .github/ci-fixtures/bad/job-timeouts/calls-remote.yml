@@ -1,0 +1,11 @@
+# Must fail job-timeouts.sh: the second job calls a workflow in another
+# repository, whose jobs no read of this checkout can see.
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: "true"
+  call:
+    uses: Riftal-Games/riftal-infra/.github/workflows/ci.yml@ad88fa0a1b2c3d4e5f60718293a4b5c6d7e8f901

@@ -14,3 +14,4 @@
 Dockerfile text eol=lf
 Containerfile text eol=lf
 migrations/fixtures/lock-reads/mysql text eol=lf
+migrations/fixtures/lock-pipe/stdbuf text eol=lf

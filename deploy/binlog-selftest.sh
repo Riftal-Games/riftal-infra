@@ -16,6 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUFFIX="$$-$(date +%s)"
 NETWORK="riftal_smoke_binlog_net_$SUFFIX"
 MYSQL_CONTAINER="riftal_smoke_binlog_mysql_$SUFFIX"
+CHECK_CONTAINER="riftal_smoke_binlog_check_$SUFFIX"
 
 # Per run, so two runs sharing a host, as the self-hosted CI runners do,
 # never read each other's output.
@@ -27,6 +28,7 @@ stop_mysql() {
   docker stop -t 60 "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
 }
 cleanup() {
+  docker rm -f -v "$CHECK_CONTAINER" >/dev/null 2>&1 || true
   stop_mysql
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
@@ -41,7 +43,7 @@ start_mysql() {
     -e MYSQL_ROOT_PASSWORD=selftest mysql:8 "$@" >/dev/null
   echo "waiting for mysql to accept connections..."
   for _ in $(seq 1 90); do
-    if docker exec "$MYSQL_CONTAINER" mysql -uroot -pselftest -h 127.0.0.1 \
+    if docker exec -e MYSQL_PWD=selftest "$MYSQL_CONTAINER" mysql -uroot -h 127.0.0.1 \
       -e 'SELECT 1' >/dev/null 2>&1; then
       return 0
     fi
@@ -56,11 +58,18 @@ set_global() {
     -e "SET GLOBAL $1"
 }
 
+# The docker client forwards timeout's SIGTERM to the check's bash, which as
+# PID 1 ignores it, so only the SIGKILL from -k ends the client, and that
+# leaves the container running. Removing it by name is what frees the runner.
 run_check() {
-  timeout 60 docker run --rm --network "$NETWORK" -m 1g --cpus 1 \
+  local rc=0
+  timeout -k 5 60 docker run --rm --name "$CHECK_CONTAINER" --network "$NETWORK" \
+    -m 1g --cpus 1 \
     -v "$SCRIPT_DIR/binlog-check.sh:/deploy/binlog-check.sh:ro" \
     -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
-    mysql:8 bash /deploy/binlog-check.sh
+    mysql:8 bash /deploy/binlog-check.sh || rc=$?
+  docker rm -f -v "$CHECK_CONTAINER" >/dev/null 2>&1 || true
+  return "$rc"
 }
 
 FAILURES=0
@@ -132,10 +141,18 @@ expect_pass restored "with every setting put back"
 
 stop_mysql
 # The stopped container frees its name only once --rm has removed it.
+freed=0
 for _ in $(seq 1 30); do
-  docker container inspect "$MYSQL_CONTAINER" >/dev/null 2>&1 || break
+  if ! docker container inspect "$MYSQL_CONTAINER" >/dev/null 2>&1; then
+    freed=1
+    break
+  fi
   sleep 1
 done
+if [ "$freed" -ne 1 ]; then
+  echo "$MYSQL_CONTAINER still exists 30 s after its stop, so the --skip-log-bin server cannot take its name" >&2
+  exit 1
+fi
 
 printf '\n== the binary log off is refused\n'
 start_mysql --skip-log-bin

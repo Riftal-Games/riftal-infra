@@ -131,7 +131,10 @@ refuses each of these, so a check that stops refusing one exits 0 there. Three m
 each hold up one pattern alternative that no file above needs, so dropping it exits
 0 at that file: no space between the `?` and a uses key in a flow mapping, the same
 with an alias, both of which PyYAML reads as explicit keys, and an alias key at
-column 0 on a continuation line of a flow collection. Two more open a continuation
+column 0 on a continuation line of a flow collection. Two more put that unspaced
+`?` and uses key after a `{` with the value on the next line, one with nothing
+after the key and one with a comment after it, so the script must refuse the key
+without a `:` behind it on its line. Two more open a continuation
 line of a flow mapping with a `?` and a uses key and no space between them, which
 PyYAML reads as an explicit key: one with the value on the same line, and one with
 the value on the next line and a comment after the `,` before it, so the script
@@ -155,6 +158,32 @@ opening a flow continuation line, so a check that refuses every line opening wit
 `?` goes red there too. The URL is there for the pattern's start anchor and the
 trailing word for the check on what follows the value: without either, a sha at the
 end of the line passes.
+
+`good/job-timeouts/` and `bad/job-timeouts/` drive the function in
+`.github/scripts/job-timeouts.sh` through `job-timeouts-selftest.sh`, which
+ci.yml runs before any container starts. Each is asserted on its exit and its
+exact reason line under a 1200-second cutoff, and the self-test counts one
+assertion per file directly in those two directories, plus one for a missing
+path. The bad files are a job with no `timeout-minutes`, a job whose only one is
+on a step, an expression value, a value equal to the cutoff, a value over it
+written with a leading zero, which shell arithmetic would read as octal and
+under it, an untimed job beside a call carrying a timeout, so a check that
+counts instead of pairing goes red, a job with neither `runs-on` nor `uses`,
+jobs indented too deep to find, a call to another repository, a call whose
+called job is untimed, a call that loops on itself, and a call into two files
+that call each other, which only the call chain catches. Each assertion runs
+under a 10-second `timeout`, so a check that follows a loop forever fails there
+instead of holding the job.
+
+The good files are two jobs, the longer one minute under the cutoff, with a step
+timeout over it, so a check that reads a step's timeout as its job's goes red
+there, a call whose called job sets the longest timeout, two calls to the same
+file that itself calls a deeper one, so a check that leaves a returned call on
+the chain refuses the second call as a loop, and a top-level key after `jobs:`
+with a child indented two spaces, so a check that does not end the jobs block
+there reads that child as a job. A called file lives in its caller's directory
+under `.github/workflows/`, where a `./` call resolves, and is never asserted on
+its own.
 
 `fake-locale-sort.bash` is a `sort` function the Dockerfile order check loads
 through `BASH_ENV`. It folds case under any collating locale and keeps C order
