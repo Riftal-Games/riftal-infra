@@ -37,13 +37,17 @@ printf 'pickup-flushes-per-tick: 2\r\ntile-moves-per-tick: 2\r\n' >"$DIR/crlf.ym
 # eleven reach it.
 { gen player 990 1.0; gen player 10 20.0; gen chunk 1000 1.0; } >"$DIR/ten-slow"
 { gen player 989 1.0; gen player 11 20.0; gen chunk 1000 1.0; } >"$DIR/eleven-slow"
+# Over 150 writes the rank is ceil(148.5), the 149th: two slow writes reach it.
+{ gen player 148 1.0; gen player 2 20.0; gen chunk 150 1.0; } >"$DIR/two-of-150"
 { gen player 99 1.0; gen chunk 1000 1.0; } >"$DIR/few"
+{ gen player 1000 1.0; gen chunk 99 1.0; } >"$DIR/few-chunk"
+gen player 1000 1.0 >"$DIR/no-chunk"
 { cat "$DIR/fast"; echo 'chunk 2ms'; } >"$DIR/garbled"
 sed 's/$/\r/' "$DIR/fast" >"$DIR/crlf-timings"
 
 failures=0
 ran=0
-expected=20
+expected=24
 # check <exit> <regex some output line must match> <case> <config> [timings] [flag]
 check() {
   local want="$1" pattern="$2" name="$3" config="$DIR/$4.yml" input="${5:-/dev/null}" got=0 out
@@ -74,7 +78,11 @@ check 2 'more than once' "refuses W set twice" w-twice fast
 check 2 'not a positive integer' "refuses W of 0" w-zero fast
 check 2 'not a positive integer' "refuses W not a number" w-word fast
 check 2 'timing line [0-9]+:chunk 2ms' "refuses a garbled timing" k2w2 garbled
+check 1 'player file write p99 20\.000 ms over 150' "two slow writes reach p99 over 150" k2w2 two-of-150
 check 2 '99 player writes, under 100' "refuses too few writes" k2w2 few
+check 2 'REFUSED: 99 chunk writes, under 100' "refuses too few chunk writes" k2w2 few-chunk
+check 2 'REFUSED: 0 chunk writes, under 100' "refuses no chunk writes" k2w2 no-chunk
+check 2 'REFUSED: unknown argument --bound$' "refuses an unknown flag" k4w1 "" --bound
 check 0 '^WRITE LATENCY: K 4 and W 1 from ' "--bounds reads K and W alone" k4w1 "" --bounds
 check 2 'sets no tile-moves-per-tick' "--bounds refuses without W" no-w "" --bounds
 check 2 'cannot read custody config' "refuses a missing config" absent fast

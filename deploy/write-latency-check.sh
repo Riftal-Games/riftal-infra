@@ -15,14 +15,15 @@
 set -euo pipefail
 
 BUDGET_MS=25
-MIN_SAMPLES="${MIN_SAMPLES:-100}"
+MIN_SAMPLES=100
 
 refuse() {
   printf 'WRITE LATENCY REFUSED: %s\n' "$1" >&2
   exit 2
 }
 
-[ "$#" -ge 1 ] || refuse "usage: write-latency-check.sh <custody config.yml> [--bounds]"
+[ "$#" -ge 1 ] && [ "$#" -le 2 ] || refuse "usage: write-latency-check.sh <custody config.yml> [--bounds]"
+[ "$#" -eq 1 ] || [ "$2" = --bounds ] || refuse "unknown argument $2"
 config="$1"
 [ -r "$config" ] || refuse "cannot read custody config $config"
 
