@@ -72,6 +72,33 @@ def test_load_refuses_a_key_its_kind_does_not_read(tmp_path: Path, kind: str, en
         _checks(tmp_path, f"version: 1\nchecks:\n  - check: {kind}\n    {entry}\n")
 
 
+def test_load_refuses_an_unknown_top_level_key(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"has unknown top-level keys \['default'\]; it reads \['version', 'defaults', 'checks'\]"):
+        _checks(tmp_path, "version: 1\ndefault:\n  corridor_margin: 4\nchecks: []\n")
+
+
+def test_load_refuses_a_top_level_that_is_not_a_mapping(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"must be a mapping with keys"):
+        _checks(tmp_path, "- version: 1\n")
+
+
+def test_load_refuses_an_unknown_default(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"defaults has unknown keys \['corridor_margn'\]; checks read "
+                                         r"\['corridor_margin', 'max_seconds', 'walk_speed'\]"):
+        _checks(tmp_path, "version: 1\ndefaults:\n  corridor_margn: 4\nchecks:\n  - check: path_exists\n    from: a\n    to: b\n")
+
+
+def test_load_refuses_defaults_that_are_not_a_mapping(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"defaults must be a mapping"):
+        _checks(tmp_path, "version: 1\ndefaults: [corridor_margin]\nchecks: []\n")
+
+
+def test_load_accepts_every_default_a_check_reads(tmp_path: Path) -> None:
+    (travel,) = _checks(tmp_path, "version: 1\ndefaults:\n  corridor_margin: 2\n  walk_speed: 3\n  max_seconds: 5\n"
+                                  "checks:\n  - check: travel_time\n    from: a\n    to: b\n")
+    assert travel.args == {"from": "a", "to": "b", "margin": 2, "speed": 3, "max_seconds": 5}
+
+
 # Written out by hand, not derived from KINDS, so dropping a key from any kind's list refuses its entry here.
 @pytest.mark.parametrize("kind, args", [
     ("path_exists", {"from": "a", "to": "b", "margin": 2, "max_drop": 2}),

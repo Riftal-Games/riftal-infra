@@ -1,0 +1,8 @@
+# Called by calls-local.yml two directories up, never asserted on its own.
+on: workflow_call
+jobs:
+  inner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - run: "true"

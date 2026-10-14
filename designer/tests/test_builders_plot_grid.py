@@ -1,10 +1,12 @@
 import pytest
 
+from designer.blocks import is_tall_floor
 from designer.builders.base import Palette
-from designer.builders.plot_grid import CLEARANCE, PlotGridSpec, build_plot_grid
+from designer.builders.plot_grid import PlotGridSpec, build_plot_grid, clearance
+from designer.builders.stairs import HEADROOM
 from designer.edits import Fill
 from designer.region import Bounds, Region
-from designer.verify import path_exists
+from designer.verify import entity_clear, path_exists
 
 
 @pytest.fixture
@@ -73,7 +75,27 @@ def test_air_cleared_above_the_whole_footprint(palette: Palette) -> None:
     edits = build_plot_grid(_spec(), palette)
     clears = [op for op in edits.ops if isinstance(op, Fill) and op.block == "minecraft:air"]
     assert len(clears) == 1
-    assert clears[0].bounds == Bounds((0, 11, 0), (9, 10 + CLEARANCE, 9))
+    assert clears[0].bounds == Bounds((0, 11, 0), (9, 13, 9))
+
+
+def test_a_plot_edge_under_an_overhang_is_entity_clear(palette: Palette) -> None:
+    spec = _spec()
+    edits = build_plot_grid(spec, palette)
+    box = edits.bounds
+    # Solid terrain from the floor to well above it, so only the builder's own air leaves a gap.
+    terrain = Region.empty(spec.world, Bounds((box.min[0], spec.y - 1, box.min[2]), (box.max[0], spec.y + 5, box.max[2])))
+    terrain.fill(terrain.bounds, "minecraft:stone")
+    region = edits.to_region(terrain)
+    edge, road = (0, spec.y + 1, 0), (1, spec.y + 1, 1)
+    assert is_tall_floor(region.get(edge[0], spec.y, edge[2]))
+    for pos in (edge, road):
+        found = entity_clear(region, pos)
+        assert found.ok, (pos, found.detail, found.coords)
+
+
+def test_clearance_follows_the_tallest_floor_block() -> None:
+    assert clearance("minecraft:andesite") == HEADROOM
+    assert clearance("minecraft:andesite", "minecraft:cobblestone_wall") == HEADROOM + 1
 
 
 def test_build_plot_grid_is_deterministic(palette: Palette) -> None:
@@ -84,9 +106,7 @@ def test_build_plot_grid_is_deterministic(palette: Palette) -> None:
 def test_path_exists_between_two_far_plots(palette: Palette) -> None:
     spec = _spec()
     edits = build_plot_grid(spec, palette)
-    # One layer of air above the build, where the head of a player on a 1.5-tall plot edge wall reaches.
-    box = edits.bounds
-    region = edits.to_region(Region.empty(spec.world, Bounds(box.min, (box.max[0], box.max[1] + 1, box.max[2]))))
+    region = edits.to_region()
     found = path_exists(region, (1, spec.y + 1, 1), (7, spec.y + 1, 7))
     assert found.ok, found.detail
 

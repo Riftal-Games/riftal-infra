@@ -19,15 +19,40 @@ env:
   # Pinned. An unpinned linter changes the meaning of a merge gate with no
   # commit to point at.
   HADOLINT_VERSION: v2.12.0
+  # hadolint-Linux-x86_64.sha256 from the v2.12.0 release. Recorded here, not
+  # fetched at run time, so a replaced release asset fails the install. A new
+  # HADOLINT_VERSION needs its own hash.
+  HADOLINT_SHA256: 56de6d5e5ec427e17b74fa48d51271c7fc0d61244bf5c90e828aab8362d55010
 
 jobs:
   checks:
     name: lint and validate
     runs-on: [self-hosted, linux, riftal]
-    timeout-minutes: 10
+    # ci-sweep-selftest.sh removes its other-job volumes once they are older
+    # than its reap_after, as left by a run that has ended, and fails unless
+    # every job here times out sooner.
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
+      # what runs with this job's token.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # Reads fixtures only, so it runs before any step that starts a
+      # container and no engine fault can mask it.
+      - name: Self-test, prove the job timeout check can fail
+        run: bash .github/scripts/job-timeouts-selftest.sh
+
+      # Reads files only, for the same reason as the step above.
+      - name: Self-test, prove the mysql:8 pull order check can fail
+        run: bash .github/scripts/pull-mysql-order-selftest.sh
+
+      - name: Pull mysql:8 runs before every step that runs mysql:8
+        run: bash .github/scripts/pull-mysql-order.sh
+
+      # Reads fixture logs only, so it also runs before any container step.
+      - name: Custody alert check self-test
+        run: bash deploy/custody-alert-check-selftest.sh
 
       # Before any step that starts a container, so every one of them carries
       # this job's label for the sweep at the end.
@@ -37,21 +62,16 @@ jobs:
       - name: Self-test, prove the label and the sweep
         run: bash .github/scripts/ci-sweep-selftest.sh
 
+      # Sets HADOLINT for every later step, so the self-test and the scan below
+      # run the binary this job checked, not whichever hadolint PATH finds.
       - name: Install hadolint
-        # /usr/local/bin is root-owned on the self-hosted runner, unlike the
-        # hosted image where the runner user already owns it.
-        run: |
-          set -euo pipefail
-          curl -fsSL -o /tmp/hadolint \
-            "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
-          sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
-          hadolint --version
+        run: bash .github/scripts/install-hadolint.sh
 
-      # Runs before the real scans on purpose. images/ and proxy/ hold only a
-      # .gitkeep today, so the scans below have nothing to look at and would go
-      # green by being empty. This step feeds every check a fixture it must
-      # reject and a fixture it must accept, so the checks are known to
-      # discriminate on this commit and not only on the day they were written.
+      # Runs before the real scans on purpose. A scan that finds nothing exits
+      # 0, so a green scan alone cannot tell a clean tree from a check that
+      # never ran. This step feeds every check a fixture it must reject and a
+      # fixture it must accept, so the checks are known to discriminate on
+      # this commit.
       - name: Self-test, prove every check can fail
         run: bash .github/scripts/selftest.sh
 
@@ -65,6 +85,9 @@ jobs:
       - name: Validate compose files
         run: bash .github/scripts/scan.sh compose
 
+      - name: Every action is pinned by commit sha or image digest
+        run: bash .github/scripts/action-pins.sh
+
       - name: Containers leave no anonymous volumes
         run: bash .github/scripts/container-cleanup.sh
 
@@ -74,15 +97,15 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/tile-contents/*.php images/plugins/capture-harness/*.php images/plugins/restart/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
           fi
-          docker run --rm -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
+          docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/tile-contents/*.php /plugins/capture-harness/*.php /plugins/restart/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -102,11 +125,50 @@ jobs:
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
 
+      - name: Capture plugin self-test
+        run: bash images/plugins/capture-selftest.sh
+
+      # The self-test above runs the plugin against fakes of the core. This
+      # boots the core itself, where the fakes and the server can disagree.
+      # A healthy run takes under a minute. Ten covers its worst case that
+      # still ends: every wait in harness.sh running out, both boots at their
+      # 120 seconds and both stops at their 60, about nine minutes.
+      - name: Capture plugin in-server harness
+        timeout-minutes: 10
+        run: bash images/plugins/capture-harness/harness.sh
+
       - name: Dev bots join order self-test
         run: bash images/plugins/join-order/selftest.sh
 
+      - name: Dev bots crash hook self-test
+        run: bash images/plugins/crash-hook/selftest.sh
+
+      - name: Dev bots tile contents self-test
+        run: bash images/plugins/tile-contents/selftest.sh
+
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
+
+      - name: Instance boot on the pinned core image self-test
+        run: bash images/plugins/instance-only/boot-selftest.sh
+
+      - name: Instance restart policy and boot gate self-test
+        run: bash images/plugins/restart/selftest.sh
+
+      - name: Dev faults hook self-test
+        run: bash images/plugins/dev-faults/selftest.sh
+
+      - name: RiftalCustody on every instance self-test
+        run: bash images/custody-selftest.sh
+
+      - name: Self-test, prove the mysql:8 pull can fail
+        run: bash .github/scripts/pull-mysql-selftest.sh
+
+      # Every step from here to the wipe self-test runs mysql:8, a floating tag.
+      # This pulls its newest release, so the runner's cached copy cannot go
+      # stale unseen. Compose pulls it only when missing.
+      - name: Pull mysql:8
+        run: bash .github/scripts/pull-mysql.sh
 
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
@@ -116,6 +178,9 @@ jobs:
 
       - name: Restore drill self-test
         run: bash deploy/restore-selftest.sh
+
+      - name: Compose dump login self-test
+        run: bash images/dump-login-selftest.sh
 
       - name: Binlog retention check self-test
         run: bash deploy/binlog-selftest.sh

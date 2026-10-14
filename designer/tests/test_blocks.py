@@ -237,6 +237,19 @@ def test_pitcher_crop_class_follows_its_growth_and_half(name: str, cls: BlockCla
     assert classify(name) is cls
 
 
+# An open gate has no box (FenceGate.php:70); a closed one, or one with no
+# states, keeps its 1.5-tall box. Oak's Bedrock id is the bare ``fence_gate``.
+@pytest.mark.parametrize("name, cls", [
+    ("minecraft:fence_gate[direction=0,in_wall_bit=false,open_bit=true]", BlockClass.PASSABLE),
+    ("minecraft:spruce_fence_gate[open_bit=true]", BlockClass.PASSABLE),
+    ("minecraft:fence_gate[direction=0,in_wall_bit=false,open_bit=false]", BlockClass.SOLID),
+    ("minecraft:crimson_fence_gate[open_bit=false]", BlockClass.SOLID),
+    ("fence_gate", BlockClass.SOLID),
+])
+def test_fence_gate_class_follows_open_bit(name: str, cls: BlockClass) -> None:
+    assert classify(name) is cls
+
+
 @pytest.mark.parametrize("name", [
     "minecraft:snow_layer[covered_bit=false,height=abc]",
     "minecraft:snow_layer[covered_bit=false,height=2.5]",

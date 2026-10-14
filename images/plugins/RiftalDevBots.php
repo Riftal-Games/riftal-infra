@@ -3,22 +3,46 @@
 /**
  * @name RiftalDevBots
  * @main riftal\dev\bots\Main
- * @version 0.2.1
+ * @version 0.3.0
  * @api 5.0.0
+ * @softdepend RiftalCustody
  * @description Dev stack only. Admits the headless player bots from devtools/bot.
  */
+
+// The softdepend keeps RiftalCustody enabled until this plugin has disabled, so
+// its shutdown sweep runs after anything this plugin drops (ADR 013, item 2).
 
 declare(strict_types=1);
 
 namespace riftal\dev\bots;
 
+use Closure;
+use Logger;
+use pocketmine\block\tile\Container;
+use pocketmine\command\Command;
+use pocketmine\command\CommandSender;
+use pocketmine\command\utils\InvalidCommandSyntaxException;
+use pocketmine\console\ConsoleCommandSender;
+use pocketmine\data\bedrock\item\ItemTypeSerializeException;
+use pocketmine\event\entity\EntityTeleportEvent;
 use pocketmine\event\EventPriority;
 use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\event\player\PlayerPreLoginEvent;
 use pocketmine\event\player\PlayerQuitEvent;
+use pocketmine\item\Item;
+use pocketmine\permission\DefaultPermissions;
+use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
+use pocketmine\utils\Process;
+use pocketmine\world\format\Chunk;
+use pocketmine\world\format\io\GlobalItemDataHandlers;
+use pocketmine\world\World;
+use function count;
 use function is_string;
+use function preg_match;
+use function strrchr;
 use function strtolower;
+use function substr;
 
 /**
  * Pure admission logic, kept free of every PocketMine type so it stays
@@ -50,8 +74,8 @@ final class DevEnvGate{
  * Bots mark themselves with ClientData DeviceModel "riftal-devbot". Once
  * admitted they are ordinary Player objects, so every gameplay plugin already
  * treats them as players. The one thing done to them is a return to spawn on
- * join, so scenarios are repeatable. A plugin placing players on join
- * overrides that return; see onJoin().
+ * join, so scenarios are repeatable. A plugin placing players on login or
+ * on join overrides that return; see onTeleport() and onJoin().
  *
  * Admission needs the riftal-dev-bots server option (the --riftal-dev-bots=on
  * flag or server.properties), xbox-auth off, and RIFTAL_DEV_ENV=1; see
@@ -69,7 +93,12 @@ final class Main extends PluginBase{
 
 	private bool $admitting = false;
 
-	/** @var array<string, true> lower-cased names of bots admitted but not yet joined */
+	/**
+	 * Lower-cased names of bots admitted but not yet joined => whether a
+	 * plugin has teleported the bot since its admission.
+	 *
+	 * @var array<string, bool>
+	 */
 	private array $pending = [];
 
 	/**
@@ -101,8 +130,20 @@ final class Main extends PluginBase{
 
 		$manager = $server->getPluginManager();
 		$manager->registerEvent(PlayerPreLoginEvent::class, $this->onPreLogin(...), EventPriority::LOWEST, $this);
+		$manager->registerEvent(EntityTeleportEvent::class, $this->onTeleport(...), EventPriority::MONITOR, $this);
 		$manager->registerEvent(PlayerJoinEvent::class, $this->onJoin(...), EventPriority::LOWEST, $this);
 		$manager->registerEvent(PlayerQuitEvent::class, $this->onQuit(...), EventPriority::MONITOR, $this);
+
+		if($this->admitting){
+			$server->getCommandMap()->registerAll("riftaldevbots", [
+				new CrashCommand($this->getLogger()),
+				new TileCommand($this->getLogger(), $this->isBot(...)),
+			]);
+		}
+	}
+
+	private function isBot(Player $player) : bool{
+		return ($this->bots[strtolower($player->getName())] ?? null) === $player->getId();
 	}
 
 	private function onPreLogin(PlayerPreLoginEvent $event) : void{
@@ -115,19 +156,37 @@ final class Main extends PluginBase{
 			$event->setKickFlag(PlayerPreLoginEvent::KICK_FLAG_PLUGIN, "dev bots are disabled on this server");
 			return;
 		}
-		$this->pending[strtolower($info->getUsername())] = true;
+		$this->pending[strtolower($info->getUsername())] = false;
 	}
 
 	/**
-	 * A bot starts every session at its current world's safe spawn. A player's
-	 * saved position carries over between sessions, which would make each
-	 * scenario begin wherever the last one ended and drift further out every
-	 * run. Inventory and everything else a player keeps still carries over.
+	 * Any teleport between admission and join is a plugin placing the bot,
+	 * such as the login-spawn teleport riftal-game#222 gives ranks on
+	 * PlayerLoginEvent, and it stands.
+	 * MONITOR sees only teleports no listener cancelled.
+	 */
+	private function onTeleport(EntityTeleportEvent $event) : void{
+		$entity = $event->getEntity();
+		if(!$entity instanceof Player){
+			return;
+		}
+		$key = strtolower($entity->getName());
+		if(isset($this->pending[$key])){
+			$this->pending[$key] = true;
+		}
+	}
+
+	/**
+	 * A bot starts every session at its current world's safe spawn, unless a
+	 * plugin placed it first. A player's saved position carries over between
+	 * sessions, which would make each scenario begin wherever the last one
+	 * ended and drift further out every run. Inventory and everything else a
+	 * player keeps still carries over.
 	 *
 	 * Registered at LOWEST so it runs first: any plugin placing players on join
 	 * at any priority after LOWEST, such as RiftalMines' join_teleport, has the
 	 * last word, and the bot lands where a real player would.
-	 * join-order/selftest.sh holds this order.
+	 * join-order/selftest.sh holds this order and the teleport watch.
 	 */
 	private function onJoin(PlayerJoinEvent $event) : void{
 		$player = $event->getPlayer();
@@ -136,9 +195,12 @@ final class Main extends PluginBase{
 		if(!isset($this->pending[$key])){
 			return;
 		}
+		$placed = $this->pending[$key];
 		unset($this->pending[$key]);
 		$this->bots[$key] = $player->getId();
-		$player->teleport($player->getWorld()->getSafeSpawn());
+		if(!$placed){
+			$player->teleport($player->getWorld()->getSafeSpawn());
+		}
 		$this->getLogger()->info("devbot joined $name");
 	}
 
@@ -149,5 +211,139 @@ final class Main extends PluginBase{
 			return;
 		}
 		unset($this->bots[$name]);
+	}
+}
+
+/**
+ * ADR 017's crash proofs need the server to die mid-tick with no save, no
+ * shutdown and no plugin disable, as a host crash or an OOM kill would. The
+ * guard refuses killing a server container from outside, so the process kills
+ * itself. SIGKILL cannot be caught, so nothing in the process runs after it.
+ *
+ * Registered only when Main admits dev bots, so a server without
+ * --riftal-dev-bots=on, xbox-auth off and RIFTAL_DEV_ENV=1 has no such
+ * command. Runnable only from the server console: a player who could run it
+ * could throw away every unsaved change on the instance at will.
+ * crash-hook/selftest.sh holds both.
+ */
+final class CrashCommand extends Command{
+
+	public const NAME = "devbots-crash";
+
+	public function __construct(private Logger $logger){
+		parent::__construct(self::NAME, "Dev stack only. Kills this server process with SIGKILL, for crash proofs.");
+		$this->setPermission(DefaultPermissions::ROOT_CONSOLE);
+	}
+
+	public function execute(CommandSender $sender, string $commandLabel, array $args) : bool{
+		if(!$sender instanceof ConsoleCommandSender){
+			$sender->sendMessage(self::NAME . " runs only from the server console");
+			return true;
+		}
+		$pid = Process::pid();
+		// The kernel drops a SIGKILL sent to a PID namespace's init from inside
+		// that namespace, so the server would carry on as if nothing happened.
+		// A crash proof run on it would measure a run with no crash in it.
+		if($pid === 1){
+			$this->logger->error(self::NAME . ": refused, this server is process 1 in its container, and a process 1 cannot SIGKILL itself; run the image with an init such as tini as process 1");
+			return true;
+		}
+		$this->logger->warning(self::NAME . ": killing process $pid with SIGKILL");
+		Process::kill($pid);
+		return true;
+	}
+}
+
+/**
+ * ADR 025 P5 and spec 020's M3 criteria compare a tile's server-side contents
+ * with a bot's client view, slot by slot. Every line goes to the server log,
+ * each named by its level and position, and the first of a read carries the
+ * server tick. It only reads: a chunk nothing holds loaded is reported, never
+ * loaded, so asking cannot change what a scenario measures.
+ *
+ * Registered only when Main admits dev bots. The console and an admitted dev
+ * bot may run it, and the bot also gets the lines in chat; nobody else can.
+ * tile-contents/selftest.sh holds the gate and the output.
+ */
+final class TileCommand extends Command{
+
+	public const NAME = "devbots-tile";
+
+	/** @param Closure(Player) : bool $isBot */
+	public function __construct(private Logger $logger, private Closure $isBot){
+		parent::__construct(self::NAME, "Dev stack only. Logs a tile's server-side contents slot by slot.", "/" . self::NAME . " <x> <y> <z> [level]");
+		$this->setPermission(DefaultPermissions::ROOT_USER);
+	}
+
+	public function execute(CommandSender $sender, string $commandLabel, array $args) : bool{
+		$console = $sender instanceof ConsoleCommandSender;
+		if(!$console && !($sender instanceof Player && ($this->isBot)($sender))){
+			$sender->sendMessage(self::NAME . " runs only from the server console or a dev bot");
+			return true;
+		}
+		if(count($args) < 3 || count($args) > 4){
+			throw new InvalidCommandSyntaxException();
+		}
+		foreach([$args[0], $args[1], $args[2]] as $coordinate){
+			if(preg_match('/^-?\d{1,9}$/', $coordinate) !== 1){
+				throw new InvalidCommandSyntaxException();
+			}
+		}
+		$server = $sender->getServer();
+		$level = match(true){
+			isset($args[3]) => $server->getWorldManager()->getWorldByName($args[3]),
+			$sender instanceof Player => $sender->getWorld(),
+			default => $server->getWorldManager()->getDefaultWorld(),
+		};
+		$lines = $level === null
+			? [self::NAME . " " . ($args[3] ?? "default") . " is not a loaded level"]
+			: self::describe($level, (int) $args[0], (int) $args[1], (int) $args[2], $server->getTick());
+		foreach($lines as $line){
+			$this->logger->info($line);
+			if(!$console){
+				$sender->sendMessage($line);
+			}
+		}
+		return true;
+	}
+
+	/** @return list<string> */
+	private static function describe(World $level, int $x, int $y, int $z, int $tick) : array{
+		$at = self::NAME . " " . $level->getFolderName() . " $x $y $z";
+		if(!$level->isChunkLoaded($x >> Chunk::COORD_BIT_SIZE, $z >> Chunk::COORD_BIT_SIZE)){
+			return ["$at tick=$tick chunk not loaded"];
+		}
+		$tile = $level->getTileAt($x, $y, $z);
+		if($tile === null){
+			return ["$at tick=$tick no tile"];
+		}
+		$class = substr((string) strrchr("\\" . $tile::class, "\\"), 1);
+		if(!$tile instanceof Container){
+			return ["$at tick=$tick tile=$class holds no inventory"];
+		}
+		$inventory = $tile->getRealInventory();
+		$size = $inventory->getSize();
+		$lines = ["$at tick=$tick tile=$class slots=$size"];
+		for($slot = 0; $slot < $size; ++$slot){
+			$lines[] = "$at slot=$slot " . self::stack($inventory->getItem($slot));
+		}
+		return $lines;
+	}
+
+	/**
+	 * Bedrock's own id and meta, the names a client's item table uses, so a
+	 * bot can compare a slot with its own view of it.
+	 */
+	private static function stack(Item $item) : string{
+		if($item->isNull()){
+			return "empty";
+		}
+		try{
+			$data = GlobalItemDataHandlers::getSerializer()->serializeType($item);
+			$type = "id=" . $data->getName() . " meta=" . $data->getMeta();
+		}catch(ItemTypeSerializeException){
+			$type = "id=? name=" . $item->getVanillaName();
+		}
+		return "$type count=" . $item->getCount() . " nbt=" . ($item->hasNamedTag() ? "yes" : "no");
 	}
 }

@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -9,9 +10,10 @@ from designer.region import Region
 from designer.verify import mine_valid
 
 
+# ``replace`` skips the spec load, which refuses a stated key, so mine_valid's own reading of one is still exercised.
 def _lumber_filled_with(block: str, ores: dict[str, float]) -> tuple[Region, MineSpec]:
     raw = json.loads((PROJECT_ROOT / "specs" / "lumber.json").read_text(encoding="utf-8"))
-    spec = MineSpec.from_dict({**raw, "ores": ores})
+    spec = replace(MineSpec.from_dict(raw), ores=ores)
     geo = spec.geometry()
     region = Region.empty(spec.world, geo.padding.union(geo.exit_platform))
     region.fill(geo.outer, "minecraft:stone")
