@@ -6,7 +6,6 @@
  * @version 0.1.0
  * @api 5.0.0
  * @load STARTUP
- * @depend RiftalDevBots
  * @loadbefore RiftalCustody
  * @description Dev stack only. Fails a named player's saves, and the custody probe, for ADR 017 P8.
  */
@@ -28,6 +27,7 @@ use pocketmine\permission\DefaultPermissions;
 use pocketmine\plugin\PluginBase;
 use riftal\dev\bots\DevEnvGate;
 use Symfony\Component\Filesystem\Path;
+use function class_exists;
 use function count;
 use function getenv;
 use function is_dir;
@@ -46,9 +46,15 @@ use function strtolower;
  * core's Filesystem::safeFilePutContents throw, so the probe fails as it would
  * on storage that cannot be written.
  *
- * Present only under RiftalDevBots' DevEnvGate: without --riftal-dev-bots=on,
- * xbox-auth off and RIFTAL_DEV_ENV=1, no command and no listener exist.
- * dev-faults/selftest.sh holds the gate, both faults and the load order.
+ * Present only under RiftalDevBots' DevEnvGate: without RiftalDevBots loaded,
+ * --riftal-dev-bots=on, xbox-auth off and RIFTAL_DEV_ENV=1, no command and no
+ * listener exist. dev-faults/selftest.sh holds the gate, both faults and the
+ * load order.
+ *
+ * RiftalDevBots is not a depend: it softdepends on RiftalCustody, so with the
+ * loadbefore here a depend would close a cycle core refuses to load. Core
+ * includes every plugin's file before it enables any, so the gate's class
+ * exists by onEnable whenever RiftalDevBots loaded.
  */
 final class Main extends PluginBase{
 
@@ -60,12 +66,15 @@ final class Main extends PluginBase{
 
 	protected function onEnable() : void{
 		$server = $this->getServer();
-		$envValue = getenv(DevEnvGate::ENV_VAR);
-		$on = DevEnvGate::shouldAdmit(
-			$server->getConfigGroup()->getConfigBool("riftal-dev-bots", false),
-			$server->requiresAuthentication(),
-			$envValue === false ? null : $envValue
-		);
+		$on = false;
+		if(class_exists(DevEnvGate::class)){
+			$envValue = getenv(DevEnvGate::ENV_VAR);
+			$on = DevEnvGate::shouldAdmit(
+				$server->getConfigGroup()->getConfigBool("riftal-dev-bots", false),
+				$server->requiresAuthentication(),
+				$envValue === false ? null : $envValue
+			);
+		}
 		$this->getLogger()->info("dev faults " . ($on ? "on" : "off"));
 		if(!$on){
 			return;
