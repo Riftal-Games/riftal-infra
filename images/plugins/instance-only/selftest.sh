@@ -27,7 +27,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=72
+EXPECTED_ASSERTIONS=75
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -359,9 +359,22 @@ printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#26
 SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/mines/resources/config.yml"
 TEMPLATE="$DIR/RiftalMines.config.yml.template"
 SKIPPED=0
-# Each assertion here is counted as skipped rather than dropped when the
-# shipped file is absent, so the assertion count still sees one deleted.
-drift() { if [ -f "${3:-$SHIPPED}" ]; then check "$1" "$2"; else SKIPPED=$((SKIPPED + 1)); fi; }
+# That skip covers only an absent default sibling checkout, and each skipped
+# assertion is counted, so EXPECTED_ASSERTIONS catches one that was deleted.
+# A RIFTAL_GAME_DIR naming no config fails: a mistyped path is a broken run,
+# not a missing checkout. An empty RIFTAL_GAME_DIR counts as unset. $3 names
+# the shipped file when it is not the mines config.
+drift() {
+  if [ -f "${3:-$SHIPPED}" ]; then check "$1" "$2"
+  elif [ -n "${RIFTAL_GAME_DIR:-}" ]; then fail "$1: RIFTAL_GAME_DIR is set but ${3:-$SHIPPED} does not exist"
+  else SKIPPED=$((SKIPPED + 1)); fi
+}
+check "an explicit RIFTAL_GAME_DIR without the mines config fails the drift assertion" \
+  '[ "$(RIFTAL_GAME_DIR=/nonexistent; SHIPPED=/nonexistent/c.yml; FAILURES=0; SKIPPED=0; drift x true >/dev/null; echo "$FAILURES $SKIPPED")" = "1 0" ]'
+check "an explicit RIFTAL_GAME_DIR without a named shipped config fails the drift assertion" \
+  '[ "$(RIFTAL_GAME_DIR=/nonexistent; SHIPPED="$TEMPLATE"; FAILURES=0; SKIPPED=0; drift x true /nonexistent/r.yml >/dev/null; echo "$FAILURES $SKIPPED")" = "1 0" ]'
+check "an absent default sibling checkout skips the drift assertion" \
+  '[ "$(unset RIFTAL_GAME_DIR; SHIPPED=/nonexistent/c.yml; FAILURES=0; SKIPPED=0; drift x true >/dev/null; echo "$FAILURES $SKIPPED")" = "0 1" ]'
 # Every top-level key, whether it holds a scalar or opens a section.
 keys() { grep -oE '^[^[:space:]#-][^:]*:' "$1" | sort -u; }
 # Top-level keys holding a scalar. The database and worlds sections hold
