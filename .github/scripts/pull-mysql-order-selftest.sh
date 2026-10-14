@@ -252,7 +252,7 @@ for key in 'if: false' 'continue-on-error: true'; do
 done
 
 real="$repo/.github/workflows/ci.yml"
-expect "the real workflow" pass 'precedes all 5 step(s)' "$real" "$repo"
+expect "the real workflow" pass 'precedes all 6 step(s)' "$real" "$repo"
 
 # The real workflow with its pull step cut out, and with that step put back
 # below the last mysql self-test. A mutation that missed would pass for the
@@ -267,10 +267,10 @@ expect "real workflow, pull step deleted" fail 'no step runs .github/scripts/pul
 awk '
   /^      - name: Pull mysql:8$/ { held = $0; getline; held = held "\n" $0; next }
   { print }
-  /^        run: bash deploy\/wipe-selftest.sh$/ { print held }' "$real" >"$work/real-moved.yml"
+  /^        run: bash deploy\/wipe-volumes-selftest.sh$/ { print held }' "$real" >"$work/real-moved.yml"
 if [ "$(grep -n 'pull-mysql.sh$' "$work/real-moved.yml" | cut -d: -f1)" != \
-  "$(($(grep -n 'deploy/wipe-selftest.sh$' "$work/real-moved.yml" | cut -d: -f1) + 2))" ]; then
-  printf '::error::the pull step was not moved below the wipe self-test in the copy of ci.yml\n'
+  "$(($(grep -n 'deploy/wipe-volumes-selftest.sh$' "$work/real-moved.yml" | cut -d: -f1) + 2))" ]; then
+  printf '::error::the pull step was not moved below the wipe volumes self-test in the copy of ci.yml\n'
   failures=$((failures + 1))
 fi
 expect "real workflow, pull moved below the mysql self-tests" fail \

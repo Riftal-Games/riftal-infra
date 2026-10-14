@@ -12,9 +12,11 @@
 # the fixture unchanged.
 #
 # The confirmed wipe must write nothing to stderr, and its stdout must be
-# exactly its two progress lines, naming the default port deploy/README.md's
+# exactly wipe-volumes.sh's line for the one volume, holding no level, and its
+# own two progress lines, naming the default port deploy/README.md's
 # MYSQL_PORT row documents, so a failure set -e lets through, or a default
 # that drifts from the README, fails here though the wipe exits 0.
+# wipe-volumes-selftest.sh covers the volumes.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -101,7 +103,7 @@ migrate() {
 }
 wipe() {
   env_run -e MYSQL_USER="${WIPE_USER:-root}" ${WIPE_MAX_AGE:+-e "WIPE_BACKUP_MAX_AGE_MINUTES=$WIPE_MAX_AGE"} \
-    ${WIPE_TZ:+-e "TZ=$WIPE_TZ"} \
+    ${WIPE_TZ:+-e "TZ=$WIPE_TZ"} -e WORLDS_DIR=/tmp/worlds -e LEVEL_LOCKS_DIR=/tmp/locks \
     -e MYSQL_DATABASE="$1" -e WIPE_CONFIRM="$2" -e BACKUP_SET="$3" "$C" bash /deploy/wipe.sh
 }
 check() {
@@ -127,7 +129,7 @@ done
 # backup.sh's fails the confirmed wipe below rather than only every real wipe.
 # It runs 14 hours east of UTC, so a stamp taken in local time reads as a set
 # from the future and fails that wipe too.
-sh_in "mkdir -p /tmp/worlds/riftal_smoke_vol && printf 'x\n' > /tmp/worlds/riftal_smoke_vol/level.dat"
+sh_in "mkdir -p /tmp/locks /tmp/worlds/riftal_smoke_vol && printf 'x\n' > /tmp/worlds/riftal_smoke_vol/level.dat"
 env_run -e TZ=RIFT-14 -e MYSQL_USER=root -e MYSQL_DATABASE="$DB" -e BACKUP_ROOT=/tmp/backups -e WORLDS_DIR=/tmp/worlds \
   "$C" bash /deploy/backup.sh >"$LOGS/backup.log" 2>&1 || { cat "$LOGS/backup.log"; exit 1; }
 sh_in 'sets=(/tmp/backups/[0-9]*); [ "${#sets[@]}" = 1 ] && cp -r "${sets[0]}" /tmp/set'
@@ -331,12 +333,15 @@ if [ -s "$LOGS/wipe.err" ]; then
 else
   pass "the confirmed wipe writes nothing to stderr"
 fi
-printf 'wipe %s: dropping and recreating at %s:%s, backup set %s\nwipe %s: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh\n' \
-  "$DB" "$MYSQL_HOST" "$DOCUMENTED_DEFAULT_PORT" "$wipe_set" "$DB" >"$LOGS/wipe.expected"
+{
+  printf 'wipe %s: volume riftal_smoke_vol: cleared 0 level(s) and the contents of players/ and plugin_data/\n' "$DB"
+  printf 'wipe %s: dropping and recreating at %s:%s, backup set %s\nwipe %s: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh\n' \
+    "$DB" "$MYSQL_HOST" "$DOCUMENTED_DEFAULT_PORT" "$wipe_set" "$DB"
+} >"$LOGS/wipe.expected"
 if cmp -s "$LOGS/wipe.expected" "$LOGS/wipe.log"; then
-  pass "the confirmed wipe's stdout is exactly its two progress lines"
+  pass "the confirmed wipe's stdout is exactly its three progress lines"
 else
-  fail "the confirmed wipe's stdout is not exactly its two progress lines"
+  fail "the confirmed wipe's stdout is not exactly its three progress lines"
   # A failed wipe has printed wipe.log above.
   if [ "$wipe_ok" -eq 1 ]; then diff "$LOGS/wipe.expected" "$LOGS/wipe.log" || true; fi
 fi
