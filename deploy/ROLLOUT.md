@@ -566,16 +566,23 @@ Nasir's call.
 
 ## `riftal_dev` and the wipe's `RIFTAL_DEV_ENV=1` belong to the dev stack
 
-No alpha or production stack names its database `riftal_dev`, and no alpha or
-production wipe run is given `RIFTAL_DEV_ENV=1`. Both are reserved for the dev
-stack (`../images/README.md`, Reserved for the dev stack).
+No alpha, production or rig stack names its database `riftal_dev`, and no
+alpha, production or rig wipe run is given `RIFTAL_DEV_ENV=1`. Both are
+reserved for the shared dev stack, `../images/compose.yaml`
+(`../images/README.md`, Reserved for the dev stack). The one other place
+`riftal_dev` may appear is riftal-infra#1110's selftest, which creates it in
+throwaway `mysql:8` containers as a fixture for the script, not a stack the
+wipe serves.
 
 The reservation is a standing rule. It exists for the wipe's dev path, which
-riftal-infra#1110 is to build to the steward ruling on riftal-pm#1312. That
-path takes two keys, each matched exactly: `RIFTAL_DEV_ENV=1` in the wipe's
-own environment, and a `MYSQL_DATABASE` of `riftal_dev` present on the target
-server. With both, a non-default level with no build is cleared and left
-absent. Any other combination is refused, `RIFTAL_DEV_ENV=1` against another
-database included. A stack outside dev carrying either value is one key away
-from the dev path, and both would make the wipe treat it as dev. The ruling
-reverses if one does.
+riftal-infra#1110 is to build to the steward rulings on riftal-pm#1312 and
+riftal-pm#1314. That path takes two keys, both required, each matched
+exactly: `RIFTAL_DEV_ENV=1` in the wipe's own environment, and a
+`MYSQL_DATABASE` of `riftal_dev` present on the target server. The two keys
+gate every wipe that clears a level with no build, default or non-default.
+With both, such a level is cleared: afterwards core generates a default level
+fresh on the next boot, and a non-default level is left absent. Any other
+combination refuses the wipe, `RIFTAL_DEV_ENV=1` against another database
+included. A stack outside the shared dev stack carrying either value is one
+key away from the dev path, and both would make the wipe treat it as dev. The
+ruling reverses if one does.

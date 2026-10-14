@@ -20,25 +20,34 @@ Set in `images/.env`, copied from `.env.example`. Never commit `.env`.
 
 ## Reserved for the dev stack
 
-Two values belong to the dev stack alone. No alpha or production stack uses
-either:
+Two values belong to the shared dev stack (`compose.yaml`) alone. No alpha,
+production or rig stack uses either:
 
 - The database name `riftal_dev`, which `compose.yaml` fixes as
-  `MYSQL_DATABASE` on `mysql` and the services that reach it.
+  `MYSQL_DATABASE` on exactly three services: `mysql`, `backup` and
+  `dump-login`.
 - `RIFTAL_DEV_ENV=1` in the environment of a wipe run
   (`../deploy/wipe.sh`), on top of the instances' own `RIFTAL_DEV_ENV`
   above.
 
 The reservation is a standing rule. It exists for the wipe's dev path, which
-riftal-infra#1110 is to build to the steward ruling on riftal-pm#1312. A wipe
-runs as a one-off container that cannot see the instances' environment, so
-that path takes two keys, each matched exactly: `RIFTAL_DEV_ENV=1` in the
-wipe's own environment, and a `MYSQL_DATABASE` of `riftal_dev` that exists on
-the target server. With both, a non-default level with no build is cleared and
-left absent. Any other combination is refused, `RIFTAL_DEV_ENV=1` against
-another database included. One key alone never takes the path, but a stack
-outside dev carrying either value is one key away from it, and the ruling
-reverses if one does.
+riftal-infra#1110 is to build to the steward rulings on riftal-pm#1312 and
+riftal-pm#1314. A wipe runs as a one-off container that cannot see the
+instances' environment, so that path takes two keys, both required, each
+matched exactly: `RIFTAL_DEV_ENV=1` in the wipe's own environment, and a
+`MYSQL_DATABASE` of `riftal_dev` that exists on the target server. The two
+keys gate every wipe that clears a level with no build, default or
+non-default. With both, such a level is cleared: afterwards core generates a
+default level fresh on the next boot, and a non-default level is left absent.
+Any other combination refuses the wipe, `RIFTAL_DEV_ENV=1` against another
+database included. One key alone never takes the path, but a stack outside
+the shared dev stack carrying either value is one key away from it, and the
+ruling reverses if one does.
+
+Rigs name their database `riftal` and never run a wipe, so a wipe aimed at
+one refuses. The one other place `riftal_dev` may appear is
+riftal-infra#1110's selftest, which creates it in throwaway `mysql:8`
+containers as a fixture for the script, not a stack the wipe serves.
 
 ## Dev faults
 
