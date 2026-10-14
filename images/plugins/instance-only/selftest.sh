@@ -306,10 +306,11 @@ check "instance-b's roster, RiftalCustody alone at the top of /plugins, stops th
 printf '\n== the world index reaches every plugin that reads it (riftal-infra#293)\n'
 INDEX="$DIR/../../../designer/world_index.json"
 # PocketMine services in images/compose.yaml that do not run the delivery
-# script first or do not get the designer index mounted read-only for it.
+# script straight after boot-gate.sh or do not get the designer index
+# mounted read-only for it.
 undelivered() {
   jq -r '.services | to_entries[] | select(.value.image | test("pocketmine"))
-    | select((.value.command[0:2] != ["bash", "/plugins/deliver-world-index.sh"])
+    | select((.value.command[2:4] != ["bash", "/plugins/deliver-world-index.sh"])
       or (any(.value.volumes[]?; .target == "/etc/riftal/world_index.json"
         and (.source | endswith("designer/world_index.json")) and .read_only) | not))
     | .key' <<<"$1"

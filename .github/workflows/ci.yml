@@ -97,7 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/capture-harness/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/capture-harness/*.php images/plugins/restart/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
@@ -105,7 +105,7 @@ jobs:
           docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/capture-harness/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/capture-harness/*.php /plugins/restart/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -148,6 +148,9 @@ jobs:
 
       - name: Instance boot on the pinned core image self-test
         run: bash images/plugins/instance-only/boot-selftest.sh
+
+      - name: Instance restart policy and boot gate self-test
+        run: bash images/plugins/restart/selftest.sh
 
       - name: Dev faults hook self-test
         run: bash images/plugins/dev-faults/selftest.sh
