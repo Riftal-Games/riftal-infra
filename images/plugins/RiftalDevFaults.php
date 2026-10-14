@@ -5,8 +5,8 @@
  * @main riftal\dev\faults\Main
  * @version 0.1.0
  * @api 5.0.0
- * @load STARTUP
- * @loadbefore RiftalCustody
+ * @depend RiftalDevBots
+ * @softdepend RiftalCustody
  * @description Dev stack only. Fails a named player's saves, and the custody probe, for ADR 017 P8.
  */
 
@@ -27,7 +27,6 @@ use pocketmine\permission\DefaultPermissions;
 use pocketmine\plugin\PluginBase;
 use riftal\dev\bots\DevEnvGate;
 use Symfony\Component\Filesystem\Path;
-use function class_exists;
 use function count;
 use function getenv;
 use function is_dir;
@@ -46,15 +45,15 @@ use function strtolower;
  * core's Filesystem::safeFilePutContents throw, so the probe fails as it would
  * on storage that cannot be written.
  *
- * Present only under RiftalDevBots' DevEnvGate: without RiftalDevBots loaded,
- * --riftal-dev-bots=on, xbox-auth off and RIFTAL_DEV_ENV=1, no command and no
- * listener exist. dev-faults/selftest.sh holds the gate, both faults and the
- * load order.
+ * Present only under RiftalDevBots' DevEnvGate: without --riftal-dev-bots=on,
+ * xbox-auth off and RIFTAL_DEV_ENV=1, no command and no listener exist, and
+ * without RiftalDevBots core refuses to load this plugin at all.
+ * dev-faults/selftest.sh holds the gate, both faults and the boot order.
  *
- * RiftalDevBots is not a depend: it softdepends on RiftalCustody, so with the
- * loadbefore here a depend would close a cycle core refuses to load. Core
- * includes every plugin's file before it enables any, so the gate's class
- * exists by onEnable whenever RiftalDevBots loaded.
+ * The gate is read and the armed probe cleared in onLoad, because core runs
+ * every plugin's onLoad before it enables any, and custody runs its boot
+ * probe when it enables. The softdepend on RiftalCustody is ADR 013's, held
+ * by custody-selftest.sh for every script plugin an instance loads.
  */
 final class Main extends PluginBase{
 
@@ -64,23 +63,28 @@ final class Main extends PluginBase{
 	/** @var array<string, true> lowercase names whose every save is cancelled until the process ends */
 	private array $failing = [];
 
-	protected function onEnable() : void{
+	private bool $on = false;
+
+	protected function onLoad() : void{
 		$server = $this->getServer();
-		$on = false;
-		if(class_exists(DevEnvGate::class)){
-			$envValue = getenv(DevEnvGate::ENV_VAR);
-			$on = DevEnvGate::shouldAdmit(
-				$server->getConfigGroup()->getConfigBool("riftal-dev-bots", false),
-				$server->requiresAuthentication(),
-				$envValue === false ? null : $envValue
-			);
-		}
-		$this->getLogger()->info("dev faults " . ($on ? "on" : "off"));
-		if(!$on){
+		$envValue = getenv(DevEnvGate::ENV_VAR);
+		$this->on = DevEnvGate::shouldAdmit(
+			$server->getConfigGroup()->getConfigBool("riftal-dev-bots", false),
+			$server->requiresAuthentication(),
+			$envValue === false ? null : $envValue
+		);
+		$this->getLogger()->info("dev faults " . ($this->on ? "on" : "off"));
+		if(!$this->on){
 			return;
 		}
-
 		$this->clearProbeFailure();
+	}
+
+	protected function onEnable() : void{
+		if(!$this->on){
+			return;
+		}
+		$server = $this->getServer();
 		$server->getPluginManager()->registerEvent(PlayerDataSaveEvent::class, $this->onSave(...), EventPriority::HIGHEST, $this);
 		$logger = $this->getLogger();
 		$server->getCommandMap()->registerAll("riftaldevfaults", [
@@ -125,8 +129,8 @@ final class Main extends PluginBase{
 
 	/**
 	 * Left in place, the directory would fail custody's boot probe (ADR 017
-	 * item 5) and kill this boot, which is why this plugin enables at STARTUP
-	 * before RiftalCustody. rmdir removes only an empty directory, so a file
+	 * item 5) and kill this boot, which is why this runs in onLoad. rmdir
+	 * removes only an empty directory, so a file
 	 * of that name, or anything put inside it, is never touched.
 	 */
 	private function clearProbeFailure() : void{

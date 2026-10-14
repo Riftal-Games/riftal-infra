@@ -8,14 +8,14 @@
 # when it enables, arms both faults through the console commands, saves two
 # players through core and writes the probe the way custody does.
 #
-# The fourth boot runs a copy without @loadbefore RiftalCustody and expects
-# the fixture to see the directory the boot before armed, so the check is
-# known to tell the load orders apart on every run. Core shuffles the plugin
-# directory before ordering it, so that boot's fixture also loads before
-# RiftalDevFaults, or the order would be a coin toss.
+# The third boot finds the directory the first armed, and its log must clear
+# it before RiftalCustody enables. The fourth boot runs a copy that clears it
+# in onEnable instead and expects custody to see the directory and the clear
+# to come after custody enables, so the order check is known to tell the two
+# apart on every run.
 #
-# The fifth boot leaves RiftalDevBots out, so the gate's class is undefined,
-# and expects no hook and no error.
+# The fifth boot leaves RiftalDevBots out and expects core to refuse
+# RiftalDevFaults for the missing dependency, so no hook ever runs.
 #
 # Runs the pinned core image from ../../core-image.sha, present only on the
 # self-hosted runners' Docker daemon. It publishes no port, and the volume is
@@ -30,7 +30,7 @@ IMAGE="$CORE_IMAGE"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=6
+EXPECTED_ASSERTIONS=8
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -40,15 +40,14 @@ docker volume create "$volume" >/dev/null
 trap 'rm -rf "$work"; docker volume rm "$volume" >/dev/null' EXIT
 
 # $1 RiftalDevFaults.php to load, $2 RIFTAL_DEV_ENV, $3 FAULTS_ARM_PROBE,
-# $4 a boot number that keeps each boot's player names its own, $5 the
-# fixture, DevFaultsCustody.php when omitted, $6 "nobots" to leave
-# RiftalDevBots out; prints the fixture's result line, or the log tail when
-# there is none
+# $4 a boot number that keeps each boot's player names its own, $5 "nobots"
+# to leave RiftalDevBots out. Keeps the log at $work/log-$4 and prints the
+# fixture's result line, or the log tail when there is none.
 boot() {
   local plugins="$work/plugins-$4" name="riftal_selftest_dev_faults_$$_$RANDOM" log
   mkdir -p "$plugins"
-  [ "${6:-}" = nobots ] || cp "$DIR/../RiftalDevBots.php" "$plugins/"
-  cp "${5:-$DIR/DevFaultsCustody.php}" "$plugins/DevFaultsCustody.php"
+  [ "${5:-}" = nobots ] || cp "$DIR/../RiftalDevBots.php" "$plugins/"
+  cp "$DIR/DevFaultsCustody.php" "$plugins/DevFaultsCustody.php"
   cp "$1" "$plugins/RiftalDevFaults.php"
   chmod -R a+rX "$plugins"
   if ! log="$(timeout 180 docker run --rm --pull never --name "$name" -m 2g --cpus 2 \
@@ -58,6 +57,7 @@ boot() {
       "$IMAGE" 2>&1)"; then
     docker stop -t 60 "$name" >/dev/null 2>&1 || true
   fi
+  printf '%s\n' "$log" > "$work/log-$4"
   if grep -qE '/(EMERGENCY|ALERT|CRITICAL|ERROR)]|Exception|Stack trace' <<<"$log"; then
     printf 'server log has an error:\n%s\n' "$(grep -E '/(EMERGENCY|ALERT|CRITICAL|ERROR)]|Exception|Stack trace' <<<"$log")"
     return
@@ -71,6 +71,16 @@ expect() {
   [ "$3" = "dev-faults-probe $2" ] && pass "$1" || fail "$1: expected '$2', got: $3"
 }
 
+# $1 a boot number; prints clear-first, custody-first, or what is missing
+order() {
+  awk '/cleared the custody probe failure/ && !c { c = NR }
+    /Enabling RiftalCustody / && !e { e = NR }
+    END {
+      if (!c) print "no clear line"; else if (!e) print "no custody enable line";
+      else print (c < e ? "clear-first" : "custody-first")
+    }' "$work/log-$1"
+}
+
 printf '\n== gated: the named player is not saved, another is, and the probe throws\n'
 expect "both faults hold on a dev-shaped boot" \
   "dir_at_enable=no commands=yes failing=unsaved other=saved probe=throws" "$(boot "$PLUGIN" 1 1 1)"
@@ -82,24 +92,35 @@ expect "a production-shaped boot has no hook and leaves the directory alone" \
 printf '\n== the shipped plugin clears the armed directory before custody enables\n'
 expect "custody's boot probe finds the directory gone, and it can be armed again" \
   "dir_at_enable=no commands=yes failing=unsaved other=saved probe=throws" "$(boot "$PLUGIN" 1 1 3)"
+got="$(order 3)"
+[ "$got" = clear-first ] && pass "the log clears the probe failure before Enabling RiftalCustody" \
+  || fail "the clear must come before Enabling RiftalCustody, got: $got"
 
-printf '\n== without @loadbefore RiftalCustody, custody enables before the clear\n'
-copy="$work/no-loadbefore.php"
-fixture="$work/custody-first.php"
-grep -v '^ \* @loadbefore RiftalCustody$' "$PLUGIN" > "$copy" || true
-sed 's/^ \* @load STARTUP$/&\n * @loadbefore RiftalDevFaults/' "$DIR/DevFaultsCustody.php" > "$fixture"
-if [ "$(grep -c '@loadbefore' "$copy")" = 0 ] && [ "$(grep -c '@loadbefore' "$PLUGIN")" = 1 ] \
-    && [ "$(grep -c '@loadbefore RiftalDevFaults' "$fixture")" = 1 ]; then
-  pass "the copy drops exactly the @loadbefore line and the fixture loads first"
+printf '\n== clearing in onEnable instead, custody enables before the clear\n'
+copy="$work/clear-on-enable.php"
+call=$'^\t\t\\$this->clearProbeFailure\\(\\);$'
+sed -E "/$call/d; s/^\tprotected function onEnable\(\) : void\{$/&\n\t\t\$this->clearProbeFailure();/" "$PLUGIN" > "$copy"
+if [ "$(grep -cE "$call" "$PLUGIN")" = 1 ] && [ "$(grep -cE "$call" "$copy")" = 1 ] \
+    && grep -A1 'function onEnable' "$copy" | grep -qE "$call" \
+    && ! grep -A1 'function onEnable' "$PLUGIN" | grep -qE "$call"; then
+  pass "the copy moves exactly the one clear call into onEnable"
 else
-  fail "could not find the @loadbefore RiftalCustody line in $PLUGIN or the @load line in the fixture"
+  fail "could not find exactly one clearProbeFailure() call outside onEnable in $PLUGIN"
 fi
 expect "the copy leaves the armed directory for custody's boot probe to hit" \
-  "dir_at_enable=yes commands=yes failing=unsaved other=saved probe=writes" "$(boot "$copy" 1 0 4 "$fixture")"
+  "dir_at_enable=yes commands=yes failing=unsaved other=saved probe=writes" "$(boot "$copy" 1 0 4)"
+got="$(order 4)"
+[ "$got" = custody-first ] && pass "the order check sees the copy clear after Enabling RiftalCustody" \
+  || fail "the copy should clear after Enabling RiftalCustody, got: $got"
 
-printf '\n== without RiftalDevBots: no gate, so no command and no listener\n'
-expect "a dev-shaped boot without RiftalDevBots has no hook and no error" \
-  "dir_at_enable=no commands=no failing=saved other=saved probe=writes" "$(boot "$PLUGIN" 1 1 5 "" nobots)"
+printf '\n== without RiftalDevBots: core refuses RiftalDevFaults, so no hook runs\n'
+boot "$PLUGIN" 1 1 5 nobots
+if grep -qE "/CRITICAL\]: .*RiftalDevFaults.*RiftalDevBots" "$work/log-5" \
+    && ! grep -qE 'dev faults (on|off)|dev-faults-probe' "$work/log-5"; then
+  pass "a boot without RiftalDevBots names the missing dependency and loads no hook"
+else
+  fail "a boot without RiftalDevBots should refuse RiftalDevFaults for the missing dependency"
+fi
 
 printf '\n'
 ran=$((PASSES + FAILURES))

@@ -25,7 +25,7 @@ use function sprintf;
 use function unlink;
 
 /**
- * Named RiftalCustody, so RiftalDevFaults' loadbefore applies to it, and
+ * Named RiftalCustody, so RiftalDevFaults' softdepend applies to it, and
  * enabled at STARTUP as custody is. Records whether the probe path is a
  * directory when it enables, which is when custody runs its boot probe, then
  * drives both faults the way a P8 scenario would and reports what core did.
