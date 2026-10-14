@@ -20,6 +20,7 @@ SUFFIX="$$-$(date +%s)"
 # that prefix, so this runs and cleans up the same on a dev machine as in CI.
 NETWORK="riftal_smoke_restore_net_$SUFFIX"
 MYSQL_CONTAINER="riftal_smoke_restore_mysql_$SUFFIX"
+RESTORE_CONTAINER="riftal_smoke_restore_restore_$SUFFIX"
 BACKUPS_VOL="riftal_smoke_restore_backups_$SUFFIX"
 WORLD_A_VOL="riftal_smoke_restore_world_a_$SUFFIX"
 WORLD_B_VOL="riftal_smoke_restore_world_b_$SUFFIX"
@@ -30,6 +31,7 @@ BACKUP_PW=selftestPasswordBackupLogin01
 LOGS="$(mktemp -d)"
 
 cleanup() {
+  docker rm -f -v "$RESTORE_CONTAINER" >/dev/null 2>&1 || true
   docker rm -f -v "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" >/dev/null 2>&1 || true
@@ -114,15 +116,20 @@ provision_backup_login() {
     mysql:8 bash /run-migrations.sh
 }
 
+# The docker client forwards timeout's SIGTERM to restore.sh's bash, which as
+# PID 1 ignores it, so only the SIGKILL from -k ends the client, and that
+# leaves the container running. Removing it by name is what frees the runner.
 run_restore() {
-  local backup_set="$1"
-  timeout 60 docker run --rm -m 1g --cpus 1 --network "$NETWORK" \
+  local backup_set="$1" rc=0
+  timeout -k 5 60 docker run --rm -m 1g --cpus 1 --name "$RESTORE_CONTAINER" --network "$NETWORK" \
     -v "$SCRIPT_DIR/restore.sh:/deploy/restore.sh:ro" \
     -v "$BACKUPS_VOL:/backups:ro" \
     -v "$WORLD_A_VOL:/worlds/world-a" -v "$WORLD_B_VOL:/worlds/world-b" \
     -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_SET="$backup_set" \
-    mysql:8 bash /deploy/restore.sh
+    mysql:8 bash /deploy/restore.sh || rc=$?
+  docker rm -f -v "$RESTORE_CONTAINER" >/dev/null 2>&1 || true
+  return "$rc"
 }
 
 backups() {

@@ -1,0 +1,12 @@
+# Must fail job-timeouts.sh: of two jobs, the second has no timeout-minutes.
+on: push
+jobs:
+  first:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: "true"
+  second:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: "true"

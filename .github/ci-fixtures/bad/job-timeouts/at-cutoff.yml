@@ -1,0 +1,9 @@
+# Must fail job-timeouts.sh under a 1200-second cutoff: the job times out at
+# exactly 20 minutes, which is not under it.
+on: push
+jobs:
+  only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - run: "true"

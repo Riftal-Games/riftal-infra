@@ -12,18 +12,28 @@ root="${2:-.}"
 prune="${3:-$root/.github/ci-fixtures}"
 scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-check_dockerfiles() { "${HADOLINT:-hadolint}" "$1"; }
+check_dockerfiles() { "$HADOLINT" "$1"; }
 check_compose() { docker compose -f "$1" config --quiet; }
 
 # Command substitution puts discovery's exit status under `set -e`, so a
 # discovery that dies stops the scan instead of reading as an empty tree.
 # LISTER is how the self-test makes discovery fail on demand.
+#
+# Both kinds list in LC_ALL=C order, the order list_compose.sh uses, so a log
+# from one machine diffs cleanly against a log from another. find(1) alone
+# gives directory order, which differs between filesystems and between runs.
+#
+# HADOLINT has no default. A bare `hadolint` would be a PATH lookup, which on
+# the self-hosted runner can find a binary in a directory every job can write,
+# instead of the one install-hadolint.sh checked for this job.
 case "$kind" in
   dockerfiles) label='Dockerfile(s)/Containerfile(s)'
+    : "${HADOLINT:?HADOLINT must name the hadolint binary to run}"
     found="$(find "$root" -path "$root/.git" -prune -o -path "$prune" -prune -o \
-      -type f \( -name Dockerfile -o -name 'Dockerfile.*' \
-        -o -name '*.Dockerfile' -o -name Containerfile \
-        -o -name 'Containerfile.*' -o -name '*.Containerfile' \) -print)" ;;
+      -type f \( -iname Dockerfile -o -iname 'Dockerfile.*' \
+        -o -iname '*.Dockerfile' -o -iname Containerfile \
+        -o -iname 'Containerfile.*' -o -iname '*.Containerfile' \) -print0 |
+      LC_ALL=C sort -z | tr '\0' '\n')" ;;
   compose) label='compose file(s)'
     found="$(bash "${LISTER:-$scripts/list_compose.sh}" "$root" "$prune")" ;;
   *) printf 'unknown scan: %s\n' "$kind" >&2; exit 2 ;;
