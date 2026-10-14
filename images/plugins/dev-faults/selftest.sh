@@ -8,14 +8,10 @@
 # when it enables, arms both faults through the console commands, saves two
 # players through core and writes the probe the way custody does.
 #
-# The third boot finds the directory the first armed, and its log must clear
-# it before RiftalCustody enables. The fourth boot runs a copy that clears it
-# in onEnable instead and expects custody to see the directory and the clear
-# to come after custody enables, so the order check is known to tell the two
-# apart on every run.
-#
-# The fifth boot leaves RiftalDevBots out and expects core to refuse
-# RiftalDevFaults for the missing dependency, so no hook ever runs.
+# The third boot must clear the directory the first armed before RiftalCustody
+# enables; the fourth runs a copy that clears it in onEnable and must not, so
+# the order check is known to tell the two apart. The fifth leaves
+# RiftalDevBots out, and core must refuse RiftalDevFaults.
 #
 # Runs the pinned core image from ../../core-image.sha, present only on the
 # self-hosted runners' Docker daemon. It publishes no port, and the volume is
@@ -71,15 +67,9 @@ expect() {
   [ "$3" = "dev-faults-probe $2" ] && pass "$1" || fail "$1: expected '$2', got: $3"
 }
 
-# $1 a boot number; prints clear-first, custody-first, or what is missing
-order() {
-  awk '/cleared the custody probe failure/ && !c { c = NR }
-    /Enabling RiftalCustody / && !e { e = NR }
-    END {
-      if (!c) print "no clear line"; else if (!e) print "no custody enable line";
-      else print (c < e ? "clear-first" : "custody-first")
-    }' "$work/log-$1"
-}
+# $1 a boot number; prints whichever of the two lines its log has first
+first() { grep -oE 'cleared the custody probe failure|Enabling RiftalCustody' "$work/log-$1" | head -n 1; }
+clear='cleared the custody probe failure'
 
 printf '\n== gated: the named player is not saved, another is, and the probe throws\n'
 expect "both faults hold on a dev-shaped boot" \
@@ -92,35 +82,27 @@ expect "a production-shaped boot has no hook and leaves the directory alone" \
 printf '\n== the shipped plugin clears the armed directory before custody enables\n'
 expect "custody's boot probe finds the directory gone, and it can be armed again" \
   "dir_at_enable=no commands=yes failing=unsaved other=saved probe=throws" "$(boot "$PLUGIN" 1 1 3)"
-got="$(order 3)"
-[ "$got" = clear-first ] && pass "the log clears the probe failure before Enabling RiftalCustody" \
-  || fail "the clear must come before Enabling RiftalCustody, got: $got"
+[ "$(first 3)" = "$clear" ] && pass "the log clears the probe failure before Enabling RiftalCustody" \
+  || fail "the clear must come before Enabling RiftalCustody, got first: $(first 3)"
 
 printf '\n== clearing in onEnable instead, custody enables before the clear\n'
 copy="$work/clear-on-enable.php"
 call=$'^\t\t\\$this->clearProbeFailure\\(\\);$'
 sed -E "/$call/d; s/^\tprotected function onEnable\(\) : void\{$/&\n\t\t\$this->clearProbeFailure();/" "$PLUGIN" > "$copy"
-if [ "$(grep -cE "$call" "$PLUGIN")" = 1 ] && [ "$(grep -cE "$call" "$copy")" = 1 ] \
-    && grep -A1 'function onEnable' "$copy" | grep -qE "$call" \
-    && ! grep -A1 'function onEnable' "$PLUGIN" | grep -qE "$call"; then
-  pass "the copy moves exactly the one clear call into onEnable"
-else
-  fail "could not find exactly one clearProbeFailure() call outside onEnable in $PLUGIN"
-fi
+[ "$(grep -cE "$call" "$PLUGIN")" = 1 ] && [ "$(grep -A1 'function onEnable' "$copy" | grep -cE "$call")" = 1 ] \
+  && [ "$(grep -cE "$call" "$copy")" = 1 ] && pass "the copy moves exactly the one clear call into onEnable" \
+  || fail "could not find exactly one clearProbeFailure() call outside onEnable in $PLUGIN"
 expect "the copy leaves the armed directory for custody's boot probe to hit" \
   "dir_at_enable=yes commands=yes failing=unsaved other=saved probe=writes" "$(boot "$copy" 1 0 4)"
-got="$(order 4)"
-[ "$got" = custody-first ] && pass "the order check sees the copy clear after Enabling RiftalCustody" \
-  || fail "the copy should clear after Enabling RiftalCustody, got: $got"
+[ "$(first 4)" = "Enabling RiftalCustody" ] && pass "the order check sees the copy clear after Enabling RiftalCustody" \
+  || fail "the copy should clear after Enabling RiftalCustody, got first: $(first 4)"
 
 printf '\n== without RiftalDevBots: core refuses RiftalDevFaults, so no hook runs\n'
 boot "$PLUGIN" 1 1 5 nobots
-if grep -qE "/CRITICAL\]: .*RiftalDevFaults.*RiftalDevBots" "$work/log-5" \
-    && ! grep -qE 'dev faults (on|off)|dev-faults-probe' "$work/log-5"; then
-  pass "a boot without RiftalDevBots names the missing dependency and loads no hook"
-else
-  fail "a boot without RiftalDevBots should refuse RiftalDevFaults for the missing dependency"
-fi
+grep -qE "/CRITICAL\]: .*RiftalDevFaults.*RiftalDevBots" "$work/log-5" \
+  && ! grep -qE 'dev faults (on|off)|dev-faults-probe' "$work/log-5" \
+  && pass "a boot without RiftalDevBots names the missing dependency and loads no hook" \
+  || fail "a boot without RiftalDevBots should refuse RiftalDevFaults for the missing dependency"
 
 printf '\n'
 ran=$((PASSES + FAILURES))
