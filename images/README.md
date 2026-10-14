@@ -57,8 +57,10 @@ path. A `wslc run` of either instance needs the same `-v` and command.
 Both instances run `restart: on-failure` with no retry cap, start through
 `plugins/restart/boot-gate.sh`, and are healthchecked by
 `plugins/restart/raknet-ping.php` (riftal-infra#355). A crash restarts. A clean
-`stop` exits 0 and stays down. A deploy that cannot boot fails within seconds,
-and after three starts each under 120 s apart the gate stops starting
+`stop` exits 0 and stays down. A start that waits on core's `server.lock`
+while a backup holds a stopped volume exits 1 at core's lock check and is
+started again, as ADR 015 item 6 expects. A deploy that cannot boot fails
+within seconds, and after three starts each under 120 s apart the gate stops starting
 PocketMine and parks the container Up and `unhealthy`, logging this line:
 
 ```

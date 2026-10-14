@@ -21,7 +21,7 @@ STOPPED="riftal_smoke_355_stop_$SUFFIX"
 cleanup() {
   for c in "$LOOP" "$STOPPED"; do
     docker stop -t 5 "$c" >/dev/null 2>&1 || true
-    docker rm "$c" >/dev/null 2>&1 || true
+    docker rm -v "$c" >/dev/null 2>&1 || true
   done
   rm -rf "$work"
 }
@@ -105,6 +105,7 @@ policy="$(jq -r '.services.instance.restart' <<<"$real")"
 run_gated() {
   local name="$1"
   shift
+  # container-cleanup: keep a --restart policy needs the container to outlive each exit, and cleanup removes it
   docker run -d --init --name "$name" -m 1g --cpus 1 --restart "$policy" \
     -v "$DIR:/gate:ro" php:8.3-cli-alpine sh /gate/boot-gate.sh "$@" >/dev/null
 }
