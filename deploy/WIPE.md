@@ -142,9 +142,13 @@ survive; the migration run reapplies their grants anyway.
    any level still present (`FAIL level <zone> on <name> ...`), on any file
    in `players/` or `plugin_data/` (`FAIL <dir>/ on <name> holds <n>
    file(s)`), when `schema_migrations` records no migration, and on each
-   other base table that is not empty (`FAIL <table> holds <n> row(s)`). It
-   passes with `wipe-check <database>: ok, <n> migration(s) applied, <n>
-   table(s) all empty`. A built level fails it until riftal-infra#1126 lands.
+   other base table that is not empty (`FAIL <table> holds <n> row(s)`).
+   `capture_fence` is the exception: riftal-game's migration 0027 seeds its
+   one row, lowered, so it must hold exactly that row, and fails with `FAIL
+   capture_fence should hold only migration 0027's row, id 1 and lowered; it
+   holds <n> row(s), <n> of them that row`. It passes with `wipe-check
+   <database>: ok, <n> migration(s) applied, <n> table(s) empty but for <n>
+   seeded row(s)`. A built level fails it until riftal-infra#1126 lands.
 7. **Start the instances**, one at a time, per `../CLAUDE.md`'s rollout order,
    then start the `backup` service. `backup-loop.sh` runs `backup.sh` at once
    on start, so the first set after the wipe is taken then.
@@ -242,6 +246,8 @@ mounts every one of its instance volumes in both commands. Wrap each in
 `wipe-selftest.sh` runs in CI (`.github/workflows/ci.yml`) against two
 throwaway `mysql:8` containers that publish nothing, one of them with
 `performance_schema` off; the header of the script says what it proves.
+CI does not check out riftal-game, so its migrations stand in for the real
+ones, with `capture_fence` and its seeded row copied from 0027.
 `wipe-volumes-selftest.sh` covers the volumes on throwaway `riftal_smoke_*`
 volumes, every file Scope keeps among them, byte for byte. Locally, under the Docker in the WSL distro that hosts the CI runners:
 

@@ -11,6 +11,9 @@
 # table behind and fail here. Each refusal in wipe.sh is driven, and must leave
 # the fixture unchanged.
 #
+# The fixture also holds capture_fence with the row migration 0027 seeds.
+# wipe-check must pass with that row lowered and fail with it raised or gone.
+#
 # The confirmed wipe must write nothing to stderr, and its stdout must be
 # exactly wipe-volumes.sh's line for the one volume, holding no level, and its
 # own two progress lines, naming the default port deploy/README.md's
@@ -96,6 +99,22 @@ CREATE TABLE economy_balance_snapshot (
   )
 );
 SQL
+# riftal-game's migration 0027 seeds capture_fence's one row, so a migrated
+# schema is never all empty. riftal-game is a separate private repo this CI
+# does not check out, so its table and seed are copied here as 0027 writes them.
+docker exec -i "$C" bash -c 'cat > /tmp/migrations/0002_capture_fence.sql' <<'SQL'
+CREATE TABLE capture_fence (
+  id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+  request_id VARCHAR(64) CHARACTER SET ascii NULL,
+  raised_until DATETIME(3) NULL,
+  CONSTRAINT capture_fence_one_row_chk CHECK (id = 1),
+  CONSTRAINT capture_fence_pair_chk CHECK (
+    (request_id IS NULL AND raised_until IS NULL)
+    OR (request_id IS NOT NULL AND raised_until IS NOT NULL)
+  )
+);
+INSERT INTO capture_fence (id) VALUES (1);
+SQL
 
 migrate() {
   env_run -e MYSQL_DATABASE="$DB" -e MIGRATIONS_DIR=/tmp/migrations \
@@ -179,7 +198,7 @@ stamped tennanos "sed -n '/^timestamp: /s/Z\$/0Z/p' /tmp/set/manifest.txt" rifta
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=41
+EXPECTED_ASSERTIONS=44
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -358,6 +377,23 @@ if check >"$LOGS/check-wiped.log" 2>&1; then
 else
   fail "wipe-check should pass after the wipe"; cat "$LOGS/check-wiped.log"
 fi
+grep -qx "wipe-check $DB: ok, 2 migration(s) applied, 4 table(s) empty but for 1 seeded row(s)" "$LOGS/check-wiped.log" \
+  && pass "wipe-check's ok line counts the seeded capture_fence row" || { fail "wipe-check's ok line"; cat "$LOGS/check-wiped.log"; }
+FENCE="capture_fence should hold only migration 0027's row, id 1 and lowered"
+fence_fails() {
+  if check >"$LOGS/check-fence-$1.log" 2>&1; then
+    fail "wipe-check passed with capture_fence $1"
+  elif grep -qF "FAIL $FENCE; it holds $2" "$LOGS/check-fence-$1.log"; then
+    pass "wipe-check fails with capture_fence $1"
+  else
+    fail "wipe-check failed with capture_fence $1 without naming it"; cat "$LOGS/check-fence-$1.log"
+  fi
+}
+q "UPDATE $DB.capture_fence SET request_id = 'r1', raised_until = UTC_TIMESTAMP(3) + INTERVAL 60 SECOND"
+fence_fails raised "1 row(s), 0 of them that row"
+q "DELETE FROM $DB.capture_fence"
+fence_fails empty "0 row(s), 0 of them that row"
+q "INSERT INTO $DB.capture_fence (id) VALUES (1)"
 [ "$(snapshot_rows)" = "0" ] && pass "economy_balance_snapshot exists and is empty" \
   || fail "economy_balance_snapshot should exist and be empty, got '$(snapshot_rows)'"
 [ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$DB' AND TABLE_NAME = 'stray_unmigrated'")" = "0" ] \
