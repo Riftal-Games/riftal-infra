@@ -197,9 +197,8 @@ services:
     environment:
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
-      # See ../deploy/README.md, The dump login.
-      # ../migrations/run-migrations.sh creates this login from the
-      # same variable, and until it has, every run here fails to log in.
+      # See ../deploy/README.md, The dump login. `dump-login` creates this
+      # login from the same variable before this service may start.
       MYSQL_USER: backup
       MYSQL_PASSWORD: ${RIFTAL_DB_PASSWORD_BACKUP}
       MYSQL_DATABASE: riftal_dev
@@ -215,6 +214,42 @@ services:
       - riftal-world:/worlds/riftal-world:ro
       - riftal-world-b:/worlds/riftal-world-b:ro
       - ../deploy:/deploy:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      dump-login:
+        condition: service_completed_successfully
+    networks:
+      - riftal-dev
+
+  # Creates or rotates the `backup` login, then exits. It runs on every `up`,
+  # so images/.env always decides the password, and a failure here keeps
+  # `backup` from starting rather than leaving it to fail on every interval.
+  # It applies no migrations and no grants file: with only
+  # RIFTAL_DB_PASSWORD_BACKUP passed in, the runner provisions the dump login
+  # alone, whose role it creates itself. Migrations and the plugin logins stay
+  # the operator's run in ../migrations/README.md, which holds the same lock.
+  dump-login:
+    image: mysql:8
+    # An empty variable would otherwise reach the runner as a short password,
+    # and an unset one as no login to provision at all.
+    command:
+      - bash
+      - -c
+      - >-
+        [ -n "$$RIFTAL_DB_PASSWORD_BACKUP" ] || {
+        echo "RIFTAL_DB_PASSWORD_BACKUP is empty: set it in images/.env, see .env.example" >&2;
+        exit 1; };
+        exec bash /migrations/run-migrations.sh
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: riftal_dev
+      RIFTAL_DB_PASSWORD_BACKUP: ${RIFTAL_DB_PASSWORD_BACKUP}
+    volumes:
+      - ../migrations/run-migrations.sh:/migrations/run-migrations.sh:ro
     depends_on:
       mysql:
         condition: service_healthy
