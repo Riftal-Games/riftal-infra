@@ -1,0 +1,32 @@
+# start-instance.sh copies this to /data/plugin_data/RiftalRanks/config.yml on
+# every boot, so this file stays authoritative; PluginBase::saveDefaultConfig()
+# never overwrites a file that already exists there.
+#
+# Everything below except the schema is the plugin's own shipped default
+# (riftal-game/ranks/resources/config.yml). selftest.sh compares to that file
+# every line inside database but the schema, and every top-level key and
+# top-level scalar; comments are not compared. It checks the schema against
+# the one compose creates, riftal_dev. The password stays
+# empty: RiftalGames\Lib\Database\DatabaseSettings reads the ranks login's
+# password from RIFTAL_DB_PASSWORD_RANKS in the instance's environment, and
+# throws if this file holds one too (ADR 008 item 5).
+database:
+  host: "mysql"
+  schema: "riftal_dev"
+  username: "ranks"
+  password: ""
+  port: 3306
+  worker-limit: 1
+
+rank_order: ["A", "B", "C"]
+
+anti_afk_min_break_interval_ms: 100
+
+rankup:
+  B: {cost_minor_units: 100, blocks_mined: 50}
+  C: {cost_minor_units: 100, blocks_mined: 50}
+
+rankup_claim:
+  lease_seconds: 180
+  reconcile_interval_seconds: 60
+  reconcile_batch: 50

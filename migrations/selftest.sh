@@ -27,10 +27,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The README's Testing list is the reader's copy of the section titles, so it
+# must name each one exactly and in run order. Checked before any container
+# starts, so a drift fails in a second.
+script_sections="$(sed -n 's/^[[:space:]]*section "\(.*\)"$/\1/p' "${BASH_SOURCE[0]}")"
+readme_sections="$(sed -n '/^## Testing$/,/^## /s/^- //p' "$SCRIPT_DIR/README.md")"
+if [ "$script_sections" != "$readme_sections" ]; then
+  echo "::error::migrations/README.md's section list does not match selftest.sh's section titles"
+  diff <(printf '%s\n' "$script_sections") <(printf '%s\n' "$readme_sections") \
+    | sed 's/^</selftest.sh /; s/^>/README.md   /' || true
+  exit 1
+fi
+
 docker network create "$NETWORK" >/dev/null
 
+# Every container this script starts shares a host with other jobs and other
+# lanes, and one without a limit can take the whole machine's RAM. mysql:8
+# reaches ready and runs every section well inside these.
+LIMITS=(-m 1g --cpus 1)
+
 start_mysql() {
-  docker run -d --name "$1" --network "$NETWORK" --network-alias "$2" \
+  docker run -d --rm "${LIMITS[@]}" --name "$1" --network "$NETWORK" --network-alias "$2" \
     -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
     mysql:8 >/dev/null
 }
@@ -53,19 +70,25 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
   'CREATE DATABASE IF NOT EXISTS riftal_selftest_bad' >/dev/null
 docker exec "$CONTAINER" mysql -uroot -pselftest -e \
   'CREATE DATABASE IF NOT EXISTS riftal_selftest_race' >/dev/null
+docker exec "$CONTAINER" mysql -uroot -pselftest -e \
+  'CREATE DATABASE IF NOT EXISTS riftal_selftest_definer' >/dev/null
+docker exec "$CONTAINER" mysql -uroot -pselftest -e \
+  'CREATE DATABASE IF NOT EXISTS riftal_selftest_floor' >/dev/null
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=24
+EXPECTED_ASSERTIONS=66
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
-section() { printf '\n== %s\n' "$1"; }
+# The closing summary lists these titles, so a new section cannot be left out of it.
+SECTIONS=()
+section() { SECTIONS+=("$1"); printf '\n== %s\n' "$1"; }
 
 # Arguments after the first three go to docker run, for provisioning's env.
 run_migrations() {
   local dir="$1" db="$2" lock="$3"
   shift 3
-  docker run --rm --network "$NETWORK" \
+  docker run --rm "${LIMITS[@]}" --network "$NETWORK" \
     -v "$RUNNER:/run-migrations.sh:ro" -v "$dir:/migrations:ro" \
     -e MYSQL_HOST="${HOST_ALIAS:-mysql}" -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE="$db" -e MIGRATIONS_DIR=/migrations \
@@ -167,6 +190,294 @@ else
   cat "$LOGS"/out-race-b.log
 fi
 
+section "a lock connection that dies early fails cleanly"
+# A wrong password ends the lock session before GET_LOCK answers, so bash has
+# reaped the coprocess and unset LOCKCONN by the time the exit trap runs.
+dead_rc=0
+run_migrations "$FIXTURES/good" riftal_selftest "selftest-dead-$SUFFIX" \
+  -e MYSQL_PASSWORD=selftestWrongPassword >"$LOGS"/out-deadlock.log 2>&1 || dead_rc=$?
+if [ "$dead_rc" -eq 1 ] \
+   && grep -q 'lock connection closed before answering GET_LOCK' "$LOGS"/out-deadlock.log \
+   && ! grep -q 'unbound variable' "$LOGS"/out-deadlock.log \
+   && ! grep -q 'lost the migration lock' "$LOGS"/out-deadlock.log; then
+  pass "a dead lock connection exits 1 with its own error and nothing from the trap"
+else
+  fail "expected exit 1, the GET_LOCK error, no unbound variable and no lost lock, got exit $dead_rc"
+  cat "$LOGS"/out-deadlock.log
+fi
+
+section "a lock session that stops reading before GET_LOCK fails cleanly"
+# --init keeps the runner off PID 1, where the kernel drops a SIGPIPE that has
+# no handler, so an unguarded write here would end the run with 141.
+LOCK_PIPE=(--init -v "$FIXTURES/lock-pipe:/lock-pipe:ro" -e BASH_ENV=/lock-pipe/fake-lock-pipe.bash)
+pipe_start_rc=0
+run_migrations "$FIXTURES/empty" riftal_selftest "selftest-pipe-start-$SUFFIX" \
+  "${LOCK_PIPE[@]}" -e SELFTEST_LOCK_PIPE=at-start >"$LOGS"/out-pipe-start.log 2>&1 \
+  || pipe_start_rc=$?
+if [ "$pipe_start_rc" -eq 1 ] \
+   && grep -q 'lock connection closed before answering GET_LOCK' "$LOGS"/out-pipe-start.log \
+   && ! grep -q 'lost the migration lock' "$LOGS"/out-pipe-start.log; then
+  pass "a lock pipe with no reader at GET_LOCK exits 1 with the GET_LOCK error"
+else
+  fail "expected exit 1, the GET_LOCK error and no lost lock, got exit $pipe_start_rc"
+  cat "$LOGS"/out-pipe-start.log
+fi
+
+section "a run whose lock session dies mid-run fails"
+lost_rc=0
+run_migrations "$FIXTURES/lostlock" riftal_selftest_race selftest-lost-lock \
+  >"$LOGS"/out-lostlock.log 2>&1 || lost_rc=$?
+if [ "$lost_rc" -eq 1 ] \
+   && grep -q "lost the migration lock 'selftest-lost-lock'" "$LOGS"/out-lostlock.log \
+   && ! grep -q 'unbound variable' "$LOGS"/out-lostlock.log; then
+  pass "a lock lost mid-run exits 1 and says the lock was lost"
+else
+  fail "expected exit 1 and a lost-lock error, got exit $lost_rc"
+  cat "$LOGS"/out-lostlock.log
+fi
+
+section "a lock session that stops reading before RELEASE_LOCK fails"
+pipe_release_rc=0
+run_migrations "$FIXTURES/empty" riftal_selftest "selftest-pipe-release-$SUFFIX" \
+  "${LOCK_PIPE[@]}" -e SELFTEST_LOCK_PIPE=after-lock >"$LOGS"/out-pipe-release.log 2>&1 \
+  || pipe_release_rc=$?
+if [ "$pipe_release_rc" -eq 1 ] \
+   && grep -q "lost the migration lock 'selftest-pipe-release-$SUFFIX'" "$LOGS"/out-pipe-release.log; then
+  pass "a lock pipe with no reader at RELEASE_LOCK exits 1 and says the lock was lost"
+else
+  fail "expected exit 1 and a lost-lock error, got exit $pipe_release_rc"
+  cat "$LOGS"/out-pipe-release.log
+fi
+
+section "a lock held elsewhere times out naming its holder"
+# A login of its own, so the user the runner names can only have come from
+# the holder's processlist row and not from the runner's own root session.
+query riftal_selftest \
+  "CREATE USER 'lockholder'@'%' IDENTIFIED BY 'selftestLockHolder00000006'"
+hold_lock() {
+  docker exec -e MYSQL_PWD=selftestLockHolder00000006 "$CONTAINER" \
+    mysql -h 127.0.0.1 -ulockholder -N -B \
+    -e "SELECT GET_LOCK('$1', 0); SELECT SLEEP(120);" >/dev/null 2>&1 &
+  holder_pid=$!
+  holder_id=""
+  for _ in $(seq 1 30); do
+    holder_id="$(query riftal_selftest "SELECT IS_USED_LOCK('$1')")"
+    [ "$holder_id" != "NULL" ] && break
+    sleep 1
+  done
+}
+release_lock() {
+  query riftal_selftest "KILL $holder_id" 2>/dev/null || true
+  wait "$holder_pid" 2>/dev/null || true
+}
+HELD_LOCK="selftest-held-$SUFFIX"
+hold_lock "$HELD_LOCK"
+held_rc=0
+run_migrations "$FIXTURES/good" riftal_selftest "$HELD_LOCK" \
+  -e MIGRATIONS_LOCK_TIMEOUT=1 >"$LOGS"/out-held.log 2>&1 || held_rc=$?
+release_lock
+if [ "$held_rc" -eq 1 ] && grep -q "could not acquire lock '$HELD_LOCK' within 1s" "$LOGS"/out-held.log \
+   && ! grep -q 'lost the migration lock' "$LOGS"/out-held.log; then
+  pass "a held lock exits 1 once the timeout passes"
+else
+  fail "expected exit 1, the lock timeout and no lost lock, got exit $held_rc"; cat "$LOGS"/out-held.log
+fi
+if grep -qE "held by connection $holder_id, user lockholder from host [^ ]+" "$LOGS"/out-held.log; then
+  pass "the timeout names the holder's connection id, user and host"
+else
+  fail "expected the holder named as connection $holder_id, user lockholder and a host"
+  cat "$LOGS"/out-held.log
+fi
+if ! grep -q "PROCESS" "$LOGS"/out-held.log; then
+  pass "the timeout does not blame a missing PROCESS privilege"
+else
+  fail "expected no mention of PROCESS in the timeout"; cat "$LOGS"/out-held.log
+fi
+if ! grep -q "released after the timeout" "$LOGS"/out-held.log; then
+  pass "the timeout does not claim the lock was released after it"
+else
+  fail "expected no claim that the lock was released after the timeout"
+  cat "$LOGS"/out-held.log
+fi
+
+section "a lock failure says which read of its holder came back unusable"
+# Holds a database grant and nothing global, so no PROCESS and no grant on
+# performance_schema.
+query riftal_selftest \
+  "CREATE USER 'lockrunner'@'%' IDENTIFIED BY 'selftestLockRunner00000007'"
+query riftal_selftest "GRANT ALL ON riftal_selftest.* TO 'lockrunner'@'%'"
+UNREAD_LOCK="selftest-unread-$SUFFIX"
+# Arguments after the first two go to docker run.
+expect_lock_failure() {
+  local name="$1" want="$2" rc=0
+  shift 2
+  run_migrations "$FIXTURES/good" riftal_selftest "$UNREAD_LOCK" \
+    -e MIGRATIONS_LOCK_TIMEOUT=1 "$@" >"$LOGS/out-$name.log" 2>&1 || rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF -- "$want" "$LOGS/out-$name.log"; then
+    pass "$name exits 1 saying: $want"
+  else
+    fail "$name: expected exit 1 and '$want', got exit $rc"
+    cat "$LOGS/out-$name.log"
+  fi
+}
+LOCK_READS=(-v "$FIXTURES/lock-reads:/lock-reads:ro" -e BASH_ENV=/lock-reads/fake-lock-reads.bash)
+hold_lock "$UNREAD_LOCK"
+expect_lock_failure getlock-null \
+  "could not acquire lock '$UNREAD_LOCK': GET_LOCK returned NULL, which is an error and not a timeout" \
+  "${LOCK_READS[@]}" -e SELFTEST_GET_LOCK=NULL
+expect_lock_failure is-used-lock-null \
+  "within 1s (GET_LOCK returned: 0), held by no session by the time IS_USED_LOCK was read" \
+  "${LOCK_READS[@]}" -e SELFTEST_IS_USED_LOCK=NULL
+expect_lock_failure is-used-lock-error \
+  "within 1s (GET_LOCK returned: 0), held by unknown, IS_USED_LOCK could not be read" \
+  "${LOCK_READS[@]}" -e SELFTEST_IS_USED_LOCK=error
+expect_lock_failure processlist-error \
+  "held by connection $holder_id, whose user and host could not be read: the performance_schema.processlist query failed" \
+  "${LOCK_READS[@]}" -e SELFTEST_PROCESSLIST=error
+# The processlist query itself succeeds for this login: the table is readable
+# without a grant, and without PROCESS it hides every session but the login's
+# own.
+expect_lock_failure no-process-login \
+  "held by connection $holder_id, whose user and host could not be read: its processlist row came back empty" \
+  -e MYSQL_USER=lockrunner -e MYSQL_PASSWORD=selftestLockRunner00000007
+release_lock
+
+section "a lock timeout that is not a whole number is refused before connecting"
+# The host resolves to nothing, so only a refusal made before the lock
+# session connects can produce the expected message.
+for timeout in 1.5 -1 '1 OR SLEEP(5)' abc; do
+  timeout_rc=0
+  run_migrations "$FIXTURES/good" riftal_selftest "selftest-timeout-$SUFFIX" \
+    -e MYSQL_HOST=nowhere.invalid -e MIGRATIONS_LOCK_TIMEOUT="$timeout" \
+    >"$LOGS"/out-timeout.log 2>&1 || timeout_rc=$?
+  if [ "$timeout_rc" -eq 1 ] && grep -qxF \
+       "MIGRATIONS_LOCK_TIMEOUT must be a whole number of seconds, got '$timeout'" \
+       "$LOGS"/out-timeout.log; then
+    pass "MIGRATIONS_LOCK_TIMEOUT='$timeout' exits 1 naming the variable"
+  else
+    fail "MIGRATIONS_LOCK_TIMEOUT='$timeout': expected exit 1 and a refusal naming it, got exit $timeout_rc"
+    cat "$LOGS"/out-timeout.log
+  fi
+done
+
+section "a lock name outside the safe character set is refused before connecting"
+# 65 characters, one past the longest name MySQL accepts for a user lock.
+long_name="$(printf 'a%.0s' $(seq 1 65))"
+for name in "a'b" 'lock name' 'lock.name' "$long_name"; do
+  name_rc=0
+  run_migrations "$FIXTURES/good" riftal_selftest "$name" \
+    -e MYSQL_HOST=nowhere.invalid \
+    >"$LOGS"/out-lockname.log 2>&1 || name_rc=$?
+  if [ "$name_rc" -eq 1 ] && grep -qxF \
+       "MIGRATIONS_LOCK_NAME must be 1 to 64 characters from A-Z a-z 0-9 _ -, got '$name'" \
+       "$LOGS"/out-lockname.log; then
+    pass "MIGRATIONS_LOCK_NAME='$name' exits 1 naming the variable"
+  else
+    fail "MIGRATIONS_LOCK_NAME='$name': expected exit 1 and a refusal naming it, got exit $name_rc"
+    cat "$LOGS"/out-lockname.log
+  fi
+done
+
+section "a server below MySQL 8.0.30 is refused before anything is applied"
+at_version() {
+  run_migrations "$FIXTURES/good" riftal_selftest_floor "selftest-floor-$SUFFIX" \
+    -v "$FIXTURES/version-floor:/version-floor:ro" \
+    -e BASH_ENV=/version-floor/fake-version.bash -e SELFTEST_MYSQL_VERSION="$1"
+}
+below_rc=0
+at_version 8.0.29-log >"$LOGS"/out-floor-below.log 2>&1 || below_rc=$?
+floor_tables="$(query riftal_selftest_floor \
+  "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='riftal_selftest_floor'")"
+if [ "$below_rc" -eq 1 ] && [ "$floor_tables" = "0" ] \
+   && grep -q 'MySQL 8.0.29-log is below the 8.0.30 floor' "$LOGS"/out-floor-below.log; then
+  pass "8.0.29 exits 1, names the floor and creates no table"
+else
+  fail "expected 8.0.29 refused with no table created, got exit $below_rc, tables=$floor_tables"
+  cat "$LOGS"/out-floor-below.log
+fi
+if at_version 8.0.30 >"$LOGS"/out-floor-at.log 2>&1; then
+  pass "8.0.30, the floor itself, applies cleanly"
+else
+  fail "8.0.30 should pass the floor"; cat "$LOGS"/out-floor-at.log
+fi
+# A comparison that read only the patch number would refuse this one.
+if at_version 8.1.0 >"$LOGS"/out-floor-above.log 2>&1; then
+  pass "8.1.0 passes the floor"
+else
+  fail "8.1.0 should pass the floor"; cat "$LOGS"/out-floor-above.log
+fi
+
+section "a pending file sorting below the highest applied one is refused"
+# Stands in for a database that ran its seeded file before the lower-numbered
+# ones landed.
+seed_order() {
+  docker exec "$CONTAINER" mysql -uroot -pselftest -e "CREATE DATABASE $1" 2>/dev/null
+  run_migrations "$FIXTURES/empty" "$1" "selftest-order-$SUFFIX" >/dev/null 2>&1
+  query "$1" "INSERT INTO schema_migrations (id) VALUES ('$2')"
+}
+order_state() {
+  query "$1" "SELECT CONCAT(GROUP_CONCAT(TABLE_NAME ORDER BY TABLE_NAME), ' ', (SELECT COUNT(*) FROM schema_migrations)) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$1'"
+}
+seed_order riftal_selftest_order_low 0002_create_sprockets.sql
+low_rc=0
+run_migrations "$FIXTURES/order" riftal_selftest_order_low "selftest-order-$SUFFIX" \
+  >"$LOGS"/out-order-low.log 2>&1 || low_rc=$?
+if [ "$low_rc" -eq 1 ] && grep -q \
+     'pending migration(s) 0001_create_cogs.sql sort below 0002_create_sprockets.sql' \
+     "$LOGS"/out-order-low.log; then
+  pass "a lower pending file exits 1 naming it and the highest applied"
+else
+  fail "expected exit 1 naming 0001_create_cogs.sql and 0002_create_sprockets.sql, got exit $low_rc"
+  cat "$LOGS"/out-order-low.log
+fi
+low_state="$(order_state riftal_selftest_order_low)"
+if [ "$low_state" = "schema_migrations 1" ]; then
+  pass "the refusal applied nothing, not even the in-order 0003"
+else
+  fail "expected only schema_migrations with 1 row, got: $low_state"
+fi
+seed_order riftal_selftest_order_high 0001_create_cogs.sql
+high_rc=0
+run_migrations "$FIXTURES/order" riftal_selftest_order_high "selftest-order-$SUFFIX" \
+  >"$LOGS"/out-order-high.log 2>&1 || high_rc=$?
+high_state="$(order_state riftal_selftest_order_high)"
+if [ "$high_rc" -eq 0 ] && [ "$high_state" = "gears,schema_migrations,sprockets 3" ]; then
+  pass "pending files all above the highest applied one still apply"
+else
+  fail "expected exit 0 with sprockets and gears applied, got exit $high_rc, state: $high_state"
+  cat "$LOGS"/out-order-high.log
+fi
+
+section "filename order is bytewise whatever locale the container carries"
+in_locale() {
+  run_migrations "$FIXTURES/collate" "$1" "selftest-collate-$SUFFIX" \
+    -v "$FIXTURES/collate-locale:/collate-locale:ro" \
+    -e BASH_ENV=/collate-locale/fake-locale-sort.bash -e LANG=en_US.UTF-8
+}
+docker exec "$CONTAINER" mysql -uroot -pselftest -e \
+  'CREATE DATABASE riftal_selftest_collate' 2>/dev/null
+collate_rc=0
+in_locale riftal_selftest_collate >"$LOGS"/out-collate.log 2>&1 || collate_rc=$?
+collate_order="$(grep '^applying ' "$LOGS"/out-collate.log | tr '\n' ' ')"
+if [ "$collate_rc" -eq 0 ] \
+   && [ "$collate_order" = "applying 0001_B_create_bolts.sql applying 0001_a_seed_bolts.sql " ]; then
+  pass "under a case-folding locale, 0001_B still applies before 0001_a"
+else
+  fail "expected exit 0 applying 0001_B then 0001_a, got exit $collate_rc, order: $collate_order"
+  cat "$LOGS"/out-collate.log
+fi
+seed_order riftal_selftest_collate_low 0001_a_seed_bolts.sql
+collate_low_rc=0
+in_locale riftal_selftest_collate_low >"$LOGS"/out-collate-low.log 2>&1 || collate_low_rc=$?
+if [ "$collate_low_rc" -eq 1 ] && grep -q \
+     'pending migration(s) 0001_B_create_bolts.sql sort below 0001_a_seed_bolts.sql' \
+     "$LOGS"/out-collate-low.log; then
+  pass "under a case-folding locale, a pending 0001_B below an applied 0001_a is refused"
+else
+  fail "expected exit 1 refusing 0001_B_create_bolts.sql, got exit $collate_low_rc"
+  cat "$LOGS"/out-collate-low.log
+fi
+
 section "provisioning on an existing schema creates the login with its role"
 if provision -e RIFTAL_DB_PASSWORD_MINES="$PW_A" >"$LOGS"/out-prov1.log 2>&1; then
   pass "first provisioning run exits 0"
@@ -241,6 +552,97 @@ else
   cat "$LOGS"/out-prov-fresh.log
 fi
 
+section "a DEFINER procedure runs on its definer's privileges and survives a restore"
+PW_T=selftestPasswordTally0000005
+as_tally() {
+  docker exec -e MYSQL_PWD="$PW_T" "${2:-$CONTAINER}" mysql -h 127.0.0.1 -utally -N -B \
+    riftal_selftest_definer -e "$1"
+}
+provision_definer() {
+  run_migrations "$FIXTURES/definer" riftal_selftest_definer "selftest-definer-$SUFFIX" \
+    -v "$FIXTURES/definer-grants:/grants:ro" -e GRANTS_FILE=/grants/grants.sql \
+    -e RIFTAL_DB_PASSWORD_TALLY="$PW_T"
+}
+definer_rc=0
+provision_definer >"$LOGS"/out-prov-definer.log 2>&1 || definer_rc=$?
+definer="$(query riftal_selftest_definer "SELECT CONCAT(DEFINER, ' ', SECURITY_TYPE) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA='riftal_selftest_definer' AND ROUTINE_NAME='tallies_bump'")"
+if [ "$definer_rc" -eq 0 ] && [ "$definer" = "root@% DEFINER" ]; then
+  pass "the procedure's definer is the account the runner connected as"
+else
+  fail "expected exit 0 and definer 'root@% DEFINER', got exit $definer_rc, definer '$definer'"
+  cat "$LOGS"/out-prov-definer.log
+fi
+if [ "$(as_tally 'CALL tallies_bump(); SELECT n FROM tallies' 2>&1)" = "1" ]; then
+  pass "a login holding only EXECUTE calls the procedure and the row moves"
+else
+  fail "tally should call tallies_bump and read n=1"
+fi
+if as_tally 'UPDATE tallies SET n = 99' >/dev/null 2>&1; then
+  fail "tally updated tallies directly, so the call did not prove the definer's privileges"
+else
+  pass "the same login is refused a direct UPDATE of that table"
+fi
+
+docker exec "$CONTAINER" mysqldump -uroot -pselftest --single-transaction --routines \
+  --triggers riftal_selftest_definer 2>/dev/null >"$LOGS"/definer-dump.sql
+docker exec "$CONTAINER" mysqldump -uroot -pselftest --single-transaction \
+  riftal_selftest_definer 2>/dev/null >"$LOGS"/definer-dump-noroutines.sql
+if grep -qF 'CREATE DEFINER=`root`@`%` PROCEDURE `tallies_bump`' "$LOGS"/definer-dump.sql \
+   && ! grep -q 'PROCEDURE' "$LOGS"/definer-dump-noroutines.sql; then
+  pass "a dump carries the procedure and its definer with --routines and not without"
+else
+  fail "expected the DEFINER clause with --routines and no PROCEDURE without"
+fi
+
+docker exec "$FRESH" mysql -uroot -pselftest -e \
+  'CREATE DATABASE IF NOT EXISTS riftal_selftest_definer' 2>/dev/null
+docker exec -i "$FRESH" mysql -uroot -pselftest riftal_selftest_definer \
+  <"$LOGS"/definer-dump.sql 2>/dev/null
+HOST_ALIAS=fresh provision_definer >"$LOGS"/out-prov-definer-fresh.log 2>&1 || true
+if grep -q 'nothing pending' "$LOGS"/out-prov-definer-fresh.log \
+   && [ "$(as_tally 'CALL tallies_bump(); SELECT n FROM tallies' "$FRESH" 2>&1)" = "2" ]; then
+  pass "after a restore and the step, the login calls the restored procedure"
+else
+  fail "the restored procedure should be callable by tally once the step has run"
+  cat "$LOGS"/out-prov-definer-fresh.log
+fi
+
+# Last use of FRESH: its root@'%' is gone after this.
+docker exec "$FRESH" mysql -uroot -pselftest -e \
+  "RENAME USER 'root'@'%' TO 'root_renamed'@'%'" 2>/dev/null
+orphan="$(as_tally 'CALL tallies_bump()' "$FRESH" 2>&1 || true)"
+if [[ "$orphan" == *"ERROR 1449"*"('root'@'%') does not exist"* ]]; then
+  pass "a renamed definer makes every call fail with ERROR 1449"
+else
+  fail "expected ERROR 1449 naming 'root'@'%', got: $orphan"
+fi
+
+section "a migration failing after one that recreates a procedure still applies grants"
+regrant_rc=0
+run_migrations "$FIXTURES/regrant" riftal_selftest_definer "selftest-regrant-$SUFFIX" \
+  -v "$FIXTURES/regrant-grants:/grants:ro" -e GRANTS_FILE=/grants/grants.sql \
+  >"$LOGS"/out-regrant.log 2>&1 || regrant_rc=$?
+regrant_applied="$(query riftal_selftest_definer \
+  'SELECT GROUP_CONCAT(id ORDER BY id) FROM schema_migrations')"
+if [ "$regrant_rc" -eq 1 ] \
+   && grep -q 'migration 0003_broken.sql failed' "$LOGS"/out-regrant.log \
+   && [ "$regrant_applied" = "0001_create_tallies.sql,0002_recreate_tallies_bump.sql" ]; then
+  pass "the run exits 1 naming 0003, with 0002 recorded and 0003 not"
+else
+  fail "expected exit 1 naming 0003 with only 0001 and 0002 recorded, got exit $regrant_rc, applied: $regrant_applied"
+  cat "$LOGS"/out-regrant.log
+fi
+# The dropped EXECUTE leaves the grant tables at once but lingers in the
+# server's cached role privileges until they are reloaded, as a restart does.
+query riftal_selftest_definer 'FLUSH PRIVILEGES'
+regrant_call="$(as_tally 'CALL tallies_bump(); SELECT n FROM tallies' 2>&1 || true)"
+if [ "$regrant_call" = "2" ]; then
+  pass "tally still calls the recreated procedure after the failed run"
+else
+  fail "tally should call the recreated tallies_bump and read n=2, got: $regrant_call"
+  cat "$LOGS"/out-regrant.log
+fi
+
 section "an empty or missing migrations directory still provisions"
 PW_C=selftestPasswordEmptyDir0003
 PW_D=selftestPasswordNoDir0000004
@@ -311,8 +713,73 @@ for half in LOCKEDPW OPENBLANK; do
   fi
 done
 
+section "the backup login needs no grants file, reads widgets, and is denied INSERT, UPDATE, DELETE, CREATE/ALTER/DROP TABLE, LOCK TABLES, CREATE EVENT, CREATE USER and GRANT"
+PW_E=selftestPasswordBackup000005
+run_migrations "$FIXTURES/good" riftal_selftest "selftest-prov-backup-$SUFFIX" \
+  -e RIFTAL_DB_PASSWORD_BACKUP="$PW_E" >"$LOGS"/out-prov-backup.log 2>&1 || true
+seen="$(as_login backup 'SELECT CURRENT_ROLE(), COUNT(*) FROM widgets' "$PW_E" 2>&1 || true)"
+if [ "$seen" = "$(printf '`riftal_role_backup`@`%%`\t1')" ]; then
+  pass "backup logs in with riftal_role_backup by default and reads widgets"
+else
+  fail "expected backup with riftal_role_backup to read 1 widget, got: $seen"
+  cat "$LOGS"/out-prov-backup.log
+fi
+written=()
+for stmt in "INSERT INTO widgets VALUES (2, 'x')" "UPDATE widgets SET name = 'x'" \
+    "DELETE FROM widgets" "CREATE TABLE w2 (id INT)" "ALTER TABLE widgets ADD c INT" \
+    "DROP TABLE widgets" "LOCK TABLES widgets WRITE" \
+    "CREATE EVENT e ON SCHEDULE EVERY 1 DAY DO SELECT 1" \
+    "CREATE USER 'x'@'%'" "GRANT SELECT ON widgets TO 'mines'@'%'"; do
+  if as_login backup "$stmt" "$PW_E" >/dev/null 2>&1; then written+=("$stmt"); fi
+done
+if [ "${#written[@]}" -eq 0 ] \
+   && [ "$(query riftal_selftest 'SELECT COUNT(*) FROM widgets')" = "1" ]; then
+  pass "backup is denied INSERT, UPDATE, DELETE, CREATE/ALTER/DROP TABLE, LOCK TABLES, CREATE EVENT, CREATE USER and GRANT"
+else
+  fail "backup was allowed: ${written[*]-none, but widgets changed}"
+fi
+# mysqldump needs TRIGGER to see a trigger, and MySQL ties creating and
+# dropping one to the same privilege. With the binlog on, as
+# ../deploy/binlog-check.sh requires, MySQL refuses only CREATE TRIGGER to a
+# login without SUPER. Each statement runs as its own client call, because a
+# batch stops at its first error and would never reach the DROP. Every
+# outcome is pinned, so a narrower or wider reach shows up here.
+create_trg="CREATE TRIGGER selftest_backup_trg BEFORE INSERT ON widgets FOR EACH ROW SET @x = 1"
+drop_trg="DROP TRIGGER selftest_backup_trg"
+triggers_sql="SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='riftal_selftest'"
+if ! as_login backup "$create_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-binlog.log 2>&1 \
+   && grep -q 'ERROR 1419' "$LOGS"/out-prov-backup-trg-binlog.log \
+   && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
+  pass "with the binlog on, backup cannot create a trigger"
+else
+  fail "expected backup's CREATE TRIGGER refused with ERROR 1419 and no trigger left"
+  cat "$LOGS"/out-prov-backup-trg-binlog.log
+fi
+query riftal_selftest "$create_trg"
+drop_rc=0
+as_login backup "$drop_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-drop.log 2>&1 || drop_rc=$?
+if [ "$drop_rc" -eq 0 ] && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
+  pass "known, accepted exception: with the binlog on, backup drops a trigger root created"
+else
+  fail "expected backup to drop root's trigger with the binlog on, got exit $drop_rc"
+  cat "$LOGS"/out-prov-backup-trg-drop.log
+fi
+query riftal_selftest "DROP TRIGGER IF EXISTS selftest_backup_trg"
+query riftal_selftest 'SET GLOBAL log_bin_trust_function_creators = 1'
+trigger_rc=0
+as_login backup "$create_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-trust.log 2>&1 || trigger_rc=$?
+query riftal_selftest 'SET GLOBAL log_bin_trust_function_creators = 0'
+created="$(query riftal_selftest "$triggers_sql")"
+query riftal_selftest "DROP TRIGGER IF EXISTS selftest_backup_trg"
+if [ "$trigger_rc" -eq 0 ] && [ "$created" = "1" ]; then
+  pass "with log_bin_trust_function_creators set, backup can create a trigger"
+else
+  fail "expected backup to create a trigger once the binlog guard is lifted, got exit $trigger_rc, triggers=$created"
+  cat "$LOGS"/out-prov-backup-trg-trust.log
+fi
+
 section "no provisioning run ever prints a password"
-if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e 'Quote00001' -e selftestShort1 \
+if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e "$PW_E" -e "$PW_T" -e 'Quote00001' -e selftestShort1 \
      "$LOGS"/out-prov*.log; then
   fail "a password appeared in the log files above"
 else
@@ -330,4 +797,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: no-op on empty, ordered apply, idempotent re-run, halt-on-error, lock contention, login provisioning.\n' "$PASSES"
+printf 'all %s assertions passed across %s sections:\n' "$PASSES" "${#SECTIONS[@]}"
+printf '  %s\n' "${SECTIONS[@]}"
