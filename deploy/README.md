@@ -32,7 +32,9 @@ adds one line there; the script needs no change, per `CLAUDE.md` hard rule 5.
 `backup.sh` dumps as the login `backup`, whose password is
 `RIFTAL_DB_PASSWORD_BACKUP`. `../migrations/run-migrations.sh` creates it on
 any run with that variable set, grants it `riftal_role_backup`, and rotates it
-when the variable changes. The role holds `SELECT`, `SHOW VIEW` and `TRIGGER`
+when the variable changes. On the compose stack the `dump-login` service is
+that run, and the `backup` service starts only after it exits 0
+(`../images/README.md`). The role holds `SELECT`, `SHOW VIEW` and `TRIGGER`
 on the schema and the global `SHOW_ROUTINE`. The last two matter: without
 them `mysqldump` still exits 0 and silently leaves every trigger or stored
 procedure out of the set. `../migrations/selftest.sh` proves `backup` is
