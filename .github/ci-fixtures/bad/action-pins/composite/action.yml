@@ -1,0 +1,8 @@
+# Must fail action-pins.sh at line 8 and nowhere else: a composite action's
+# steps run with the calling job's token, so a tag here is the same hole.
+name: composite
+description: fixture
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4

@@ -1,0 +1,9 @@
+# Must fail job-timeouts.sh: every key under jobs is indented four spaces, not
+# two, so a check that finds no job must refuse rather than pass on nothing.
+on: push
+jobs:
+    only:
+      runs-on: ubuntu-24.04
+      timeout-minutes: 5
+      steps:
+        - run: "true"
