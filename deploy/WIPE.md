@@ -22,12 +22,15 @@ instance's `/data`), the paths below, and nothing else:
 | The shared MySQL database | dropped, recreated and migrated | riftal-pm#696 |
 | `worlds/<level>/`, each level | the whole folder | riftal-pm#696, #1309, #1312, #1314; see Levels, below |
 | `players/` | its contents, the folder stays | riftal-pm#696 |
-| `plugin_data/` | its contents, the folder stays | none yet: riftal-pm#1352 asks whether it is cleared wholly, in part or kept |
+| `plugin_data/` | its contents, the folder stays | riftal-pm#1352 |
 
-`wipe-volumes.sh` clears `plugin_data/` today because the riftal-infra#1123
-ruling lists it, but the rulings it credits do not name it. Until
-riftal-pm#1352 is decided, a wipe that clears it is a choice Nasir makes
-knowingly. RiftalCapture empties `.capture/` itself when it enables.
+`plugin_data/` is cleared whole, with no list of subpaths: no plugin keeps
+game state there, and every boot delivers again what this repo puts there,
+so a later plugin that starts storing state in its folder cannot carry it
+through a wipe (riftal-pm#1352). A config edited by hand on the volume is
+lost with it; a setting that must outlive a wipe belongs in this repo's
+committed files, delivered at boot. RiftalCapture empties `.capture/` itself
+when it enables.
 
 It never clears the volume root, never uses a glob or an "everything except"
 rule, and leaves every other file byte for byte, including anything a later
