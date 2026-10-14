@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Boots the pinned core image with start-instance.sh as compose runs it for
-# `instance`, through the three outcomes a clone can be in (riftal-infra#228):
+# Boots the pinned core image with start-instance.sh, the last command in the
+# `instance` service's chain, run directly without the require-* checks and
+# the index delivery compose puts in front of it, through the three outcomes
+# a clone can be in (riftal-infra#228):
 # RiftalMines.phar unbuilt, built with no MYSQL_ROOT_PASSWORD, and built with
 # one. selftest.sh beside this pins the script with php stubbed; only a real
 # boot shows PocketMine loading the copied roster and reading the config
