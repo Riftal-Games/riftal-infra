@@ -338,9 +338,11 @@ check "the copies belong to the uid the script runs as, uid 1000 in the image" \
   'deliver "$INDEX" true && [ -f "$d/RiftalRiots/world_index.json" ] && [ -z "$(find "$d" ! -user "$me")" ]'
 check "the start command runs after delivery with its arguments intact" \
   'deliver "$INDEX" printf "%s|" a "b c" && [ "$(cat "$work/deliver/out")" = "a|b c|" ]'
-check "a missing index stops the boot before the start command, naming the path" \
+# cp's own error on a missing index also names the path, so only the guard's
+# "is not mounted" tells the guard apart from cp failing under set -e.
+check "a missing index stops the boot before the start command, saying it is not mounted" \
   '! deliver "" printf started && ! grep -q started "$work/deliver/out" &&
-    grep -q "etc/world_index.json" "$work/deliver/out"'
+    grep -q "etc/world_index.json is not mounted;" "$work/deliver/out"'
 
 printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#262)\n'
 # The plugin throws on enable without a scalar key and reads a missing
