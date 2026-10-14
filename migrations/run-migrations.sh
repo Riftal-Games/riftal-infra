@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Applies pending migrations from MIGRATIONS_DIR under a MySQL named lock,
 # then, under the same lock, provisions the per-plugin logins of ADR 008
-# (riftal-pm docs/decisions/008-per-plugin-mysql-users.md, item 4).
+# (riftal-pm docs/decisions/008-per-plugin-mysql-users.md, item 4) and the
+# `backup` login ../deploy/backup.sh dumps with (../deploy/README.md, The dump
+# login).
 #
 # The lock exists because more than one instance container can boot at once
 # against the shared database (CLAUDE.md hard rule 5: one shared database
@@ -58,6 +60,7 @@ GRANTS_FILE="${GRANTS_FILE:-$SCRIPT_DIR/../../riftal-game/lib/resources/sql/gran
 # All of them are checked before anything connects, so a bad environment
 # changes nothing.
 logins=()
+needs_grants=0
 while IFS= read -r var; do
   name="${var#RIFTAL_DB_PASSWORD_}"
   if [[ ! "$name" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
@@ -74,15 +77,17 @@ while IFS= read -r var; do
     exit 1
   fi
   logins+=("${name,,}")
+  [ "$name" = BACKUP ] || needs_grants=1
 done < <(compgen -e | grep '^RIFTAL_DB_PASSWORD_' || true)
 
-# A run that names a grants file or provisions a login depends on the grants
-# reaching the roles, and a bind mount of a missing host path arrives as an
-# empty directory rather than as nothing. Only a run asking for neither may
-# go without, which keeps the sibling-checkout default optional.
-if { [ -n "$grants_explicit" ] || [ "${#logins[@]}" -gt 0 ]; } \
+# A run that names a grants file or provisions a plugin login depends on the
+# grants reaching the roles, and a bind mount of a missing host path arrives
+# as an empty directory rather than as nothing. Only a run asking for neither
+# may go without, which keeps the sibling-checkout default optional. The
+# backup login's role is created below, not by the grants file.
+if { [ -n "$grants_explicit" ] || [ "$needs_grants" -eq 1 ]; } \
    && { [ ! -f "$GRANTS_FILE" ] || [ ! -r "$GRANTS_FILE" ]; }; then
-  echo "grants file $GRANTS_FILE is not a readable regular file, and GRANTS_FILE or a RIFTAL_DB_PASSWORD_* is set" >&2
+  echo "grants file $GRANTS_FILE is not a readable regular file, and GRANTS_FILE or a plugin's RIFTAL_DB_PASSWORD_* is set" >&2
   exit 1
 fi
 
@@ -302,6 +307,26 @@ else
 fi
 
 apply_grants
+
+# The role for ../deploy/backup.sh lives here rather than in grants.sql,
+# because it follows the whole schema and not one plugin's tables. Without
+# SHOW_ROUTINE or TRIGGER, mysqldump still exits 0 but leaves every
+# procedure or trigger out of the dump. TRIGGER also lets this login drop any
+# existing trigger in the schema, whatever the binlog setting. The binlog that
+# ../deploy/binlog-check.sh requires refuses only CREATE TRIGGER without
+# SUPER; with the binlog off or log_bin_trust_function_creators set, it can
+# create one too, and a SIGNAL trigger blocks writers. LOCK TABLES and EVENT are
+# withheld because the dump needs neither: --single-transaction takes no table
+# locks and backup.sh passes no --events. What any login can do regardless is
+# in ../deploy/README.md, The dump login.
+schema="${MYSQL_DATABASE//\`/\`\`}"
+if ! printf '%s\n' \
+    "CREATE ROLE IF NOT EXISTS riftal_role_backup;" \
+    "GRANT SELECT, SHOW VIEW, TRIGGER ON \`$schema\`.* TO riftal_role_backup;" \
+    "GRANT SHOW_ROUTINE ON *.* TO riftal_role_backup;" | run_sql; then
+  echo "creating role riftal_role_backup failed, stopping" >&2
+  exit 1
+fi
 
 for login in "${logins[@]+"${logins[@]}"}"; do
   role="riftal_role_$login"
