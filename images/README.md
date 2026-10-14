@@ -15,7 +15,20 @@ Set in `images/.env`, copied from `.env.example`. Never commit `.env`.
 | `INSTANCE_B_BIND`, `INSTANCE_B_ID` | The same two settings for `instance-b`, the second core instance `compose.yaml` defines alongside `instance` to prove the instance-split shape on one shared MySQL (riftal-infra#6). Distinct names because both instances read a container env var literally named `INSTANCE_ID`; the `_B` suffix is only how `.env` tells them apart before substitution. |
 | `BACKUP_RETENTION`, `BACKUP_INTERVAL_SECONDS`, `PARTIAL_MAX_AGE_MINUTES`, `LOCK_MAX_AGE_MINUTES` | How many backup sets `../deploy/backup.sh` keeps, how often the `backup` service runs it, how old a leftover `.partial` must be before it sweeps it, and how old a held `.lock` must be before it presumes the lock abandoned and sweeps that too. See `../deploy/README.md`. |
 | `RIFTAL_DB_PASSWORD_ACCOUNTS` | The `accounts` MySQL login's password (ADR 008). The migration runner provisions the login with it, and compose hands it to both instances, where `RiftalAccounts` reads it from the environment, never from its config. At least 24 characters, `[A-Za-z0-9]` only. See RiftalAccounts below. |
-| `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). |
+| `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). `plugins/RiftalDevFaults.php` exists under the same gate, or not at all. |
+
+## Dev faults
+
+`plugins/RiftalDevFaults.php` breaks a running dev instance on purpose, for
+ADR 017 P8 (riftal-infra#932). From the server console only:
+
+- `devfaults-flush-fail <player>` cancels every save of that player until the
+  process ends, so custody sees the player's flush fail.
+- `devfaults-probe-fail` makes `players/.custody-probe` an empty directory, so
+  custody's probe fails too and it kills the process. The next boot removes
+  the directory before `RiftalCustody` enables, so the restart is not killed
+  by custody's own boot probe. A boot without the gate leaves it there, and
+  custody stops that boot.
 
 ## The world index
 

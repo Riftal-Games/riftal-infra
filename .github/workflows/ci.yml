@@ -146,6 +146,9 @@ jobs:
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
 
+      - name: Dev faults hook self-test
+        run: bash images/plugins/dev-faults/selftest.sh
+
       - name: RiftalCustody on every instance self-test
         run: bash images/custody-selftest.sh
 
