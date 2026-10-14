@@ -50,6 +50,10 @@ jobs:
       - name: Pull mysql:8 runs before every step that runs mysql:8
         run: bash .github/scripts/pull-mysql-order.sh
 
+      # Reads fixture logs only, so it also runs before any container step.
+      - name: Custody alert check self-test
+        run: bash deploy/custody-alert-check-selftest.sh
+
       # Before any step that starts a container, so every one of them carries
       # this job's label for the sweep at the end.
       - name: Label this job's containers
@@ -93,7 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/capture-harness/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
@@ -101,7 +105,7 @@ jobs:
           docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/capture-harness/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -121,6 +125,18 @@ jobs:
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
 
+      - name: Capture plugin self-test
+        run: bash images/plugins/capture-selftest.sh
+
+      # The self-test above runs the plugin against fakes of the core. This
+      # boots the core itself, where the fakes and the server can disagree.
+      # A healthy run takes under a minute. Ten covers its worst case that
+      # still ends: every wait in harness.sh running out, both boots at their
+      # 120 seconds and both stops at their 60, about nine minutes.
+      - name: Capture plugin in-server harness
+        timeout-minutes: 10
+        run: bash images/plugins/capture-harness/harness.sh
+
       - name: Dev bots join order self-test
         run: bash images/plugins/join-order/selftest.sh
 
@@ -130,14 +146,18 @@ jobs:
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
 
+      - name: Dev faults hook self-test
+        run: bash images/plugins/dev-faults/selftest.sh
+
       - name: RiftalCustody on every instance self-test
         run: bash images/custody-selftest.sh
 
       - name: Self-test, prove the mysql:8 pull can fail
         run: bash .github/scripts/pull-mysql-selftest.sh
 
-      # Every step from here to the wipe self-test runs mysql:8, a floating tag
-      # the stack pulls fresh. The runner's cached copy would go stale unseen.
+      # Every step from here to the wipe self-test runs mysql:8, a floating tag.
+      # This pulls its newest release, so the runner's cached copy cannot go
+      # stale unseen. Compose pulls it only when missing.
       - name: Pull mysql:8
         run: bash .github/scripts/pull-mysql.sh
 
@@ -149,6 +169,9 @@ jobs:
 
       - name: Restore drill self-test
         run: bash deploy/restore-selftest.sh
+
+      - name: Compose dump login self-test
+        run: bash images/dump-login-selftest.sh
 
       - name: Binlog retention check self-test
         run: bash deploy/binlog-selftest.sh

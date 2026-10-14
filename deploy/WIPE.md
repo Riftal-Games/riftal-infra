@@ -12,10 +12,11 @@ nothing else.
 ## Scope
 
 The shared MySQL database only. What a wipe does to world volumes and to
-PocketMine's per-player data files (inventories) is not decided, so this
-runbook does not touch them; riftal-pm#696 decides it. Until it is decided, a
-wipe that clears balances and leaves inventories is a choice Nasir makes
-knowingly, not a default.
+PocketMine's per-player data files (inventories) is not decided, so the wipe
+does not touch them; riftal-pm#696 decides it. Until it is decided, a wipe
+that clears balances and leaves inventories is a choice Nasir makes
+knowingly, not a default. A rollback is not a wipe: `restore.sh` rebuilds
+every world volume from the step 3 set (see Rollback).
 
 ## Why the schema is dropped, not emptied table by table
 
@@ -43,11 +44,27 @@ survive; the migration run reapplies their grants anyway.
    and is a backstop, not a lock. Anything else holding a connection, such as
    a backup in progress or a client left open, must be closed too. See The
    session check, below.
+
+   **Stop the `backup` service** too, and keep it stopped through step 7. Left
+   running, a scheduled run between steps 4 and 7 stores a set of the empty
+   database, takes one of the `BACKUP_RETENTION` slots, and brings the step 3
+   set one run closer to being pruned. Stop it between runs, when its log's
+   last run has reached `applying retention` and no `dumping database` line
+   follows. The run holds its lock until its `pruning` lines, if any, are
+   done, usually under a second, so wait a few seconds after the last line
+   before stopping it. A run stopped part way leaves its `.lock` behind
+   (`README.md`, Stale lock sweep), and step 3's run then fails until that
+   lock is `LOCK_MAX_AGE_MINUTES` old.
 3. **Back up.** One `backup.sh` run as in `README.md`. Note the set directory
    it prints as `backup <ts>: complete at <set>`. It is the rollback, and
-   `wipe.sh` refuses without it. Retention prunes it after `BACKUP_RETENTION`
-   more runs (2.5 days at the defaults); if it must be kept longer, copy it
-   out of `BACKUP_ROOT` first, and where to is Nasir's call.
+   `wipe.sh` refuses without it. Retention prunes it in the run that leaves
+   `BACKUP_RETENTION` newer sets. With `backup` stopped from step 2, the
+   first of those is the run step 7 starts, so the set is gone
+   `BACKUP_RETENTION - 1` intervals after step 7: 9 x 21600 s, 54 hours or
+   about 2.25 days, at the defaults (`../images/compose.yaml`). Any other
+   `backup.sh` run into the same `BACKUP_ROOT` brings that forward. If it
+   must be kept longer, copy it out of `BACKUP_ROOT` before step 7, and where
+   to is Nasir's call.
 4. **Wipe.** `wipe.sh`, below, with the database named twice and the set from
    step 3. On success it prints
    `wipe <database>: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh`.
@@ -59,15 +76,26 @@ survive; the migration run reapplies their grants anyway.
    each table that is not (`wipe-check <database>: FAIL <table> holds <n>
    row(s)`). It passes with `wipe-check <database>: ok, <n> migration(s)
    applied, <n> table(s) all empty`.
-7. **Start the instances**, one at a time, per `../CLAUDE.md`'s rollout order.
+7. **Start the instances**, one at a time, per `../CLAUDE.md`'s rollout order,
+   then start the `backup` service. `backup-loop.sh` runs `backup.sh` at once
+   on start, so the first set after the wipe is taken then.
 
-**Rollback**, at any step after 4: `restore.sh` with the step 3 set, then step
-5. It also rebuilds every world volume from that set, which is the state they
-were stopped in at step 2.
+**Rollback**, once step 4 has dropped the database: repeat step 2 first if any
+instance or the `backup` service is running, since `restore.sh` makes no
+session check before it drops the database and clears every world volume. Then
+`restore.sh` with the step 3 set, then step 5, then step 7. It rebuilds every
+world volume from that set, which is the state they were stopped in at step 2,
+so a rollback after step 7 also discards every block changed and every row
+written since the instances came back.
 
-The binary log still holds the wiped rows for up to 30 days (`README.md`,
-Binary log retention). A wipe does not purge it; purging it early deletes data
-and is Nasir's.
+**A run that stops before step 4**, for example because `wipe.sh` refused,
+has dropped nothing and needs no rollback. Every instance and the `backup`
+service are still stopped from step 2, so go straight to step 7.
+
+The binary log holds every change written in the last 30 days, the wiped
+rows' history among them (`README.md`, Binary log retention). A row last
+written before that window may be in no binary log, only in the step 3 set.
+A wipe does not purge the log; purging it early deletes data and is Nasir's.
 
 ## The session check
 
@@ -77,7 +105,7 @@ printed as `wipe <database>: refused: <reason>`:
 
 | Reason printed | Cause |
 |---|---|
-| `<user> lacks a direct PROCESS grant, so it cannot see every session` | Without `PROCESS` the processlist shows only the account's own threads, so it would count 0 whatever is connected. `PROCESS` held through a role is not seen, and refuses too |
+| `<user> lacks PROCESS, directly or through an active role, so it cannot see every session` | Without `PROCESS` the processlist shows only the account's own threads, so it would count 0 whatever is connected. It is read from `SHOW GRANTS` in the same session as the count, so `PROCESS` through a role counts only when that role is active at login, as a default role is |
 | `the processlist does not show this session, so it cannot see the others; is performance_schema off?` | The count is trusted only once it shows the script's own connection. With `performance_schema` off the processlist is empty, and any other blindness looks the same |
 | `<n> other session(s) are connected to <host>:<port>; close every other connection, instances first` | Every session counts whatever its default database, since any of them can write by qualified name. `Daemon` threads do not |
 
@@ -85,20 +113,18 @@ printed as `wipe <database>: refused: <reason>`:
 
 `wipe.sh` and `wipe-check.sh` take `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`,
 `MYSQL_PASSWORD` and `MYSQL_DATABASE` as in `README.md`. `wipe.sh` needs an
-account that can drop and create the database and holds `PROCESS` granted
-directly, not through a role. It also requires:
+account that can drop and create the database and holds `PROCESS`, granted
+directly or through a default role. It also requires:
 
 | Variable | Meaning |
 |---|---|
 | `WIPE_CONFIRM` | Must equal `MYSQL_DATABASE` exactly. There is no default |
-| `BACKUP_SET` | The step 3 set. Its `mysql.sql` must be non-empty and its `manifest.txt` must hold the line `mysql_database: <MYSQL_DATABASE>` |
+| `BACKUP_SET` | The step 3 set. Its `mysql.sql` must be non-empty, and its `manifest.txt` must hold the line `mysql_database: <MYSQL_DATABASE>` and exactly one `timestamp:` line in `backup.sh`'s format, no older than `WIPE_BACKUP_MAX_AGE_MINUTES` and not in the future. It must also pass the checks `restore.sh` makes before touching anything, since it is the rollback: a `worlds/` directory holding at least one `.tar.gz`, each of which lists with `tar -tzf` |
+| `WIPE_BACKUP_MAX_AGE_MINUTES` | Optional, default `60`, see `README.md`. A whole number of minutes |
 
 `wipe.sh` also refuses a database name outside `[A-Za-z0-9_]`, and a database
 that does not exist. Every refusal happens before the drop, and leaves the
 database as it was.
-
-The set's age, what a restore of it would need, and `PROCESS` through a role
-are open in #498.
 
 ## Running it
 

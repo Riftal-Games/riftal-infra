@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Applies pending migrations from MIGRATIONS_DIR under a MySQL named lock,
 # then, under the same lock, provisions the per-plugin logins of ADR 008
-# (riftal-pm docs/decisions/008-per-plugin-mysql-users.md, item 4).
+# (riftal-pm docs/decisions/008-per-plugin-mysql-users.md, item 4) and the
+# `backup` login ../deploy/backup.sh dumps with (../deploy/README.md, The dump
+# login).
 #
 # The lock exists because more than one instance container can boot at once
 # against the shared database (CLAUDE.md hard rule 5: one shared database
@@ -22,7 +24,21 @@ set -euo pipefail
 export LC_ALL=C
 
 LOCK_NAME="${MIGRATIONS_LOCK_NAME:-riftal_schema_migrations}"
+# The name is printed inside quoted SQL for GET_LOCK, IS_USED_LOCK and
+# RELEASE_LOCK, so a quote in it would end the string and the rest would reach
+# MySQL as SQL. 64 characters is the longest user lock name MySQL accepts.
+if [[ ! "$LOCK_NAME" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
+  echo "MIGRATIONS_LOCK_NAME must be 1 to 64 characters from A-Z a-z 0-9 _ -, got '$LOCK_NAME'" >&2
+  exit 1
+fi
 LOCK_TIMEOUT="${MIGRATIONS_LOCK_TIMEOUT:-60}"
+# The value is printed straight into the GET_LOCK statement, so anything but
+# digits would reach MySQL as SQL. A negative number is refused too, since
+# GET_LOCK reads it as wait forever and a boot must never hang on the lock.
+if [[ ! "$LOCK_TIMEOUT" =~ ^[0-9]+$ ]]; then
+  echo "MIGRATIONS_LOCK_TIMEOUT must be a whole number of seconds, got '$LOCK_TIMEOUT'" >&2
+  exit 1
+fi
 
 MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
@@ -44,6 +60,7 @@ GRANTS_FILE="${GRANTS_FILE:-$SCRIPT_DIR/../../riftal-game/lib/resources/sql/gran
 # All of them are checked before anything connects, so a bad environment
 # changes nothing.
 logins=()
+needs_grants=0
 while IFS= read -r var; do
   name="${var#RIFTAL_DB_PASSWORD_}"
   if [[ ! "$name" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
@@ -60,15 +77,17 @@ while IFS= read -r var; do
     exit 1
   fi
   logins+=("${name,,}")
+  [ "$name" = BACKUP ] || needs_grants=1
 done < <(compgen -e | grep '^RIFTAL_DB_PASSWORD_' || true)
 
-# A run that names a grants file or provisions a login depends on the grants
-# reaching the roles, and a bind mount of a missing host path arrives as an
-# empty directory rather than as nothing. Only a run asking for neither may
-# go without, which keeps the sibling-checkout default optional.
-if { [ -n "$grants_explicit" ] || [ "${#logins[@]}" -gt 0 ]; } \
+# A run that names a grants file or provisions a plugin login depends on the
+# grants reaching the roles, and a bind mount of a missing host path arrives
+# as an empty directory rather than as nothing. Only a run asking for neither
+# may go without, which keeps the sibling-checkout default optional. The
+# backup login's role is created below, not by the grants file.
+if { [ -n "$grants_explicit" ] || [ "$needs_grants" -eq 1 ]; } \
    && { [ ! -f "$GRANTS_FILE" ] || [ ! -r "$GRANTS_FILE" ]; }; then
-  echo "grants file $GRANTS_FILE is not a readable regular file, and GRANTS_FILE or a RIFTAL_DB_PASSWORD_* is set" >&2
+  echo "grants file $GRANTS_FILE is not a readable regular file, and GRANTS_FILE or a plugin's RIFTAL_DB_PASSWORD_* is set" >&2
   exit 1
 fi
 
@@ -104,6 +123,9 @@ lock_pid="$LOCKCONN_PID"
 lock_held=0
 release_lock() {
   local rc=$? release_result=""
+  # A RELEASE_LOCK answers at once on a live session, so one that misses this
+  # wait cannot show the lock was still held and counts as a lost lock.
+  local release_wait=30
   # Once bash reaps a dead coprocess it unsets LOCKCONN and closes both of its
   # descriptors, so an empty value means the lock session is already over.
   local lock_fd="${LOCKCONN[1]-}" lock_out="${LOCKCONN[0]-}"
@@ -116,7 +138,7 @@ release_lock() {
     # killed mid-run answers with an error, or, if the client reconnected,
     # with NULL from a fresh session that never held it.
     if printf "SELECT RELEASE_LOCK('%s');\n" "$LOCK_NAME" >&"$lock_fd" 2>/dev/null; then
-      IFS= read -r -t 30 release_result <&"$lock_out" 2>/dev/null || true
+      IFS= read -r -t "$release_wait" release_result <&"$lock_out" 2>/dev/null || true
     fi
     # Closing the write side is what lets the held mysql session see EOF and
     # exit; without it "wait" below blocks forever, success or failure alike.
@@ -135,11 +157,18 @@ release_lock() {
 }
 trap release_lock EXIT
 
-printf "SELECT GET_LOCK('%s', %s);\n" "$LOCK_NAME" "$LOCK_TIMEOUT" >&"${LOCKCONN[1]}"
-if ! IFS= read -r lock_result <&"${LOCKCONN[0]}"; then
+# A lock session that has already ended is either reaped, leaving LOCKCONN
+# unset, or not yet, leaving a pipe with no reader. Both get the message below
+# rather than an unbound variable or a SIGPIPE, as in release_lock.
+lock_fd="${LOCKCONN[1]-}" lock_out="${LOCKCONN[0]-}"
+trap '' PIPE
+if [ -z "$lock_fd" ] \
+   || ! printf "SELECT GET_LOCK('%s', %s);\n" "$LOCK_NAME" "$LOCK_TIMEOUT" >&"$lock_fd" 2>/dev/null \
+   || ! IFS= read -r lock_result <&"$lock_out"; then
   echo "lock connection closed before answering GET_LOCK('$LOCK_NAME')" >&2
   exit 1
 fi
+trap - PIPE
 if [ "$lock_result" != "1" ]; then
   # Only a 0 is a timeout. A NULL from GET_LOCK means an error, so it is not
   # reported as a timeout.
@@ -278,6 +307,26 @@ else
 fi
 
 apply_grants
+
+# The role for ../deploy/backup.sh lives here rather than in grants.sql,
+# because it follows the whole schema and not one plugin's tables. Without
+# SHOW_ROUTINE or TRIGGER, mysqldump still exits 0 but leaves every
+# procedure or trigger out of the dump. TRIGGER also lets this login drop any
+# existing trigger in the schema, whatever the binlog setting. The binlog that
+# ../deploy/binlog-check.sh requires refuses only CREATE TRIGGER without
+# SUPER; with the binlog off or log_bin_trust_function_creators set, it can
+# create one too, and a SIGNAL trigger blocks writers. LOCK TABLES and EVENT are
+# withheld because the dump needs neither: --single-transaction takes no table
+# locks and backup.sh passes no --events. What any login can do regardless is
+# in ../deploy/README.md, The dump login.
+schema="${MYSQL_DATABASE//\`/\`\`}"
+if ! printf '%s\n' \
+    "CREATE ROLE IF NOT EXISTS riftal_role_backup;" \
+    "GRANT SELECT, SHOW VIEW, TRIGGER ON \`$schema\`.* TO riftal_role_backup;" \
+    "GRANT SHOW_ROUTINE ON *.* TO riftal_role_backup;" | run_sql; then
+  echo "creating role riftal_role_backup failed, stopping" >&2
+  exit 1
+fi
 
 for login in "${logins[@]+"${logins[@]}"}"; do
   role="riftal_role_$login"

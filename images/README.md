@@ -14,7 +14,22 @@ Set in `images/.env`, copied from `.env.example`. Never commit `.env`.
 | `INSTANCE_ID` | This instance's identity, read by `RiftalGames\Lib\InstanceIdentity::fromEnvironment()` in riftal-game's shared lib and tagged onto every shared-database row the instance writes. No safe default exists across a split, which is why the class throws rather than guess one; the dev stack's single instance ships `dev-1` in `.env.example` so the boot has something to read. When an instance is split out under `/add-instance`, its `INSTANCE_ID` is set the same way, as a container env var, never written into mounted `server.properties` or `pocketmine.yml`. |
 | `INSTANCE_B_BIND`, `INSTANCE_B_ID` | The same two settings for `instance-b`, the second core instance `compose.yaml` defines alongside `instance` to prove the instance-split shape on one shared MySQL (riftal-infra#6). Distinct names because both instances read a container env var literally named `INSTANCE_ID`; the `_B` suffix is only how `.env` tells them apart before substitution. |
 | `BACKUP_RETENTION`, `BACKUP_INTERVAL_SECONDS`, `PARTIAL_MAX_AGE_MINUTES`, `LOCK_MAX_AGE_MINUTES` | How many backup sets `../deploy/backup.sh` keeps, how often the `backup` service runs it, how old a leftover `.partial` must be before it sweeps it, and how old a held `.lock` must be before it presumes the lock abandoned and sweeps that too. See `../deploy/README.md`. |
-| `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). |
+| `RIFTAL_DB_PASSWORD_BACKUP` | Password of `backup`, the login the `backup` service dumps with. The `dump-login` service runs `../migrations/run-migrations.sh` with it on every `docker compose up`, creating or rotating the login, and `backup` starts only once that run succeeds. Empty or unset, `dump-login` exits 1 naming the variable and `backup` never starts. `dump-login-selftest.sh` proves both. See `../deploy/README.md`. |
+| `RIFTAL_DB_PASSWORD_ACCOUNTS` | The `accounts` MySQL login's password (ADR 008). The migration runner provisions the login with it, and compose hands it to both instances, where `RiftalAccounts` reads it from the environment, never from its config. At least 24 characters, `[A-Za-z0-9]` only. See RiftalAccounts below. |
+| `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). `plugins/RiftalDevFaults.php` exists under the same gate, or not at all. |
+
+## Dev faults
+
+`plugins/RiftalDevFaults.php` breaks a running dev instance on purpose, for
+ADR 017 P8 (riftal-infra#932). From the server console only:
+
+- `devfaults-flush-fail <player>` cancels every save of that player until the
+  process ends, so custody sees the player's flush fail.
+- `devfaults-probe-fail` makes `players/.custody-probe` an empty directory, so
+  custody's probe fails too and it kills the process. The next boot removes
+  the directory before `RiftalCustody` enables, so the restart is not killed
+  by custody's own boot probe. A boot without the gate leaves it there, and
+  custody stops that boot.
 
 ## The world index
 
@@ -45,7 +60,7 @@ riftal-pm `docs/decisions/013-item-yielding-entities-are-never-saved.md`).
 It sits at the top of `plugins/`, so `instance-b` loads it straight from
 `/plugins` and `start-instance.sh` copies it into `instance`'s roster. Both
 instances start through `plugins/require-custody.sh`, after the world index
-delivery, which stops the boot before PocketMine when
+delivery and `require-accounts.sh`. It stops the boot before PocketMine when
 `plugins/RiftalCustody.phar` is missing or empty. The phar is gitignored, so
 build it once per clone, and again when `custody` or `lib` changes, with
 riftal-game's own CI script, which links the fork for pharynx and checks the
@@ -91,3 +106,43 @@ reason, and `custody-selftest.sh` fails on one that does not.
 The full production `/add-instance` runbook already exists as a skill; this
 table exists so the mechanism (env var, not mounted config) is written down
 somewhere editable in a normal PR.
+
+## RiftalAccounts
+
+`RiftalAccounts` resolves every login to its account and is the only writer
+of the `accounts` table, so every instance that runs a game plugin loads it
+(steward rulings on riftal-game#176 and riftal-infra#465). `RiftalCustody` is
+one, so that is every instance. `RiftalAccounts.phar` and `contracts.phar`,
+which it declares `depend: [RiftalContracts]` on, sit at the top of
+`plugins/` beside `RiftalCustody.phar`, so both rosters pick them up. Both
+instances start through `plugins/require-accounts.sh`, after the world index
+delivery. It stops the boot before PocketMine, naming the cause, when either
+phar or `RIFTAL_DB_PASSWORD_ACCOUNTS` is missing, whatever other game plugins
+the instance carries.
+
+Build both with the `RiftalCustody` recipe above, adding `accounts contracts`
+to the `git archive` paths, then:
+
+```sh
+cp "$OUT/accounts.phar" plugins/RiftalAccounts.phar
+cp "$OUT/contracts.phar" plugins/contracts.phar
+```
+
+It connects as the `accounts` login of ADR 008, never as root.
+`require-accounts.sh` copies `plugins/RiftalAccounts.config.yml` to
+`/data/plugin_data/RiftalAccounts/config.yml`, on the instance's own volume,
+on every boot. That file differs from the shipped one only in its schema,
+`riftal_dev`, and carries no password: `DatabaseSettings` reads it from
+`RIFTAL_DB_PASSWORD_ACCOUNTS`, which compose passes both instances from
+`images/.env`. A `wslc run` of either instance needs
+`-e RIFTAL_DB_PASSWORD_ACCOUNTS` and the same command chain.
+
+The login itself is made by the migration runner, not by an instance. Run it
+before either instance, with `grants.sql` mounted and
+`-e RIFTAL_DB_PASSWORD_ACCOUNTS` exported from the same `images/.env`, as
+`../migrations/README.md` shows under "Running it locally". The runner
+creates `accounts`, grants it `riftal_role_accounts` and nothing else, and
+resets its password to that value on every run, so after editing it in
+`images/.env` run the runner again before the next boot. Booted before that,
+the plugin logs `Access denied for user 'accounts'` and PocketMine shuts the
+server down.

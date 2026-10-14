@@ -77,7 +77,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=51
+EXPECTED_ASSERTIONS=66
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # The closing summary lists these titles, so a new section cannot be left out of it.
@@ -198,11 +198,29 @@ run_migrations "$FIXTURES/good" riftal_selftest "selftest-dead-$SUFFIX" \
   -e MYSQL_PASSWORD=selftestWrongPassword >"$LOGS"/out-deadlock.log 2>&1 || dead_rc=$?
 if [ "$dead_rc" -eq 1 ] \
    && grep -q 'lock connection closed before answering GET_LOCK' "$LOGS"/out-deadlock.log \
-   && ! grep -q 'unbound variable' "$LOGS"/out-deadlock.log; then
+   && ! grep -q 'unbound variable' "$LOGS"/out-deadlock.log \
+   && ! grep -q 'lost the migration lock' "$LOGS"/out-deadlock.log; then
   pass "a dead lock connection exits 1 with its own error and nothing from the trap"
 else
-  fail "expected exit 1, the GET_LOCK error and no unbound variable, got exit $dead_rc"
+  fail "expected exit 1, the GET_LOCK error, no unbound variable and no lost lock, got exit $dead_rc"
   cat "$LOGS"/out-deadlock.log
+fi
+
+section "a lock session that stops reading before GET_LOCK fails cleanly"
+# --init keeps the runner off PID 1, where the kernel drops a SIGPIPE that has
+# no handler, so an unguarded write here would end the run with 141.
+LOCK_PIPE=(--init -v "$FIXTURES/lock-pipe:/lock-pipe:ro" -e BASH_ENV=/lock-pipe/fake-lock-pipe.bash)
+pipe_start_rc=0
+run_migrations "$FIXTURES/empty" riftal_selftest "selftest-pipe-start-$SUFFIX" \
+  "${LOCK_PIPE[@]}" -e SELFTEST_LOCK_PIPE=at-start >"$LOGS"/out-pipe-start.log 2>&1 \
+  || pipe_start_rc=$?
+if [ "$pipe_start_rc" -eq 1 ] \
+   && grep -q 'lock connection closed before answering GET_LOCK' "$LOGS"/out-pipe-start.log \
+   && ! grep -q 'lost the migration lock' "$LOGS"/out-pipe-start.log; then
+  pass "a lock pipe with no reader at GET_LOCK exits 1 with the GET_LOCK error"
+else
+  fail "expected exit 1, the GET_LOCK error and no lost lock, got exit $pipe_start_rc"
+  cat "$LOGS"/out-pipe-start.log
 fi
 
 section "a run whose lock session dies mid-run fails"
@@ -216,6 +234,19 @@ if [ "$lost_rc" -eq 1 ] \
 else
   fail "expected exit 1 and a lost-lock error, got exit $lost_rc"
   cat "$LOGS"/out-lostlock.log
+fi
+
+section "a lock session that stops reading before RELEASE_LOCK fails"
+pipe_release_rc=0
+run_migrations "$FIXTURES/empty" riftal_selftest "selftest-pipe-release-$SUFFIX" \
+  "${LOCK_PIPE[@]}" -e SELFTEST_LOCK_PIPE=after-lock >"$LOGS"/out-pipe-release.log 2>&1 \
+  || pipe_release_rc=$?
+if [ "$pipe_release_rc" -eq 1 ] \
+   && grep -q "lost the migration lock 'selftest-pipe-release-$SUFFIX'" "$LOGS"/out-pipe-release.log; then
+  pass "a lock pipe with no reader at RELEASE_LOCK exits 1 and says the lock was lost"
+else
+  fail "expected exit 1 and a lost-lock error, got exit $pipe_release_rc"
+  cat "$LOGS"/out-pipe-release.log
 fi
 
 section "a lock held elsewhere times out naming its holder"
@@ -245,10 +276,11 @@ held_rc=0
 run_migrations "$FIXTURES/good" riftal_selftest "$HELD_LOCK" \
   -e MIGRATIONS_LOCK_TIMEOUT=1 >"$LOGS"/out-held.log 2>&1 || held_rc=$?
 release_lock
-if [ "$held_rc" -eq 1 ] && grep -q "could not acquire lock '$HELD_LOCK' within 1s" "$LOGS"/out-held.log; then
+if [ "$held_rc" -eq 1 ] && grep -q "could not acquire lock '$HELD_LOCK' within 1s" "$LOGS"/out-held.log \
+   && ! grep -q 'lost the migration lock' "$LOGS"/out-held.log; then
   pass "a held lock exits 1 once the timeout passes"
 else
-  fail "expected exit 1 and the lock timeout, got exit $held_rc"; cat "$LOGS"/out-held.log
+  fail "expected exit 1, the lock timeout and no lost lock, got exit $held_rc"; cat "$LOGS"/out-held.log
 fi
 if grep -qE "held by connection $holder_id, user lockholder from host [^ ]+" "$LOGS"/out-held.log; then
   pass "the timeout names the holder's connection id, user and host"
@@ -309,6 +341,42 @@ expect_lock_failure no-process-login \
   "held by connection $holder_id, whose user and host could not be read: its processlist row came back empty" \
   -e MYSQL_USER=lockrunner -e MYSQL_PASSWORD=selftestLockRunner00000007
 release_lock
+
+section "a lock timeout that is not a whole number is refused before connecting"
+# The host resolves to nothing, so only a refusal made before the lock
+# session connects can produce the expected message.
+for timeout in 1.5 -1 '1 OR SLEEP(5)' abc; do
+  timeout_rc=0
+  run_migrations "$FIXTURES/good" riftal_selftest "selftest-timeout-$SUFFIX" \
+    -e MYSQL_HOST=nowhere.invalid -e MIGRATIONS_LOCK_TIMEOUT="$timeout" \
+    >"$LOGS"/out-timeout.log 2>&1 || timeout_rc=$?
+  if [ "$timeout_rc" -eq 1 ] && grep -qxF \
+       "MIGRATIONS_LOCK_TIMEOUT must be a whole number of seconds, got '$timeout'" \
+       "$LOGS"/out-timeout.log; then
+    pass "MIGRATIONS_LOCK_TIMEOUT='$timeout' exits 1 naming the variable"
+  else
+    fail "MIGRATIONS_LOCK_TIMEOUT='$timeout': expected exit 1 and a refusal naming it, got exit $timeout_rc"
+    cat "$LOGS"/out-timeout.log
+  fi
+done
+
+section "a lock name outside the safe character set is refused before connecting"
+# 65 characters, one past the longest name MySQL accepts for a user lock.
+long_name="$(printf 'a%.0s' $(seq 1 65))"
+for name in "a'b" 'lock name' 'lock.name' "$long_name"; do
+  name_rc=0
+  run_migrations "$FIXTURES/good" riftal_selftest "$name" \
+    -e MYSQL_HOST=nowhere.invalid \
+    >"$LOGS"/out-lockname.log 2>&1 || name_rc=$?
+  if [ "$name_rc" -eq 1 ] && grep -qxF \
+       "MIGRATIONS_LOCK_NAME must be 1 to 64 characters from A-Z a-z 0-9 _ -, got '$name'" \
+       "$LOGS"/out-lockname.log; then
+    pass "MIGRATIONS_LOCK_NAME='$name' exits 1 naming the variable"
+  else
+    fail "MIGRATIONS_LOCK_NAME='$name': expected exit 1 and a refusal naming it, got exit $name_rc"
+    cat "$LOGS"/out-lockname.log
+  fi
+done
 
 section "a server below MySQL 8.0.30 is refused before anything is applied"
 at_version() {
@@ -645,8 +713,73 @@ for half in LOCKEDPW OPENBLANK; do
   fi
 done
 
+section "the backup login needs no grants file, reads widgets, and is denied INSERT, UPDATE, DELETE, CREATE/ALTER/DROP TABLE, LOCK TABLES, CREATE EVENT, CREATE USER and GRANT"
+PW_E=selftestPasswordBackup000005
+run_migrations "$FIXTURES/good" riftal_selftest "selftest-prov-backup-$SUFFIX" \
+  -e RIFTAL_DB_PASSWORD_BACKUP="$PW_E" >"$LOGS"/out-prov-backup.log 2>&1 || true
+seen="$(as_login backup 'SELECT CURRENT_ROLE(), COUNT(*) FROM widgets' "$PW_E" 2>&1 || true)"
+if [ "$seen" = "$(printf '`riftal_role_backup`@`%%`\t1')" ]; then
+  pass "backup logs in with riftal_role_backup by default and reads widgets"
+else
+  fail "expected backup with riftal_role_backup to read 1 widget, got: $seen"
+  cat "$LOGS"/out-prov-backup.log
+fi
+written=()
+for stmt in "INSERT INTO widgets VALUES (2, 'x')" "UPDATE widgets SET name = 'x'" \
+    "DELETE FROM widgets" "CREATE TABLE w2 (id INT)" "ALTER TABLE widgets ADD c INT" \
+    "DROP TABLE widgets" "LOCK TABLES widgets WRITE" \
+    "CREATE EVENT e ON SCHEDULE EVERY 1 DAY DO SELECT 1" \
+    "CREATE USER 'x'@'%'" "GRANT SELECT ON widgets TO 'mines'@'%'"; do
+  if as_login backup "$stmt" "$PW_E" >/dev/null 2>&1; then written+=("$stmt"); fi
+done
+if [ "${#written[@]}" -eq 0 ] \
+   && [ "$(query riftal_selftest 'SELECT COUNT(*) FROM widgets')" = "1" ]; then
+  pass "backup is denied INSERT, UPDATE, DELETE, CREATE/ALTER/DROP TABLE, LOCK TABLES, CREATE EVENT, CREATE USER and GRANT"
+else
+  fail "backup was allowed: ${written[*]-none, but widgets changed}"
+fi
+# mysqldump needs TRIGGER to see a trigger, and MySQL ties creating and
+# dropping one to the same privilege. With the binlog on, as
+# ../deploy/binlog-check.sh requires, MySQL refuses only CREATE TRIGGER to a
+# login without SUPER. Each statement runs as its own client call, because a
+# batch stops at its first error and would never reach the DROP. Every
+# outcome is pinned, so a narrower or wider reach shows up here.
+create_trg="CREATE TRIGGER selftest_backup_trg BEFORE INSERT ON widgets FOR EACH ROW SET @x = 1"
+drop_trg="DROP TRIGGER selftest_backup_trg"
+triggers_sql="SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='riftal_selftest'"
+if ! as_login backup "$create_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-binlog.log 2>&1 \
+   && grep -q 'ERROR 1419' "$LOGS"/out-prov-backup-trg-binlog.log \
+   && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
+  pass "with the binlog on, backup cannot create a trigger"
+else
+  fail "expected backup's CREATE TRIGGER refused with ERROR 1419 and no trigger left"
+  cat "$LOGS"/out-prov-backup-trg-binlog.log
+fi
+query riftal_selftest "$create_trg"
+drop_rc=0
+as_login backup "$drop_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-drop.log 2>&1 || drop_rc=$?
+if [ "$drop_rc" -eq 0 ] && [ "$(query riftal_selftest "$triggers_sql")" = "0" ]; then
+  pass "known, accepted exception: with the binlog on, backup drops a trigger root created"
+else
+  fail "expected backup to drop root's trigger with the binlog on, got exit $drop_rc"
+  cat "$LOGS"/out-prov-backup-trg-drop.log
+fi
+query riftal_selftest "DROP TRIGGER IF EXISTS selftest_backup_trg"
+query riftal_selftest 'SET GLOBAL log_bin_trust_function_creators = 1'
+trigger_rc=0
+as_login backup "$create_trg" "$PW_E" >"$LOGS"/out-prov-backup-trg-trust.log 2>&1 || trigger_rc=$?
+query riftal_selftest 'SET GLOBAL log_bin_trust_function_creators = 0'
+created="$(query riftal_selftest "$triggers_sql")"
+query riftal_selftest "DROP TRIGGER IF EXISTS selftest_backup_trg"
+if [ "$trigger_rc" -eq 0 ] && [ "$created" = "1" ]; then
+  pass "with log_bin_trust_function_creators set, backup can create a trigger"
+else
+  fail "expected backup to create a trigger once the binlog guard is lifted, got exit $trigger_rc, triggers=$created"
+  cat "$LOGS"/out-prov-backup-trg-trust.log
+fi
+
 section "no provisioning run ever prints a password"
-if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e "$PW_T" -e 'Quote00001' -e selftestShort1 \
+if grep -l -e "$PW_A" -e "$PW_B" -e "$PW_C" -e "$PW_D" -e "$PW_E" -e "$PW_T" -e 'Quote00001' -e selftestShort1 \
      "$LOGS"/out-prov*.log; then
   fail "a password appeared in the log files above"
 else
