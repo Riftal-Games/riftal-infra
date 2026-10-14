@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -16,11 +17,28 @@ FILLS = ("solid", "hollow")
 
 Triple = tuple[int, int, int]
 
+# A key must name a block id, so no key can spell the marker mine_valid gives a block outside its reset state.
+BLOCK_ID = re.compile(r"[a-z0-9_.-]+:[a-z0-9_./-]+")
+
 
 def _weights(data: Any, key: str) -> dict[str, float]:
     ores = {format_name(*parse_name(name)): float(w) for name, w in dict(data).items()}
     if not ores or min(ores.values()) <= 0:
         raise ValueError(f"{key} must name at least one block with a positive weight, got {data!r}")
+    for name in ores:
+        if not BLOCK_ID.fullmatch(parse_name(name)[0]):
+            raise ValueError(f"{key} names {name!r}, which is not a block id")
+    # A block in both keys' states would count under whichever came first, so the other could never be satisfied.
+    parsed = [(name, *parse_name(name)) for name in ores]
+    for i, (a, ab, astates) in enumerate(parsed):
+        for b, bb, bstates in parsed[i + 1:]:
+            if ab == bb and (astates.items() <= bstates.items() or bstates.items() <= astates.items()):
+                raise ValueError(f"{key} names {a!r} and {b!r}, which one block can satisfy both of")
+    # RiftalMines resets through StringToItemParser::parse, which strips only "minecraft:" and
+    # whose aliases hold no ':', '[' or '=', so any other key throws at reset (#650).
+    for name, base, states in parsed:
+        if states or not base.startswith("minecraft:"):
+            raise ValueError(f"{key} names {name!r}, which the mine reset cannot resolve: it takes a bare minecraft: id")
     return ores
 
 
@@ -129,8 +147,13 @@ class MineSpec:
             raise ValueError(f"fill must be one of {FILLS}, got {self.fill!r}")
         if self.wall_thickness < 1 or any(s <= 2 * self.wall_thickness for s in self.size):
             raise ValueError(f"size {self.size} does not hold an interior inside walls of {self.wall_thickness}")
-        if min(self.entrance.width, self.entrance.height, self.exit_path.length, self.exit_path.width, self.lights_every) < 1:
+        if min(self.entrance.width, self.entrance.height, self.exit_path.length, self.lights_every) < 1:
             raise ValueError("entrance, exit_path and lights_every dimensions must be at least 1")
+        # The walking line runs down the platform's centre with a sign on each side of it on the
+        # last row and the lights on its low-coordinate edge; narrower than 3 puts the lights on the
+        # walking line or a sign off the platform.
+        if self.exit_path.width < 3:
+            raise ValueError(f"exit_path width must be at least 3 to hold both signs beside the walking line, got {self.exit_path.width}")
         if not 1 <= self.reset_percent <= 100:
             raise ValueError(f"reset_percent must be 1..100, got {self.reset_percent}")
         geo = self.geometry()

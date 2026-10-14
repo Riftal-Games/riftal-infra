@@ -1,0 +1,7 @@
+# Must fail action-pins.sh at line 7 and nowhere else: an alias used as a key at
+# column 0, on a continuation line of a flow collection spread over several lines.
+{on: push,
+ env: {KEY: &k uses},
+ jobs: {a: {runs-on: ubuntu-latest,
+  steps: [{name: a,
+*k : actions/checkout@11d5960a326750d5838078e36cf38b85af677262}]}}}

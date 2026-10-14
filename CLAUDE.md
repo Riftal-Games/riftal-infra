@@ -24,21 +24,21 @@ Concretely:
 | `instances/` | One definition per running instance: which worlds it serves, its `instance_id`, its resources, its `server.properties` and `pocketmine.yml` overrides |
 | `migrations/` | Production migration runner and applied-state records. Migration files themselves are authored in `riftal-game/lib/resources/sql/migrations/`. |
 | `deploy/` | Rollout and rollback scripts, backup jobs, health checks |
-| `images/` | The local dev stack: `compose.yaml` (`mysql`, core instances `instance` and `instance-b` on the `local-pocketmine-mp` image, and `backup`), `.env.example`, and `plugins/`, the dev-only plugins and start scripts bind-mounted into the instances, with their self-tests. No Dockerfile: the core image is built in `pmmp-core`. |
+| `images/` | The local dev stack: `compose.yaml` (`mysql`, core instances `instance` and `instance-b` on the `local-pocketmine-mp` image, and `backup`), `.env.example`, and `plugins/`, the dev-only plugins and start scripts bind-mounted into the instances, with their self-tests. No Dockerfile: the core image is built in `pmmp-core`. `core-image.sha` pins the pmmp-core sha whose `local-pocketmine-mp:<sha>` tag every CI check that boots the core image runs, through `core-image.sh`; a new pin is a normal PR. |
 | `designer/` | The designer toolchain. `designer/stack/` is the single-container designer stack with its own `compose.yaml`; the rest of `designer/` is the Python toolkit and its MCP server. |
 
 ## Platform facts
 
 Verified, do not re-derive:
 
-- **Proxy is WaterdogPE.** Requires **Java 17 or newer**. PocketMine-MP is an officially supported downstream.
-- **Downstreams run offline mode.** The proxy performs Xbox authentication and forwards XUID and IP to the downstream in custom login packet fields.
-- **Required on every PMMP downstream:**
+- **Proxy is WaterdogPE.** Requires **Java 17 or newer**. PocketMine-MP is an officially supported downstream. No proxy runs yet: it arrives when the first world splits off (`../docs/decision-log.md`, 2026-09-12).
+- **Downstreams behind the proxy run offline mode.** The proxy performs Xbox authentication. It does not give the downstream a usable XUID: WaterdogPE's `use_login_extras` is off by default, and with it on, this fork drops the `Waterdog_*` login fields before `PlayerInfo::getExtraData()` is built, so no plugin can read them. A proxied login arrives with an empty XUID (`../pmmp-core/docs/player-identity-consequences-for-m1.md`).
+- **Required on every PMMP downstream behind the proxy:**
   - `server.properties`: `xbox-auth=false`
   - `pocketmine.yml`: `player.verify-xuid: false`
 
-  The second is needed because the downstream sees the player as unauthenticated, so PMMP's XUID check cannot match. Missing either one produces login failures that look like a protocol bug and are not.
-- **Downstreams must not be reachable from the internet.** They are in offline mode. The proxy is the only public entry point. Under containers this means instance ports are published to the proxy's container network only and never to a host interface. See the Containers section below.
+  The second is needed because a proxied login arrives self-signed with an empty XUID, so PMMP's XUID check cannot match. Missing either one behind the proxy produces login failures that look like a protocol bug and are not. On an instance that Xbox-signed clients reach directly, leave `player.verify-xuid` at its default: their XUID is real, and the check stops impersonation.
+- **Downstreams must never be reachable from the internet.** An offline-mode instance the internet can reach lets anyone claim any identity (`../pmmp-core/docs/player-identity-consequences-for-m1.md`). With a proxy in front, instance ports are published to the proxy's container network only and the proxy is the sole public entry point. Without one, an instance is published on a host interface: `images/compose.yaml` defaults to `127.0.0.1`. A wider bind is a deliberate, reversible act that never faces the internet, and the root `../CLAUDE.md` limits which addresses an `xbox-auth=false` instance may use (riftal-pm#491). See the Containers section below.
 - **Database is MySQL 8**, shared by every instance. It runs as a container, with its data directory on a named volume.
 - **Everything runs in containers**, dev and production. Base image for everything we build is `ubuntu:24.04`. The host OS is a container runtime and nothing more. Decided 2026-08-23, superseding the earlier bare-host decision. See `../docs/decision-log.md`.
 - **Bedrock is UDP.** RakNet on `19132/udp`. Any port publishing, network mode, or firewall change has to be checked against UDP specifically, because a TCP-only test will pass while every player fails to connect.
@@ -60,7 +60,7 @@ This repo owns the container story end to end. It is the newest part of the plat
 
 One image serves every instance. What makes a container `mine-h` rather than `plots-1` is its mounted config and its `instance_id`, never a separately built image. Per-instance images would put us back to matching versions by hand, which is what containers were adopted to stop.
 
-**Downstream instances stay unreachable from the internet.** This does not weaken under containers, it gets easier to get wrong. Instance ports are published to the proxy's container network only, never bound to a host interface. The proxy is the sole public entry point. Publishing an instance port to `0.0.0.0` for convenience during debugging exposes an offline-mode server, so do not do it, and if you must, close it in the same session.
+**Downstream instances stay unreachable from the internet.** This does not weaken under containers, it gets easier to get wrong. With a proxy in front, instance ports are published to the proxy's container network only, never bound to a host interface, and the proxy is the sole public entry point. Before a proxy, the host publish defaults to `127.0.0.1` and never faces the internet. Widening it for debugging convenience exposes an offline-mode server, so do not do it; any wider bind follows the root `../CLAUDE.md` rule for `xbox-auth=false` instances.
 
 **A deploy is a tag change and a rollback is the previous tag.** This is a better rollback than a file copy and it should be exercised, not just documented.
 

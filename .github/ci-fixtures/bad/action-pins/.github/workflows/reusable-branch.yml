@@ -1,0 +1,10 @@
+# Must fail action-pins.sh at line 10 and nowhere else:
+# a branch can be moved. The local action above it passes.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/local
+  reusable:
+    uses: Riftal-Games/riftal-infra/.github/workflows/ci.yml@main
