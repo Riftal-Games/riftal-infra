@@ -159,16 +159,12 @@ stack as ERROR 1142, which is the point.
 ## `RiftalEconomy` and the `economy` login
 
 `RiftalEconomy.phar`, the sell shop and the balance ledger, loads on
-`instance` alone the same way (riftal-infra#887). The recipe above stops
-on it at pharynx, `Failed to read file
-./vendor/pocketmine/pocketmine-mp/composer.json`, because nothing links the
-package `axolotl-pm/pocketmine-mp` replaces. Build it the way riftal-game's
-CI does instead: in the same container, with the same copies of `lib/`,
-`contracts/` and `economy/` and a Composer on `PATH` as `composer`, run
-`bash packages.sh phar /build /pharynx.phar /out` from riftal-game's
-`.github/scripts/`, then move `/out/economy.phar` to
-`instance-only/RiftalEconomy.phar`. It declares `depend: [RiftalContracts]` and `softdepend: [RiftalCustody]`, both
-met at the top of `plugins/`.
+`instance` alone the same way (riftal-infra#887). Build it with the recipe
+above, `economy` in place of `mines` in the copy loop and
+`economy:instance-only/RiftalEconomy` in place of the `mines` pair. Like
+`mines`, it pins `axolotl-pm/pocketmine-mp`, so `link-replaced.sh` is what
+gets it past pharynx. It declares `depend: [RiftalContracts]` and
+`softdepend: [RiftalCustody]`, both met at the top of `plugins/`.
 
 Everything said of `ranks` above holds with `economy` in its place:
 `start-instance.sh` copies `RiftalEconomy.config.yml` to

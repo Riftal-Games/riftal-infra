@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
 # and RiftalAccounts (riftal-infra#465), RiftalRanks (riftal-infra#558) and
-# RiftalEconomy (riftal-infra#887), and for start-instance.sh and require-accounts.sh, the scripts that load
-# them. Also pins crash auto-report off on every PocketMine service,
-# designer/stack's included, and covers deliver-world-index.sh and the index
-# mount both instances boot with (riftal-infra#293), and the memory and CPU
-# limits on mysql and both instances (riftal-infra#460).
+# RiftalEconomy (riftal-infra#887), and for start-instance.sh and
+# require-accounts.sh, the scripts that load them. Also pins crash
+# auto-report off on every PocketMine service, designer/stack's included, and
+# covers deliver-world-index.sh and the index mount both instances boot with
+# (riftal-infra#293), and the memory and CPU limits on mysql and both
+# instances (riftal-infra#460).
 #
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
