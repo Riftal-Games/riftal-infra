@@ -62,6 +62,16 @@ ADR 017 P8 (riftal-infra#932). From the server console only:
   by custody's own boot probe. A boot without the gate leaves it there, and
   custody stops that boot.
 
+## Dev bots tile contents
+
+`plugins/RiftalDevBots.php` registers `devbots-tile <x> <y> <z> [level]`
+under the same gate, for ADR 025 P5 and spec 020's M3 criteria
+(riftal-infra#1105). From the console or an admitted dev bot, it logs a
+container tile's server-side contents one slot a line, each with the item's
+Bedrock id, meta and count, and the first line with the server tick. A bot
+also gets the lines in chat. It reads only, and reports a chunk nothing holds
+loaded rather than loading it.
+
 ## The world index
 
 `instance` and `instance-b` both mount `../designer/world_index.json`
