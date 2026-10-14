@@ -26,6 +26,7 @@ use pocketmine\permission\PermissibleDelegateTrait;
 use pocketmine\plugin\PluginBase;
 use pocketmine\scheduler\ClosureTask;
 use pocketmine\Server;
+use function implode;
 use function str_replace;
 
 /**
@@ -103,6 +104,17 @@ final class Main extends PluginBase{
 			$server->dispatchCommand($console, self::COMMAND . " $args");
 		}
 		$server->dispatchCommand(new OperatorSender($server), self::COMMAND . " $x $y $z");
+
+		// Read past devbots-tile, straight from the inventory, so a command that
+		// writes while printing what it found still shows up as a changed furnace.
+		$after = [];
+		$tile = $level->getTileAt($x, $y, $z);
+		if($tile instanceof Furnace){
+			foreach($tile->getInventory()->getContents(true) as $slot => $item){
+				$after[] = "$slot=" . ($item->isNull() ? "empty" : $item->getVanillaName() . " x" . $item->getCount());
+			}
+		}
+		$logger->info("tile-probe after " . implode(", ", $after));
 		$server->shutdown();
 	}
 }

@@ -7,7 +7,8 @@
 # TileContentsProbe.php beside it. The probe fills a furnace and asks for it
 # slot by slot as the console, in the default level and by name, then for
 # air and for a chunk nothing holds loaded, which is reported without being
-# read, and finally as an operator who is not a dev bot and must be refused.
+# read, and as an operator who is not a dev bot and must be refused. Last it
+# reads the furnace inventory itself, which must hold what it was filled with.
 # Without
 # the --riftal-dev-bots=on flag, or without RIFTAL_DEV_ENV=1, the command
 # does not exist.
@@ -25,7 +26,7 @@ ERRORS='CRITICAL|EMERGENCY|Exception|Stack trace'
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=12
+EXPECTED_ASSERTIONS=13
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -80,9 +81,14 @@ has "the furnace is named with its slot count" "devbots-tile $level $x $y $z tic
 has "slot 0 holds the raw iron" "devbots-tile $level $x $y $z slot=0 id=minecraft:raw_iron meta=0 count=5 nbt=no"
 has "slot 1 is empty" "devbots-tile $level $x $y $z slot=1 empty"
 has "slot 2 holds the ingots" "devbots-tile $level $x $y $z slot=2 id=minecraft:iron_ingot meta=0 count=3 nbt=no"
-[ "$(grep -c "^devbots-tile $level $x $y $z " "$work/lines")" = 8 ] \
-  && pass "the default level and the named level give the same four lines each" \
-  || fail "expected 8 lines for the furnace, got: $(grep "^devbots-tile $level $x $y $z " "$work/lines")"
+furnace="$(grep "^devbots-tile $level $x $y $z " "$work/lines" || true)"
+[ "$(printf '%s\n' "$furnace" | wc -l)" = 8 ] \
+  && [ "$(printf '%s\n' "$furnace" | sed -n 1,4p)" = "$(printf '%s\n' "$furnace" | sed -n 5,8p)" ] \
+  && pass "the default level and the named level give the same four lines" \
+  || fail "the two reads of the furnace differ, or are not four lines each: $furnace"
+grep -qxF 'tile-probe after 0=Raw Iron x5, 1=empty, 2=Iron Ingot x3' <(grep -o 'tile-probe after .*' "$work/log") \
+  && pass "every read leaves the furnace as it was filled" \
+  || fail "the furnace changed under devbots-tile: $(grep -o 'tile-probe after .*' "$work/log" || true)"
 has "air holds no tile" "devbots-tile $level $x $((y + 1)) $z tick=N no tile"
 has "a chunk nothing holds is reported, not read" "devbots-tile $level 100000 70 100000 tick=N chunk not loaded"
 grep -q 'tile-probe operator heard: devbots-tile runs only from the server console or a dev bot' "$work/log" \
