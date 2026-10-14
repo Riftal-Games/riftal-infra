@@ -13,25 +13,31 @@ declare(strict_types=1);
 
 namespace riftal\dev\tilecontents;
 
+use pocketmine\block\tile\Container;
 use pocketmine\block\tile\Furnace;
 use pocketmine\block\VanillaBlocks;
 use pocketmine\command\CommandSender;
 use pocketmine\console\ConsoleCommandSender;
+use pocketmine\data\bedrock\item\SavedItemStackData;
+use pocketmine\item\Item;
 use pocketmine\item\VanillaItems;
 use pocketmine\lang\Language;
 use pocketmine\lang\Translatable;
+use pocketmine\nbt\tag\CompoundTag;
 use pocketmine\permission\DefaultPermissions;
 use pocketmine\permission\PermissibleBase;
 use pocketmine\permission\PermissibleDelegateTrait;
 use pocketmine\plugin\PluginBase;
 use pocketmine\scheduler\ClosureTask;
 use pocketmine\Server;
+use riftal\dev\bots\ShulkerCommand;
+use function class_exists;
 use function implode;
 use function str_replace;
 
 /**
  * Holds what an operator player holds without being the console or a dev bot,
- * so devbots-tile must refuse it.
+ * so every devbots- command must refuse it.
  */
 final class OperatorSender implements CommandSender{
 	use PermissibleDelegateTrait;
@@ -71,11 +77,16 @@ final class OperatorSender implements CommandSender{
  * Once the server ticks, places a furnace above spawn holding 5 raw iron in
  * slot 0 and 3 iron ingots in slot 2 with no fuel, so nothing smelts, then
  * asks devbots-tile for it, for the air above it, and for a chunk far from
- * spawn, as the console and as an operator. selftest.sh reads the log.
+ * spawn, as the console and as an operator. Then turns the level's autosave
+ * off and on through devbots-autosave, asks devbots-shulker for a name no
+ * dev bot holds, and reads the shulker box it would hand over.
+ * selftest.sh reads the log.
  */
 final class Main extends PluginBase{
 
 	private const COMMAND = "devbots-tile";
+	private const AUTOSAVE = "devbots-autosave";
+	private const SHULKER = "devbots-shulker";
 	private const FAR = 100000;
 
 	protected function onEnable() : void{
@@ -95,7 +106,11 @@ final class Main extends PluginBase{
 			$furnace->getInventory()->setItem(2, VanillaItems::IRON_INGOT()->setCount(3));
 		}
 		$name = $level->getFolderName();
-		$logger->info("tile-probe at $name $x $y $z registered=" . ($server->getCommandMap()->getCommand(self::COMMAND) !== null ? "yes" : "no"));
+		$registered = [];
+		foreach([self::COMMAND, self::AUTOSAVE, self::SHULKER] as $command){
+			$registered[] = $server->getCommandMap()->getCommand($command) !== null ? "yes" : "no";
+		}
+		$logger->info("tile-probe at $name $x $y $z registered=" . implode(",", $registered));
 
 		$console = new ConsoleCommandSender($server, $server->getLanguage());
 		$air = $y + 1;
@@ -115,6 +130,34 @@ final class Main extends PluginBase{
 			}
 		}
 		$logger->info("tile-probe after " . implode(", ", $after));
+
+		$operator = new OperatorSender($server);
+		$server->dispatchCommand($console, self::AUTOSAVE . " off");
+		$off = $level->getAutoSave();
+		$server->dispatchCommand($operator, self::AUTOSAVE . " on $name");
+		$operatorOn = $level->getAutoSave();
+		$server->dispatchCommand($console, self::AUTOSAVE . " on $name");
+		$server->dispatchCommand($console, self::AUTOSAVE . " off nowhere");
+		$logger->info("tile-probe autosave off=" . self::flag($off) . " operator=" . self::flag($operatorOn) . " on=" . self::flag($level->getAutoSave()));
+
+		$server->dispatchCommand($console, self::SHULKER . " nobody");
+		$server->dispatchCommand($operator, self::SHULKER . " nobody");
+		if(!class_exists(ShulkerCommand::class)){
+			$logger->info("tile-probe shulker no " . ShulkerCommand::class);
+			$server->shutdown();
+			return;
+		}
+		$shulker = ShulkerCommand::filled();
+		$inside = [];
+		foreach($shulker->getNamedTag()->getListTag(Container::TAG_ITEMS, CompoundTag::class) ?? [] as $stack){
+			$item = Item::nbtDeserialize($stack);
+			$inside[] = $stack->getByte(SavedItemStackData::TAG_SLOT) . "=" . $item->getVanillaName() . " x" . $item->getCount();
+		}
+		$logger->info("tile-probe shulker " . $shulker->getVanillaName() . " x" . $shulker->getCount() . " holds " . implode(", ", $inside));
 		$server->shutdown();
+	}
+
+	private static function flag(bool $on) : string{
+		return $on ? "on" : "off";
 	}
 }
