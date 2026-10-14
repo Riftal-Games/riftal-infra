@@ -1,0 +1,6 @@
+# Called by calls-loop.yml two directories up, never asserted on its own. It
+# calls itself, so a check that follows every call never ends.
+on: workflow_call
+jobs:
+  again:
+    uses: ./.github/workflows/loop.yml

@@ -32,6 +32,10 @@ worlds:
 
 default_reset_percent: 60
 
+refill_retry_limit: 1
+
+refill_retry_delay_ticks: 100
+
 refill_blocks_per_tick: 4096
 
 refill_tick_budget_ms: 15

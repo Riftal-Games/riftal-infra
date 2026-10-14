@@ -39,9 +39,9 @@ fail() {
 
 # Set before the trap below can possibly fire, since `set -u` turns a
 # reference to an unset variable into its own error. Flipped to 1 only once
-# this run's own mkdir below actually wins the lock, so a run that lost the
-# race never removes a lock it does not hold. lock_owner is stamped by
-# acquire_lock the moment that happens.
+# this run's own claim_lock below actually wins the lock, so a run that lost
+# the race never removes a lock it does not hold. lock_owner is set by
+# acquire_lock before that claim is attempted.
 lock_acquired=0
 lock_owner=""
 
@@ -54,8 +54,9 @@ LOCK_DIR="$BACKUP_ROOT/.lock"
 # otherwise race on the same directory names and retention count
 # (riftal-infra#166). The lock is scoped to BACKUP_ROOT, not to this script
 # globally, so two different instances' backup volumes never contend on it.
-# mkdir is atomic on any POSIX filesystem and needs nothing beyond coreutils,
-# unlike flock, which is not installed in every image this script runs in.
+# A directory rename is atomic on any POSIX filesystem and needs nothing
+# beyond coreutils, unlike flock, which is not installed in every image
+# this script runs in.
 # release_lock below removes the directory on the way out, including on the
 # failure path, but only for the run that still actually owns it.
 acquire_lock() {
@@ -68,9 +69,7 @@ acquire_lock() {
   # it writes no longer matches what this run wrote here.
   lock_owner="$$-$ts"
 
-  if mkdir "$LOCK_DIR" 2>/dev/null; then
-    lock_acquired=1
-    echo "$lock_owner" > "$LOCK_DIR/owner"
+  if claim_lock; then
     return 0
   fi
 
@@ -88,10 +87,7 @@ acquire_lock() {
     fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
   fi
   echo "backup $ts: $LOCK_DIR is older than ${LOCK_MAX_AGE_MINUTES}m, presumed abandoned by a run that never reached its own EXIT trap; clearing it and retrying" >&2
-  # No-op outside deploy/selftest.sh's steal-vs-steal section. The window
-  # this widens is real in every run, just a handful of syscalls wide and
-  # not otherwise landable on demand: two sweepers must both pass the
-  # staleness check above for the same lock before either has moved it.
+  # Defaults to 0, and is set only by deploy/selftest.sh.
   sleep "${STEAL_RACE_TEST_STALL_SECONDS:-0}"
 
   # Two sweepers can both reach this point for the same abandoned lock. A
@@ -110,12 +106,7 @@ acquire_lock() {
     fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
   fi
 
-  # No-op outside deploy/selftest.sh's discard-sweep-vs-still-alive-owner
-  # section. Widens the window between the rename just above and the
-  # staleness check just below, the same way STEAL_RACE_TEST_STALL_SECONDS
-  # widens the window before the rename: a real run crosses this gap in a
-  # handful of syscalls, too narrow to land a concurrent sweep of this run's
-  # own discard directory against on demand otherwise.
+  # Defaults to 0, and is set only by deploy/selftest.sh.
   sleep "${DISCARD_RACE_TEST_STALL_SECONDS:-0}"
 
   # The rename alone is not the whole fix: it is blind to *what* it moved.
@@ -132,12 +123,37 @@ acquire_lock() {
   fi
   rm -rf "$discard_dir"
 
-  if mkdir "$LOCK_DIR" 2>/dev/null; then
+  claim_lock || fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+}
+
+# Were $LOCK_DIR created first and stamped second, a sweeper that passed its
+# staleness check earlier could rename it away between the two: the stamp
+# fails, the sweeper hands back a lock nobody owns, both runs lose, and that
+# ownerless lock blocks every run for LOCK_MAX_AGE_MINUTES
+# (riftal-infra#491). So the lock is built, owner file and all, under this
+# run's own discard name, which retention and the orphan sweep already
+# handle, and only then renamed into place. rename(2) onto an existing
+# directory succeeds only if that directory is empty, so a lock that always
+# carries its owner file is one no second claim can replace. An empty .lock
+# made by hand is the exception. The existence check narrows, but does not
+# close, the window in which the rename could silently replace one; outside
+# it, acquire_lock judges its age and logs any sweep as for any other lock.
+claim_lock() {
+  # Equal to acquire_lock's discard name. That is safe only because
+  # acquire_lock removes its discard directory before its second claim.
+  staging_dir="$LOCK_DIR.discard.$lock_owner"
+  # CLAIM_RACE_TEST_STALL_SECONDS below defaults to 0, and is set only by
+  # deploy/selftest.sh.
+  if mkdir "$staging_dir" 2>/dev/null \
+    && { echo "$lock_owner" > "$staging_dir/owner"; } 2>/dev/null \
+    && [ ! -e "$LOCK_DIR" ] \
+    && sleep "${CLAIM_RACE_TEST_STALL_SECONDS:-0}" \
+    && mv -T "$staging_dir" "$LOCK_DIR" 2>/dev/null; then
     lock_acquired=1
-    echo "$lock_owner" > "$LOCK_DIR/owner"
-  else
-    fail "another run already holds the lock on $LOCK_DIR; refusing to run concurrently against the same BACKUP_ROOT"
+    return 0
   fi
+  rm -rf "$staging_dir"
+  return 1
 }
 
 # Called from cleanup on every exit. Removes $LOCK_DIR only when the owner
@@ -213,17 +229,18 @@ for stale in "${stale_partials[@]}"; do
   rm -rf "$stale"
 done
 
-# A $LOCK_DIR.discard.* left on disk here is a stale steal's rename target
-# from a run killed between winning that rename and its own follow-up rm -rf
-# (riftal-infra#175, riftal-infra#183). Unlike .partial above, no age check
-# applies: acquire_lock only returns, as it just has for this run, once its
-# own discard directory has been renamed back or removed, so this run's own
-# discard directory is never still here to sweep. A discard directory left
-# by a different, still-running process is safe to sweep too: that process's
-# staleness check on its own now-missing discard directory finds nothing, so
-# it takes the existing "hand it back" branch and fails with the same
-# "another run already holds the lock" error every other contention path
-# already produces.
+# A $LOCK_DIR.discard.* left on disk here is a stale steal's rename target,
+# or a claim_lock staging directory, from a run killed before it renamed or
+# removed that directory (riftal-infra#175, riftal-infra#183). Unlike
+# .partial above, no age check applies: acquire_lock only returns, as it just
+# has for this run, once its own discard directory has been renamed away or
+# removed, so this run's own discard directory is never still here to sweep.
+# A discard directory left by a different, still-running process is safe to
+# sweep too: a stealer's staleness check on its now-missing discard directory
+# finds nothing, so it takes the existing "hand it back" branch, and a
+# claimer's stamp or rename finds nothing to act on, so claim_lock fails.
+# Either way it fails with the same "another run already holds the lock"
+# error every other contention path already produces.
 mapfile -t stale_discards < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
   -name '.lock.discard.*')
 for stale in "${stale_discards[@]}"; do
@@ -278,11 +295,11 @@ echo "backup $ts: applying retention, keeping the last $BACKUP_RETENTION"
 # instead of via the EXIT trap and reopening the exact overlap window the
 # lock exists to close (riftal-infra#166).
 #
-# `.lock.discard.*` is a stale steal's discarded former lock, orphaned only
-# if that run was killed between winning the rename and its own follow-up
-# `rm -rf` (riftal-infra#175). It is swept above on the next successful lock
-# acquisition, but until then it is never a backup, and left uncounted here
-# for the same reason `.partial` is.
+# `.lock.discard.*` is a stale steal's rename target or a claim_lock staging
+# directory, orphaned only if its run was killed before it renamed or removed
+# that directory (riftal-infra#175). It is swept above on the next successful
+# lock acquisition, but until then it is never a backup, and left uncounted
+# here for the same reason `.partial` is.
 mapfile -t existing < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
   -not -name '*.partial' -not -name '.lock' -not -name '.lock.discard.*' | sort)
 excess=$(( ${#existing[@]} - BACKUP_RETENTION ))
