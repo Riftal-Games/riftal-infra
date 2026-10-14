@@ -164,7 +164,7 @@ jobs:
       - name: Self-test, prove the mysql:8 pull can fail
         run: bash .github/scripts/pull-mysql-selftest.sh
 
-      # Every step from here to the wipe self-test runs mysql:8, a floating tag.
+      # Every step from here to the wipe self-tests runs mysql:8, a floating tag.
       # This pulls its newest release, so the runner's cached copy cannot go
       # stale unseen. Compose pulls it only when missing.
       - name: Pull mysql:8
@@ -187,6 +187,9 @@ jobs:
 
       - name: Wipe self-test
         run: bash deploy/wipe-selftest.sh
+
+      - name: Wipe volumes self-test
+        run: bash deploy/wipe-volumes-selftest.sh
 
       # Runs before the host-side sync below, which writes designer/.venv. The
       # script mounts the project read-only, so a container run that tried to
