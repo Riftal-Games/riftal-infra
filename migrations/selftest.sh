@@ -77,7 +77,7 @@ docker exec "$CONTAINER" mysql -uroot -pselftest -e \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=51
+EXPECTED_ASSERTIONS=61
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # The closing summary lists these titles, so a new section cannot be left out of it.
@@ -198,11 +198,29 @@ run_migrations "$FIXTURES/good" riftal_selftest "selftest-dead-$SUFFIX" \
   -e MYSQL_PASSWORD=selftestWrongPassword >"$LOGS"/out-deadlock.log 2>&1 || dead_rc=$?
 if [ "$dead_rc" -eq 1 ] \
    && grep -q 'lock connection closed before answering GET_LOCK' "$LOGS"/out-deadlock.log \
-   && ! grep -q 'unbound variable' "$LOGS"/out-deadlock.log; then
+   && ! grep -q 'unbound variable' "$LOGS"/out-deadlock.log \
+   && ! grep -q 'lost the migration lock' "$LOGS"/out-deadlock.log; then
   pass "a dead lock connection exits 1 with its own error and nothing from the trap"
 else
-  fail "expected exit 1, the GET_LOCK error and no unbound variable, got exit $dead_rc"
+  fail "expected exit 1, the GET_LOCK error, no unbound variable and no lost lock, got exit $dead_rc"
   cat "$LOGS"/out-deadlock.log
+fi
+
+section "a lock session that stops reading before GET_LOCK fails cleanly"
+# --init keeps the runner off PID 1, where the kernel drops a SIGPIPE that has
+# no handler, so an unguarded write here would end the run with 141.
+LOCK_PIPE=(--init -v "$FIXTURES/lock-pipe:/lock-pipe:ro" -e BASH_ENV=/lock-pipe/fake-lock-pipe.bash)
+pipe_start_rc=0
+run_migrations "$FIXTURES/empty" riftal_selftest "selftest-pipe-start-$SUFFIX" \
+  "${LOCK_PIPE[@]}" -e SELFTEST_LOCK_PIPE=at-start >"$LOGS"/out-pipe-start.log 2>&1 \
+  || pipe_start_rc=$?
+if [ "$pipe_start_rc" -eq 1 ] \
+   && grep -q 'lock connection closed before answering GET_LOCK' "$LOGS"/out-pipe-start.log \
+   && ! grep -q 'lost the migration lock' "$LOGS"/out-pipe-start.log; then
+  pass "a lock pipe with no reader at GET_LOCK exits 1 with the GET_LOCK error"
+else
+  fail "expected exit 1, the GET_LOCK error and no lost lock, got exit $pipe_start_rc"
+  cat "$LOGS"/out-pipe-start.log
 fi
 
 section "a run whose lock session dies mid-run fails"
@@ -216,6 +234,19 @@ if [ "$lost_rc" -eq 1 ] \
 else
   fail "expected exit 1 and a lost-lock error, got exit $lost_rc"
   cat "$LOGS"/out-lostlock.log
+fi
+
+section "a lock session that stops reading before RELEASE_LOCK fails"
+pipe_release_rc=0
+run_migrations "$FIXTURES/empty" riftal_selftest "selftest-pipe-release-$SUFFIX" \
+  "${LOCK_PIPE[@]}" -e SELFTEST_LOCK_PIPE=after-lock >"$LOGS"/out-pipe-release.log 2>&1 \
+  || pipe_release_rc=$?
+if [ "$pipe_release_rc" -eq 1 ] \
+   && grep -q "lost the migration lock 'selftest-pipe-release-$SUFFIX'" "$LOGS"/out-pipe-release.log; then
+  pass "a lock pipe with no reader at RELEASE_LOCK exits 1 and says the lock was lost"
+else
+  fail "expected exit 1 and a lost-lock error, got exit $pipe_release_rc"
+  cat "$LOGS"/out-pipe-release.log
 fi
 
 section "a lock held elsewhere times out naming its holder"
@@ -245,10 +276,11 @@ held_rc=0
 run_migrations "$FIXTURES/good" riftal_selftest "$HELD_LOCK" \
   -e MIGRATIONS_LOCK_TIMEOUT=1 >"$LOGS"/out-held.log 2>&1 || held_rc=$?
 release_lock
-if [ "$held_rc" -eq 1 ] && grep -q "could not acquire lock '$HELD_LOCK' within 1s" "$LOGS"/out-held.log; then
+if [ "$held_rc" -eq 1 ] && grep -q "could not acquire lock '$HELD_LOCK' within 1s" "$LOGS"/out-held.log \
+   && ! grep -q 'lost the migration lock' "$LOGS"/out-held.log; then
   pass "a held lock exits 1 once the timeout passes"
 else
-  fail "expected exit 1 and the lock timeout, got exit $held_rc"; cat "$LOGS"/out-held.log
+  fail "expected exit 1, the lock timeout and no lost lock, got exit $held_rc"; cat "$LOGS"/out-held.log
 fi
 if grep -qE "held by connection $holder_id, user lockholder from host [^ ]+" "$LOGS"/out-held.log; then
   pass "the timeout names the holder's connection id, user and host"
@@ -309,6 +341,42 @@ expect_lock_failure no-process-login \
   "held by connection $holder_id, whose user and host could not be read: its processlist row came back empty" \
   -e MYSQL_USER=lockrunner -e MYSQL_PASSWORD=selftestLockRunner00000007
 release_lock
+
+section "a lock timeout that is not a whole number is refused before connecting"
+# The host resolves to nothing, so only a refusal made before the lock
+# session connects can produce the expected message.
+for timeout in 1.5 -1 '1 OR SLEEP(5)' abc; do
+  timeout_rc=0
+  run_migrations "$FIXTURES/good" riftal_selftest "selftest-timeout-$SUFFIX" \
+    -e MYSQL_HOST=nowhere.invalid -e MIGRATIONS_LOCK_TIMEOUT="$timeout" \
+    >"$LOGS"/out-timeout.log 2>&1 || timeout_rc=$?
+  if [ "$timeout_rc" -eq 1 ] && grep -qxF \
+       "MIGRATIONS_LOCK_TIMEOUT must be a whole number of seconds, got '$timeout'" \
+       "$LOGS"/out-timeout.log; then
+    pass "MIGRATIONS_LOCK_TIMEOUT='$timeout' exits 1 naming the variable"
+  else
+    fail "MIGRATIONS_LOCK_TIMEOUT='$timeout': expected exit 1 and a refusal naming it, got exit $timeout_rc"
+    cat "$LOGS"/out-timeout.log
+  fi
+done
+
+section "a lock name outside the safe character set is refused before connecting"
+# 65 characters, one past the longest name MySQL accepts for a user lock.
+long_name="$(printf 'a%.0s' $(seq 1 65))"
+for name in "a'b" 'lock name' 'lock.name' "$long_name"; do
+  name_rc=0
+  run_migrations "$FIXTURES/good" riftal_selftest "$name" \
+    -e MYSQL_HOST=nowhere.invalid \
+    >"$LOGS"/out-lockname.log 2>&1 || name_rc=$?
+  if [ "$name_rc" -eq 1 ] && grep -qxF \
+       "MIGRATIONS_LOCK_NAME must be 1 to 64 characters from A-Z a-z 0-9 _ -, got '$name'" \
+       "$LOGS"/out-lockname.log; then
+    pass "MIGRATIONS_LOCK_NAME='$name' exits 1 naming the variable"
+  else
+    fail "MIGRATIONS_LOCK_NAME='$name': expected exit 1 and a refusal naming it, got exit $name_rc"
+    cat "$LOGS"/out-lockname.log
+  fi
+done
 
 section "a server below MySQL 8.0.30 is refused before anything is applied"
 at_version() {

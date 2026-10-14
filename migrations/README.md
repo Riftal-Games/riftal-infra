@@ -50,8 +50,8 @@ runs them; it never authors gameplay migrations.
 | `MYSQL_PASSWORD` | yes | | Read via `MYSQL_PWD` internally so it never appears in `ps` output |
 | `MYSQL_DATABASE` | yes | | `riftal_dev` in the local stack |
 | `MIGRATIONS_DIR` | no | sibling checkout's `riftal-game/lib/resources/sql/migrations` | Mount the real directory in explicitly rather than relying on the fallback |
-| `MIGRATIONS_LOCK_NAME` | no | `riftal_schema_migrations` | Override only for running more than one independent test in parallel |
-| `MIGRATIONS_LOCK_TIMEOUT` | no | `60` (seconds) | |
+| `MIGRATIONS_LOCK_NAME` | no | `riftal_schema_migrations` | Override only for running more than one independent test in parallel. 1 to 64 characters from `A-Z a-z 0-9 _ -`; anything else fails the run before it connects. Empty means the default |
+| `MIGRATIONS_LOCK_TIMEOUT` | no | `60` (seconds) | A whole number of seconds; anything else fails the run before it connects. Empty means the default |
 | `GRANTS_FILE` | no | sibling checkout's `riftal-game/lib/resources/sql/grants.sql` | Mount the real file in explicitly, as with `MIGRATIONS_DIR` |
 | `RIFTAL_DB_PASSWORD_<NAME>` | no | | One per plugin login to provision, e.g. `RIFTAL_DB_PASSWORD_MINES` for `mines`. At least 24 characters, `[A-Za-z0-9]` only |
 
@@ -117,6 +117,14 @@ account allowed to create a routine under any definer.
 Same `mysql:8` image the dev stack already runs, so nothing new to pull.
 Run this after `riftal-mysql` is up and **before** the instance, per the
 rollout order in `../CLAUDE.md`: migrations, then instances, then the proxy.
+A migration whose effect needs a matching plugin build cannot follow that
+order one instance at a time. `../deploy/ROLLOUT.md` records what each one
+needs: `0010_add_gang_founded_marker.sql`,
+`0014_add_player_ranks_claim.sql` and
+`0015_raise_gang_level_with_contribution.sql`. Its Audited migrations section
+covers every migration through `0020_create_gang_vault_slots.sql` and gives
+the reason each other one is not coupled; a later migration is unaudited until
+it is listed there.
 
 ```sh
 export MSYS_NO_PATHCONV=1
@@ -162,9 +170,13 @@ runs them, are:
 - a broken migration halts loudly and is not recorded
 - two invocations racing the same lock name do not double-apply
 - a lock connection that dies early fails cleanly
+- a lock session that stops reading before GET_LOCK fails cleanly
 - a run whose lock session dies mid-run fails
+- a lock session that stops reading before RELEASE_LOCK fails
 - a lock held elsewhere times out naming its holder
 - a lock failure says which read of its holder came back unusable
+- a lock timeout that is not a whole number is refused before connecting
+- a lock name outside the safe character set is refused before connecting
 - a server below MySQL 8.0.30 is refused before anything is applied
 - a pending file sorting below the highest applied one is refused
 - filename order is bytewise whatever locale the container carries

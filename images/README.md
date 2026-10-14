@@ -14,6 +14,7 @@ Set in `images/.env`, copied from `.env.example`. Never commit `.env`.
 | `INSTANCE_ID` | This instance's identity, read by `RiftalGames\Lib\InstanceIdentity::fromEnvironment()` in riftal-game's shared lib and tagged onto every shared-database row the instance writes. No safe default exists across a split, which is why the class throws rather than guess one; the dev stack's single instance ships `dev-1` in `.env.example` so the boot has something to read. When an instance is split out under `/add-instance`, its `INSTANCE_ID` is set the same way, as a container env var, never written into mounted `server.properties` or `pocketmine.yml`. |
 | `INSTANCE_B_BIND`, `INSTANCE_B_ID` | The same two settings for `instance-b`, the second core instance `compose.yaml` defines alongside `instance` to prove the instance-split shape on one shared MySQL (riftal-infra#6). Distinct names because both instances read a container env var literally named `INSTANCE_ID`; the `_B` suffix is only how `.env` tells them apart before substitution. |
 | `BACKUP_RETENTION`, `BACKUP_INTERVAL_SECONDS`, `PARTIAL_MAX_AGE_MINUTES`, `LOCK_MAX_AGE_MINUTES` | How many backup sets `../deploy/backup.sh` keeps, how often the `backup` service runs it, how old a leftover `.partial` must be before it sweeps it, and how old a held `.lock` must be before it presumes the lock abandoned and sweeps that too. See `../deploy/README.md`. |
+| `RIFTAL_DB_PASSWORD_ACCOUNTS` | The `accounts` MySQL login's password (ADR 008). The migration runner provisions the login with it, and compose hands it to both instances, where `RiftalAccounts` reads it from the environment, never from its config. At least 24 characters, `[A-Za-z0-9]` only. See RiftalAccounts below. |
 | `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). `plugins/RiftalDevFaults.php` exists under the same gate, or not at all. |
 
 ## Dev faults
@@ -50,6 +51,97 @@ changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
 path. A `wslc run` of either instance needs the same `-v` and command.
 
+## RiftalCustody
+
+Every instance loads riftal-game's `custody` plugin, `RiftalCustody`, which
+keeps item entities out of every chunk save and players out of tiles (ADR 013,
+riftal-pm `docs/decisions/013-item-yielding-entities-are-never-saved.md`).
+It sits at the top of `plugins/`, so `instance-b` loads it straight from
+`/plugins` and `start-instance.sh` copies it into `instance`'s roster. Both
+instances start through `plugins/require-custody.sh`, after the world index
+delivery and `require-accounts.sh`. It stops the boot before PocketMine when
+`plugins/RiftalCustody.phar` is missing or empty. The phar is gitignored, so
+build it once per clone, and again when `custody` or `lib` changes, with
+riftal-game's own CI script, which links the fork for pharynx and checks the
+phar holds a `plugin.yml`:
+
+```sh
+GAME=../../riftal-game
+BUILD=$(mktemp -d) OUT=$(mktemp -d)
+git -C "$GAME" archive origin/main custody lib .github/scripts/packages.sh | tar -x -C "$BUILD"
+curl -fsSLo "$BUILD/pharynx.phar" \
+  https://github.com/SOF3/pharynx/releases/download/0.3.8/pharynx.phar
+echo "de84964df51d595a9d521ee42df010cf6e817b1e5ceef17de6ef884c41b28133  $BUILD/pharynx.phar" | sha256sum -c -
+curl -fsSLo "$BUILD/composer-setup.php" https://getcomposer.org/installer
+
+docker run --rm -m 2g --cpus 2 --user "$(id -u):$(id -g)" -v "$BUILD:/build" -v "$OUT:/out" \
+  -e COMPOSER_ALLOW_SUPERUSER=1 -e HOME=/tmp --entrypoint bash local-pocketmine-mp -c '
+    mkdir -p /tmp/bin
+    php /build/composer-setup.php --install-dir=/tmp/bin --filename=composer --quiet
+    PATH=/tmp/bin:$PATH bash /build/.github/scripts/packages.sh phar /build /build/pharynx.phar /out
+  '
+cp "$OUT/custody.phar" plugins/RiftalCustody.phar
+```
+
+`custody` is the only folder in that copy with a `plugin.yml`, so it is the
+one phar built. `lib` rides along shaded in. `--user` lets the container write
+into the two `mktemp` directories, which only their owner can open.
+
+A boot's LOADS verdict, P13 included, is read from its log, never from an exit
+code:
+
+```sh
+docker compose logs --no-color --no-log-prefix instance > /tmp/instance.log
+bash loads-check.sh /tmp/instance.log
+```
+
+It fails unless the log reaches `Done (`, holds no line above `WARNING`, and
+shows `Enabling RiftalCustody` before the first `Preparing world`. Run it on a
+log captured after `stop` and it also catches a plugin left enabled past
+`RiftalCustody` at shutdown, which `RiftalCustody` logs as an `ERROR`. Every
+script plugin here lists `@softdepend RiftalCustody` in its header for that
+reason, and `custody-selftest.sh` fails on one that does not.
+
 The full production `/add-instance` runbook already exists as a skill; this
 table exists so the mechanism (env var, not mounted config) is written down
 somewhere editable in a normal PR.
+
+## RiftalAccounts
+
+`RiftalAccounts` resolves every login to its account and is the only writer
+of the `accounts` table, so every instance that runs a game plugin loads it
+(steward rulings on riftal-game#176 and riftal-infra#465). `RiftalCustody` is
+one, so that is every instance. `RiftalAccounts.phar` and `contracts.phar`,
+which it declares `depend: [RiftalContracts]` on, sit at the top of
+`plugins/` beside `RiftalCustody.phar`, so both rosters pick them up. Both
+instances start through `plugins/require-accounts.sh`, after the world index
+delivery. It stops the boot before PocketMine, naming the cause, when either
+phar or `RIFTAL_DB_PASSWORD_ACCOUNTS` is missing, whatever other game plugins
+the instance carries.
+
+Build both with the `RiftalCustody` recipe above, adding `accounts contracts`
+to the `git archive` paths, then:
+
+```sh
+cp "$OUT/accounts.phar" plugins/RiftalAccounts.phar
+cp "$OUT/contracts.phar" plugins/contracts.phar
+```
+
+It connects as the `accounts` login of ADR 008, never as root.
+`require-accounts.sh` copies `plugins/RiftalAccounts.config.yml` to
+`/data/plugin_data/RiftalAccounts/config.yml`, on the instance's own volume,
+on every boot. That file differs from the shipped one only in its schema,
+`riftal_dev`, and carries no password: `DatabaseSettings` reads it from
+`RIFTAL_DB_PASSWORD_ACCOUNTS`, which compose passes both instances from
+`images/.env`. A `wslc run` of either instance needs
+`-e RIFTAL_DB_PASSWORD_ACCOUNTS` and the same command chain.
+
+The login itself is made by the migration runner, not by an instance. Run it
+before either instance, with `grants.sql` mounted and
+`-e RIFTAL_DB_PASSWORD_ACCOUNTS` exported from the same `images/.env`, as
+`../migrations/README.md` shows under "Running it locally". The runner
+creates `accounts`, grants it `riftal_role_accounts` and nothing else, and
+resets its password to that value on every run, so after editing it in
+`images/.env` run the runner again before the next boot. Booted before that,
+the plugin logs `Access denied for user 'accounts'` and PocketMine shuts the
+server down.

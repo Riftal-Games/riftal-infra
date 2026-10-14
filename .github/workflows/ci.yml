@@ -28,15 +28,31 @@ jobs:
   checks:
     name: lint and validate
     runs-on: [self-hosted, linux, riftal]
-    # ci-sweep-selftest.sh removes the self-test's other-job volumes once they
-    # are 20 minutes old, as left by a run that has ended. A timeout past 20
-    # would let it remove a live run's.
-    timeout-minutes: 10
+    # ci-sweep-selftest.sh removes its other-job volumes once they are older
+    # than its reap_after, as left by a run that has ended, and fails unless
+    # every job here times out sooner.
+    timeout-minutes: 15
 
     steps:
       # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
       # what runs with this job's token.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # Reads fixtures only, so it runs before any step that starts a
+      # container and no engine fault can mask it.
+      - name: Self-test, prove the job timeout check can fail
+        run: bash .github/scripts/job-timeouts-selftest.sh
+
+      # Reads files only, for the same reason as the step above.
+      - name: Self-test, prove the mysql:8 pull order check can fail
+        run: bash .github/scripts/pull-mysql-order-selftest.sh
+
+      - name: Pull mysql:8 runs before every step that runs mysql:8
+        run: bash .github/scripts/pull-mysql-order.sh
+
+      # Reads fixture logs only, so it also runs before any container step.
+      - name: Custody alert check self-test
+        run: bash deploy/custody-alert-check-selftest.sh
 
       # Before any step that starts a container, so every one of them carries
       # this job's label for the sweep at the end.
@@ -81,7 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/capture-harness/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
@@ -89,7 +105,7 @@ jobs:
           docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/capture-harness/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -109,14 +125,41 @@ jobs:
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
 
+      - name: Capture plugin self-test
+        run: bash images/plugins/capture-selftest.sh
+
+      # The self-test above runs the plugin against fakes of the core. This
+      # boots the core itself, where the fakes and the server can disagree.
+      # A healthy run takes under a minute. Ten covers its worst case that
+      # still ends: every wait in harness.sh running out, both boots at their
+      # 120 seconds and both stops at their 60, about nine minutes.
+      - name: Capture plugin in-server harness
+        timeout-minutes: 10
+        run: bash images/plugins/capture-harness/harness.sh
+
       - name: Dev bots join order self-test
         run: bash images/plugins/join-order/selftest.sh
+
+      - name: Dev bots crash hook self-test
+        run: bash images/plugins/crash-hook/selftest.sh
 
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
 
       - name: Dev faults hook self-test
         run: bash images/plugins/dev-faults/selftest.sh
+
+      - name: RiftalCustody on every instance self-test
+        run: bash images/custody-selftest.sh
+
+      - name: Self-test, prove the mysql:8 pull can fail
+        run: bash .github/scripts/pull-mysql-selftest.sh
+
+      # Every step from here to the wipe self-test runs mysql:8, a floating tag.
+      # This pulls its newest release, so the runner's cached copy cannot go
+      # stale unseen. Compose pulls it only when missing.
+      - name: Pull mysql:8
+        run: bash .github/scripts/pull-mysql.sh
 
       - name: Migration runner self-test
         run: bash migrations/selftest.sh

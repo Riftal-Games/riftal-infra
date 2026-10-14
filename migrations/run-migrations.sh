@@ -22,7 +22,21 @@ set -euo pipefail
 export LC_ALL=C
 
 LOCK_NAME="${MIGRATIONS_LOCK_NAME:-riftal_schema_migrations}"
+# The name is printed inside quoted SQL for GET_LOCK, IS_USED_LOCK and
+# RELEASE_LOCK, so a quote in it would end the string and the rest would reach
+# MySQL as SQL. 64 characters is the longest user lock name MySQL accepts.
+if [[ ! "$LOCK_NAME" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
+  echo "MIGRATIONS_LOCK_NAME must be 1 to 64 characters from A-Z a-z 0-9 _ -, got '$LOCK_NAME'" >&2
+  exit 1
+fi
 LOCK_TIMEOUT="${MIGRATIONS_LOCK_TIMEOUT:-60}"
+# The value is printed straight into the GET_LOCK statement, so anything but
+# digits would reach MySQL as SQL. A negative number is refused too, since
+# GET_LOCK reads it as wait forever and a boot must never hang on the lock.
+if [[ ! "$LOCK_TIMEOUT" =~ ^[0-9]+$ ]]; then
+  echo "MIGRATIONS_LOCK_TIMEOUT must be a whole number of seconds, got '$LOCK_TIMEOUT'" >&2
+  exit 1
+fi
 
 MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
@@ -104,6 +118,9 @@ lock_pid="$LOCKCONN_PID"
 lock_held=0
 release_lock() {
   local rc=$? release_result=""
+  # A RELEASE_LOCK answers at once on a live session, so one that misses this
+  # wait cannot show the lock was still held and counts as a lost lock.
+  local release_wait=30
   # Once bash reaps a dead coprocess it unsets LOCKCONN and closes both of its
   # descriptors, so an empty value means the lock session is already over.
   local lock_fd="${LOCKCONN[1]-}" lock_out="${LOCKCONN[0]-}"
@@ -116,7 +133,7 @@ release_lock() {
     # killed mid-run answers with an error, or, if the client reconnected,
     # with NULL from a fresh session that never held it.
     if printf "SELECT RELEASE_LOCK('%s');\n" "$LOCK_NAME" >&"$lock_fd" 2>/dev/null; then
-      IFS= read -r -t 30 release_result <&"$lock_out" 2>/dev/null || true
+      IFS= read -r -t "$release_wait" release_result <&"$lock_out" 2>/dev/null || true
     fi
     # Closing the write side is what lets the held mysql session see EOF and
     # exit; without it "wait" below blocks forever, success or failure alike.
@@ -135,11 +152,18 @@ release_lock() {
 }
 trap release_lock EXIT
 
-printf "SELECT GET_LOCK('%s', %s);\n" "$LOCK_NAME" "$LOCK_TIMEOUT" >&"${LOCKCONN[1]}"
-if ! IFS= read -r lock_result <&"${LOCKCONN[0]}"; then
+# A lock session that has already ended is either reaped, leaving LOCKCONN
+# unset, or not yet, leaving a pipe with no reader. Both get the message below
+# rather than an unbound variable or a SIGPIPE, as in release_lock.
+lock_fd="${LOCKCONN[1]-}" lock_out="${LOCKCONN[0]-}"
+trap '' PIPE
+if [ -z "$lock_fd" ] \
+   || ! printf "SELECT GET_LOCK('%s', %s);\n" "$LOCK_NAME" "$LOCK_TIMEOUT" >&"$lock_fd" 2>/dev/null \
+   || ! IFS= read -r lock_result <&"$lock_out"; then
   echo "lock connection closed before answering GET_LOCK('$LOCK_NAME')" >&2
   exit 1
 fi
+trap - PIPE
 if [ "$lock_result" != "1" ]; then
   # Only a 0 is a timeout. A NULL from GET_LOCK means an error, so it is not
   # reported as a timeout.
