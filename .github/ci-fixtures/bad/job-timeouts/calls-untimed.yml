@@ -1,0 +1,11 @@
+# Must fail job-timeouts.sh: the caller's own jobs are all timed, but the
+# workflow its second job calls has a job with no timeout-minutes.
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: "true"
+  call:
+    uses: ./.github/workflows/called-untimed.yml

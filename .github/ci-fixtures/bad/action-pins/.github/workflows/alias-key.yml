@@ -1,0 +1,10 @@
+# Must fail action-pins.sh at line 10 and nowhere else: an alias used as a key
+# fails whatever it names, because its anchor can hold the word uses.
+on: push
+env:
+  KEY: &k uses
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - *k : actions/checkout@11d5960a326750d5838078e36cf38b85af677262

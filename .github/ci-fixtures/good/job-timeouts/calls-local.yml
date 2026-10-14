@@ -1,0 +1,12 @@
+# Must pass job-timeouts.sh under a 1200-second cutoff: the second job calls a
+# workflow in this directory's own .github/workflows, whose one job times out
+# at 12 minutes, so the called job is the longest of the two that run.
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: "true"
+  call:
+    uses: ./.github/workflows/called-timed.yml
