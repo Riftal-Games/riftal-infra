@@ -37,6 +37,7 @@ printf 'pickup-flushes-per-tick: 2\r\ntile-moves-per-tick: 2\r\n' >"$DIR/crlf.ym
 # eleven reach it.
 { gen player 990 1.0; gen player 10 20.0; gen chunk 1000 1.0; } >"$DIR/ten-slow"
 { gen player 989 1.0; gen player 11 20.0; gen chunk 1000 1.0; } >"$DIR/eleven-slow"
+{ gen player 11 13.0; gen player 989 9.0; gen chunk 1000 1.0; } >"$DIR/slow-first"
 # Over 150 writes the rank is ceil(148.5), the 149th: two slow writes reach it.
 { gen player 148 1.0; gen player 2 20.0; gen chunk 150 1.0; } >"$DIR/two-of-150"
 { gen player 99 1.0; gen chunk 1000 1.0; } >"$DIR/few"
@@ -47,7 +48,7 @@ sed 's/$/\r/' "$DIR/fast" >"$DIR/crlf-timings"
 
 failures=0
 ran=0
-expected=24
+expected=25
 # check <exit> <regex some output line must match> <case> <config> [timings] [flag]
 check() {
   local want="$1" pattern="$2" name="$3" config="$DIR/$4.yml" input="${5:-/dev/null}" got=0 out
@@ -70,6 +71,7 @@ check 1 '^WRITE LATENCY FAIL: K, player file write p99: 4 x 7\.000' "slow player
 check 1 'K, player file write p99: 2 x 12\.500 ms = 25\.000 ms, not under' "exactly 25 ms fails" k2w2 at-budget
 check 0 '^WRITE LATENCY PASS$' "ten slow writes sit above p99" k2w2 ten-slow
 check 1 'player file write p99 20\.000' "eleven slow writes reach p99" k2w2 eleven-slow
+check 1 'player file write p99 13\.000' "slow writes first sort numerically" k2w2 slow-first
 check 0 '^WRITE LATENCY PASS$' "CRLF config and timings" crlf crlf-timings
 check 2 'sets no pickup-flushes-per-tick' "refuses without K" no-k fast
 check 2 'sets no tile-moves-per-tick' "refuses without W" no-w fast
