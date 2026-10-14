@@ -3,7 +3,7 @@
 /**
  * @name RiftalDevBots
  * @main riftal\dev\bots\Main
- * @version 0.3.0
+ * @version 0.4.0
  * @api 5.0.0
  * @softdepend RiftalCustody
  * @description Dev stack only. Admits the headless player bots from devtools/bot.
@@ -19,6 +19,7 @@ namespace riftal\dev\bots;
 use Closure;
 use Logger;
 use pocketmine\block\tile\Container;
+use pocketmine\block\VanillaBlocks;
 use pocketmine\command\Command;
 use pocketmine\command\CommandSender;
 use pocketmine\command\utils\InvalidCommandSyntaxException;
@@ -30,6 +31,9 @@ use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\event\player\PlayerPreLoginEvent;
 use pocketmine\event\player\PlayerQuitEvent;
 use pocketmine\item\Item;
+use pocketmine\item\VanillaItems;
+use pocketmine\nbt\NBT;
+use pocketmine\nbt\tag\ListTag;
 use pocketmine\permission\DefaultPermissions;
 use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
@@ -138,6 +142,8 @@ final class Main extends PluginBase{
 			$server->getCommandMap()->registerAll("riftaldevbots", [
 				new CrashCommand($this->getLogger()),
 				new TileCommand($this->getLogger(), $this->isBot(...)),
+				new AutosaveCommand($this->getLogger(), $this->isBot(...)),
+				new ShulkerCommand($this->getLogger(), $this->isBot(...)),
 			]);
 		}
 	}
@@ -345,5 +351,106 @@ final class TileCommand extends Command{
 			$type = "id=? name=" . $item->getVanillaName();
 		}
 		return "$type count=" . $item->getCount() . " nbt=" . ($item->hasNamedTag() ? "yes" : "no");
+	}
+}
+
+/**
+ * Spec 020 criterion 22 needs one level's autosave off, as save-off or ADR
+ * 015's hold sets it, while a bot tries a furnace. An admitted bot is no
+ * operator and cannot run save-off, which also turns off every level at once.
+ *
+ * Registered only when Main admits dev bots. The console and an admitted dev
+ * bot may run it; nobody else can. tile-contents/selftest.sh holds the gate.
+ */
+final class AutosaveCommand extends Command{
+
+	public const NAME = "devbots-autosave";
+
+	/** @param Closure(Player) : bool $isBot */
+	public function __construct(private Logger $logger, private Closure $isBot){
+		parent::__construct(self::NAME, "Dev stack only. Turns one level's autosave on or off.", "/" . self::NAME . " <on|off> [level]");
+		$this->setPermission(DefaultPermissions::ROOT_USER);
+	}
+
+	public function execute(CommandSender $sender, string $commandLabel, array $args) : bool{
+		$console = $sender instanceof ConsoleCommandSender;
+		if(!$console && !($sender instanceof Player && ($this->isBot)($sender))){
+			$sender->sendMessage(self::NAME . " runs only from the server console or a dev bot");
+			return true;
+		}
+		if(count($args) < 1 || count($args) > 2 || ($args[0] !== "on" && $args[0] !== "off")){
+			throw new InvalidCommandSyntaxException();
+		}
+		$server = $sender->getServer();
+		$level = match(true){
+			isset($args[1]) => $server->getWorldManager()->getWorldByName($args[1]),
+			$sender instanceof Player => $sender->getWorld(),
+			default => $server->getWorldManager()->getDefaultWorld(),
+		};
+		if($level === null){
+			$line = self::NAME . " " . $args[1] . " is not a loaded level";
+		}else{
+			$level->setAutoSave($args[0] === "on");
+			$line = self::NAME . " " . $level->getFolderName() . " tick=" . $server->getTick() . " autosave=" . ($level->getAutoSave() ? "on" : "off");
+		}
+		$this->logger->info($line);
+		if(!$console){
+			$sender->sendMessage($line);
+		}
+		return true;
+	}
+}
+
+/**
+ * Spec 020 criterion 24 needs a bot holding a filled shulker box, which no M3
+ * player can fill. This hands one over, so it is the one place on any stack
+ * where the server makes an item, against hard rule 1; that is why it exists
+ * only while Main admits dev bots and gives only to an admitted dev bot.
+ *
+ * The console and an admitted dev bot may run it; nobody else can.
+ * tile-contents/selftest.sh holds the gate and the item.
+ */
+final class ShulkerCommand extends Command{
+
+	public const NAME = "devbots-shulker";
+
+	/** @param Closure(Player) : bool $isBot */
+	public function __construct(private Logger $logger, private Closure $isBot){
+		parent::__construct(self::NAME, "Dev stack only. Hands an admitted dev bot a filled shulker box.", "/" . self::NAME . " <bot>");
+		$this->setPermission(DefaultPermissions::ROOT_USER);
+	}
+
+	/**
+	 * Holds its stack the way core's own shulker box drop does: the tile's
+	 * Items list at the root of the item's tag (block/ShulkerBox.php).
+	 */
+	public static function filled() : Item{
+		$item = VanillaBlocks::SHULKER_BOX()->asItem();
+		$tag = $item->getNamedTag();
+		$tag->setTag(Container::TAG_ITEMS, new ListTag([VanillaItems::STICK()->nbtSerialize(0)], NBT::TAG_Compound));
+		return $item->setNamedTag($tag);
+	}
+
+	public function execute(CommandSender $sender, string $commandLabel, array $args) : bool{
+		$console = $sender instanceof ConsoleCommandSender;
+		if(!$console && !($sender instanceof Player && ($this->isBot)($sender))){
+			$sender->sendMessage(self::NAME . " runs only from the server console or a dev bot");
+			return true;
+		}
+		if(count($args) !== 1){
+			throw new InvalidCommandSyntaxException();
+		}
+		$bot = $sender->getServer()->getPlayerExact($args[0]);
+		$item = self::filled();
+		$line = match(true){
+			$bot === null || !($this->isBot)($bot) => self::NAME . " " . $args[0] . " is not an admitted dev bot",
+			!$bot->getInventory()->canAddItem($item) => self::NAME . " " . $bot->getName() . " has no room",
+			default => self::NAME . " " . $bot->getName() . " handed " . (count($bot->getInventory()->addItem($item)) === 0 ? "a filled shulker box" : "nothing"),
+		};
+		$this->logger->info($line);
+		if(!$console){
+			$sender->sendMessage($line);
+		}
+		return true;
 	}
 }

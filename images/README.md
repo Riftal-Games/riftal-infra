@@ -72,6 +72,20 @@ Bedrock id, meta and count, and the first line with the server tick. A bot
 also gets the lines in chat. It reads only, and reports a chunk nothing holds
 loaded rather than loading it.
 
+## Dev bots test hooks
+
+Spec 020 criteria 22 to 24 (riftal-infra#1124) take two more commands from
+`plugins/RiftalDevBots.php`, under the same gate and from the console or an
+admitted dev bot:
+
+- `devbots-autosave <on|off> [level]` sets one level's autosave, as
+  `save-off` does for every level, and logs the level, the tick and the result.
+- `devbots-shulker <bot>` hands an admitted dev bot a shulker box holding one
+  stick. It makes an item, which hard rule 1 forbids everywhere else, so it
+  gives to nobody but an admitted dev bot.
+
+Criterion 23's failed player save is `devfaults-flush-fail` above.
+
 ## The world index
 
 `instance` and `instance-b` both mount `../designer/world_index.json`

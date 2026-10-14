@@ -9,9 +9,11 @@
 # air and for a chunk nothing holds loaded, which is reported without being
 # read, and as an operator who is not a dev bot and must be refused. Last it
 # reads the furnace inventory itself, which must hold what it was filled with.
-# Without
-# the --riftal-dev-bots=on flag, or without RIFTAL_DEV_ENV=1, the command
-# does not exist.
+# It then holds spec 020's other two hooks (riftal-infra#1124): devbots-autosave
+# turns the level's autosave off and on, and devbots-shulker refuses a name no
+# dev bot holds and builds the filled shulker box it would hand one.
+# Without the --riftal-dev-bots=on flag, or without RIFTAL_DEV_ENV=1, none of
+# the three commands exists.
 #
 # Runs the pinned core image from ../../core-image.sha, present only on the
 # self-hosted runners' Docker daemon. It publishes no port and keeps nothing:
@@ -26,7 +28,7 @@ ERRORS='CRITICAL|EMERGENCY|Exception|Stack trace'
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=13
+EXPECTED_ASSERTIONS=22
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -52,10 +54,10 @@ boot() {
   if [ "$status" -eq 124 ]; then
     docker stop -t 60 "$name" >/dev/null 2>&1 || true
   fi
-  grep -F '[RiftalDevBots]' "$work/log" | grep -o 'devbots-tile .*' \
+  grep -F '[RiftalDevBots]' "$work/log" | grep -oE 'devbots-(tile|autosave|shulker) .*' \
     | sed 's/tick=[0-9]*/tick=N/' >"$work/lines" || true
   at="$(grep -o 'tile-probe at .*' "$work/log" | sed 's/^tile-probe at //; s/ registered=.*//' || true)"
-  grep -E 'tile-probe|devbots-tile' "$work/log" || tail -n 20 "$work/log"
+  grep -E 'tile-probe|devbots-' "$work/log" || tail -n 20 "$work/log"
   printf 'exit status %s\n' "$status"
 }
 
@@ -73,9 +75,9 @@ has() {
 printf '\n== dev bots admitted: the console reads a tile slot by slot\n'
 boot on 1
 clean "admitted"
-grep -q 'tile-probe at .* registered=yes' "$work/log" \
-  && pass "devbots-tile is registered" \
-  || fail "devbots-tile is not registered with dev bots admitted"
+grep -q 'tile-probe at .* registered=yes,yes,yes$' "$work/log" \
+  && pass "devbots-tile, devbots-autosave and devbots-shulker are registered" \
+  || fail "a devbots- command is not registered with dev bots admitted"
 read -r level x y z <<<"$at"
 has "the furnace is named with its slot count" "devbots-tile $level $x $y $z tick=N tile=NormalFurnace slots=3"
 has "slot 0 holds the raw iron" "devbots-tile $level $x $y $z slot=0 id=minecraft:raw_iron meta=0 count=5 nbt=no"
@@ -95,13 +97,33 @@ grep -q 'tile-probe operator heard: devbots-tile runs only from the server conso
   && pass "an operator who is not a dev bot is refused" \
   || fail "the operator was not refused"
 
+printf '\n== dev bots admitted: devbots-autosave and devbots-shulker\n'
+# The operator's "on" comes while the console has it off, so a refusal leaves it off.
+grep -qxF 'tile-probe autosave off=off operator=off on=on' <(grep -o 'tile-probe autosave .*' "$work/log") \
+  && pass "the console turns autosave off and on, and the operator changes nothing" \
+  || fail "autosave did not follow the console alone: $(grep -o 'tile-probe autosave .*' "$work/log" || true)"
+has "turning it off is logged" "devbots-autosave $level tick=N autosave=off"
+has "turning it on by name is logged" "devbots-autosave $level tick=N autosave=on"
+has "a level not loaded is named, not created" "devbots-autosave nowhere is not a loaded level"
+has "a name no dev bot holds is handed nothing" "devbots-shulker nobody is not an admitted dev bot"
+grep -q 'tile-probe operator heard: devbots-autosave runs only from the server console or a dev bot' "$work/log" \
+  && grep -q 'tile-probe operator heard: devbots-shulker runs only from the server console or a dev bot' "$work/log" \
+  && pass "an operator who is not a dev bot is refused both" \
+  || fail "the operator was not refused devbots-autosave or devbots-shulker"
+grep -qxF 'tile-probe shulker Shulker Box x1 holds 0=Stick x1' <(grep -o 'tile-probe shulker .*' "$work/log") \
+  && pass "the box handed over is one shulker box holding one stick in slot 0" \
+  || fail "the shulker box is not as filled: $(grep -o 'tile-probe shulker .*' "$work/log" || true)"
+
 # $1 --riftal-dev-bots value, $2 RIFTAL_DEV_ENV value, $3 description
 absent() {
-  printf '\n== %s: devbots-tile does not exist\n' "$3"
+  printf '\n== %s: no devbots- command exists\n' "$3"
   boot "$1" "$2"
-  grep -q 'tile-probe at .* registered=no' "$work/log" && [ ! -s "$work/lines" ] && [ "$status" -eq 0 ] \
-    && pass "$3: devbots-tile is not registered, prints nothing and the server stops cleanly" \
-    || fail "$3: devbots-tile is registered, printed, or the server did not stop cleanly (exit $status)"
+  grep -q 'tile-probe at .* registered=no,no,no$' "$work/log" && [ ! -s "$work/lines" ] && [ "$status" -eq 0 ] \
+    && pass "$3: no devbots- command is registered, none prints and the server stops cleanly" \
+    || fail "$3: a devbots- command is registered, printed, or the server did not stop cleanly (exit $status)"
+  grep -qxF 'tile-probe autosave off=on operator=on on=on' <(grep -o 'tile-probe autosave .*' "$work/log") \
+    && pass "$3: autosave stays on through every attempt" \
+    || fail "$3: autosave changed: $(grep -o 'tile-probe autosave .*' "$work/log" || true)"
 }
 absent off 1 "the dev-bots flag off"
 absent on "" "RIFTAL_DEV_ENV unset"
@@ -117,4 +139,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: devbots-tile reads a tile slot by slot, only with dev bots admitted.\n' "$PASSES"
+printf 'all %s assertions passed: devbots-tile, devbots-autosave and devbots-shulker work only with dev bots admitted.\n' "$PASSES"
