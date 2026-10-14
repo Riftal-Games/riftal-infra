@@ -27,7 +27,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=70
+EXPECTED_ASSERTIONS=72
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -159,7 +159,7 @@ printf '%s\n' "\$3" >> "$root/fetched"
 : > "\$2"
 EOF
   chmod +x "$root/bin/php" "$root/bin/wget"
-  env -i HOME="$work" PATH="$root/bin:$PATH" "$@" \
+  env -i HOME="$work" PATH="$root/bin:$PATH" TMPDIR="$root" "$@" \
     bash "$root/start-instance.sh" > "$root/out" 2>&1 < /dev/null \
     && [ -s "$root/args" ]
 }
@@ -179,6 +179,13 @@ check "a POCKETMINE_PLUGINS spread over two lines fetches from both" \
 check "instance's POCKETMINE_ARGS reaches php with auto-report off" \
   'boot "$me" POCKETMINE_ARGS="$(jq -r .services.instance.environment.POCKETMINE_ARGS <<<"$real")" &&
     grep -qx -- --auto-report.enabled=0 "$b/args"'
+check "php gets --data at the rewritten /data" \
+  'boot "$me" && grep -qx -- "--data=$b/data" "$b/args"'
+# The roster is a mktemp -d the script never removes, since exec hands the
+# process to php. Made anywhere but under the scratch root, every boot here
+# would leave one behind.
+check "the roster is made under the scratch root, so no boot leaves one in /tmp" \
+  'boot "$me" && roster="$(sed -n "s/^--plugins=//p" "$b/args")" && [[ "$roster" == "$b"/* ]]'
 check "an unset POCKETMINE_ARGS boots, as it does under start-pocketmine" \
   'boot "$me" && ! grep -q unbound "$b/out"'
 check "POCKETMINE_PLUGINS writes nothing into the shared /plugins" \
