@@ -1,0 +1,7 @@
+# Must fail action-pins.sh at line 7 and nowhere else: a uses key directly
+# inside a flow sequence is a single-pair flow mapping, refused like any other.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps: [ uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 ]

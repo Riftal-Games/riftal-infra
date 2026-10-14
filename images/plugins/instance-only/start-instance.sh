@@ -3,8 +3,9 @@
 # plugins from one flat directory and /plugins is the ./plugins bind
 # instance-b shares, so this instance's roster is assembled in the
 # container's own disposable filesystem: every plugin at the top of /plugins,
-# plus RiftalMines.phar once built. It mounts nothing and runs as uid 1000,
-# so /data/plugin_data on a fresh volume stays writable by PocketMine.
+# plus RiftalMines.phar, RiftalRanks.phar and RiftalEconomy.phar once built.
+# It mounts nothing and runs as uid 1000, so /data/plugin_data on a fresh
+# volume stays writable by PocketMine.
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
 # docker/start.sh), which instance-b runs and which cannot be reused here
@@ -47,13 +48,47 @@ for plugin in "${poggit[@]}"; do
 done
 
 if [ -f "$here/RiftalMines.phar" ]; then
-	# The plugin's bundled config names a database nothing here resolves, and
-	# it connects on enable, so a config with the wrong password takes the
-	# whole server down. Rendering from this container's own environment on
-	# every boot means the password is always the one mysql was started with.
+	# RiftalMines declares depend: [RiftalContracts]. contracts.phar sits at
+	# the top of /plugins, already in the roster, and require-accounts.sh has
+	# stopped the boot before this script runs when it is not built.
+	#
+	# The plugin's bundled config names a schema and user this stack never
+	# provisions, and it connects on enable, so a config with the wrong
+	# password takes the whole server down. Rendering from this container's
+	# own environment on every boot means the password is always the one
+	# mysql was started with.
 	mkdir -p /data/plugin_data/RiftalMines
 	bash "$here/render-config.sh" /data/plugin_data/RiftalMines/config.yml
 	cp "$here/RiftalMines.phar" "$roster/"
+fi
+
+if [ -f "$here/RiftalRanks.phar" ]; then
+	# RiftalRanks declares depend: [RiftalContracts], met by contracts.phar
+	# as for RiftalMines above.
+	#
+	# Without the variable the plugin connects with the config's empty
+	# password, MySQL refuses it, and PocketMine shuts the whole server down
+	# because a plugin failed to enable. Stopping here names the cause.
+	if [ -z "${RIFTAL_DB_PASSWORD_RANKS:-}" ]; then
+		echo "start-instance.sh: RiftalRanks.phar is built and RIFTAL_DB_PASSWORD_RANKS is not set; the instance takes it from images/.env" >&2
+		exit 1
+	fi
+	mkdir -p /data/plugin_data/RiftalRanks
+	cp "$here/RiftalRanks.config.yml" /data/plugin_data/RiftalRanks/config.yml
+	cp "$here/RiftalRanks.phar" "$roster/"
+fi
+
+if [ -f "$here/RiftalEconomy.phar" ]; then
+	# RiftalEconomy declares depend: [RiftalContracts], met by contracts.phar
+	# as for RiftalMines above, and fails its enable without a password for
+	# the same reason as RiftalRanks.
+	if [ -z "${RIFTAL_DB_PASSWORD_ECONOMY:-}" ]; then
+		echo "start-instance.sh: RiftalEconomy.phar is built and RIFTAL_DB_PASSWORD_ECONOMY is not set; the instance takes it from images/.env" >&2
+		exit 1
+	fi
+	mkdir -p /data/plugin_data/RiftalEconomy
+	cp "$here/RiftalEconomy.config.yml" /data/plugin_data/RiftalEconomy/config.yml
+	cp "$here/RiftalEconomy.phar" "$roster/"
 fi
 
 cd /opt/pocketmine

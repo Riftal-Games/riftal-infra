@@ -55,17 +55,44 @@ services:
       # Outside /data for the same root-mountpoint reason given below;
       # deliver-world-index.sh copies it into each consuming plugin's folder.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
-    # RiftalMines resets the worlds this instance hosts and no others, so it
-    # loads here alone. start-instance.sh adds it to this container's own copy of
-    # the plugin roster rather than mounting a file into ./plugins or /data,
+    # RiftalMines resets the worlds this instance hosts and no others, and
+    # RiftalRanks and RiftalEconomy are wanted on this instance alone
+    # (riftal-infra#558, #887), so instance-b holds neither login.
+    # start-instance.sh adds all three to this
+    # container's own copy of the plugin roster rather than mounting a file
+    # into ./plugins or /data,
     # where Docker would create the mountpoint as root: in the ./plugins that
     # instance-b loads from, or as a /data/plugin_data PocketMine then cannot
     # write to. See plugins/instance-only/README.md.
+    #
+    # RiftalCustody loads on every instance from the top of ./plugins, and
+    # require-custody.sh stops a boot where it is not built (ADR 013 item 11).
+    # RiftalAccounts and contracts.phar load the same way, guarded by
+    # require-accounts.sh.
     command:
+      - bash
+      - /plugins/restart/boot-gate.sh
       - bash
       - /plugins/deliver-world-index.sh
       - bash
+      - /plugins/require-accounts.sh
+      - bash
+      - /plugins/require-custody.sh
+      - bash
       - /plugins/instance-only/start-instance.sh
+    # No retry cap: Docker counts on-failure:<N> over the container's whole
+    # life, so a capped server that crashes now and then eventually stays down
+    # for good. unless-stopped and always would restart a `stop` on stdin,
+    # which exits 0. boot-gate.sh, first in the command, stops a bad deploy
+    # from restarting forever.
+    restart: on-failure
+    # start_period covers a first boot generating spawn terrain.
+    healthcheck: &raknet-health
+      test: ["CMD", "php", "/plugins/restart/raknet-ping.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
     environment:
       # Tags every shared-database row this instance writes, so a world
       # split later still shows who wrote what. No default, like
@@ -75,8 +102,18 @@ services:
       INSTANCE_ID: ${INSTANCE_ID}
       # start-instance.sh renders RiftalMines' database password from this on
       # every boot, so it can never disagree with the one mysql runs with.
-      # instance-b loads no plugin that connects, so it is not given it.
+      # instance-b loads no plugin that connects as root, so it is not given
+      # it.
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # RiftalRanks connects as the ranks login (ADR 008), and riftal-game's
+      # DatabaseSettings reads its password from here, never from a file on
+      # the volume. The migration runner provisions the login from the same
+      # images/.env value. instance-b loads no ranks and is not given it.
+      RIFTAL_DB_PASSWORD_RANKS: ${RIFTAL_DB_PASSWORD_RANKS}
+      # RiftalEconomy connects as the economy login the same way, and loads
+      # on this instance alone (riftal-infra#887), so instance-b is not given
+      # it.
+      RIFTAL_DB_PASSWORD_ECONOMY: ${RIFTAL_DB_PASSWORD_ECONOMY}
       # Flags beat server.properties in ServerConfigGroup, so the instance
       # needs no config file mounted in and the world volume stays the only
       # durable state.
@@ -95,6 +132,12 @@ services:
       # plain environment variable, never a PocketMine config value, that no
       # production deploy path has any reason to set.
       RIFTAL_DEV_ENV: "1"
+      # RiftalAccounts loads on every instance, since every instance runs
+      # RiftalCustody, a game plugin, and connects as the accounts login (ADR
+      # 008); riftal-game's DatabaseSettings reads its password from here,
+      # never from a file on the volume. The migration runner provisions the
+      # login from the same images/.env value, and instance-b gets it too.
+      RIFTAL_DB_PASSWORD_ACCOUNTS: ${RIFTAL_DB_PASSWORD_ACCOUNTS}
       # auto-report.enabled keeps crash dumps, which carry config and from M1
       # alpha player data, off crash.axolotl-pm.org (riftal-infra#232). It has
       # to be 0: ServerConfigGroup::getPropertyBool() casts the flag's string,
@@ -140,11 +183,17 @@ services:
       - ./plugins:/plugins
       # The same file `instance` gets. It names worlds, never instances.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
-    command: ["bash", "/plugins/deliver-world-index.sh", "start-pocketmine"]
+    # See RiftalCustody on `instance`, above.
+    command: ["bash", "/plugins/restart/boot-gate.sh", "bash", "/plugins/deliver-world-index.sh", "bash", "/plugins/require-accounts.sh", "bash", "/plugins/require-custody.sh", "start-pocketmine"]
+    # See restart and healthcheck on `instance`, above.
+    restart: on-failure
+    healthcheck: *raknet-health
     environment:
       INSTANCE_ID: ${INSTANCE_B_ID}
       # See RIFTAL_DEV_ENV on `instance`, above; same reason, same value.
       RIFTAL_DEV_ENV: "1"
+      # See RIFTAL_DB_PASSWORD_ACCOUNTS on `instance`, above.
+      RIFTAL_DB_PASSWORD_ACCOUNTS: ${RIFTAL_DB_PASSWORD_ACCOUNTS}
       # A different level-name and level-type than `instance`, above, so the
       # split is exercised against two genuinely different worlds rather than
       # one world cloned onto a second port. auto-report.enabled=0 as on
@@ -175,8 +224,10 @@ services:
     environment:
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
-      MYSQL_USER: root
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # See ../deploy/README.md, The dump login. `dump-login` creates this
+      # login from the same variable before this service may start.
+      MYSQL_USER: backup
+      MYSQL_PASSWORD: ${RIFTAL_DB_PASSWORD_BACKUP}
       MYSQL_DATABASE: riftal_dev
       BACKUP_RETENTION: ${BACKUP_RETENTION:-10}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-21600}
@@ -190,6 +241,42 @@ services:
       - riftal-world:/worlds/riftal-world:ro
       - riftal-world-b:/worlds/riftal-world-b:ro
       - ../deploy:/deploy:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      dump-login:
+        condition: service_completed_successfully
+    networks:
+      - riftal-dev
+
+  # Creates or rotates the `backup` login, then exits. It runs on every `up`,
+  # so images/.env always decides the password, and a failure here keeps
+  # `backup` from starting rather than leaving it to fail on every interval.
+  # It applies no migrations and no grants file: with only
+  # RIFTAL_DB_PASSWORD_BACKUP passed in, the runner provisions the dump login
+  # alone, whose role it creates itself. Migrations and the plugin logins stay
+  # the operator's run in ../migrations/README.md, which holds the same lock.
+  dump-login:
+    image: mysql:8
+    # An empty variable would otherwise reach the runner as a short password,
+    # and an unset one as no login to provision at all.
+    command:
+      - bash
+      - -c
+      - >-
+        [ -n "$$RIFTAL_DB_PASSWORD_BACKUP" ] || {
+        echo "RIFTAL_DB_PASSWORD_BACKUP is empty: set it in images/.env, see .env.example" >&2;
+        exit 1; };
+        exec bash /migrations/run-migrations.sh
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: riftal_dev
+      RIFTAL_DB_PASSWORD_BACKUP: ${RIFTAL_DB_PASSWORD_BACKUP}
+    volumes:
+      - ../migrations/run-migrations.sh:/migrations/run-migrations.sh:ro
     depends_on:
       mysql:
         condition: service_healthy

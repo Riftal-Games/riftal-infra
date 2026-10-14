@@ -15,9 +15,8 @@ MYSQL_PORT="${MYSQL_PORT:-3306}"
 MYSQL_USER="${MYSQL_USER:-root}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 
-# 30 days. Longer than BACKUP_RETENTION times BACKUP_INTERVAL_SECONDS at their
-# defaults (10 sets, 6 hours apart, 2.5 days), so the binlog still reaches back
-# past the oldest backup set any restore can pick.
+# 30 days. It must outlast the oldest backup set any restore can pick, so the
+# binlog still reaches back past it.
 EXPECTED_EXPIRE_SECONDS=2592000
 
 row="$(MYSQL_PWD="$MYSQL_PASSWORD" mysql --host="$MYSQL_HOST" --port="$MYSQL_PORT" \
