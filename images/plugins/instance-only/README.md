@@ -15,7 +15,9 @@ does what `start-pocketmine` does for `instance-b`: the ownership warning,
 `POCKETMINE_ANSI`. `start-pocketmine` hard-codes `--plugins=/plugins`, so
 it cannot be reused. `selftest.sh` pins this script's copy of that
 behaviour but never reads core's `docker/start.sh`, so a change there has to
-be carried into `start-instance.sh` by hand. Nothing is
+be carried into `start-instance.sh` by hand. `boot-selftest.sh` boots
+the pinned core image with the script as it ships, with the phar unbuilt,
+built with no password, and built with one. Nothing is
 bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
 mountpoint as root: a stray in `./plugins` that `instance-b` then fails to
 load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
