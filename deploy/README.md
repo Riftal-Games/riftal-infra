@@ -194,10 +194,10 @@ cleared, so a corrupt tar for one world in a multi-world set aborts the whole
 restore instead of being found only after earlier worlds have already been
 cleared and left neither restored nor in their pre-restore state.
 
-Wiping the shared database between MVPs is its own runbook,
-[`WIPE.md`](WIPE.md). It drops and recreates the database only, leaving world
-volumes alone, and its rollback is this restore with the backup set taken
-just before the wipe. Every wipe of alpha or production data is Nasir's.
+Wiping between MVPs is its own runbook, [`WIPE.md`](WIPE.md). It drops and
+recreates the database and clears the levels, `players/` and `plugin_data/`
+on every instance volume, and its rollback is this restore with the backup
+set taken just before the wipe. Every wipe of alpha or production data is Nasir's.
 
 ## Binary log retention
 

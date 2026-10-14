@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Verifies a wipe after the migrations have run and before any instance starts:
 # every instance volume holds no level and no file in players/ or plugin_data/,
-# and every table the migrations created is empty, schema_migrations aside.
+# and every table the migrations created is empty, schema_migrations aside and
+# capture_fence holding only the row its migration seeds.
 #
 # It counts every base table the schema holds, not a named list, so a table a
 # later migration adds is checked without editing this file.
@@ -83,10 +84,24 @@ mapfile -t tables < <(sql "SELECT TABLE_NAME FROM information_schema.TABLES
   WHERE TABLE_SCHEMA = '$MYSQL_DATABASE' AND TABLE_TYPE = 'BASE TABLE'
   AND TABLE_NAME <> 'schema_migrations' ORDER BY TABLE_NAME")
 
+seeded=0
 for table in "${tables[@]}"; do
   rows="$(sql "SELECT COUNT(*) FROM \`$MYSQL_DATABASE\`.\`$table\`")"
-  [ "$rows" = "0" ] || flag "$table holds $rows row(s)"
+  if [ "$table" = capture_fence ]; then
+    # riftal-game's migration 0027 seeds this one row, lowered, and nothing
+    # deletes it (riftal-pm ADR 027), so a freshly migrated schema holds it.
+    # Raised, it is a capture run since the migrations.
+    lowered="$(sql "SELECT COUNT(*) FROM \`$MYSQL_DATABASE\`.capture_fence
+      WHERE id = 1 AND request_id IS NULL AND raised_until IS NULL")"
+    if [ "$rows" = "1" ] && [ "$lowered" = "1" ]; then
+      seeded=1
+    else
+      flag "capture_fence should hold only migration 0027's row, id 1 and lowered; it holds $rows row(s), $lowered of them that row"
+    fi
+  elif [ "$rows" != "0" ]; then
+    flag "$table holds $rows row(s)"
+  fi
 done
 [ "$dirty" -eq 0 ] || exit 1
 
-echo "wipe-check $MYSQL_DATABASE: ok, $applied migration(s) applied, ${#tables[@]} table(s) all empty"
+echo "wipe-check $MYSQL_DATABASE: ok, $applied migration(s) applied, ${#tables[@]} table(s) empty but for $seeded seeded row(s)"
