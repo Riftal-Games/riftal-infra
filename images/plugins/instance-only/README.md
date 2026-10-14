@@ -116,6 +116,26 @@ never had the plugin at all. A missing `contracts.phar` is not skipped:
 naming the file, because PocketMine itself would log `Unknown dependency:
 RiftalContracts` and force-shut the whole server down.
 
+## The copy `rig.js` reads
+
+riftal-pm's `devtools/rig.js` takes its phars from this folder unless
+`RIFTAL_RIG_PHARS` names another, and finds each plugin, and each plugin it
+`depend`s on, as `<plugin.yml name>.phar`. `RiftalMines`, `RiftalRanks` and
+`RiftalEconomy` all depend on `RiftalContracts`, which the recipe above
+writes one level up as `contracts.phar`, so a rig refuses to start until a
+copy sits here under the plugin's name:
+
+```sh
+cp ../contracts.phar RiftalContracts.phar
+```
+
+`start-instance.sh` copies only the three plugins it names into the
+roster, so `instance` still loads `RiftalContracts` once, from the top of
+`plugins/`. Rebuild both, and every phar here, whenever riftal-game's
+`main` moves past them: a phar older than its plugin's resources fails at
+enable, as a `RiftalMines.phar` built before `quarry` was registered does
+with `cannot read registered ... resource quarry.json` (riftal-infra#1062).
+
 ## The config override
 
 With `RiftalMines.phar` present, `start-instance.sh` runs `render-config.sh`
