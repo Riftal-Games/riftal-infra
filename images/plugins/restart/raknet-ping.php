@@ -5,8 +5,8 @@ declare(strict_types=1);
 // The instances' healthcheck, run inside the container with the image's own
 // php. It sends one RakNet unconnected ping to the server's UDP port and exits
 // 0 only on an unconnected pong carrying the offline magic and an MCPE status
-// string. A container parked by boot-gate.sh, or a server whose main thread is
-// hung, answers nothing and so reads as unhealthy. Streams rather than the
+// string. A container parked by boot-gate.sh, or a server with no listener yet,
+// answers nothing and so reads as unhealthy. Streams rather than the
 // sockets extension, which php:8.3-cli-alpine, the image the self-test runs
 // this in, does not ship. It lives in a subdirectory because PocketMine loads
 // every top-level /plugins/*.php as a script plugin.
