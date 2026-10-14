@@ -120,19 +120,31 @@ RiftalContracts` and force-shut the whole server down.
 
 riftal-pm's `devtools/rig.js` takes its phars from this folder unless
 `RIFTAL_RIG_PHARS` names another, and finds each plugin, and each plugin it
-`depend`s on, as `<plugin.yml name>.phar`. `RiftalMines`, `RiftalRanks` and
-`RiftalEconomy` all depend on `RiftalContracts`, which the recipe above
-writes one level up as `contracts.phar`, so a rig refuses to start until a
-copy sits here under the plugin's name:
+`depend`s on, as `<plugin.yml name>.phar`. A `softdepend` is not followed.
+The rigs in `devtools/rigs/` load `RiftalMines`, `RiftalRanks`,
+`RiftalEconomy` and `RiftalAccounts`, and all four depend on
+`RiftalContracts`. The recipes above write the first three here under
+their plugin names. The other two land one level up, at the top of
+`plugins/`: `contracts.phar` from the recipe above, and
+`RiftalAccounts.phar` from the `RiftalAccounts` recipe in
+`../../README.md`. A rig that loads either refuses to start until a copy
+sits here under the plugin's name:
 
 ```sh
 cp ../contracts.phar RiftalContracts.phar
+cp ../RiftalAccounts.phar RiftalAccounts.phar
 ```
 
-`start-instance.sh` copies only the three plugins it names into the
-roster, so `instance` still loads `RiftalContracts` once, from the top of
-`plugins/`. Rebuild both, and every phar here, whenever riftal-game's
-`main` moves past them: a phar older than its plugin's resources fails at
+`start-instance.sh` copies only `RiftalMines.phar`, `RiftalRanks.phar` and
+`RiftalEconomy.phar` into the roster, so `instance` still loads
+`RiftalContracts` and `RiftalAccounts` once each, from the top of
+`plugins/`.
+
+Rebuild `RiftalMines.phar`, `RiftalRanks.phar`, `RiftalEconomy.phar`,
+`contracts.phar` and `RiftalAccounts.phar` whenever riftal-game's `main`
+moves past them, then run both `cp` lines again. Every top-level phar a rig
+loads has to be copied in again after each rebuild, because a rig reads
+only the copy here: a phar older than its plugin's resources fails at
 enable, as a `RiftalMines.phar` built before `quarry` was registered does
 with `cannot read registered ... resource quarry.json` (riftal-infra#1062).
 
