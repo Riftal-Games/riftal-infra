@@ -219,14 +219,60 @@ def test_a_tall_floor_needs_a_third_clear_cell_for_stand_mask_and_entity_clear(f
     assert (found.ok, found.detail, found.coords) == (False, "hitbox blocked", [(0, 3, 0)])
 
 
-def test_a_one_block_floor_and_an_open_gate_still_need_only_two_clear_cells() -> None:
-    for floor in ("minecraft:stone", "minecraft:oak_fence_gate[open_bit=true]", "minecraft:wall_torch"):
-        region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
-        region.set(0, 0, 0, "minecraft:stone")
-        region.set(0, 3, 0, "minecraft:stone")
-        if floor != "minecraft:stone":
-            assert not is_tall_floor(floor)
-        assert region.stand_mask()[1, 0, 0] and entity_clear(region, (0, 1, 0)).ok
+@pytest.mark.parametrize("floor", ["minecraft:stone"])
+def test_a_one_block_floor_still_needs_only_two_clear_cells(floor: str) -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+    region.set(0, 0, 0, floor)
+    region.set(0, 3, 0, "minecraft:stone")
+    assert not is_tall_floor(floor)
+    assert region.stand_mask()[1, 0, 0] and entity_clear(region, (0, 1, 0)).ok
+
+
+# An open gate has no collision box in the core (FenceGate.php), so a player falls through it.
+# The case pins only that it is not tall, and claims nothing about standing on it.
+def test_an_open_fence_gate_is_not_a_tall_floor() -> None:
+    assert not is_tall_floor("minecraft:oak_fence_gate[open_bit=true]")
+    assert not is_tall_floor("minecraft:fence_gate[open_bit=true]")
+
+
+OPEN_GATE = "minecraft:fence_gate[direction=0,in_wall_bit=false,open_bit=true]"
+
+
+# A player falls through an open gate, so it holds no one up: a spot over one is not standable,
+# and warp_safe finds no landing in it.
+def test_a_spot_over_an_open_fence_gate_has_no_floor() -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+    region.set(0, 0, 0, OPEN_GATE)
+    assert not region.stand_mask()[1, 0, 0]
+    assert entity_clear(region, (0, 1, 0)).ok
+    found = warp_safe(region, (0, 1, 0))
+    assert (found.ok, found.detail, found.coords) == (False, f"no solid within {LANDING} below", [(0, 0, 0)])
+
+
+def test_entity_clear_judges_the_floor_under_an_open_fence_gate() -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+    region.set(0, 0, 0, "minecraft:lava")
+    region.set(0, 1, 0, OPEN_GATE)
+    found = entity_clear(region, (0, 2, 0))
+    assert (found.ok, found.detail, found.coords) == (False, "floor is danger", [(0, 0, 0)])
+
+
+def test_an_open_fence_gate_in_the_hitbox_does_not_block_it(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(10, 4, 10, OPEN_GATE)
+    flat_plane_with_hole.set(10, 5, 10, OPEN_GATE)
+    assert entity_clear(flat_plane_with_hole, OPEN).ok
+    assert flat_plane_with_hole.stand_mask()[4, 10, 10]
+
+
+# A torch is passable, so under the feet it is no floor at all: nothing to stand on, and nothing
+# below it for entity_clear to judge. The case pins that a name merely containing "wall" is not tall.
+def test_a_wall_torch_is_neither_a_tall_floor_nor_a_floor() -> None:
+    region = Region.empty("design", Bounds((0, 0, 0), (0, 5, 0)))
+    region.set(0, 0, 0, "minecraft:wall_torch")
+    region.set(0, 3, 0, "minecraft:stone")
+    assert not is_tall_floor("minecraft:wall_torch")
+    assert not region.stand_mask()[1, 0, 0]
+    assert entity_clear(region, (0, 1, 0)).ok
 
 
 def test_a_tall_floor_whose_third_cell_is_outside_the_region_is_not_standable_but_does_not_offend() -> None:
@@ -275,3 +321,21 @@ def test_warp_safe_refuses_an_unmapped_block_beside_the_hitbox(flat_plane_with_h
     found = warp_safe(flat_plane_with_hole, OPEN)
     assert (found.ok, found.detail) == (False, f"{UNKNOWN} beside the hitbox")
     assert found.coords == [(11, 3, 9), (9, 5, 11)]
+
+
+def test_warp_safe_names_an_unmapped_block_as_the_only_landing_in_the_floor_ring(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.fill(Bounds((19, 1, 19), (19, 1, 20)), "minecraft:info_update")
+    found = warp_safe(flat_plane_with_hole, (18, 4, 19))
+    assert (found.ok, found.detail) == (False, f"floor ring lands only on {UNKNOWN}")
+    assert found.coords == [(19, 1, 19), (19, 1, 20)]
+    flat_plane_with_hole.set(19, 0, 20, "minecraft:stone")
+    assert warp_safe(flat_plane_with_hole, (18, 4, 19)).coords == [(19, 1, 19)]
+    flat_plane_with_hole.set(19, 1, 19, AIR)
+    found = warp_safe(flat_plane_with_hole, (18, 4, 19))
+    assert (found.detail, found.coords) == (f"hole deeper than {LANDING} in the floor ring", [(19, 3, 19)])
+
+
+def test_a_mapped_landing_over_an_unmapped_block_is_safe(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.fill(Bounds((19, 2, 19), (19, 2, 20)), "minecraft:info_update")
+    flat_plane_with_hole.fill(Bounds((19, 1, 19), (19, 1, 20)), "minecraft:stone")
+    assert warp_safe(flat_plane_with_hole, (18, 4, 19)).ok

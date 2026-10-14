@@ -114,6 +114,12 @@ def _pitcher_crop(states: Mapping[str, str]) -> BlockClass:
     return _by_box_top((3 if growth == 0 else 5) / 16)
 
 
+# An open gate has no collision box (FenceGate.php:70), so a player walks and
+# falls through it. ``open_bit`` is Bedrock's key (BlockStateNames::OPEN_BIT).
+def _fence_gate(states: Mapping[str, str]) -> BlockClass:
+    return BlockClass.PASSABLE if states.get("open_bit") == "true" else BlockClass.SOLID
+
+
 # First match wins, on the base name. A seeded rule whose class is a function
 # decides from the block's states, for a block whose collision a state
 # changes. ``register_rule(front=True)`` inserts at index 0 to beat every
@@ -132,6 +138,7 @@ CLASS_RULES: list[tuple[str, str, BlockClass | StateClass]] = [
     ("exact", "end_portal", BlockClass.DANGER),
     ("exact", "snow_layer", _snow_layer),
     ("exact", "pitcher_crop", _pitcher_crop),
+    ("suffix", "fence_gate", _fence_gate),
     *(("exact", n, BlockClass.PASSABLE) for n in (
         "lever", "ladder", "vine", "fern", "large_fern", "dead_bush",
         "redstone_wire", "lily_pad", "waterlily",

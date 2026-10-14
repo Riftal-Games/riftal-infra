@@ -142,6 +142,91 @@ def test_drop_needs_head_room_at_take_off() -> None:
     assert path_exists(region, (1, 1, 0), (0, 2, 0)).detail == "no path"
 
 
+TALL_FLOORS = ["minecraft:oak_fence", "minecraft:cobblestone_wall", "minecraft:fence_gate"]
+
+
+def _fenced_lane(tall: str) -> Region:
+    region = Region.empty("fenced lane", Bounds((0, 0, 0), (9, 6, 0)))
+    region.fill(Bounds((0, 0, 0), (9, 0, 0)), "minecraft:stone")
+    region.set(5, 1, 0, tall)
+    return region
+
+
+@pytest.mark.parametrize("tall", TALL_FLOORS)
+def test_no_step_up_onto_a_fence_wall_or_closed_gate(tall: str) -> None:
+    region = _fenced_lane(tall)
+    assert stand_mask(region)[2, 0, 5]
+    found = path_exists(region, (0, 1, 0), (9, 1, 0))
+    assert not found.ok and found.detail == "no path"
+    assert not travel_time(region, (0, 1, 0), (9, 1, 0)).ok
+    assert path_exists(region, (5, 2, 0), (9, 1, 0)).ok
+
+
+@pytest.mark.parametrize("tall", TALL_FLOORS)
+def test_level_step_onto_a_flush_tall_floor_walks(tall: str) -> None:
+    region = _fenced_lane(tall)
+    region.fill(Bounds((0, 1, 0), (4, 1, 0)), "minecraft:stone")
+    found = path_exists(region, (0, 2, 0), (5, 2, 0))
+    assert found.ok and found.length == pytest.approx(5)
+
+
+def _fence_stair(ceiling: bool) -> Region:
+    region = _fenced_lane("minecraft:oak_fence")
+    region.set(6, 1, 0, "minecraft:oak_fence")
+    region.set(6, 2, 0, "minecraft:oak_fence")
+    if ceiling:
+        region.set(5, 5, 0, "minecraft:stone")
+    return region
+
+
+def test_step_up_from_one_tall_floor_to_another_climbs() -> None:
+    found = path_exists(_fence_stair(False), (5, 2, 0), (6, 3, 0))
+    assert found.ok and found.path == [(5, 2, 0), (6, 3, 0)]
+
+
+def test_step_up_from_a_tall_floor_needs_the_third_cell_for_the_head() -> None:
+    region = _fence_stair(True)
+    assert stand_mask(region)[2, 0, 5]
+    assert path_exists(region, (5, 2, 0), (6, 3, 0), snap_radius=0).detail == "no path"
+
+
+def test_step_up_from_a_tall_floor_onto_ordinary_ground_leaves_the_third_cell_alone() -> None:
+    region = _fenced_lane("minecraft:oak_fence")
+    region.set(6, 1, 0, "minecraft:stone")
+    region.set(6, 2, 0, "minecraft:stone")
+    region.set(5, 5, 0, "minecraft:stone")
+    assert stand_mask(region)[2, 0, 5]
+    found = path_exists(region, (5, 2, 0), (6, 3, 0), snap_radius=0)
+    assert found.ok and found.path == [(5, 2, 0), (6, 3, 0)]
+
+
+# Feet at y=2 on the fence put the head into y=4. Each case fills that cell in the column the head
+# passes through, and with blocked false leaves it clear as the control.
+HEAD_CASES = {
+    "drop off": ([], (5, 2, 0), (6, 1, 0), (6, 4, 0)),
+    "level step off": ([(6, 1, 0)], (5, 2, 0), (6, 2, 0), (6, 4, 0)),
+    "level step on": ([(4, 1, 0)], (4, 2, 0), (5, 2, 0), (4, 4, 0)),
+}
+
+
+@pytest.mark.parametrize("case", HEAD_CASES)
+@pytest.mark.parametrize("blocked", [True, False])
+def test_a_move_on_or_off_a_tall_floor_needs_the_third_cell_for_the_head(case: str, blocked: bool) -> None:
+    floors, start, goal, head = HEAD_CASES[case]
+    region = _fenced_lane("minecraft:oak_fence")
+    for pos in floors:
+        region.set(*pos, "minecraft:stone")
+    if blocked:
+        region.set(*head, "minecraft:stone")
+    mask = stand_mask(region)
+    assert mask[start[1], 0, start[0]] and mask[goal[1], 0, goal[0]]
+    found = path_exists(region, start, goal, snap_radius=0)
+    if blocked:
+        assert not found.ok and found.detail == "no path"
+    else:
+        assert found.ok and found.path == [start, goal]
+
+
 def _lane(web_at: tuple[int, int, int] | None) -> Region:
     region = Region.empty("lane", Bounds((0, 0, 0), (9, 3, 0)))
     region.fill(Bounds((0, 0, 0), (9, 0, 0)), "minecraft:stone")
@@ -181,3 +266,39 @@ def test_water_floor_is_not_standable(flat_plane_with_hole: Region) -> None:
 def test_lava_at_the_feet_is_not_standable(flat_plane_with_hole: Region) -> None:
     flat_plane_with_hole.set(6, 4, 6, "minecraft:lava")
     assert not stand_mask(flat_plane_with_hole)[4, 6, 6]
+
+
+UNKNOWN = "a block the core does not map (minecraft:info_update)"
+
+
+def test_an_unmapped_floor_is_standable_only_when_asked(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(5, 3, 5, "minecraft:info_update")
+    mask = stand_mask(flat_plane_with_hole)
+    assert not mask[4, 5, 5] and mask[4, 5, 6]
+    assert flat_plane_with_hole.stand_mask(unmapped_floor=True)[4, 5, 5]
+    assert stand_mask(flat_plane_with_hole) is mask
+    assert flat_plane_with_hole.unmapped().sum() == 1
+
+
+def test_path_walks_round_an_unmapped_floor(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.set(10, 3, 20, "minecraft:info_update")
+    found = path_exists(flat_plane_with_hole, A, B)
+    assert found.ok and (10, 4, 20) not in found.path
+
+
+def test_a_route_only_over_an_unmapped_floor_fails_and_names_it(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.fill(Bounds((19, 3, 0), (20, 3, 39)), AIR)
+    flat_plane_with_hole.fill(Bounds((19, 3, 20), (20, 3, 20)), "minecraft:info_update")
+    found = path_exists(flat_plane_with_hole, A, B)
+    assert (found.ok, found.detail) == (False, f"path only over {UNKNOWN}")
+    assert found.coords == [(19, 3, 20), (20, 3, 20)]
+    assert found.path[0] == A and found.path[-1] == B and _adjacent(found.path)
+    timed = travel_time(flat_plane_with_hole, A, B)
+    assert (timed.ok, timed.detail, timed.coords) == (False, found.detail, found.coords)
+
+
+def test_an_end_on_an_unmapped_floor_is_named(flat_plane_with_hole: Region) -> None:
+    flat_plane_with_hole.fill(Bounds((35, 3, 18), (39, 3, 22)), "minecraft:info_update")
+    found = path_exists(flat_plane_with_hole, A, B)
+    assert (found.ok, found.detail) == (False, f"path only over {UNKNOWN}")
+    assert found.coords[-1] == (37, 3, 20)

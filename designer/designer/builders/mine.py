@@ -28,9 +28,9 @@ def _trim_ring(geo: MineGeometry, floor_y: int, block: str) -> list[Fill]:
 
 
 def _as_reset(key: str) -> str:
-    """The block the mine reset places for ``key``: its base's ``RESET_STATES`` entry under the key's own states."""
-    base, states = parse_name(key)
-    return format_name(base, {**RESET_STATES.get(base, {}), **states})
+    """The block the mine reset places for ``key``, a bare id ``MineSpec`` admits: its base's ``RESET_STATES`` entry."""
+    base = parse_name(key)[0]
+    return format_name(base, RESET_STATES.get(base, {}))
 
 
 def _ore_ops(spec: MineSpec, interior: Bounds) -> list[SetBlock]:
@@ -106,6 +106,10 @@ def build_mine(spec: MineSpec, palette: Palette) -> EditList:
         ops.extend(_ore_ops(spec, geo.interior))
     ops.append(Fill(geo.entrance, AIR))
     ops.append(Fill(geo.exit_platform, floor))
+    # Terrain the mine is dug into would bury the walking lane, the platform's centre line, so it is carved to a
+    # player's feet and head height.
+    far = point(spec.exit_path.length)
+    ops.append(Fill(Bounds(point(1), (far[0], far[1] + 1, far[2])), AIR))
     ops.extend(SetBlock(*point(d, edge), light) for d in _light_distances(spec.exit_path.length, spec.lights_every))
 
     suffix = spec.name.rsplit("_", 1)[-1]

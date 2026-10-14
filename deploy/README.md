@@ -27,6 +27,37 @@ subdirectories `WORLDS_DIR` holds. What appears there is decided by
 instance world volume. Splitting a world onto a new instance (`/add-instance`)
 adds one line there; the script needs no change, per `CLAUDE.md` hard rule 5.
 
+## The dump login
+
+`backup.sh` dumps as the login `backup`, whose password is
+`RIFTAL_DB_PASSWORD_BACKUP`. `../migrations/run-migrations.sh` creates it on
+any run with that variable set, grants it `riftal_role_backup`, and rotates it
+when the variable changes. On the compose stack the `dump-login` service is
+that run, and the `backup` service starts only after it exits 0
+(`../images/README.md`). The role holds `SELECT`, `SHOW VIEW` and `TRIGGER`
+on the schema and the global `SHOW_ROUTINE`. The last two matter: without
+them `mysqldump` still exits 0 and silently leaves every trigger or stored
+procedure out of the set. `../migrations/selftest.sh` proves `backup` is
+denied `INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`, `ALTER TABLE`,
+`DROP TABLE`, `LOCK TABLES`, `CREATE EVENT`, `CREATE USER` and `GRANT`.
+MySQL ties seeing a trigger to creating and dropping
+one, so `TRIGGER` lets `backup` drop any existing trigger in the schema,
+whatever the binlog setting, and with it whatever that trigger enforces. With
+the binlog on, as `binlog-check.sh` requires, MySQL refuses only
+`CREATE TRIGGER` to a login without `SUPER`. With the binlog off, or
+`log_bin_trust_function_creators` set, `backup` can create triggers too, and
+a `SIGNAL` trigger can block writers. `../migrations/selftest.sh` pins each
+of these: the refused create, the accepted drop, and the create once the
+guard is lifted.
+`backup` can change its own password and default role and take named locks
+(`GET_LOCK`), including the runner's `riftal_schema_migrations`, because
+those need no privilege. It can take shared row locks
+(`SELECT ... FOR SHARE`), because they come with the `SELECT` the dump needs.
+Their effect is on availability only: backups or migrations stop, or writers
+wait, until the login is reprovisioned or its session ends.
+`restore.sh` runs as the admin account, because it drops and recreates
+the schema and recreates each procedure under its original `DEFINER`.
+
 ## Retention
 
 `BACKUP_RETENTION` (default 10, see `images/.env.example`) is how many backup
@@ -57,14 +88,14 @@ always left alone, so a backup genuinely still in progress is never at risk.
 
 ## Stale lock sweep
 
-`mkdir "$BACKUP_ROOT/.lock"` (see Concurrency, below) is released only by the
-script's own `EXIT` trap, which a hard kill (OOM, a SIGKILL past the grace
-period, a host crash) bypasses entirely, unlike `flock`, which the kernel
-releases automatically on process death with no equivalent here. Without a
-sweep, a lock stranded that way would fail every subsequent run forever, until
-an operator manually removes it.
+The `$BACKUP_ROOT/.lock` directory (see Concurrency, below) is released only
+by the script's own `EXIT` trap, which a hard kill (OOM, a SIGKILL past the
+grace period, a host crash) bypasses entirely, unlike `flock`, which the
+kernel releases automatically on process death with no equivalent here.
+Without a sweep, a lock stranded that way would fail every subsequent run
+forever, until an operator manually removes it.
 
-When `mkdir` fails because the lock already exists, `backup.sh` checks its
+When the claim fails because the lock already exists, `backup.sh` checks its
 age. One older than `LOCK_MAX_AGE_MINUTES` (default 90, see
 `images/.env.example`) cannot belong to a run still working: a real run's own
 mysqldump-plus-tar duration is nowhere near that, so it is presumed abandoned
@@ -82,7 +113,7 @@ whoever won a concurrent race for the same lock fails that same staleness
 test, and the loser hands it straight back and fails fast rather than
 deleting a lock someone else legitimately holds. Only once the captured copy
 is confirmed still the original abandoned one does the run discard it and
-retry the `mkdir`. If that retry still fails, something else is genuinely
+retry the claim. If that retry still fails, something else is genuinely
 wrong and the run fails normally rather than retrying further.
 
 A run whose lock is swept while it is still genuinely working, not crashed,
@@ -102,21 +133,24 @@ sweep, above) moves the abandoned lock to, on its way to deciding whether
 that lock is genuinely abandoned or was recreated by a competing sweeper.
 Either way the steal itself resolves the directory before moving on: it is
 renamed back if it turns out to hold someone else's live lock, or removed
-with `rm -rf` once the steal is confirmed clean. A run killed between
-winning that rename and reaching its own `rm -rf` leaves the directory
+with `rm -rf` once the steal is confirmed clean. The same name is where a
+claim builds its lock before renaming it into place (see Concurrency,
+below). A run killed before renaming or removing the directory leaves it
 behind, orphaned (riftal-infra#175, riftal-infra#183).
 
 Right after a run acquires the lock, after the `.partial` sweep above, it
 sweeps every `$LOCK_DIR.discard.*` directory it finds, logging each one it
 removes. No age filter applies here, unlike the `.partial` and stale-lock
 sweeps above: `acquire_lock` only ever returns, as it just has for this run,
-once every discard directory it itself created has already been renamed back
+once every discard directory it itself created has already been renamed away
 or removed, so this run's own discard directory is never still here to sweep.
 A discard directory left by a different, still-running process is safe to
-sweep too: that process's own staleness check on its own now-missing discard
-directory finds nothing, so it takes the existing "hand it back" branch and
-fails with the same "another run already holds the lock" error every other
-contention path already produces.
+sweep too. If that process is stealing a stale lock, its staleness check on
+its now-missing discard directory finds nothing, so it takes the existing
+"hand it back" branch. If it is claiming the lock, its stamp or rename finds
+nothing to act on, so the claim fails. Either way it fails with the same
+"another run already holds the lock" error every other contention path
+already produces.
 
 ## Schedule
 
@@ -223,13 +257,61 @@ wslc run --rm --network riftal-dev \
   mysql:8 bash /deploy/binlog-check.sh
 ```
 
+## Custody alert check
+
+`custody-alert-check.sh <log> [<log> ...]` reads one instance's logs, one file
+per process lifetime, oldest first, and alerts when a RiftalCustody
+`emergency` repeats (the riftal-pm workspace's ADR 017 item 4). It reads files
+only and stops, restarts or parks nothing; acting on an alert is a separate,
+later decision. It prints one `CUSTODY ALERT:` line per finding and exits 1
+when two consecutive logs each hold an instance-wide custody stop, when one
+player is refused twice or more anywhere in the logs given (names compared
+case-insensitively), or when an `EMERGENCY` line mentioning RiftalCustody
+matches no known shape, so a reworded custody line alerts rather than going
+quiet. Otherwise it prints one `CUSTODY OK:` line and exits 0. Exit 2 is a
+usage error, an unreadable log, a log holding more than one boot, a log after
+the first holding no boot, or a first log holding no boot but a custody
+`EMERGENCY` line, never a pass.
+
+An instance's `server.log` is not one lifetime per file. PocketMine appends to
+it across restarts and archives it into `log_archive/` by size, even mid-run
+(pmmp-core `src/utils/MainLoggerThread.php:95`, `:137-139`), so one file holds
+every boot since the last archive, a restart loop in it would read as one
+log's stops, and one lifetime can start in an archive and end in `server.log`.
+The check counts each boot's `Loading server configuration` line (pmmp-core
+`src/Server.php:813`, logged once per process and never translated) and exits 2
+when a file holds more than one. Concatenate a copy of every
+`log_archive/*.log`, oldest first, ahead of `server.log`, split that at the
+boot line, and pass the pieces in order. Archive names carry their timestamp,
+so the glob sorts them oldest first:
+
+```bash
+cat log_archive/*.log server.log \
+  | awk '/\/INFO\]: Loading server configuration/ { n++ } { print > sprintf("life-%03d.log", n) }'
+deploy/custody-alert-check.sh life-*.log
+```
+
+Splitting each file on its own would leave the tail of an archived lifetime as
+a piece with no boot line, and the empty head piece before it would hide two
+consecutive stops, so every piece after the first must hold a boot line or the
+check exits 2. `life-000.log`, when written, holds what precedes the oldest
+boot line: performance warnings, or the end of a lifetime whose start is no
+longer kept. It passes when it holds no custody line, since it then changes no
+finding, and exits 2 when it holds one, since that lifetime's start is
+missing. A boot's performance warnings come just before its boot line and so
+land in the piece before; they carry no custody line. `../images/loads-check.sh`
+already fails one boot on any `EMERGENCY` line; this is the view across boots.
+A log left out of the middle of the list makes two stops look consecutive or
+hides one between them, so give it every lifetime in order.
+`custody-alert-check-selftest.sh` proves each rule in CI against fixture logs.
+
 ## Environment
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
 | `MYSQL_HOST` | yes | | Database host, `mysql` in this stack |
 | `MYSQL_PORT` | no | `3306` | |
-| `MYSQL_USER` | no | `root` | |
+| `MYSQL_USER` | no | `backup` for `backup.sh`, `root` for `restore.sh` | |
 | `MYSQL_PASSWORD` | yes | | Read via `MYSQL_PWD` internally, same as `../migrations/run-migrations.sh` |
 | `MYSQL_DATABASE` | yes | | `riftal_dev` in the local stack |
 | `BACKUP_ROOT` | no | `/backups` | Where backup sets land; must be a volume, never the container's own layer |
@@ -239,21 +321,28 @@ wslc run --rm --network riftal-dev \
 | `PARTIAL_MAX_AGE_MINUTES` | no | `360` | Age past which a leftover `.partial` is swept |
 | `LOCK_MAX_AGE_MINUTES` | no | `90` | Age past which a held `.lock` is presumed abandoned and swept |
 | `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
+| `WIPE_BACKUP_MAX_AGE_MINUTES` | no, `wipe.sh` only | `60` | Age past which `wipe.sh` refuses its `BACKUP_SET`, read from the manifest's `timestamp:` line. The set is taken with every instance stopped, just before the wipe, so an older one was likely taken while they still wrote |
 
 ## Concurrency
 
-`backup.sh` takes an exclusive lock by `mkdir`ing `$BACKUP_ROOT/.lock` for
-the duration of the run, before it touches anything else under `BACKUP_ROOT`
-(including the stale-`.partial` sweep above). `mkdir` is atomic on any POSIX
-filesystem and needs nothing beyond coreutils, unlike `flock`, which is not
-installed in every image this script runs in. A second invocation against
-the same `BACKUP_ROOT`, such as a manual run below started while the
-`backup` compose service's scheduled loop is also running, fails immediately
-with a loud, logged message rather than waiting or racing, unless the held
-lock is stale enough to be swept first (see Stale lock sweep, above). Two runs
-against *different* `BACKUP_ROOT` volumes (different instances, or a manual
-run pointed at a scratch directory) never contend, since the lock lives inside
-`BACKUP_ROOT` itself. If a manual run fails this way, wait for the scheduled
+`backup.sh` takes an exclusive lock on `$BACKUP_ROOT/.lock` for the duration
+of the run, before it touches anything else under `BACKUP_ROOT` (including
+the stale-`.partial` sweep above). It builds the lock directory, owner file
+included, under its own `$LOCK_DIR.discard.*` name and then renames it to
+`.lock`. `rename(2)` is atomic on any POSIX filesystem and refuses to replace
+a non-empty directory, so the rename fails while a stamped lock holds
+`.lock`. It needs nothing beyond coreutils, unlike `flock`, which is not
+installed in every image this script runs in. The owner file is written before the rename,
+never after: a lock that existed unstamped, even briefly, could be captured
+by a stale-lock sweeper in that gap, leaving both runs failed and an
+ownerless lock blocking every run until it ages out (riftal-infra#491). A
+second invocation against the same `BACKUP_ROOT`, such as a manual run below
+started while the `backup` compose service's scheduled loop is also running,
+fails immediately with a loud, logged message rather than waiting or racing,
+unless the held lock is stale enough to be swept first (see Stale lock sweep,
+above). Two runs against *different* `BACKUP_ROOT` volumes (different
+instances, or a manual run pointed at a scratch directory) never contend,
+since the lock lives inside `BACKUP_ROOT` itself. If a manual run fails this way, wait for the scheduled
 run to finish and try again, or run it against a separate `BACKUP_ROOT`.
 
 ## Running it locally, via `wslc`
@@ -276,7 +365,7 @@ wslc run --rm --network riftal-dev \
   -v riftal-backups:/backups \
   -v riftal-world:/worlds/riftal-world:ro \
   -v riftal-world-b:/worlds/riftal-world-b:ro \
-  -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
+  -e MYSQL_HOST=mysql -e MYSQL_USER=backup -e MYSQL_PASSWORD="$RIFTAL_DB_PASSWORD_BACKUP" \
   -e MYSQL_DATABASE=riftal_dev -e BACKUP_RETENTION="${BACKUP_RETENTION:-10}" \
   mysql:8 bash /deploy/backup.sh
 ```
