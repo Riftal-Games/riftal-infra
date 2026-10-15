@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Self-test for backup.sh, against a real, throwaway mysql:8 container and
-# real, throwaway world volumes. Runs on the self-hosted CI runner via
-# `docker`, the same way ../migrations/selftest.sh already does; not runnable
-# on Nasir's Windows machine, which has no docker, only wslc. See
-# ../deploy/README.md for the wslc form.
+# real, throwaway world volumes. Calls `docker` directly, as
+# ../migrations/selftest.sh does, so it runs on the self-hosted CI runner and,
+# on Nasir's Windows machine, under the WSL fallback engine:
+#   wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/.../deploy/selftest.sh
+# ../deploy/README.md shows a manual backup run under wslc.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
