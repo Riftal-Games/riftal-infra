@@ -39,6 +39,14 @@ YAML with a `services` key that is nested rather than top level. Filename-based
 discovery misses the first; matching `services` anywhere in the file claims the
 second. Only a top-level key check gets both right.
 
+`good/ports.compose.yaml` and the three `bad/ports-*.compose.yaml` drive
+`scan.sh ports`, the port policy in `.github/scripts/check_port_policy.py`. Each
+bad file trips one rule and is asserted on its exact finding count, so deleting
+any one rule turns exactly one assertion red. `bad/ports-wide-bind.compose.yaml`
+holds its second wide bind behind a profile, so a scan that stops asking compose
+for every profile reports one finding there instead of two. `good/compose.yaml`
+is a compose validity fixture only and is not held to the port policy.
+
 `good/php-plugins/` and the three `bad/php-plugins-*/` directories are batches, not
 single files, because the defect they cover only shows up across a multi-file
 `images/plugins/*.php` glob: a broken file's own exit status has to survive being one

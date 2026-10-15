@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=200
+EXPECTED_ASSERTIONS=205
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -622,6 +622,49 @@ expect_scan_ok compose "$FIXTURES/good/uppercase-extension.YAML"
 expect_scan_bad compose "$FIXTURES/bad/schema.compose.yaml" ports
 expect_scan_bad compose "$FIXTURES/bad/unparseable.compose.yml" yaml
 
+# Exactly count findings, every one of them code. A fixture that also trips a
+# second rule stays red with its own rule deleted, so it would pin nothing.
+expect_ports_bad() {
+  local file="$1" code="$2" count="$3" out status
+  out="$(bash "$SCAN" ports "$file" 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ] \
+    && [ "$(printf '%s\n' "$out" | grep -c ": $code: ")" = "$count" ] \
+    && printf '%s\n' "$out" | grep -qxF "$count finding(s) in $file"; then
+    pass "$(rel "$file") rejected through scan.sh ports with $count $code and nothing else"
+  else
+    fail "expected scan.sh ports to reject $(rel "$file") with exactly $count $code, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+# A clean tree passes too, so this cannot fail on a rule. It pins the
+# no-argument invocation ci.yml uses: a planted file found, ci-fixtures left
+# out, and the real compose files clean under the policy.
+expect_real_ports_clean() {
+  local out status
+  mkdir -p "$PLANTED_DIR"
+  cp "$FIXTURES/good/ports.compose.yaml" "$PLANTED_DIR/ports.compose.yaml"
+  out="$(cd "$REPO_ROOT" && bash "$SCAN" ports 2>&1)"
+  status=$?
+  rm -rf "$PLANTED_DIR"
+  if [ "$status" -eq 0 ] \
+    && printf '%s' "$out" | grep -qF 'checking ./.ci-realscan-planted/ports.compose.yaml' \
+    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    pass "the real ports invocation finds a planted file, excludes ci-fixtures and passes the real tree"
+  else
+    fail "expected the real ports invocation to pass, find the planted file and exclude ci-fixtures, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+section "port policy, through scan.sh's own check_ports"
+expect_scan_ok ports "$FIXTURES/good/ports.compose.yaml"
+expect_ports_bad "$FIXTURES/bad/ports-tcp.compose.yaml" BEDROCK_TCP_PUBLISH 1
+expect_ports_bad "$FIXTURES/bad/ports-wide-bind.compose.yaml" LOOPBACK_BIND_REQUIRED 2
+expect_ports_bad "$FIXTURES/bad/ports-network-mode.compose.yaml" HOST_NETWORK_MODE 1
+expect_real_ports_clean
+
 section "php lint, broken file at each position in a multi-file batch"
 expect_php_lint_clean "$FIXTURES/good/php-plugins"
 expect_php_lint_rejected "$FIXTURES/bad/php-plugins-first" a_broken.php z_valid.php
@@ -762,5 +805,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed. A check has stopped discriminating.\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed, both sides for hadolint, discovery, compose, php lint, container cleanup and action pins.\n' "$PASSES"
-printf 'scan.sh itself is exercised end to end: discovery, both check functions, the loop, and the exact no-argument invocation ci.yml uses.\n'
+printf 'all %s assertions passed, both sides for hadolint, discovery, compose, port policy, php lint, container cleanup and action pins.\n' "$PASSES"
+printf 'scan.sh itself is exercised end to end: discovery, every check function, the loop, and the exact no-argument invocation ci.yml uses.\n'
