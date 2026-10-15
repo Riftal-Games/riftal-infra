@@ -52,6 +52,7 @@ the top of this runbook if either was just edited.
 
 ```sh
 wslc run -d -i --name riftal-instance-b --network riftal-dev \
+  --memory 2G --cpus 2 \
   -p "${INSTANCE_B_BIND:-127.0.0.1}:19133:19132/udp" \
   -v riftal-world-b:/data -v "$INFRA/images/plugins:/plugins" \
   -v "$INFRA/designer/world_index.json:/etc/riftal/world_index.json:ro" \
@@ -68,7 +69,8 @@ wslc logs riftal-instance-b
 
 This mirrors `images/compose.yaml`'s `instance-b` service definition
 except for its `restart: on-failure` policy and RakNet healthcheck, which this
-`wslc run` does not carry (riftal-infra#578): same image tag, `19133/udp` published instead of `19132/udp`
+`wslc run` does not carry (riftal-infra#578), and CI fails when the two
+disagree on any flag (`.github/scripts/wslc-drift.sh`): same image tag, `19133/udp` published instead of `19132/udp`
 (the container still listens on `19132` internally, `19133` is only where the
 host maps it), its own volume `riftal-world-b` instead of `riftal-world`,
 its own `INSTANCE_ID` value from `INSTANCE_B_ID` instead of `INSTANCE_ID`,

@@ -50,6 +50,14 @@ jobs:
       - name: Pull mysql:8 runs before every step that runs mysql:8
         run: bash .github/scripts/pull-mysql-order.sh
 
+      # docker compose config only, no container, so these also run before
+      # any container step.
+      - name: Self-test, prove the wslc run drift check can fail
+        run: bash .github/scripts/wslc-drift-selftest.sh
+
+      - name: Documented wslc run commands match images/compose.yaml
+        run: bash .github/scripts/wslc-drift.sh
+
       # Reads fixture logs only, so it also runs before any container step.
       - name: Custody alert check self-test
         run: bash deploy/custody-alert-check-selftest.sh
