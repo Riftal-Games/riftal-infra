@@ -208,8 +208,11 @@ done <"$LOGS/kept.before"
 
 printf '\n== after the wipe, wipe-check passes with every kept file still there\n'
 # Stands in for the migrations, which wipe-selftest.sh runs, so the database
-# half of wipe-check passes and only the volumes decide it.
-q "CREATE TABLE riftal_dev.schema_migrations (version INT PRIMARY KEY); INSERT INTO riftal_dev.schema_migrations VALUES (1)"
+# half of wipe-check passes and only the volumes decide it. A migrated schema
+# holds an empty table besides schema_migrations, and wipe-check refuses one
+# that lists none.
+q "CREATE TABLE riftal_dev.schema_migrations (version INT PRIMARY KEY); INSERT INTO riftal_dev.schema_migrations VALUES (1)
+  ; CREATE TABLE riftal_dev.migrated (id INT PRIMARY KEY)"
 CHECK=("${W[@]}" "${L[@]}")
 if check >"$LOGS/check-wiped.log" 2>&1; then
   pass "wipe-check passes on the wiped volumes"
