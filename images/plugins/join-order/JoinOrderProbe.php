@@ -3,7 +3,7 @@
 /**
  * @name JoinOrderProbe
  * @main riftal\dev\joinorder\Main
- * @version 0.0.3
+ * @version 0.0.4
  * @api 5.0.0
  * @loadbefore RiftalDevBots
  * @description Self-test fixture for selftest.sh beside it. Never loaded by a stack.
@@ -102,6 +102,21 @@ final class Placer implements Listener{
 	}
 }
 
+/**
+ * Refuses the login placement, as a plugin guarding where players may go
+ * would. At HIGHEST it runs after a teleport watch registered at any priority
+ * below MONITOR, so such a watch sees the placement before it is refused.
+ */
+final class Canceller implements Listener{
+
+	/** @priority HIGHEST */
+	public function onTeleport(EntityTeleportEvent $event) : void{
+		if(Main::$cancelLogin && $event->getTo()->equals(Main::placement(Main::LOGIN_OFFSET))){
+			$event->cancel();
+		}
+	}
+}
+
 final class Main extends PluginBase{
 
 	public const BOT_NAME = "JoinOrderProbe";
@@ -112,12 +127,16 @@ final class Main extends PluginBase{
 	/** When Placer places the bot: "join", "login" or "none" */
 	public static string $placer = "join";
 
+	/** Whether Canceller refuses the login placement */
+	public static bool $cancelLogin = false;
+
 	public static function placement(int $offset) : Vector3{
 		return Server::getInstance()->getWorldManager()->getDefaultWorld()->getSafeSpawn()->add($offset, 0, $offset);
 	}
 
 	protected function onEnable() : void{
 		$this->getServer()->getPluginManager()->registerEvents(new Placer(), $this);
+		$this->getServer()->getPluginManager()->registerEvents(new Canceller(), $this);
 		$this->getScheduler()->scheduleDelayedTask(new ClosureTask($this->probe(...)), 1);
 	}
 
@@ -141,6 +160,7 @@ final class Main extends PluginBase{
 		$this->session("join-order-probe", "join");
 		$this->session("login-placement-probe", "login");
 		$this->session("stale-session-probe", "none", true);
+		$this->session("cancelled-login-probe", "login", false, true);
 		$this->getServer()->shutdown();
 	}
 
@@ -148,11 +168,13 @@ final class Main extends PluginBase{
 	 * One bot session from pre-login to join, placed as $placer says. With
 	 * $stale, the bot first joins as entity 1, and that stale session is
 	 * teleported, as a mine reset would, after the new session's pre-login
-	 * and before core kicks it as a duplicate. Only the new session's own
-	 * teleports are reported.
+	 * and before core kicks it as a duplicate. With $cancelLogin, Canceller
+	 * refuses the login placement. Only the new session's own teleports that
+	 * went through are reported.
 	 */
-	private function session(string $label, string $placer, bool $stale = false) : void{
+	private function session(string $label, string $placer, bool $stale = false, bool $cancelLogin = false) : void{
 		self::$placer = $placer;
+		self::$cancelLogin = $cancelLogin;
 		ProbePlayer::$teleports = [];
 
 		$preLogin = $this->preLogin();
