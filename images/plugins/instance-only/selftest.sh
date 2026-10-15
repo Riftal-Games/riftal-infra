@@ -31,7 +31,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=81
+EXPECTED_ASSERTIONS=85
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -419,7 +419,17 @@ printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#26
 # join_teleport as off, so the template has to carry them. CI checks out this
 # repository alone and holds no token for the private riftal-game, so there
 # the comparison is reported as skipped rather than passed.
-SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/mines/resources/config.yml"
+# Sets SHIPPED, RANKS_SHIPPED, ACCOUNTS_SHIPPED and ECONOMY_SHIPPED to
+# riftal-game's shipped configs under RIFTAL_GAME_DIR, or under the default
+# sibling checkout when it is unset or empty.
+shipped_configs() {
+  local game="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}"
+  SHIPPED="$game/mines/resources/config.yml"
+  RANKS_SHIPPED="$game/ranks/resources/config.yml"
+  ACCOUNTS_SHIPPED="$game/accounts/resources/config.yml"
+  ECONOMY_SHIPPED="$game/economy/resources/config.yml"
+}
+shipped_configs
 TEMPLATE="$DIR/RiftalMines.config.yml.template"
 SKIPPED=0
 # That skip covers only an absent default sibling checkout, and each skipped
@@ -433,11 +443,23 @@ drift() {
   else SKIPPED=$((SKIPPED + 1)); fi
 }
 check "an explicit RIFTAL_GAME_DIR without the mines config fails the drift assertion" \
-  '[ "$(RIFTAL_GAME_DIR=/nonexistent; SHIPPED=/nonexistent/c.yml; FAILURES=0; SKIPPED=0; drift x true >/dev/null; echo "$FAILURES $SKIPPED")" = "1 0" ]'
+  '[ "$(RIFTAL_GAME_DIR=/nonexistent; shipped_configs; FAILURES=0; SKIPPED=0; drift x true >/dev/null; echo "$FAILURES $SKIPPED")" = "1 0" ]'
 check "an explicit RIFTAL_GAME_DIR without a named shipped config fails the drift assertion" \
   '[ "$(RIFTAL_GAME_DIR=/nonexistent; SHIPPED="$TEMPLATE"; FAILURES=0; SKIPPED=0; drift x true /nonexistent/r.yml >/dev/null; echo "$FAILURES $SKIPPED")" = "1 0" ]'
 check "an absent default sibling checkout skips the drift assertion" \
   '[ "$(unset RIFTAL_GAME_DIR; SHIPPED=/nonexistent/c.yml; FAILURES=0; SKIPPED=0; drift x true >/dev/null; echo "$FAILURES $SKIPPED")" = "0 1" ]'
+# The shipped config shipped_configs derives for $1, the name of one of the
+# variables it sets, under a scratch RIFTAL_GAME_DIR, so a path derived
+# without it cannot match.
+derived() { (RIFTAL_GAME_DIR="$work/game"; shipped_configs; printf '%s' "${!1}"); }
+check "RIFTAL_GAME_DIR names the mines config the drift assertions read" \
+  '[ "$(derived SHIPPED)" = "$work/game/mines/resources/config.yml" ]'
+check "RIFTAL_GAME_DIR names the ranks config the drift assertions read" \
+  '[ "$(derived RANKS_SHIPPED)" = "$work/game/ranks/resources/config.yml" ]'
+check "RIFTAL_GAME_DIR names the accounts config the drift assertions read" \
+  '[ "$(derived ACCOUNTS_SHIPPED)" = "$work/game/accounts/resources/config.yml" ]'
+check "RIFTAL_GAME_DIR names the economy config the drift assertions read" \
+  '[ "$(derived ECONOMY_SHIPPED)" = "$work/game/economy/resources/config.yml" ]'
 # Every top-level key, whether it holds a scalar or opens a section.
 keys() { grep -oE '^[^[:space:]#-][^:]*:' "$1" | sort -u; }
 # Top-level keys holding a scalar. The database and worlds sections hold
@@ -470,7 +492,6 @@ drift "a shipped scalar whose key holds a digit or hyphen is caught" \
 drift "a shipped section the template lacks is caught" \
   '{ cat "$SHIPPED"; printf "messages:\n  reset: x\n"; } > "$mutated" &&
     [ "$(missing "$mutated")" = "messages:" ]'
-RANKS_SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/ranks/resources/config.yml"
 drift "riftal-game's ranks config.yml has no top-level key or scalar value the ranks config lacks" \
   '[ -n "$(keys "$RANKS_SHIPPED")" ] && [ -z "$(comm -23 <(keys "$RANKS_SHIPPED") <(keys "$RANKS_CONFIG"))" ] &&
     [ "$(tuning "$RANKS_SHIPPED")" = "$(tuning "$RANKS_CONFIG")" ]' "$RANKS_SHIPPED"
@@ -486,7 +507,6 @@ drift "every database line in riftal-game's ranks config.yml but the schema matc
 drift "a shipped database.port the ranks config does not carry is caught" \
   'sed "s/^  port:.*/  port: 3307/" "$RANKS_SHIPPED" > "$mutated" &&
     [ "$(dbsection "$mutated")" != "$(dbsection "$RANKS_CONFIG")" ]' "$RANKS_SHIPPED"
-ACCOUNTS_SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/accounts/resources/config.yml"
 # Every line but comments, blanks and the schema, the one line the accounts
 # config overrides on purpose.
 settings() { grep -vE '^[[:space:]]*(#|$|schema:)' "$1" | sed 's/[[:space:]]*$//'; }
@@ -496,7 +516,6 @@ drift "every line in riftal-game's accounts config.yml but the schema matches th
 drift "a shipped database.port the accounts config does not carry is caught" \
   'sed "s/^  port:.*/  port: 3307/" "$ACCOUNTS_SHIPPED" > "$mutated" &&
     [ "$(settings "$mutated")" != "$(settings "$ACCOUNTS_CONFIG")" ]' "$ACCOUNTS_SHIPPED"
-ECONOMY_SHIPPED="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}/economy/resources/config.yml"
 drift "every line in riftal-game's economy config.yml but the schema matches the economy config" \
   '[ -n "$(settings "$ECONOMY_SHIPPED")" ] && [ "$(settings "$ECONOMY_SHIPPED")" = "$(settings "$ECONOMY_CONFIG")" ]' \
   "$ECONOMY_SHIPPED"
