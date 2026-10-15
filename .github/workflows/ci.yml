@@ -196,6 +196,9 @@ jobs:
       - name: Wipe volumes self-test
         run: bash deploy/wipe-volumes-selftest.sh
 
+      - name: Write latency probe self-test
+        run: bash deploy/write-latency-probe-selftest.sh --probe
+
       # Runs before the host-side sync below, which writes designer/.venv. The
       # script mounts the project read-only, so a container run that tried to
       # put its environment in the checkout fails here instead of leaving one.
