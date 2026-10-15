@@ -1,0 +1,19 @@
+# Expected: LOOPBACK_BIND_REQUIRED twice, at services.instance.ports[0] and
+# services.debug.ports[0], and nothing else.
+#
+# An instance runs with xbox-auth off, so any address wider than 127.0.0.1 lets
+# whoever reaches it claim any identity. A publish with no address binds every
+# interface. The second service sits behind a profile, which `docker compose
+# config` leaves out unless every profile is asked for, so a scan that forgets
+# to ask reports one finding here instead of two.
+services:
+  instance:
+    image: local-pocketmine-mp:fixture
+    ports:
+      - "19133:19132/udp"
+
+  debug:
+    image: mysql:8
+    profiles: [debug]
+    ports:
+      - "0.0.0.0:3306:3306"
