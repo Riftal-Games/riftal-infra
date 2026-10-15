@@ -127,7 +127,7 @@ wipe() {
 }
 check() {
   env_run -e MYSQL_DATABASE="$DB" -e WORLDS_DIR=/tmp/worlds -e LEVEL_LOCKS_DIR=/tmp/locks \
-    "$C" bash /deploy/wipe-check.sh
+    "$@" "$C" bash /deploy/wipe-check.sh
 }
 snapshot_rows() { q "SELECT COUNT(*) FROM $DB.economy_balance_snapshot"; }
 
@@ -198,7 +198,7 @@ stamped tennanos "sed -n '/^timestamp: /s/Z\$/0Z/p' /tmp/set/manifest.txt" rifta
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=44
+EXPECTED_ASSERTIONS=46
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -394,6 +394,28 @@ fence_fails raised "1 row(s), 0 of them that row"
 q "DELETE FROM $DB.capture_fence"
 fence_fails empty "0 row(s), 0 of them that row"
 q "INSERT INTO $DB.capture_fence (id) VALUES (1)"
+# A table list that cannot be read, or reads as nothing, checks no table at all,
+# so it must fail rather than pass as zero tables all empty. The first mysql on
+# PATH fails only the table-list query, as a dropped connection would; the
+# account sees schema_migrations alone, so the list it reads is empty.
+sh_in "mkdir -p /tmp/failing-bin && printf '%s\n' '#!/bin/bash' \
+  'case \"\$*\" in *information_schema.TABLES*) echo \"ERROR 2013 (HY000): Lost connection\" >&2; exit 1;; esac' \
+  'exec /usr/bin/mysql \"\$@\"' > /tmp/failing-bin/mysql && chmod +x /tmp/failing-bin/mysql"
+q "CREATE USER 'listless'@'%' IDENTIFIED BY 'selftest'; GRANT SELECT ON $DB.schema_migrations TO 'listless'@'%'"
+unlisted_fails() {
+  local name="$1" reason="$2"
+  shift 2
+  if check "$@" >"$LOGS/check-$name.log" 2>&1; then
+    fail "wipe-check passed when $name"; cat "$LOGS/check-$name.log"
+  elif grep -qF "FAIL $reason" "$LOGS/check-$name.log"; then
+    pass "wipe-check fails when $name"
+  else
+    fail "wipe-check failed when $name without saying so"; cat "$LOGS/check-$name.log"
+  fi
+}
+unlisted_fails "the table-list query fails" "could not list the tables" \
+  -e PATH=/tmp/failing-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+unlisted_fails "the table list is empty" "information_schema lists no table but schema_migrations" -e MYSQL_USER=listless
 [ "$(snapshot_rows)" = "0" ] && pass "economy_balance_snapshot exists and is empty" \
   || fail "economy_balance_snapshot should exist and be empty, got '$(snapshot_rows)'"
 [ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$DB' AND TABLE_NAME = 'stray_unmigrated'")" = "0" ] \

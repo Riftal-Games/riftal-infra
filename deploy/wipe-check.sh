@@ -80,9 +80,17 @@ applied="$(sql "SELECT COUNT(*) FROM \`$MYSQL_DATABASE\`.schema_migrations" 2>/d
   || stop "no schema_migrations table; run the migrations first"
 [ "$applied" -gt 0 ] || stop "schema_migrations records nothing; run the migrations first"
 
-mapfile -t tables < <(sql "SELECT TABLE_NAME FROM information_schema.TABLES
+# A process substitution's exit status escapes set -e, so the list is read
+# into a variable first. A list that reads as nothing checks no table, and a
+# schema with migrations applied always holds one, so that fails too: it is an
+# account that cannot see the tables, not a schema that has none.
+listed="$(sql "SELECT TABLE_NAME FROM information_schema.TABLES
   WHERE TABLE_SCHEMA = '$MYSQL_DATABASE' AND TABLE_TYPE = 'BASE TABLE'
-  AND TABLE_NAME <> 'schema_migrations' ORDER BY TABLE_NAME")
+  AND TABLE_NAME <> 'schema_migrations' ORDER BY TABLE_NAME")" \
+  || stop "could not list the tables in $MYSQL_DATABASE"
+[ -n "$listed" ] \
+  || stop "information_schema lists no table but schema_migrations, though $applied migration(s) applied; MYSQL_USER $MYSQL_USER cannot see the tables to check them"
+mapfile -t tables <<<"$listed"
 
 seeded=0
 for table in "${tables[@]}"; do
