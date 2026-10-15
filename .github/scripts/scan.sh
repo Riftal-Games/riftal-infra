@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs one scan over the real tree: `dockerfiles`, `compose` or `ports`.
+# Runs one scan over the real tree: `dockerfiles`, `compose`, `ports` or
+# `shell_ports`.
 #
 # The self-test drives this exact script, with no root or prune argument, the
 # same way ci.yml calls it below, so discovery, dispatch, every check_
@@ -7,7 +8,7 @@
 # copy of them.
 set -euo pipefail
 
-kind="${1:?usage: scan.sh <dockerfiles|compose|ports> [root] [prune-path]}"
+kind="${1:?usage: scan.sh <dockerfiles|compose|ports|shell_ports> [root] [prune-path]}"
 root="${2:-.}"
 prune="${3:-$root/.github/ci-fixtures}"
 scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +22,7 @@ check_ports() {
   docker compose --profile '*' -f "$1" config --format json |
     python3 "$scripts/check_port_policy.py" "$1"
 }
+check_shell_ports() { python3 "$scripts/check_port_policy.py" --shell "$1"; }
 
 # Command substitution puts discovery's exit status under `set -e`, so a
 # discovery that dies stops the scan instead of reading as an empty tree.
@@ -43,6 +45,8 @@ case "$kind" in
       LC_ALL=C sort -z | tr '\0' '\n')" ;;
   compose|ports) label='compose file(s)'
     found="$(bash "${LISTER:-$scripts/list_compose.sh}" "$root" "$prune")" ;;
+  shell_ports) label='shell script(s)'
+    found="$(bash "${LISTER:-$scripts/list_shell.sh}" "$root" "$prune")" ;;
   *) printf 'unknown scan: %s\n' "$kind" >&2; exit 2 ;;
 esac
 

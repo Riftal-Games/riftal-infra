@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=205
+EXPECTED_ASSERTIONS=220
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -625,15 +625,15 @@ expect_scan_bad compose "$FIXTURES/bad/unparseable.compose.yml" yaml
 # Exactly count findings, every one of them code. A fixture that also trips a
 # second rule stays red with its own rule deleted, so it would pin nothing.
 expect_ports_bad() {
-  local file="$1" code="$2" count="$3" out status
-  out="$(bash "$SCAN" ports "$file" 2>&1)"
+  local file="$1" code="$2" count="$3" kind="${4:-ports}" out status
+  out="$(bash "$SCAN" "$kind" "$file" 2>&1)"
   status=$?
   if [ "$status" -ne 0 ] \
     && [ "$(printf '%s\n' "$out" | grep -c ": $code: ")" = "$count" ] \
     && printf '%s\n' "$out" | grep -qxF "$count finding(s) in $file"; then
-    pass "$(rel "$file") rejected through scan.sh ports with $count $code and nothing else"
+    pass "$(rel "$file") rejected through scan.sh $kind with $count $code and nothing else"
   else
-    fail "expected scan.sh ports to reject $(rel "$file") with exactly $count $code, exit $status"
+    fail "expected scan.sh $kind to reject $(rel "$file") with exactly $count $code, exit $status"
     printf '%s\n' "$out"
   fi
 }
@@ -665,6 +665,24 @@ expect_ports_bad "$FIXTURES/bad/ports-wide-bind.compose.yaml" LOOPBACK_BIND_REQU
 expect_ports_bad "$FIXTURES/bad/ports-network-mode.compose.yaml" HOST_NETWORK_MODE 1
 expect_real_ports_clean
 
+# Where RUN_UNPARSEABLE is the answer, a guessing parser read the command as
+# clean. run-instance has no extension and is found only by its shebang.
+section "shell port policy, through scan.sh's own check_shell_ports"
+SP="$FIXTURES/bad/shell-ports"
+expect_scan_ok shell_ports "$FIXTURES/good/shell-ports.sh"
+expect_ports_bad "$SP/tcp.sh" BEDROCK_TCP_PUBLISH 1 shell_ports
+expect_ports_bad "$SP/wide-bind.sh" LOOPBACK_BIND_REQUIRED 2 shell_ports
+expect_ports_bad "$SP/net-mode.sh" HOST_NETWORK_MODE 2 shell_ports
+expect_ports_bad "$SP/unlisted-long.sh" RUN_UNPARSEABLE 1 shell_ports
+expect_ports_bad "$SP/unlisted-short.sh" RUN_UNPARSEABLE 1 shell_ports
+expect_ports_bad "$SP/short-value.sh" LOOPBACK_BIND_REQUIRED 1 shell_ports
+expect_ports_bad "$SP/long-value.sh" LOOPBACK_BIND_REQUIRED 1 shell_ports
+expect_ports_bad "$SP/global-flags.sh" LOOPBACK_BIND_REQUIRED 2 shell_ports
+expect_ports_bad "$SP/array.sh" RUN_UNPARSEABLE 1 shell_ports
+expect_ports_bad "$SP/multiline-quote.sh" LOOPBACK_BIND_REQUIRED 1 shell_ports
+expect_ports_bad "$SP/compose-run.sh" LOOPBACK_BIND_REQUIRED 1 shell_ports
+expect_ports_bad "$SP/run-instance" LOOPBACK_BIND_REQUIRED 1 shell_ports
+
 section "php lint, broken file at each position in a multi-file batch"
 expect_php_lint_clean "$FIXTURES/good/php-plugins"
 expect_php_lint_rejected "$FIXTURES/bad/php-plugins-first" a_broken.php z_valid.php
@@ -674,10 +692,12 @@ expect_php_lint_rejected "$FIXTURES/bad/php-plugins-last" z_broken.php a_valid.p
 section "a failed discovery fails the scan, it does not read as an empty tree"
 expect_scan_fails dockerfiles "$REPO_ROOT/no-such-tree"
 expect_scan_fails compose "$FIXTURES/good" "$REPO_ROOT/no-such-lister.sh"
+expect_scan_fails shell_ports "$FIXTURES/good" "$REPO_ROOT/no-such-lister.sh"
 
 section "the exact invocation ci.yml uses: a kind, no root, no prune argument"
 expect_real_scan dockerfiles "$FIXTURES/bad/Dockerfile"
 expect_real_scan compose "$FIXTURES/bad/schema.compose.yaml"
+expect_real_scan shell_ports "$FIXTURES/bad/shell-ports/tcp.sh"
 
 PINS="$REPO_ROOT/.github/scripts/action-pins.sh"
 PIN_WORKFLOWS="$FIXTURES/bad/action-pins/.github/workflows"
