@@ -173,17 +173,28 @@ final class Main extends PluginBase{
 
 	/**
 	 * Core kicks a stale same-name session before it creates the new one's
-	 * player, and fires PlayerLoginEvent as soon as it has, so the last
+	 * player, and fires PlayerLoginEvent as soon as it has, so the last bot
 	 * session to log in under a pending name is the admitted one. Registered
 	 * at LOWEST so it binds before any login placer at a later priority, and
 	 * it drops anything a stale session's teleports recorded.
+	 *
+	 * Same-name sessions win in the order their login checks finish on the
+	 * async pool, not the order they pre-logged in, so the pending entry says
+	 * only that some bot pre-logged in under the name. The session logging in
+	 * is bound only when its own login carries the bot device model.
 	 */
 	private function onLogin(PlayerLoginEvent $event) : void{
 		$player = $event->getPlayer();
 		$key = strtolower($player->getName());
-		if(isset($this->pending[$key])){
-			$this->pending[$key] = ["session" => $player->getId(), "placed" => false];
+		if(!isset($this->pending[$key])){
+			return;
 		}
+		$device = $player->getPlayerInfo()->getExtraData()["DeviceModel"] ?? null;
+		if($device !== self::BOT_DEVICE_MODEL){
+			unset($this->pending[$key]);
+			return;
+		}
+		$this->pending[$key] = ["session" => $player->getId(), "placed" => false];
 	}
 
 	/**

@@ -2,16 +2,20 @@
 # Self-test that RiftalDevBots' return to spawn never undoes another plugin's
 # placement (riftal-infra#331, riftal-infra#369), and that neither a stale
 # same-name session's teleport (riftal-infra#455) nor a refused placement
-# (riftal-infra#456) suppresses it.
+# (riftal-infra#456) suppresses it, and that a session which is not a bot,
+# logging in under a pending bot's name, is never admitted as that bot,
+# whichever of the two pre-logged in first (riftal-infra#1162).
 #
 # A plugin that places players on join at NORMAL, as RiftalMines' join_teleport
 # does, or on login, as ranks' login-spawn teleport will (riftal-game#222), must
 # decide where the bot ends up. This boots the real core image with the shipped
-# RiftalDevBots.php and JoinOrderProbe.php beside it. The probe dispatches four
-# bot sessions through PocketMine's own handler lists, one placed on join, one
-# placed on login, one reconnecting while its stale session is teleported, and
-# one whose login placement another listener cancels, logs every teleport that
-# went through in the order the handlers made it, and shuts the server down.
+# RiftalDevBots.php and JoinOrderProbe.php beside it. The probe dispatches six
+# sessions through PocketMine's own handler lists, one placed on join, one
+# placed on login, one reconnecting while its stale session is teleported, one
+# whose login placement another listener cancels, and two that are not bots
+# logging in under a pending bot's name, one pre-logging in after the bot and
+# one before it. It logs every teleport that went through in the order the
+# handlers made it, and shuts the server down.
 #
 # Two things keep a placement standing, and each control removes one so the
 # check is known to tell them apart on every run. Without the teleport watch,
@@ -19,6 +23,11 @@
 # the join handler at NORMAL or MONITOR, it lands after a join placement.
 # NORMAL ties with the placer, and the probe registers first so the tie goes
 # against RiftalDevBots.
+#
+# One thing keeps a session that is not a bot out: the login handler binds the
+# pending entry only to a login carrying the bot device model. The trusting
+# control removes that check, and both such sessions are returned to spawn as
+# admitted bots.
 #
 # Runs the pinned core image from ../../core-image.sha, present only on the
 # self-hosted runners' Docker daemon. It publishes no port and keeps nothing:
@@ -37,7 +46,8 @@ WATCH_SHIPPED="${WATCH_LINE}, EventPriority::MONITOR, \$this);"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=14
+EXPECTED_ASSERTIONS=19
+DEVICE_CHECK='if($device !== self::BOT_DEVICE_MODEL){'
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -62,7 +72,7 @@ probe() {
     printf 'server log has an error:\n%s\n' "$(grep -E 'CRITICAL|EMERGENCY|Exception|Stack trace' <<<"$log")"
     return
   fi
-  grep -oE '(join-order|login-placement|stale-session|cancelled-login)-probe admitted=.*' <<<"$log" || tail -n 20 <<<"$log"
+  grep -oE '(join-order|login-placement|stale-session|cancelled-login|non-bot-takeover|non-bot-first)-probe prelogin=.*' <<<"$log" || tail -n 20 <<<"$log"
 }
 
 # $1 probe output, $2 session label; prints that session's line, or all of $1
@@ -74,21 +84,44 @@ printf '\n== the shipped plugin: the placer decides where the bot ends up\n'
 result="$(probe "$PLUGIN")"
 printf '%s\n' "$result"
 line="$(session "$result" join-order)"
-[ "$line" = "join-order-probe admitted=yes teleports=spawn,placer" ] \
+[ "$line" = "join-order-probe prelogin=allowed teleports=spawn,placer" ] \
   && pass "RiftalDevBots returns the bot to spawn first and the join placer has the last word" \
   || fail "expected the spawn return then the join placement, got: $line"
 line="$(session "$result" login-placement)"
-[ "$line" = "login-placement-probe admitted=yes teleports=login-placer" ] \
+[ "$line" = "login-placement-probe prelogin=allowed teleports=login-placer" ] \
   && pass "a bot placed on login stays where the login placer put it" \
   || fail "expected only the login placement, got: $line"
 line="$(session "$result" stale-session)"
-[ "$line" = "stale-session-probe admitted=yes teleports=spawn" ] \
+[ "$line" = "stale-session-probe prelogin=allowed teleports=spawn" ] \
   && pass "a stale same-name session's teleport does not stop the new session's spawn return" \
   || fail "expected only the spawn return for the new session, got: $line"
 line="$(session "$result" cancelled-login)"
-[ "$line" = "cancelled-login-probe admitted=yes teleports=spawn" ] \
+[ "$line" = "cancelled-login-probe prelogin=allowed teleports=spawn" ] \
   && pass "a cancelled login placement does not count as placed, and the bot is returned to spawn" \
   || fail "expected only the spawn return after the cancelled login placement, got: $line"
+line="$(session "$result" non-bot-takeover)"
+[ "$line" = "non-bot-takeover-probe prelogin=allowed teleports=none" ] \
+  && pass "a session that is not a bot, pre-logging in after a pending bot, is not admitted as that bot" \
+  || fail "expected no spawn return for the session that is not a bot, got: $line"
+line="$(session "$result" non-bot-first)"
+[ "$line" = "non-bot-first-probe prelogin=allowed teleports=none" ] \
+  && pass "a session that is not a bot, pre-logging in before a pending bot, is not admitted as that bot" \
+  || fail "expected no spawn return for the session that is not a bot, got: $line"
+
+printf '\n== trusting the pending entry admits a session that is not a bot as the bot, and the probe sees it\n'
+trusting="$work/trusting.php"
+sed 's/if(\$device !== self::BOT_DEVICE_MODEL){/if(false){/' "$PLUGIN" > "$trusting"
+[ "$(grep -cF "$DEVICE_CHECK" "$PLUGIN")" = 1 ] && [ "$(grep -cF "$DEVICE_CHECK" "$trusting")" = 0 ] \
+  && pass "the trusting copy binds any session logging in under a pending name" \
+  || fail "could not find the login handler's device check in $PLUGIN"
+result="$(probe "$trusting")"
+for label in non-bot-takeover non-bot-first; do
+  line="$(session "$result" "$label")"
+  printf '%s\n' "$line"
+  [ "$line" = "$label-probe prelogin=allowed teleports=spawn" ] \
+    && pass "trusting, the probe sees $label returned to spawn as an admitted bot" \
+    || fail "expected the spawn return of an admitted bot for $label, got: $line"
+done
 
 printf '\n== without the teleport watch the spawn return undoes a login placement, and the probe sees it\n'
 unwatched="$work/unwatched.php"
@@ -98,7 +131,7 @@ grep -vF "$WATCH_LINE" "$PLUGIN" > "$unwatched" || true
   || fail "could not find the teleport watch's registration in $PLUGIN"
 line="$(session "$(probe "$unwatched")" login-placement)"
 printf '%s\n' "$line"
-[ "$line" = "login-placement-probe admitted=yes teleports=login-placer,spawn" ] \
+[ "$line" = "login-placement-probe prelogin=allowed teleports=login-placer,spawn" ] \
   && pass "unwatched, the probe sees the spawn return land after the login placement" \
   || fail "expected the login placement then the spawn return, got: $line"
 
@@ -112,7 +145,7 @@ control() {
     || fail "could not find the join handler's registration in $PLUGIN"
   line="$(session "$(probe "$copy")" join-order)"
   printf '%s\n' "$line"
-  [ "$line" = "join-order-probe admitted=yes teleports=placer,spawn" ] \
+  [ "$line" = "join-order-probe prelogin=allowed teleports=placer,spawn" ] \
     && pass "at $1 the probe sees the spawn return land last" \
     || fail "expected the join placement then the spawn return at $1, got: $line"
 }
@@ -130,7 +163,7 @@ cancelled() {
     || fail "could not rewrite the teleport watch's registration in $PLUGIN"
   line="$(session "$(probe "$copy")" cancelled-login)"
   printf '%s\n' "$line"
-  [ "$line" = "cancelled-login-probe admitted=yes teleports=none" ] \
+  [ "$line" = "cancelled-login-probe prelogin=allowed teleports=none" ] \
     && pass "a watch $1 skips the spawn return after a cancelled placement" \
     || fail "expected no teleport with a watch $1, got: $line"
 }
