@@ -54,6 +54,11 @@ jobs:
       - name: Custody alert check self-test
         run: bash deploy/custody-alert-check-selftest.sh
 
+      # Synthetic timings and fixture configs only, so it also runs before any
+      # container step.
+      - name: Write latency check self-test
+        run: bash deploy/write-latency-selftest.sh
+
       # Before any step that starts a container, so every one of them carries
       # this job's label for the sweep at the end.
       - name: Label this job's containers
