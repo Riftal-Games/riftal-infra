@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Self-test that RiftalDevBots' return to spawn never undoes another plugin's
-# placement (riftal-infra#331, riftal-infra#369), and that a stale same-name
-# session's teleport never suppresses it (riftal-infra#455).
+# placement (riftal-infra#331, riftal-infra#369), and that neither a stale
+# same-name session's teleport (riftal-infra#455) nor a refused placement
+# (riftal-infra#456) suppresses it.
 #
 # A plugin that places players on join at NORMAL, as RiftalMines' join_teleport
 # does, or on login, as ranks' login-spawn teleport will (riftal-game#222), must
 # decide where the bot ends up. This boots the real core image with the shipped
-# RiftalDevBots.php and JoinOrderProbe.php beside it. The probe dispatches three
+# RiftalDevBots.php and JoinOrderProbe.php beside it. The probe dispatches four
 # bot sessions through PocketMine's own handler lists, one placed on join, one
-# placed on login, and one reconnecting while its stale session is teleported,
-# logs every teleport in the order the handlers made it, and shuts the server
-# down.
+# placed on login, one reconnecting while its stale session is teleported, and
+# one whose login placement another listener cancels, logs every teleport that
+# went through in the order the handlers made it, and shuts the server down.
 #
 # Two things keep a placement standing, and each control removes one so the
 # check is known to tell them apart on every run. Without the teleport watch,
@@ -32,10 +33,11 @@ core_image || { printf 'the join order was never checked\n'; exit 1; }
 IMAGE="$CORE_IMAGE"
 JOIN_LINE='registerEvent(PlayerJoinEvent::class, $this->onJoin(...), EventPriority::'
 WATCH_LINE='registerEvent(EntityTeleportEvent::class, $this->onTeleport(...)'
+WATCH_SHIPPED="${WATCH_LINE}, EventPriority::MONITOR, \$this);"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=9
+EXPECTED_ASSERTIONS=14
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -60,7 +62,7 @@ probe() {
     printf 'server log has an error:\n%s\n' "$(grep -E 'CRITICAL|EMERGENCY|Exception|Stack trace' <<<"$log")"
     return
   fi
-  grep -oE '(join-order|login-placement|stale-session)-probe admitted=.*' <<<"$log" || tail -n 20 <<<"$log"
+  grep -oE '(join-order|login-placement|stale-session|cancelled-login)-probe admitted=.*' <<<"$log" || tail -n 20 <<<"$log"
 }
 
 # $1 probe output, $2 session label; prints that session's line, or all of $1
@@ -83,6 +85,10 @@ line="$(session "$result" stale-session)"
 [ "$line" = "stale-session-probe admitted=yes teleports=spawn" ] \
   && pass "a stale same-name session's teleport does not stop the new session's spawn return" \
   || fail "expected only the spawn return for the new session, got: $line"
+line="$(session "$result" cancelled-login)"
+[ "$line" = "cancelled-login-probe admitted=yes teleports=spawn" ] \
+  && pass "a cancelled login placement does not count as placed, and the bot is returned to spawn" \
+  || fail "expected only the spawn return after the cancelled login placement, got: $line"
 
 printf '\n== without the teleport watch the spawn return undoes a login placement, and the probe sees it\n'
 unwatched="$work/unwatched.php"
@@ -112,6 +118,26 @@ control() {
 }
 control NORMAL
 control MONITOR
+
+# $1 label, $2 sed expression rewriting the watch's registration, $3 the
+# registration it must leave behind
+cancelled() {
+  local copy="$work/watch-$1.php" line
+  printf '\n== a watch %s counts the cancelled login placement, and the probe sees it\n' "$1"
+  sed "$2" "$PLUGIN" > "$copy"
+  [ "$(grep -cF "$WATCH_SHIPPED" "$PLUGIN")" = 1 ] && [ "$(grep -cF "$3" "$copy")" = 1 ] \
+    && pass "the copy registers the teleport watch as $3" \
+    || fail "could not rewrite the teleport watch's registration in $PLUGIN"
+  line="$(session "$(probe "$copy")" cancelled-login)"
+  printf '%s\n' "$line"
+  [ "$line" = "cancelled-login-probe admitted=yes teleports=none" ] \
+    && pass "a watch $1 skips the spawn return after a cancelled placement" \
+    || fail "expected no teleport with a watch $1, got: $line"
+}
+cancelled "at LOWEST" 's/\(onTeleport(\.\.\.), EventPriority::\)MONITOR/\1LOWEST/' \
+  "${WATCH_LINE}, EventPriority::LOWEST, \$this);"
+cancelled "handling cancelled events" 's/\(onTeleport(\.\.\.), EventPriority::MONITOR, \$this\))/\1, true)/' \
+  "${WATCH_LINE}, EventPriority::MONITOR, \$this, true);"
 
 printf '\n'
 ran=$((PASSES + FAILURES))
