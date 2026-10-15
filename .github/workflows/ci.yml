@@ -170,6 +170,9 @@ jobs:
       - name: Instance boot on the pinned core image self-test
         run: bash images/plugins/instance-only/boot-selftest.sh
 
+      - name: Instance-b start script self-test
+        run: bash images/plugins/instance-b/selftest.sh
+
       - name: Instance restart policy and boot gate self-test
         run: bash images/plugins/restart/selftest.sh
 

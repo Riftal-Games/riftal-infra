@@ -251,9 +251,9 @@ check "the economy config names the compose mysql, its schema and the economy lo
   '[ "$(db host "$ECONOMY_CONFIG")" = mysql ] && [ "$(db username "$ECONOMY_CONFIG")" = economy ] &&
     [ "$(db schema "$ECONOMY_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
     grep -qx "  password: \"\"" "$ECONOMY_CONFIG"'
-check "instance gets RIFTAL_DB_PASSWORD_ECONOMY from images/.env and instance-b gets none" \
+check "instance and instance-b get RIFTAL_DB_PASSWORD_ECONOMY from images/.env (riftal-infra#348)" \
   'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_ECONOMY == \"$ECONOMY_PW\"
-    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_ECONOMY == null" <<<"$real" >/dev/null'
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_ECONOMY == \"$ECONOMY_PW\"" <<<"$real" >/dev/null'
 check "with RiftalEconomy.phar built, the tracked config lands on the volume and the phar joins the roster" \
   'ECONOMY=1 boot "$me" RIFTAL_DB_PASSWORD_ECONOMY="$ECONOMY_PW" &&
     cmp -s "$ECONOMY_CONFIG" "$economy_on_volume" && grep -qx RiftalEconomy.phar "$b/roster"'
@@ -340,7 +340,7 @@ undelivered() {
 check "instance and instance-b both run the delivery with the designer index mounted" \
   '[ -z "$(undelivered "$real")" ] &&
     [ "$(jq -c ".services.instance.command[-2:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-only/start-instance.sh\"]" ] &&
-    [ "$(jq -c ".services[\"instance-b\"].command[-1:]" <<<"$real")" = "[\"start-pocketmine\"]" ]'
+    [ "$(jq -c ".services[\"instance-b\"].command[-2:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-b/start.sh\"]" ]'
 check "an instance without the index mounted is caught" \
   '[ "$(undelivered "$(edited "0,/world_index.json:ro/{/world_index.json:ro/d}")")" = instance ]'
 

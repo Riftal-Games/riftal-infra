@@ -1,5 +1,7 @@
 #!/bin/bash
-# The `instance` service's command in images/compose.yaml. PocketMine loads
+# The `instance` service's command in images/compose.yaml, and instance-b's
+# through ../instance-b/start.sh, which stages a copy with RiftalEconomy.phar
+# alone beside it. PocketMine loads
 # plugins from one flat directory and /plugins is the ./plugins bind
 # instance-b shares, so this instance's roster is assembled in the
 # container's own disposable filesystem: every plugin at the top of /plugins,
@@ -8,8 +10,8 @@
 # volume stays writable by PocketMine.
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
-# docker/start.sh), which instance-b runs and which cannot be reused here
-# because it hard-codes --plugins=/plugins. selftest.sh pins this copy of
+# docker/start.sh), which cannot be reused here because it hard-codes
+# --plugins=/plugins. selftest.sh pins this copy of
 # that behaviour but never reads core's script, so a change to start.sh has
 # to be carried here by hand.
 set -euo pipefail

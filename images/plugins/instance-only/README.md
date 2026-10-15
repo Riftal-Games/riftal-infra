@@ -1,12 +1,16 @@
 # instance-only plugins
 
-Plugins the `instance` service loads and `instance-b` does not
+Plugins the `instance` service loads and `instance-b` loads only in part
 (`../../compose.yaml`). `RiftalDevBots.php` one level up is a single script
 both instances want; `RiftalMines` is not, because it resets the worlds
-`instance` hosts and no others.
+`instance` hosts and no others. `RiftalEconomy` is wanted on both
+(riftal-infra#348), so `instance-b` takes it from here and nothing else.
 
 Both instances see this folder through the shared `./plugins` bind, and
-PocketMine never loads from a subfolder, so `instance-b` ignores it.
+PocketMine never loads from a subfolder. `instance-b` runs
+`../instance-b/start.sh`, which stages a copy of `start-instance.sh` in the
+container's own filesystem with `RiftalEconomy.phar` and its config alone
+beside it, so the rest of this folder never reaches its roster.
 `instance` runs `start-instance.sh` instead of the image's `start-pocketmine`:
 it assembles its plugin roster in the container's own disposable filesystem
 and renders the config onto the volume as uid 1000. It otherwise
@@ -191,7 +195,9 @@ stack as ERROR 1142, which is the point.
 ## `RiftalEconomy` and the `economy` login
 
 `RiftalEconomy.phar`, the sell shop and the balance ledger, loads on
-`instance` alone the same way (riftal-infra#887). Build it with the recipe
+`instance` (riftal-infra#887) and on `instance-b` (riftal-infra#348), whose
+chest shops settle against the same ledger, so both are given the `economy`
+login from the same `images/.env` value. Build it with the recipe
 above, `economy` in place of `mines` in the copy loop and
 `economy:instance-only/RiftalEconomy` in place of the `mines` pair. Like
 `mines`, it pins `axolotl-pm/pocketmine-mp`, so `link-replaced.sh` is what
@@ -202,7 +208,8 @@ Everything said of `ranks` above holds with `economy` in its place:
 `start-instance.sh` copies `RiftalEconomy.config.yml` to
 `/data/plugin_data/RiftalEconomy/config.yml` on every boot, the file differs
 from the shipped one only in its schema, the password comes from
-`RIFTAL_DB_PASSWORD_ECONOMY`, the boot stops naming it when it is unset, and
+`RIFTAL_DB_PASSWORD_ECONOMY` on either instance, the boot stops naming it
+when it is unset, and
 the migration runner provisions `economy` with `riftal_role_economy`. Its
 sell locations come from the `world_index.json` `deliver-world-index.sh`
 puts in the same folder.
