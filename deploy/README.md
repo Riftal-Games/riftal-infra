@@ -347,10 +347,17 @@ run to finish and try again, or run it against a separate `BACKUP_ROOT`.
 
 ## Running it locally, via `wslc`
 
-`selftest.sh` and `restore-selftest.sh` are the real proof and run under
-`docker` on the self-hosted CI runner, the same split as
-`../migrations/selftest.sh`: not runnable on Nasir's Windows machine, which
-has no `docker`, only `wslc`. Each selftest run writes its logs to its own
+`selftest.sh` and `restore-selftest.sh` are the real proof and call `docker`
+directly, as `../migrations/selftest.sh` does: on the self-hosted CI runner,
+and on Nasir's Windows machine under the Docker in the WSL distro that hosts
+the CI runners:
+
+```sh
+MSYS_NO_PATHCONV=1 wsl -d Ubuntu-26.04 -u runner --exec bash \
+  /mnt/c/Users/nasir/riftal-games/riftal-infra/deploy/restore-selftest.sh
+```
+
+Each selftest run writes its logs to its own
 `mktemp -d` directory and removes it on exit, so concurrent runs on one host
 do not clobber each other. One backup run by hand, against the dev
 stack's own throwaway data, after `riftal-mysql` is up:
