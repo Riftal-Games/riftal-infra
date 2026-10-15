@@ -54,8 +54,14 @@ class ProbePlayer extends Player{
 
 	public int $probeId = 1;
 
+	public string $deviceModel = Main::BOT_DEVICE_MODEL;
+
 	public function getName() : string{
 		return Main::BOT_NAME;
+	}
+
+	public function getPlayerInfo() : PlayerInfo{
+		return Main::playerInfo($this->deviceModel);
 	}
 
 	public function getId() : int{
@@ -120,6 +126,8 @@ final class Canceller implements Listener{
 final class Main extends PluginBase{
 
 	public const BOT_NAME = "JoinOrderProbe";
+	public const BOT_DEVICE_MODEL = "riftal-devbot";
+	public const NON_BOT_DEVICE_MODEL = "Windows";
 	public const JOIN_OFFSET = 20;
 	public const LOGIN_OFFSET = -20;
 	public const RESET_OFFSET = 40;
@@ -161,7 +169,8 @@ final class Main extends PluginBase{
 		$this->session("login-placement-probe", "login");
 		$this->session("stale-session-probe", "none", true);
 		$this->session("cancelled-login-probe", "login", false, true);
-		$this->session("non-bot-takeover-probe", "none", false, false, true);
+		$this->session("non-bot-takeover-probe", "none", false, false, "after");
+		$this->session("non-bot-first-probe", "none", false, false, "before");
 		$this->getServer()->shutdown();
 	}
 
@@ -170,19 +179,26 @@ final class Main extends PluginBase{
 	 * $stale, the bot first joins as entity 1, and that stale session is
 	 * teleported, as a mine reset would, after the new session's pre-login
 	 * and before core kicks it as a duplicate. With $cancelLogin, Canceller
-	 * refuses the login placement. With $takeover, a session that is not a
-	 * bot pre-logs in under the bot's name after the bot's pre-login, and it
-	 * is that session which logs in and joins. Only the new session's own
-	 * teleports that went through are reported.
+	 * refuses the login placement. With $takeover "after" or "before", a
+	 * session that is not a bot pre-logs in under the bot's name after or
+	 * before the bot's pre-login, and it is that session which logs in and
+	 * joins. The line reports the pre-login of the session that logs in, and
+	 * only that session's own teleports that went through.
 	 */
-	private function session(string $label, string $placer, bool $stale = false, bool $cancelLogin = false, bool $takeover = false) : void{
+	private function session(string $label, string $placer, bool $stale = false, bool $cancelLogin = false, string $takeover = "") : void{
 		self::$placer = $placer;
 		self::$cancelLogin = $cancelLogin;
 		ProbePlayer::$teleports = [];
 
-		$preLogin = $this->preLogin();
-		if($takeover){
-			$preLogin = $this->preLogin("Windows");
+		$device = $takeover === "" ? self::BOT_DEVICE_MODEL : self::NON_BOT_DEVICE_MODEL;
+		if($takeover === "before"){
+			$preLogin = $this->preLogin($device);
+			$this->preLogin();
+		}else{
+			$preLogin = $this->preLogin();
+			if($takeover === "after"){
+				$preLogin = $this->preLogin($device);
+			}
 		}
 		if($stale){
 			$old = $this->login(1);
@@ -190,7 +206,7 @@ final class Main extends PluginBase{
 			$preLogin = $this->preLogin();
 			$old->teleport(self::placement(self::RESET_OFFSET));
 		}
-		$player = $this->login($stale ? 2 : 1);
+		$player = $this->login($stale ? 2 : 1, $device);
 		(new PlayerJoinEvent($player, ""))->call();
 
 		$spawn = $player->getWorld()->getSafeSpawn();
@@ -212,30 +228,34 @@ final class Main extends PluginBase{
 			$seen[] = $name;
 		}
 		$this->getLogger()->info(sprintf(
-			"%s admitted=%s teleports=%s",
+			"%s prelogin=%s teleports=%s",
 			$label,
-			$preLogin->isAllowed() ? "yes" : "no",
+			$preLogin->isAllowed() ? "allowed" : "refused",
 			count($seen) === 0 ? "none" : implode(",", $seen)
 		));
 	}
 
-	private function preLogin(string $deviceModel = "riftal-devbot") : PlayerPreLoginEvent{
-		$info = new PlayerInfo(
+	public static function playerInfo(string $deviceModel) : PlayerInfo{
+		return new PlayerInfo(
 			self::BOT_NAME,
 			Uuid::uuid4(),
 			new Skin("Standard_Custom", str_repeat("\x00", 64 * 32 * 4)),
 			"en_US",
 			["DeviceModel" => $deviceModel]
 		);
-		$event = new PlayerPreLoginEvent($info, "127.0.0.1", 19132, false);
+	}
+
+	private function preLogin(string $deviceModel = self::BOT_DEVICE_MODEL) : PlayerPreLoginEvent{
+		$event = new PlayerPreLoginEvent(self::playerInfo($deviceModel), "127.0.0.1", 19132, false);
 		$event->call();
 		return $event;
 	}
 
 	/** A real session fires PlayerLoginEvent once its player exists. */
-	private function login(int $id) : ProbePlayer{
+	private function login(int $id, string $deviceModel = self::BOT_DEVICE_MODEL) : ProbePlayer{
 		$player = (new \ReflectionClass(ProbePlayer::class))->newInstanceWithoutConstructor();
 		$player->probeId = $id;
+		$player->deviceModel = $deviceModel;
 		(new PlayerLoginEvent($player, ""))->call();
 		return $player;
 	}
