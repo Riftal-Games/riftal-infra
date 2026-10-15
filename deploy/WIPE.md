@@ -144,8 +144,11 @@ survive; the migration run reapplies their grants anyway.
    ok, no level, and players/ and plugin_data/ hold no file`. It fails on
    any level still present (`FAIL level <zone> on <name> ...`), on any file
    in `players/` or `plugin_data/` (`FAIL <dir>/ on <name> holds <n>
-   file(s)`), when `schema_migrations` records no migration, and on each
-   other base table that is not empty (`FAIL <table> holds <n> row(s)`).
+   file(s)`), when `schema_migrations` records no migration, when the table
+   list cannot be read (`FAIL could not list the tables in <database>`) or
+   names no table but `schema_migrations` (`FAIL information_schema lists no
+   table but schema_migrations, ...`), and on each other base table that is
+   not empty (`FAIL <table> holds <n> row(s)`).
    `capture_fence` is the exception: riftal-game's migration 0027 seeds its
    one row, lowered, so it must hold exactly that row, and fails with `FAIL
    capture_fence should hold only migration 0027's row, id 1 and lowered; it
