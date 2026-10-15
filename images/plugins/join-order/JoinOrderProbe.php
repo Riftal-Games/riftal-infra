@@ -161,6 +161,7 @@ final class Main extends PluginBase{
 		$this->session("login-placement-probe", "login");
 		$this->session("stale-session-probe", "none", true);
 		$this->session("cancelled-login-probe", "login", false, true);
+		$this->session("non-bot-takeover-probe", "none", false, false, true);
 		$this->getServer()->shutdown();
 	}
 
@@ -169,15 +170,20 @@ final class Main extends PluginBase{
 	 * $stale, the bot first joins as entity 1, and that stale session is
 	 * teleported, as a mine reset would, after the new session's pre-login
 	 * and before core kicks it as a duplicate. With $cancelLogin, Canceller
-	 * refuses the login placement. Only the new session's own teleports that
-	 * went through are reported.
+	 * refuses the login placement. With $takeover, a session that is not a
+	 * bot pre-logs in under the bot's name after the bot's pre-login, and it
+	 * is that session which logs in and joins. Only the new session's own
+	 * teleports that went through are reported.
 	 */
-	private function session(string $label, string $placer, bool $stale = false, bool $cancelLogin = false) : void{
+	private function session(string $label, string $placer, bool $stale = false, bool $cancelLogin = false, bool $takeover = false) : void{
 		self::$placer = $placer;
 		self::$cancelLogin = $cancelLogin;
 		ProbePlayer::$teleports = [];
 
 		$preLogin = $this->preLogin();
+		if($takeover){
+			$preLogin = $this->preLogin("Windows");
+		}
 		if($stale){
 			$old = $this->login(1);
 			(new PlayerJoinEvent($old, ""))->call();
@@ -213,13 +219,13 @@ final class Main extends PluginBase{
 		));
 	}
 
-	private function preLogin() : PlayerPreLoginEvent{
+	private function preLogin(string $deviceModel = "riftal-devbot") : PlayerPreLoginEvent{
 		$info = new PlayerInfo(
 			self::BOT_NAME,
 			Uuid::uuid4(),
 			new Skin("Standard_Custom", str_repeat("\x00", 64 * 32 * 4)),
 			"en_US",
-			["DeviceModel" => "riftal-devbot"]
+			["DeviceModel" => $deviceModel]
 		);
 		$event = new PlayerPreLoginEvent($info, "127.0.0.1", 19132, false);
 		$event->call();

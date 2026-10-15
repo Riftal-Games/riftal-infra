@@ -2,16 +2,19 @@
 # Self-test that RiftalDevBots' return to spawn never undoes another plugin's
 # placement (riftal-infra#331, riftal-infra#369), and that neither a stale
 # same-name session's teleport (riftal-infra#455) nor a refused placement
-# (riftal-infra#456) suppresses it.
+# (riftal-infra#456) suppresses it, and that a session which is not a bot,
+# pre-logging in under a pending bot's name, is never admitted as that bot
+# (riftal-infra#1162).
 #
 # A plugin that places players on join at NORMAL, as RiftalMines' join_teleport
 # does, or on login, as ranks' login-spawn teleport will (riftal-game#222), must
 # decide where the bot ends up. This boots the real core image with the shipped
-# RiftalDevBots.php and JoinOrderProbe.php beside it. The probe dispatches four
-# bot sessions through PocketMine's own handler lists, one placed on join, one
-# placed on login, one reconnecting while its stale session is teleported, and
-# one whose login placement another listener cancels, logs every teleport that
-# went through in the order the handlers made it, and shuts the server down.
+# RiftalDevBots.php and JoinOrderProbe.php beside it. The probe dispatches five
+# sessions through PocketMine's own handler lists, one placed on join, one
+# placed on login, one reconnecting while its stale session is teleported, one
+# whose login placement another listener cancels, and one that is not a bot
+# taking a pending bot's name, logs every teleport that went through in the
+# order the handlers made it, and shuts the server down.
 #
 # Two things keep a placement standing, and each control removes one so the
 # check is known to tell them apart on every run. Without the teleport watch,
@@ -37,7 +40,8 @@ WATCH_SHIPPED="${WATCH_LINE}, EventPriority::MONITOR, \$this);"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=14
+EXPECTED_ASSERTIONS=17
+TAKEOVER_LINE='unset($this->pending[strtolower($info->getUsername())]);'
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -62,7 +66,7 @@ probe() {
     printf 'server log has an error:\n%s\n' "$(grep -E 'CRITICAL|EMERGENCY|Exception|Stack trace' <<<"$log")"
     return
   fi
-  grep -oE '(join-order|login-placement|stale-session|cancelled-login)-probe admitted=.*' <<<"$log" || tail -n 20 <<<"$log"
+  grep -oE '(join-order|login-placement|stale-session|cancelled-login|non-bot-takeover)-probe admitted=.*' <<<"$log" || tail -n 20 <<<"$log"
 }
 
 # $1 probe output, $2 session label; prints that session's line, or all of $1
@@ -89,6 +93,22 @@ line="$(session "$result" cancelled-login)"
 [ "$line" = "cancelled-login-probe admitted=yes teleports=spawn" ] \
   && pass "a cancelled login placement does not count as placed, and the bot is returned to spawn" \
   || fail "expected only the spawn return after the cancelled login placement, got: $line"
+line="$(session "$result" non-bot-takeover)"
+[ "$line" = "non-bot-takeover-probe admitted=yes teleports=none" ] \
+  && pass "a session that is not a bot, taking a pending bot's name, is not admitted as that bot" \
+  || fail "expected no spawn return for the session that is not a bot, got: $line"
+
+printf '\n== keeping the pending entry admits a session that is not a bot as the bot, and the probe sees it\n'
+kept="$work/kept.php"
+grep -vF "$TAKEOVER_LINE" "$PLUGIN" > "$kept" || true
+[ "$(grep -cF "$TAKEOVER_LINE" "$PLUGIN")" = 1 ] && [ "$(grep -cF "$TAKEOVER_LINE" "$kept")" = 0 ] \
+  && pass "the kept copy leaves the pending entry when a session that is not a bot takes the name" \
+  || fail "could not find the pending entry's removal in $PLUGIN"
+line="$(session "$(probe "$kept")" non-bot-takeover)"
+printf '%s\n' "$line"
+[ "$line" = "non-bot-takeover-probe admitted=yes teleports=spawn" ] \
+  && pass "kept, the probe sees the session that is not a bot returned to spawn as an admitted bot" \
+  || fail "expected the spawn return of an admitted bot, got: $line"
 
 printf '\n== without the teleport watch the spawn return undoes a login placement, and the probe sees it\n'
 unwatched="$work/unwatched.php"

@@ -162,6 +162,9 @@ final class Main extends PluginBase{
 		$info = $event->getPlayerInfo();
 		$model = $info->getExtraData()["DeviceModel"] ?? null;
 		if(!is_string($model) || $model !== self::BOT_DEVICE_MODEL){
+			// Core kicks the bot's session as a duplicate once this one logs in,
+			// so a pending entry left under the name would admit this session.
+			unset($this->pending[strtolower($info->getUsername())]);
 			return;
 		}
 		if(!$this->admitting){
