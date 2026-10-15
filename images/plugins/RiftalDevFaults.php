@@ -3,11 +3,11 @@
 /**
  * @name RiftalDevFaults
  * @main riftal\dev\faults\Main
- * @version 0.1.0
+ * @version 0.2.0
  * @api 5.0.0
  * @depend RiftalDevBots
  * @softdepend RiftalCustody
- * @description Dev stack only. Fails a named player's saves, and the custody probe, for ADR 017 P8.
+ * @description Dev stack only. Fails a named player's saves, the custody probe, and one durable chunk save, for ADR 017 P8 and ADR 030.
  */
 
 declare(strict_types=1);
@@ -26,8 +26,11 @@ use pocketmine\event\player\PlayerDataSaveEvent;
 use pocketmine\permission\DefaultPermissions;
 use pocketmine\plugin\PluginBase;
 use riftal\dev\bots\DevEnvGate;
+use RiftalGames\Contracts\Chunk\DurableChunkSaveEvent;
 use Symfony\Component\Filesystem\Path;
+use function class_exists;
 use function count;
+use function filter_var;
 use function getenv;
 use function is_dir;
 use function is_link;
@@ -54,6 +57,13 @@ use function strtolower;
  * every plugin's onLoad before it enables any, and custody runs its boot
  * probe when it enables. The softdepend on RiftalCustody is ADR 013's, held
  * by custody-selftest.sh for every script plugin an instance loads.
+ *
+ * ADR 030's chunk fault cancels lib's DurableChunkSaveEvent, a RiftalContracts
+ * class, which lib fires only behind the same gate. A script header holds one
+ * softdepend, and custody has it, so the event is looked up in onEnable:
+ * RiftalContracts loads at STARTUP and core puts every plugin's classes on the
+ * loader before it enables any. Without RiftalContracts the other two faults
+ * still register and the chunk fault does not.
  */
 final class Main extends PluginBase{
 
@@ -62,6 +72,15 @@ final class Main extends PluginBase{
 
 	/** @var array<string, true> lowercase names whose every save is cancelled until the process ends */
 	private array $failing = [];
+
+	/**
+	 * Each one fails a single durable save and is then gone. Keyed on the
+	 * chunk as well as the level, because plots saves through the same call
+	 * and an unkeyed fault could be spent on the wrong chunk.
+	 *
+	 * @var array<string, true> chunkKey() of each armed chunk
+	 */
+	private array $chunkFaults = [];
 
 	private bool $on = false;
 
@@ -85,12 +104,53 @@ final class Main extends PluginBase{
 			return;
 		}
 		$server = $this->getServer();
-		$server->getPluginManager()->registerEvent(PlayerDataSaveEvent::class, $this->onSave(...), EventPriority::HIGHEST, $this);
+		$events = $server->getPluginManager();
+		$events->registerEvent(PlayerDataSaveEvent::class, $this->onSave(...), EventPriority::HIGHEST, $this);
 		$logger = $this->getLogger();
-		$server->getCommandMap()->registerAll("riftaldevfaults", [
+		$commands = [
 			new FaultCommand("devfaults-flush-fail", "Dev stack only. Cancels every save of one player until this process ends.", "/devfaults-flush-fail <player>", $logger, $this->failFlush(...)),
 			new FaultCommand("devfaults-probe-fail", "Dev stack only. Makes the custody probe fail until the next boot.", "/devfaults-probe-fail", $logger, $this->failProbe(...)),
-		]);
+		];
+		if(class_exists(DurableChunkSaveEvent::class)){
+			$events->registerEvent(DurableChunkSaveEvent::class, $this->onChunkSave(...), EventPriority::HIGHEST, $this);
+			$commands[] = new FaultCommand("devfaults-chunk-save-fail", "Dev stack only. Fails the next durable save of one chunk.", "/devfaults-chunk-save-fail <level> <chunkX> <chunkZ>", $logger, $this->failChunkSave(...));
+		}else{
+			$logger->warning("RiftalContracts is not loaded, so devfaults-chunk-save-fail is not registered");
+		}
+		$server->getCommandMap()->registerAll("riftaldevfaults", $commands);
+	}
+
+	private function onChunkSave(DurableChunkSaveEvent $event) : void{
+		$level = $event->getWorld()->getFolderName();
+		$key = self::chunkKey($level, $event->chunkX(), $event->chunkZ());
+		if(isset($this->chunkFaults[$key])){
+			unset($this->chunkFaults[$key]);
+			$event->cancel();
+			$this->getLogger()->info("cancelled the durable save of chunk {$event->chunkX()} {$event->chunkZ()} in $level");
+		}
+	}
+
+	/** @param list<string> $args */
+	private function failChunkSave(array $args) : string{
+		if(count($args) !== 3){
+			throw new InvalidCommandSyntaxException();
+		}
+		[$level, $x, $z] = $args;
+		$chunkX = filter_var($x, FILTER_VALIDATE_INT);
+		$chunkZ = filter_var($z, FILTER_VALIDATE_INT);
+		if($chunkX === false || $chunkZ === false){
+			throw new InvalidCommandSyntaxException();
+		}
+		if($this->getServer()->getWorldManager()->getWorldByName($level) === null){
+			return "no level $level is loaded on this instance, so nothing is armed";
+		}
+		$this->chunkFaults[self::chunkKey($level, $chunkX, $chunkZ)] = true;
+		return "the next durable save of chunk $chunkX $chunkZ in $level fails";
+	}
+
+	/** The coordinates come first because a level's folder name may hold a colon. */
+	private static function chunkKey(string $level, int $chunkX, int $chunkZ) : string{
+		return "$chunkX:$chunkZ:$level";
 	}
 
 	private function onSave(PlayerDataSaveEvent $event) : void{
