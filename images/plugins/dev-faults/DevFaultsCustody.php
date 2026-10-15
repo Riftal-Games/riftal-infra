@@ -49,7 +49,13 @@ final class Main extends PluginBase{
 		$boot = (string) getenv("FAULTS_BOOT");
 		$failing = "failing$boot";
 		$other = "other$boot";
-		$registered = $server->getCommandMap()->getCommand("devfaults-flush-fail") !== null;
+		$map = $server->getCommandMap();
+		$byName = [];
+		foreach(["devfaults-flush-fail", "devfaults-probe-fail", "devfaults-chunk-save-fail"] as $command){
+			$byName[] = $command . "=" . ($map->getCommand($command) !== null ? "yes" : "no");
+		}
+		$this->getLogger()->info("dev-faults-commands " . implode(" ", $byName));
+		$registered = $map->getCommand("devfaults-flush-fail") !== null;
 		if($registered){
 			$server->dispatchCommand($console, "devfaults-flush-fail $failing");
 			if(getenv("FAULTS_ARM_PROBE") === "1"){

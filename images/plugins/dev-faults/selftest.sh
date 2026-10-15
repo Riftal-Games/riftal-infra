@@ -30,7 +30,7 @@ IMAGE="$CORE_IMAGE"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=11
+EXPECTED_ASSERTIONS=12
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -85,9 +85,12 @@ cancels="$(grep -c 'cancelled the durable save of chunk 0 0 in ' "$work/log-1" |
   && pass "the log has one chunk cancel, and arming a level not loaded is refused" \
   || fail "boot 1 should log one chunk cancel and refuse nosuchlevel, got $cancels cancel line(s)"
 
-printf '\n== RIFTAL_DEV_ENV unset: no command, no listener, nothing cleared\n'
+printf '\n== RIFTAL_DEV_ENV unset: no command, none of the three by name, no listener, nothing cleared\n'
 expect "a production-shaped boot has no hook and leaves the directory alone" \
   "dir_at_enable=yes commands=no failing=saved other=saved probe=throws chunk=saved,saved,saved" "$(boot "$PLUGIN" "" 1 2)"
+grep -q 'dev-faults-commands devfaults-flush-fail=no devfaults-probe-fail=no devfaults-chunk-save-fail=no' "$work/log-2" \
+  && pass "with the gate closed, no fault command exists, the chunk one included" \
+  || fail "boot 2 should have no fault command, got: $(grep -o 'dev-faults-commands .*' "$work/log-2" || echo 'no command line')"
 
 printf '\n== the shipped plugin clears the armed directory before custody enables\n'
 expect "custody's boot probe finds the directory gone, and it can be armed again" \

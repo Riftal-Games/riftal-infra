@@ -51,7 +51,7 @@ use function strtolower;
  * Present only under RiftalDevBots' DevEnvGate: without --riftal-dev-bots=on,
  * xbox-auth off and RIFTAL_DEV_ENV=1, no command and no listener exist, and
  * without RiftalDevBots core refuses to load this plugin at all.
- * dev-faults/selftest.sh holds the gate, both faults and the boot order.
+ * dev-faults/selftest.sh holds the gate, all three faults and the boot order.
  *
  * The gate is read and the armed probe cleared in onLoad, because core runs
  * every plugin's onLoad before it enables any, and custody runs its boot
@@ -148,7 +148,6 @@ final class Main extends PluginBase{
 		return "the next durable save of chunk $chunkX $chunkZ in $level fails";
 	}
 
-	/** The coordinates come first because a level's folder name may hold a colon. */
 	private static function chunkKey(string $level, int $chunkX, int $chunkZ) : string{
 		return "$chunkX:$chunkZ:$level";
 	}
