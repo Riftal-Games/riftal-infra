@@ -28,6 +28,7 @@ use pocketmine\data\bedrock\item\ItemTypeSerializeException;
 use pocketmine\event\entity\EntityTeleportEvent;
 use pocketmine\event\EventPriority;
 use pocketmine\event\player\PlayerJoinEvent;
+use pocketmine\event\player\PlayerLoginEvent;
 use pocketmine\event\player\PlayerPreLoginEvent;
 use pocketmine\event\player\PlayerQuitEvent;
 use pocketmine\item\Item;
@@ -98,10 +99,14 @@ final class Main extends PluginBase{
 	private bool $admitting = false;
 
 	/**
-	 * Lower-cased names of bots admitted but not yet joined => whether a
-	 * plugin has teleported the bot since its admission.
+	 * Lower-cased names of bots admitted but not yet joined => the entity id
+	 * of the session admitted, null until it logs in, and whether a plugin
+	 * has teleported that session since. The id matters: a bot reconnecting
+	 * under the same name keeps its stale session online until core kicks it
+	 * as a duplicate, after the new pre-login, and nothing done to the stale
+	 * session may count for the new one.
 	 *
-	 * @var array<string, bool>
+	 * @var array<string, array{session: ?int, placed: bool}>
 	 */
 	private array $pending = [];
 
@@ -134,6 +139,7 @@ final class Main extends PluginBase{
 
 		$manager = $server->getPluginManager();
 		$manager->registerEvent(PlayerPreLoginEvent::class, $this->onPreLogin(...), EventPriority::LOWEST, $this);
+		$manager->registerEvent(PlayerLoginEvent::class, $this->onLogin(...), EventPriority::LOWEST, $this);
 		$manager->registerEvent(EntityTeleportEvent::class, $this->onTeleport(...), EventPriority::MONITOR, $this);
 		$manager->registerEvent(PlayerJoinEvent::class, $this->onJoin(...), EventPriority::LOWEST, $this);
 		$manager->registerEvent(PlayerQuitEvent::class, $this->onQuit(...), EventPriority::MONITOR, $this);
@@ -162,13 +168,30 @@ final class Main extends PluginBase{
 			$event->setKickFlag(PlayerPreLoginEvent::KICK_FLAG_PLUGIN, "dev bots are disabled on this server");
 			return;
 		}
-		$this->pending[strtolower($info->getUsername())] = false;
+		$this->pending[strtolower($info->getUsername())] = ["session" => null, "placed" => false];
 	}
 
 	/**
-	 * Any teleport between admission and join is a plugin placing the bot,
-	 * such as the login-spawn teleport riftal-game#222 gives ranks on
-	 * PlayerLoginEvent, and it stands.
+	 * Core kicks a stale same-name session before it creates the new one's
+	 * player, and fires PlayerLoginEvent as soon as it has, so the last
+	 * session to log in under a pending name is the admitted one. Registered
+	 * at LOWEST so it binds before any login placer at a later priority, and
+	 * it drops anything a stale session's teleports recorded.
+	 */
+	private function onLogin(PlayerLoginEvent $event) : void{
+		$player = $event->getPlayer();
+		$key = strtolower($player->getName());
+		if(isset($this->pending[$key])){
+			$this->pending[$key] = ["session" => $player->getId(), "placed" => false];
+		}
+	}
+
+	/**
+	 * A teleport of the admitted session between its login and its join is a
+	 * plugin placing the bot, such as the login-spawn teleport riftal-game#222
+	 * gives ranks on PlayerLoginEvent, and it stands. A teleport of any other
+	 * entity under the same name, such as a mine reset moving a stale session,
+	 * does not count.
 	 * MONITOR sees only teleports no listener cancelled.
 	 */
 	private function onTeleport(EntityTeleportEvent $event) : void{
@@ -177,8 +200,8 @@ final class Main extends PluginBase{
 			return;
 		}
 		$key = strtolower($entity->getName());
-		if(isset($this->pending[$key])){
-			$this->pending[$key] = true;
+		if(($this->pending[$key]["session"] ?? null) === $entity->getId()){
+			$this->pending[$key]["placed"] = true;
 		}
 	}
 
@@ -198,10 +221,10 @@ final class Main extends PluginBase{
 		$player = $event->getPlayer();
 		$name = $player->getName();
 		$key = strtolower($name);
-		if(!isset($this->pending[$key])){
+		if(($this->pending[$key]["session"] ?? null) !== $player->getId()){
 			return;
 		}
-		$placed = $this->pending[$key];
+		$placed = $this->pending[$key]["placed"];
 		unset($this->pending[$key]);
 		$this->bots[$key] = $player->getId();
 		if(!$placed){
