@@ -3,7 +3,7 @@
 /**
  * @name JoinOrderProbe
  * @main riftal\dev\joinorder\Main
- * @version 0.0.2
+ * @version 0.0.3
  * @api 5.0.0
  * @loadbefore RiftalDevBots
  * @description Self-test fixture for selftest.sh beside it. Never loaded by a stack.
@@ -49,15 +49,17 @@ use function str_repeat;
  */
 class ProbePlayer extends Player{
 
-	/** @var list<Vector3> */
+	/** @var list<array{int, Vector3}> */
 	public static array $teleports = [];
+
+	public int $probeId = 1;
 
 	public function getName() : string{
 		return Main::BOT_NAME;
 	}
 
 	public function getId() : int{
-		return 1;
+		return $this->probeId;
 	}
 
 	public function getWorld() : World{
@@ -71,7 +73,7 @@ class ProbePlayer extends Player{
 		if($event->isCancelled()){
 			return false;
 		}
-		self::$teleports[] = $pos->asVector3();
+		self::$teleports[] = [$this->probeId, $pos->asVector3()];
 		return true;
 	}
 
@@ -88,11 +90,13 @@ class ProbePlayer extends Player{
 final class Placer implements Listener{
 
 	public function onLogin(PlayerLoginEvent $event) : void{
-		$event->getPlayer()->teleport(Main::placement(Main::LOGIN_OFFSET));
+		if(Main::$placer === "login"){
+			$event->getPlayer()->teleport(Main::placement(Main::LOGIN_OFFSET));
+		}
 	}
 
 	public function onJoin(PlayerJoinEvent $event) : void{
-		if(!Main::$placeAtLogin){
+		if(Main::$placer === "join"){
 			$event->getPlayer()->teleport(Main::placement(Main::JOIN_OFFSET));
 		}
 	}
@@ -103,8 +107,10 @@ final class Main extends PluginBase{
 	public const BOT_NAME = "JoinOrderProbe";
 	public const JOIN_OFFSET = 20;
 	public const LOGIN_OFFSET = -20;
+	public const RESET_OFFSET = 40;
 
-	public static bool $placeAtLogin = false;
+	/** When Placer places the bot: "join", "login" or "none" */
+	public static string $placer = "join";
 
 	public static function placement(int $offset) : Vector3{
 		return Server::getInstance()->getWorldManager()->getDefaultWorld()->getSafeSpawn()->add($offset, 0, $offset);
@@ -132,34 +138,31 @@ final class Main extends PluginBase{
 			}
 		}
 
-		$this->session("join-order-probe", false);
-		$this->session("login-placement-probe", true);
+		$this->session("join-order-probe", "join");
+		$this->session("login-placement-probe", "login");
+		$this->session("stale-session-probe", "none", true);
 		$this->getServer()->shutdown();
 	}
 
 	/**
-	 * One bot session from pre-login to join. A real session fires
-	 * PlayerLoginEvent every time; it is fired here only when the login
-	 * placement is under test, so the other session has no login placer.
+	 * One bot session from pre-login to join, placed as $placer says. With
+	 * $stale, the bot first joins as entity 1, and that stale session is
+	 * teleported, as a mine reset would, after the new session's pre-login
+	 * and before core kicks it as a duplicate. Only the new session's own
+	 * teleports are reported.
 	 */
-	private function session(string $label, bool $placeAtLogin) : void{
-		self::$placeAtLogin = $placeAtLogin;
+	private function session(string $label, string $placer, bool $stale = false) : void{
+		self::$placer = $placer;
 		ProbePlayer::$teleports = [];
 
-		$info = new PlayerInfo(
-			self::BOT_NAME,
-			Uuid::uuid4(),
-			new Skin("Standard_Custom", str_repeat("\x00", 64 * 32 * 4)),
-			"en_US",
-			["DeviceModel" => "riftal-devbot"]
-		);
-		$preLogin = new PlayerPreLoginEvent($info, "127.0.0.1", 19132, false);
-		$preLogin->call();
-
-		$player = (new \ReflectionClass(ProbePlayer::class))->newInstanceWithoutConstructor();
-		if($placeAtLogin){
-			(new PlayerLoginEvent($player, ""))->call();
+		$preLogin = $this->preLogin();
+		if($stale){
+			$old = $this->login(1);
+			(new PlayerJoinEvent($old, ""))->call();
+			$preLogin = $this->preLogin();
+			$old->teleport(self::placement(self::RESET_OFFSET));
 		}
+		$player = $this->login($stale ? 2 : 1);
 		(new PlayerJoinEvent($player, ""))->call();
 
 		$spawn = $player->getWorld()->getSafeSpawn();
@@ -168,7 +171,10 @@ final class Main extends PluginBase{
 			"login-placer" => self::placement(self::LOGIN_OFFSET),
 		];
 		$seen = [];
-		foreach(ProbePlayer::$teleports as $pos){
+		foreach(ProbePlayer::$teleports as [$id, $pos]){
+			if($id !== $player->getId()){
+				continue;
+			}
 			$name = $pos->equals($spawn) ? "spawn" : "elsewhere";
 			foreach($placements as $placer => $at){
 				if($pos->equals($at)){
@@ -183,5 +189,26 @@ final class Main extends PluginBase{
 			$preLogin->isAllowed() ? "yes" : "no",
 			count($seen) === 0 ? "none" : implode(",", $seen)
 		));
+	}
+
+	private function preLogin() : PlayerPreLoginEvent{
+		$info = new PlayerInfo(
+			self::BOT_NAME,
+			Uuid::uuid4(),
+			new Skin("Standard_Custom", str_repeat("\x00", 64 * 32 * 4)),
+			"en_US",
+			["DeviceModel" => "riftal-devbot"]
+		);
+		$event = new PlayerPreLoginEvent($info, "127.0.0.1", 19132, false);
+		$event->call();
+		return $event;
+	}
+
+	/** A real session fires PlayerLoginEvent once its player exists. */
+	private function login(int $id) : ProbePlayer{
+		$player = (new \ReflectionClass(ProbePlayer::class))->newInstanceWithoutConstructor();
+		$player->probeId = $id;
+		(new PlayerLoginEvent($player, ""))->call();
+		return $player;
 	}
 }

@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Self-test that RiftalDevBots' return to spawn never undoes another plugin's
-# placement (riftal-infra#331, riftal-infra#369).
+# placement (riftal-infra#331, riftal-infra#369), and that a stale same-name
+# session's teleport never suppresses it (riftal-infra#455).
 #
 # A plugin that places players on join at NORMAL, as RiftalMines' join_teleport
 # does, or on login, as ranks' login-spawn teleport will (riftal-game#222), must
 # decide where the bot ends up. This boots the real core image with the shipped
-# RiftalDevBots.php and JoinOrderProbe.php beside it. The probe dispatches two
-# bot sessions through PocketMine's own handler lists, one placed on join and
-# one placed on login, logs every teleport in the order the handlers made it,
-# and shuts the server down.
+# RiftalDevBots.php and JoinOrderProbe.php beside it. The probe dispatches three
+# bot sessions through PocketMine's own handler lists, one placed on join, one
+# placed on login, and one reconnecting while its stale session is teleported,
+# logs every teleport in the order the handlers made it, and shuts the server
+# down.
 #
 # Two things keep a placement standing, and each control removes one so the
 # check is known to tell them apart on every run. Without the teleport watch,
@@ -33,7 +35,7 @@ WATCH_LINE='registerEvent(EntityTeleportEvent::class, $this->onTeleport(...)'
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=8
+EXPECTED_ASSERTIONS=9
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -58,7 +60,7 @@ probe() {
     printf 'server log has an error:\n%s\n' "$(grep -E 'CRITICAL|EMERGENCY|Exception|Stack trace' <<<"$log")"
     return
   fi
-  grep -oE '(join-order|login-placement)-probe admitted=.*' <<<"$log" || tail -n 20 <<<"$log"
+  grep -oE '(join-order|login-placement|stale-session)-probe admitted=.*' <<<"$log" || tail -n 20 <<<"$log"
 }
 
 # $1 probe output, $2 session label; prints that session's line, or all of $1
@@ -77,6 +79,10 @@ line="$(session "$result" login-placement)"
 [ "$line" = "login-placement-probe admitted=yes teleports=login-placer" ] \
   && pass "a bot placed on login stays where the login placer put it" \
   || fail "expected only the login placement, got: $line"
+line="$(session "$result" stale-session)"
+[ "$line" = "stale-session-probe admitted=yes teleports=spawn" ] \
+  && pass "a stale same-name session's teleport does not stop the new session's spawn return" \
+  || fail "expected only the spawn return for the new session, got: $line"
 
 printf '\n== without the teleport watch the spawn return undoes a login placement, and the probe sees it\n'
 unwatched="$work/unwatched.php"
