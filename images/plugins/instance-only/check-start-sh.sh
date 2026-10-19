@@ -5,13 +5,14 @@
 # behaviour by hand, so a change to it has to be carried across by hand too,
 # and this is what says one happened.
 #
-# Reads the script out of the image already on this machine and never pulls:
-# a registry copy is not what the instances here run. A missing image fails,
-# because a check that skips is a check nobody ran.
+# Reads the script out of the core image pinned in ../../core-image.sha, which
+# is already on this machine, and never pulls: a registry copy is not what the
+# instances here run. START_SH_IMAGE names another image for the self-test. A
+# missing image fails, because a check that skips is a check nobody ran.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE="${START_SH_IMAGE:-local-pocketmine-mp}"
+. "$DIR/../../core-image.sh"
 RECORD="${START_SH_RECORD:-$DIR/start-sh.sha256}"
 IN_IMAGE=/usr/bin/start-pocketmine
 
@@ -23,9 +24,15 @@ if [ -z "$recorded" ] || [ -z "$commit" ]; then
   exit 1
 fi
 
-if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  printf '::error::image %s is not present, so start-instance.sh was never checked against core'"'"'s start.sh. Build it from pmmp-core; this check never pulls.\n' "$IMAGE"
-  exit 1
+if [ -n "${START_SH_IMAGE:-}" ]; then
+  IMAGE="$START_SH_IMAGE"
+  if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    printf '::error::image %s is not present, so start-instance.sh was never checked against core'"'"'s start.sh. This check never pulls.\n' "$IMAGE"
+    exit 1
+  fi
+else
+  core_image || { printf 'start-instance.sh was never checked against core'"'"'s start.sh\n'; exit 1; }
+  IMAGE="$CORE_IMAGE"
 fi
 
 if ! out="$(docker run --rm --pull never --network none -m 1g --cpus 1 \

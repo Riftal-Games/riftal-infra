@@ -4,7 +4,8 @@
 # record with no commit line, and an image that does not exist, and expects
 # each of those to fail with an error naming what is wrong.
 #
-# Needs the local-pocketmine-mp image, present on the self-hosted runners.
+# Needs the core image pinned in ../../core-image.sha, present on the
+# self-hosted runners.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
