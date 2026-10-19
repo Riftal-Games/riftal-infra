@@ -162,11 +162,10 @@ survive; the migration run reapplies their grants anyway.
 **Rollback**, once step 4 has dropped the database: repeat step 2 first if any
 instance or the `backup` service is running, since `restore.sh` refuses while
 any other session is connected, before it drops the database or clears a world
-volume. Then
-`restore.sh` with the step 3 set, then step 5, then step 7. It rebuilds every
-world volume from that set, which is the state they were stopped in at step 2,
-so a rollback after step 7 also discards every block changed and every row
-written since the instances came back.
+volume. Then `restore.sh` with the step 3 set, then step 5, then step 7. It
+rebuilds every world volume from that set, which is the state they were stopped
+in at step 2, so a rollback after step 7 also discards every block changed and
+every row written since the instances came back.
 
 **A run that stops before step 4**, for example because `wipe.sh` refused,
 has dropped and cleared nothing and needs no rollback. Every instance and the `backup`
