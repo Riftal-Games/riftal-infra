@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
-# Runs one scan over the real tree: `dockerfiles` or `compose`.
+# Runs one scan over the real tree: `dockerfiles`, `compose` or `ports`.
 #
 # The self-test drives this exact script, with no root or prune argument, the
-# same way ci.yml calls it below, so discovery, dispatch, the two check_
-# functions and the loop are all exercised by what gates a merge, not by a
+# same way ci.yml calls it below, so discovery, dispatch, every check_
+# function and the loop are all exercised by what gates a merge, not by a
 # copy of them.
 set -euo pipefail
 
-kind="${1:?usage: scan.sh <dockerfiles|compose> [root] [prune-path]}"
+kind="${1:?usage: scan.sh <dockerfiles|compose|ports> [root] [prune-path]}"
 root="${2:-.}"
 prune="${3:-$root/.github/ci-fixtures}"
 scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 check_dockerfiles() { "$HADOLINT" "$1"; }
 check_compose() { docker compose -f "$1" config --quiet; }
+
+# Every profile, because `config` drops a service behind a profile nobody
+# asked for, and a publish nobody reads passes.
+check_ports() {
+  docker compose --profile '*' -f "$1" config --format json |
+    python3 "$scripts/check_port_policy.py" "$1"
+}
 
 # Command substitution puts discovery's exit status under `set -e`, so a
 # discovery that dies stops the scan instead of reading as an empty tree.
@@ -34,7 +41,7 @@ case "$kind" in
         -o -iname '*.Dockerfile' -o -iname Containerfile \
         -o -iname 'Containerfile.*' -o -iname '*.Containerfile' \) -print0 |
       LC_ALL=C sort -z | tr '\0' '\n')" ;;
-  compose) label='compose file(s)'
+  compose|ports) label='compose file(s)'
     found="$(bash "${LISTER:-$scripts/list_compose.sh}" "$root" "$prune")" ;;
   *) printf 'unknown scan: %s\n' "$kind" >&2; exit 2 ;;
 esac

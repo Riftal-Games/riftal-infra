@@ -194,10 +194,10 @@ cleared, so a corrupt tar for one world in a multi-world set aborts the whole
 restore instead of being found only after earlier worlds have already been
 cleared and left neither restored nor in their pre-restore state.
 
-Wiping the shared database between MVPs is its own runbook,
-[`WIPE.md`](WIPE.md). It drops and recreates the database only, leaving world
-volumes alone, and its rollback is this restore with the backup set taken
-just before the wipe. Every wipe of alpha or production data is Nasir's.
+Wiping between MVPs is its own runbook, [`WIPE.md`](WIPE.md). It drops and
+recreates the database and clears the levels, `players/` and `plugin_data/`
+on every instance volume, and its rollback is this restore with the backup
+set taken just before the wipe. Every wipe of alpha or production data is Nasir's.
 
 ## Binary log retention
 
@@ -347,10 +347,17 @@ run to finish and try again, or run it against a separate `BACKUP_ROOT`.
 
 ## Running it locally, via `wslc`
 
-`selftest.sh` and `restore-selftest.sh` are the real proof and run under
-`docker` on the self-hosted CI runner, the same split as
-`../migrations/selftest.sh`: not runnable on Nasir's Windows machine, which
-has no `docker`, only `wslc`. Each selftest run writes its logs to its own
+`selftest.sh` and `restore-selftest.sh` are the real proof and call `docker`
+directly, as `../migrations/selftest.sh` does: on the self-hosted CI runner,
+and on Nasir's Windows machine under the Docker in the WSL distro that hosts
+the CI runners:
+
+```sh
+MSYS_NO_PATHCONV=1 wsl -d Ubuntu-26.04 -u runner --exec bash \
+  /mnt/c/Users/nasir/riftal-games/riftal-infra/deploy/restore-selftest.sh
+```
+
+Each selftest run writes its logs to its own
 `mktemp -d` directory and removes it on exit, so concurrent runs on one host
 do not clobber each other. One backup run by hand, against the dev
 stack's own throwaway data, after `riftal-mysql` is up:

@@ -16,7 +16,38 @@ Set in `images/.env`, copied from `.env.example`. Never commit `.env`.
 | `BACKUP_RETENTION`, `BACKUP_INTERVAL_SECONDS`, `PARTIAL_MAX_AGE_MINUTES`, `LOCK_MAX_AGE_MINUTES` | How many backup sets `../deploy/backup.sh` keeps, how often the `backup` service runs it, how old a leftover `.partial` must be before it sweeps it, and how old a held `.lock` must be before it presumes the lock abandoned and sweeps that too. See `../deploy/README.md`. |
 | `RIFTAL_DB_PASSWORD_BACKUP` | Password of `backup`, the login the `backup` service dumps with. The `dump-login` service runs `../migrations/run-migrations.sh` with it on every `docker compose up`, creating or rotating the login, and `backup` starts only once that run succeeds. Empty or unset, `dump-login` exits 1 naming the variable and `backup` never starts. `dump-login-selftest.sh` proves both. See `../deploy/README.md`. |
 | `RIFTAL_DB_PASSWORD_ACCOUNTS` | The `accounts` MySQL login's password (ADR 008). The migration runner provisions the login with it, and compose hands it to both instances, where `RiftalAccounts` reads it from the environment, never from its config. At least 24 characters, `[A-Za-z0-9]` only. See RiftalAccounts below. |
-| `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). `plugins/RiftalDevFaults.php` exists under the same gate, or not at all. |
+| `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). `plugins/RiftalDevFaults.php` exists under the same gate, or not at all. It is also reserved at wipe time: see Reserved for the dev stack, below. |
+
+## Reserved for the dev stack
+
+Two values belong to the shared dev stack (`compose.yaml`) alone. No alpha,
+production or rig stack uses either:
+
+- The database name `riftal_dev`, which `compose.yaml` fixes as
+  `MYSQL_DATABASE` on exactly three services: `mysql`, `backup` and
+  `dump-login`.
+- `RIFTAL_DEV_ENV=1` in the environment of a wipe run
+  (`../deploy/wipe.sh`), on top of the instances' own `RIFTAL_DEV_ENV`
+  above.
+
+The reservation is a standing rule. It exists for the wipe's dev path, which
+riftal-infra#1110 is to build to the steward rulings on riftal-pm#1312 and
+riftal-pm#1314. A wipe runs as a one-off container that cannot see the
+instances' environment, so that path takes two keys, both required, each
+matched exactly: `RIFTAL_DEV_ENV=1` in the wipe's own environment, and a
+`MYSQL_DATABASE` of `riftal_dev` that exists on the target server. The two
+keys gate every wipe that clears a level with no build, default or
+non-default. With both, such a level is cleared: afterwards core generates a
+default level fresh on the next boot, and a non-default level is left absent.
+Any other combination refuses the wipe, `RIFTAL_DEV_ENV=1` against another
+database included. One key alone never takes the path, but a stack outside
+the shared dev stack carrying either value is one key away from it, and the
+ruling reverses if one does.
+
+Rigs name their database `riftal` and never run a wipe, so a wipe aimed at
+one refuses. The one other place `riftal_dev` may appear is
+riftal-infra#1110's selftest, which creates it in throwaway `mysql:8`
+containers as a fixture for the script, not a stack the wipe serves.
 
 ## Dev faults
 
@@ -30,6 +61,42 @@ ADR 017 P8 (riftal-infra#932). From the server console only:
   the directory before `RiftalCustody` enables, so the restart is not killed
   by custody's own boot probe. A boot without the gate leaves it there, and
   custody stops that boot.
+- `devfaults-chunk-save-fail <level> <chunkX> <chunkZ>` fails the next
+  durable save of that chunk, for ADR 030 (riftal-infra#1124). `<level>` is
+  the level's folder name and must be loaded on this instance, and the chunk
+  coordinates are integers. The fault is single-use and keyed on the level
+  and chunk: the first matching `DurableChunkSaveEvent` is cancelled, logged
+  as `cancelled the durable save of chunk <chunkX> <chunkZ> in <level>`, and
+  the fault is gone. A save of any other chunk is untouched. An armed fault
+  whose chunk is never saved stays armed until the process ends, so read the
+  cancel line rather than assume it was spent. The command exists only when
+  `RiftalContracts` is loaded with `DurableChunkSaveEvent`; without it the
+  boot logs that the command is not registered and the other two still are.
+
+## Dev bots tile contents
+
+`plugins/RiftalDevBots.php` registers `devbots-tile <x> <y> <z> [level]`
+under the same gate, for ADR 025 P5 and spec 020's M3 criteria
+(riftal-infra#1105). From the console or an admitted dev bot, it logs a
+container tile's server-side contents one slot a line, each with the item's
+Bedrock id, meta and count, and the first line with the server tick. A bot
+also gets the lines in chat. It reads only, and reports a chunk nothing holds
+loaded rather than loading it.
+
+## Dev bots test hooks
+
+Spec 020 criteria 22 to 24 (riftal-infra#1124) take two more commands from
+`plugins/RiftalDevBots.php`, under the same gate and from the console or an
+admitted dev bot:
+
+- `devbots-autosave <on|off> [level]` sets one level's autosave, as
+  `save-off` does for every level, and logs the level, the tick and the result.
+- `devbots-shulker <bot>` hands an admitted dev bot a shulker box holding one
+  stick. It makes an item, which hard rule 1 forbids everywhere else, so it
+  gives to nobody but an admitted dev bot.
+
+Criterion 23's failed player save is `devfaults-flush-fail` above, and its
+failed durable chunk save is `devfaults-chunk-save-fail` above.
 
 ## The world index
 
