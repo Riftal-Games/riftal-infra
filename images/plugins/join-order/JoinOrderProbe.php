@@ -3,7 +3,7 @@
 /**
  * @name JoinOrderProbe
  * @main riftal\dev\joinorder\Main
- * @version 0.0.1
+ * @version 0.0.4
  * @api 5.0.0
  * @loadbefore RiftalDevBots
  * @description Self-test fixture for selftest.sh beside it. Never loaded by a stack.
@@ -20,10 +20,12 @@ declare(strict_types=1);
 namespace riftal\dev\joinorder;
 
 use pocketmine\entity\Skin;
+use pocketmine\event\entity\EntityTeleportEvent;
 use pocketmine\event\EventPriority;
 use pocketmine\event\HandlerListManager;
 use pocketmine\event\Listener;
 use pocketmine\event\player\PlayerJoinEvent;
+use pocketmine\event\player\PlayerLoginEvent;
 use pocketmine\event\player\PlayerPreLoginEvent;
 use pocketmine\math\Vector3;
 use pocketmine\player\Player;
@@ -31,6 +33,7 @@ use pocketmine\player\PlayerInfo;
 use pocketmine\plugin\PluginBase;
 use pocketmine\scheduler\ClosureTask;
 use pocketmine\Server;
+use pocketmine\world\Position;
 use pocketmine\world\World;
 use Ramsey\Uuid\Uuid;
 use function count;
@@ -40,20 +43,29 @@ use function str_repeat;
 
 /**
  * Stands in for a joining bot without a network session. It is built without
- * its constructor, so it overrides everything the join handlers under test
- * call on it, and records each teleport instead of moving anything.
+ * its constructor, so it overrides everything the handlers under test call on
+ * it. A teleport fires the EntityTeleportEvent a real one fires, and is
+ * recorded instead of moving anything.
  */
 class ProbePlayer extends Player{
 
-	/** @var list<Vector3> */
+	/** @var list<array{int, Vector3}> */
 	public static array $teleports = [];
+
+	public int $probeId = 1;
+
+	public string $deviceModel = Main::BOT_DEVICE_MODEL;
 
 	public function getName() : string{
 		return Main::BOT_NAME;
 	}
 
+	public function getPlayerInfo() : PlayerInfo{
+		return Main::playerInfo($this->deviceModel);
+	}
+
 	public function getId() : int{
-		return 1;
+		return $this->probeId;
 	}
 
 	public function getWorld() : World{
@@ -61,7 +73,13 @@ class ProbePlayer extends Player{
 	}
 
 	public function teleport(Vector3 $pos, ?float $yaw = null, ?float $pitch = null) : bool{
-		self::$teleports[] = $pos->asVector3();
+		$world = $this->getWorld();
+		$event = new EntityTeleportEvent($this, $world->getSafeSpawn(), Position::fromObject($pos, $world));
+		$event->call();
+		if($event->isCancelled()){
+			return false;
+		}
+		self::$teleports[] = [$this->probeId, $pos->asVector3()];
 		return true;
 	}
 
@@ -70,26 +88,63 @@ class ProbePlayer extends Player{
 }
 
 /**
- * Places joining players the way RiftalMines' JoinSpawnListener does: through
- * registerEvents() with no @priority tag, so at NORMAL.
+ * Places players the way riftal-game plugins do: through registerEvents()
+ * with no @priority tag, so at NORMAL. The join placement stands in for
+ * RiftalMines' JoinSpawnListener, the login placement for ranks' login-spawn
+ * teleport (riftal-game#222).
  */
 final class Placer implements Listener{
 
+	public function onLogin(PlayerLoginEvent $event) : void{
+		if(Main::$placer === "login"){
+			$event->getPlayer()->teleport(Main::placement(Main::LOGIN_OFFSET));
+		}
+	}
+
 	public function onJoin(PlayerJoinEvent $event) : void{
-		$event->getPlayer()->teleport(Main::placement());
+		if(Main::$placer === "join"){
+			$event->getPlayer()->teleport(Main::placement(Main::JOIN_OFFSET));
+		}
+	}
+}
+
+/**
+ * Refuses the login placement, as a plugin guarding where players may go
+ * would. At HIGHEST it runs after a teleport watch registered at any priority
+ * below MONITOR, so such a watch sees the placement before it is refused.
+ */
+final class Canceller implements Listener{
+
+	/** @priority HIGHEST */
+	public function onTeleport(EntityTeleportEvent $event) : void{
+		if(Main::$cancelLogin && $event->getTo()->equals(Main::placement(Main::LOGIN_OFFSET))){
+			$event->cancel();
+		}
 	}
 }
 
 final class Main extends PluginBase{
 
 	public const BOT_NAME = "JoinOrderProbe";
+	public const BOT_DEVICE_MODEL = "riftal-devbot";
+	public const NON_BOT_DEVICE_MODEL = "Windows";
+	public const JOIN_OFFSET = 20;
+	public const LOGIN_OFFSET = -20;
+	public const RESET_OFFSET = 40;
 
-	public static function placement() : Vector3{
-		return Server::getInstance()->getWorldManager()->getDefaultWorld()->getSafeSpawn()->add(20, 0, 20);
+	/** When Placer places the bot: "join", "login" or "none" */
+	public static string $placer = "join";
+
+	/** Whether Canceller refuses the login placement */
+	public static bool $cancelLogin = false;
+
+	public static function placement(int $offset) : Vector3{
+		return Server::getInstance()->getWorldManager()->getDefaultWorld()->getSafeSpawn()->add($offset, 0, $offset);
 	}
 
 	protected function onEnable() : void{
 		$this->getServer()->getPluginManager()->registerEvents(new Placer(), $this);
+		$this->getServer()->getPluginManager()->registerEvents(new Canceller(), $this);
 		$this->getScheduler()->scheduleDelayedTask(new ClosureTask($this->probe(...)), 1);
 	}
 
@@ -110,30 +165,98 @@ final class Main extends PluginBase{
 			}
 		}
 
-		$info = new PlayerInfo(
+		$this->session("join-order-probe", "join");
+		$this->session("login-placement-probe", "login");
+		$this->session("stale-session-probe", "none", true);
+		$this->session("cancelled-login-probe", "login", false, true);
+		$this->session("non-bot-takeover-probe", "none", false, false, "after");
+		$this->session("non-bot-first-probe", "none", false, false, "before");
+		$this->getServer()->shutdown();
+	}
+
+	/**
+	 * One bot session from pre-login to join, placed as $placer says. With
+	 * $stale, the bot first joins as entity 1, and that stale session is
+	 * teleported, as a mine reset would, after the new session's pre-login
+	 * and before core kicks it as a duplicate. With $cancelLogin, Canceller
+	 * refuses the login placement. With $takeover "after" or "before", a
+	 * session that is not a bot pre-logs in under the bot's name after or
+	 * before the bot's pre-login, and it is that session which logs in and
+	 * joins. The line reports the pre-login of the session that logs in, and
+	 * only that session's own teleports that went through.
+	 */
+	private function session(string $label, string $placer, bool $stale = false, bool $cancelLogin = false, string $takeover = "") : void{
+		self::$placer = $placer;
+		self::$cancelLogin = $cancelLogin;
+		ProbePlayer::$teleports = [];
+
+		$device = $takeover === "" ? self::BOT_DEVICE_MODEL : self::NON_BOT_DEVICE_MODEL;
+		if($takeover === "before"){
+			$preLogin = $this->preLogin($device);
+			$this->preLogin();
+		}else{
+			$preLogin = $this->preLogin();
+			if($takeover === "after"){
+				$preLogin = $this->preLogin($device);
+			}
+		}
+		if($stale){
+			$old = $this->login(1);
+			(new PlayerJoinEvent($old, ""))->call();
+			$preLogin = $this->preLogin();
+			$old->teleport(self::placement(self::RESET_OFFSET));
+		}
+		$player = $this->login($stale ? 2 : 1, $device);
+		(new PlayerJoinEvent($player, ""))->call();
+
+		$spawn = $player->getWorld()->getSafeSpawn();
+		$placements = [
+			"placer" => self::placement(self::JOIN_OFFSET),
+			"login-placer" => self::placement(self::LOGIN_OFFSET),
+		];
+		$seen = [];
+		foreach(ProbePlayer::$teleports as [$id, $pos]){
+			if($id !== $player->getId()){
+				continue;
+			}
+			$name = $pos->equals($spawn) ? "spawn" : "elsewhere";
+			foreach($placements as $placer => $at){
+				if($pos->equals($at)){
+					$name = $placer;
+				}
+			}
+			$seen[] = $name;
+		}
+		$this->getLogger()->info(sprintf(
+			"%s prelogin=%s teleports=%s",
+			$label,
+			$preLogin->isAllowed() ? "allowed" : "refused",
+			count($seen) === 0 ? "none" : implode(",", $seen)
+		));
+	}
+
+	public static function playerInfo(string $deviceModel) : PlayerInfo{
+		return new PlayerInfo(
 			self::BOT_NAME,
 			Uuid::uuid4(),
 			new Skin("Standard_Custom", str_repeat("\x00", 64 * 32 * 4)),
 			"en_US",
-			["DeviceModel" => "riftal-devbot"]
+			["DeviceModel" => $deviceModel]
 		);
-		$preLogin = new PlayerPreLoginEvent($info, "127.0.0.1", 19132, false);
-		$preLogin->call();
+	}
 
+	private function preLogin(string $deviceModel = self::BOT_DEVICE_MODEL) : PlayerPreLoginEvent{
+		$event = new PlayerPreLoginEvent(self::playerInfo($deviceModel), "127.0.0.1", 19132, false);
+		$event->call();
+		return $event;
+	}
+
+	/** A real session fires PlayerLoginEvent once its player exists. */
+	private function login(int $id, string $deviceModel = self::BOT_DEVICE_MODEL) : ProbePlayer{
 		$player = (new \ReflectionClass(ProbePlayer::class))->newInstanceWithoutConstructor();
-		(new PlayerJoinEvent($player, ""))->call();
-
-		$spawn = $player->getWorld()->getSafeSpawn();
-		$placement = self::placement();
-		$seen = [];
-		foreach(ProbePlayer::$teleports as $pos){
-			$seen[] = $pos->equals($spawn) ? "spawn" : ($pos->equals($placement) ? "placer" : "elsewhere");
-		}
-		$logger->info(sprintf(
-			"join-order-probe admitted=%s teleports=%s",
-			$preLogin->isAllowed() ? "yes" : "no",
-			count($seen) === 0 ? "none" : implode(",", $seen)
-		));
-		$this->getServer()->shutdown();
+		$player->probeId = $id;
+		$player->deviceModel = $deviceModel;
+		(new PlayerLoginEvent($player, ""))->call();
+		return $player;
 	}
 }

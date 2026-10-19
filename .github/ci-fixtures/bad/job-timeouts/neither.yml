@@ -1,0 +1,8 @@
+# Must fail job-timeouts.sh: the job names neither a runner nor a workflow to
+# call, so nothing says where or how long it runs.
+on: push
+jobs:
+  only:
+    timeout-minutes: 5
+    steps:
+      - run: "true"

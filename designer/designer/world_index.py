@@ -31,6 +31,11 @@ def _parts(ref: str) -> list[int]:
     except ValueError:
         raise ValueError(f"a position is integers, got {ref!r}") from None
 
+def _tags(data: Mapping[str, Any]) -> Any:
+    tags = data.get("tags", [])
+    # Anything but a list is kept as given for _admissible to refuse: list() would split "safe_zone" into letters.
+    return list(tags) if isinstance(tags, list) else tags
+
 @dataclass
 class Location:
     """A named point. ``pos`` is the feet block in integer block coordinates; ``yaw`` and ``pitch`` are degrees."""
@@ -47,7 +52,7 @@ class Location:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Location:
-        return cls(data["name"], data["world"], data["pos"], data.get("yaw", 0), data.get("pitch", 0), list(data.get("tags", [])))
+        return cls(data["name"], data["world"], data["pos"], data.get("yaw", 0), data.get("pitch", 0), _tags(data))
 
     def to_json(self) -> dict[str, Any]:
         return {"name": self.name, "world": self.world, "pos": list(self.pos), "yaw": self.yaw, "pitch": self.pitch, "tags": list(self.tags)}
@@ -71,7 +76,7 @@ class NamedRegion:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> NamedRegion:
-        return cls(data["name"], data["world"], data["min"], data["max"], list(data.get("tags", [])), dict(data.get("meta", {})))
+        return cls(data["name"], data["world"], data["min"], data["max"], _tags(data), dict(data.get("meta", {})))
 
     def to_json(self) -> dict[str, Any]:
         return {"name": self.name, "world": self.world, **self.bounds.to_json(), "tags": list(self.tags), "meta": dict(self.meta)}
@@ -217,6 +222,13 @@ class WorldIndex:
         """
         if not NAME_RE.fullmatch(entry.name):
             raise ValueError(f"{what or f'name {entry.name!r}'} must match {NAME_RE.pattern}")
+        label = what or f"{type(entry).__name__} {entry.name!r}"
+        # The plugins match tags with a strict in_array over a list, so a bare string or an int tag would
+        # silently drop safe_zone or sell.
+        if not isinstance(entry.tags, list):
+            raise ValueError(f"{label} has tags that are not a list: {entry.tags!r}")
+        if bad := [t for t in entry.tags if not isinstance(t, str)]:
+            raise ValueError(f"{label} has a tag that is not a string: {bad[0]!r}")
         world = self.world(entry.world)
         if isinstance(entry, NamedRegion) and world.role == "contested" and "safe_zone" in entry.tags:
             raise ValueError(

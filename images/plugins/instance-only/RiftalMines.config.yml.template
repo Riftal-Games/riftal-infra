@@ -1,26 +1,28 @@
-# start-instance.sh renders this to /data/plugin_data/RiftalMines/config.yml
+# start-instance.sh writes this to /data/plugin_data/RiftalMines/config.yml
 # with render-config.sh on every boot, so this template stays authoritative;
 # PluginBase::saveDefaultConfig() never overwrites a file that already exists
 # there.
 #
 # Every value below except the database section and `worlds` is the plugin's
-# own shipped default (riftal-game/mines/resources/config.yml), which the
-# plugin throws without and selftest.sh compares to that file. `worlds` names
+# own shipped default (riftal-game/mines/resources/config.yml), which
+# selftest.sh compares to that file. The plugin throws without any of the
+# scalars, and reads a missing join_teleport section as switched off, so that
+# one would drift in silence were it not carried here. `worlds` names
 # only lumber: the shipped mine_a to mine_c entries have no built mine on this
-# stack, and mine_a here is a plain generated world. The database section
-# differs because that file's defaults name a host, schema and user that
-# exist nowhere on this stack: MYSQL_DATABASE is riftal_dev (images/compose.yaml),
-# and the dev stack has never provisioned a separate "mines" MySQL user, so
-# this uses the same root credentials the backup service already uses
-# rather than inventing a second, equally dev-only credential. "mysql" is
-# this stack's actual resolvable network alias for the database container,
-# under both the compose and wslc bring-up forms; "riftal-mysql" (the
-# plugin's shipped default) resolves under neither.
+# stack, and mine_a here is a plain generated world. The schema is the one
+# compose creates, riftal_dev (images/compose.yaml), not the shipped riftal.
+# The login is the mines user of ADR 008, never root, and the password stays
+# empty: RiftalGames\Lib\Database\DatabaseSettings reads it from
+# RIFTAL_DB_PASSWORD_MINES in the instance's environment and throws if this
+# file holds one too, so no credential ever lands on the world volume or in a
+# backup of it. "mysql" is the compose service name, which resolves on
+# riftal-dev. Name resolution under the wslc bring-up form is unverified; see
+# instance-only/README.md.
 database:
   host: "mysql"
   schema: "riftal_dev"
-  username: "root"
-  password: "__MYSQL_ROOT_PASSWORD__"
+  username: "mines"
+  password: ""
   port: 3306
   worker-limit: 1
 
@@ -29,6 +31,17 @@ worlds:
 
 default_reset_percent: 60
 
+refill_retry_limit: 1
+
+refill_retry_delay_ticks: 100
+
 refill_blocks_per_tick: 4096
 
 refill_tick_budget_ms: 15
+
+# Switching it on here is riftal-infra#319: with it on, a location missing from
+# the delivered world_index.json, or its world not loaded, rejects every join.
+join_teleport:
+  enabled: false
+  location: "mine_a_spawn"
+  world_index: "world_index.json"

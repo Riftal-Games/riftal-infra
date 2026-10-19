@@ -1,0 +1,8 @@
+# Must fail action-pins.sh at line 8 and nowhere else:
+# git prints a sha in lowercase, so this is a ref name.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11D5960A326750D5838078E36CF38B85AF677262

@@ -1,0 +1,9 @@
+# Must fail action-pins.sh at line 9 and nowhere else:
+# a branch can be moved.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - name: a mapping key spelled with a space
+        uses : actions/checkout@main

@@ -210,15 +210,20 @@ def _timelapse(region: str, out: str | None) -> dict[str, Any]:
     if not isinstance(entry, NamedRegion):
         raise ValueError(f"{region!r} is a location; timelapse needs a region name")
     folder = config.SNAPSHOTS_DIR / entry.world
-    frames = []
+    frames, skipped = [], []
     for path in sorted(folder.glob("*.npz")) if folder.is_dir() else []:
-        snap = snapshots.load(path)
+        try:
+            snap = snapshots.load(path)
+        except snapshots.UNREADABLE as exc:
+            skipped.append({"path": str(path), "error": str(exc), "code": snapshots.SnapshotLoadError.code})
+            continue
         if snap.bounds == entry.bounds:
             frames.append((snap.timestamp, heightmap_from_region(snap.region)))
     if not frames:
-        raise ValueError(f"no snapshot of {region!r} taken at its exact bounds; call snapshot(target={region!r}, ...) first")
+        unread = f"; {len(skipped)} unreadable snapshot file(s) in {folder} skipped" if skipped else ""
+        raise ValueError(f"no snapshot of {region!r} taken at its exact bounds{unread}; call snapshot(target={region!r}, ...) first")
     path = timelapse_png(frames, load_palettes()["colors"], out=out)
-    return {"region": region, "world": entry.world, "frames": len(frames), "path": str(path)}
+    return {"region": region, "world": entry.world, "frames": len(frames), "path": str(path), "skipped": skipped}
 
 @tool
 async def timelapse(region: str, out: str | None = None) -> dict[str, Any]:
@@ -227,8 +232,10 @@ async def timelapse(region: str, out: str | None = None) -> dict[str, Any]:
     A frame is either an explicit ``snapshot`` call naming ``region`` or the automatic
     before-mutation snapshot a mutating tool takes when its own ``target`` was ``region``;
     a snapshot over any other box, such as a builder's own extras, is not one of its frames.
+    A file in the world's folder that cannot be read is left out and listed in ``skipped``
+    with code ``snapshot_unreadable``, so one damaged file costs one frame, not the strip.
 
-    RETURNS: region, world, frames, path.
+    RETURNS: region, world, frames, path, skipped as [{path, error, code}].
     """
     return await _run(_timelapse, region, out)
 
@@ -505,7 +512,7 @@ def _progress(ctx: Context | None) -> Callable[[int, int], None] | None:
     return lambda done, total: anyio.from_thread.run(ctx.report_progress, done, total)
 
 def _finish(out: dict[str, Any], result: ApplyResult) -> dict[str, Any]:
-    """The first ``BridgeError`` folded into the answer when the run stopped early, so the undo entry is still reported."""
+    """The first error folded into the answer when the run stopped early, so the undo entry is still reported."""
     out["jobs"] = result.jobs
     return out if result.ok else {**out, **_error(result.errors[0])}
 
@@ -522,20 +529,26 @@ def _apply(edits: EditList, op: str, dry_run: bool, ctx: Context | None) -> dict
         out["blocks"] = done.result.blocks
     return _finish(out, done.result)
 
-def _snapshot_path(ref: str | int) -> Path:
-    """A manifest id, or a path that must resolve under ``SNAPSHOTS_DIR``; a relative path is rooted there, not at the cwd."""
+def _load_snapshot(ref: str | int) -> snapshots.Snapshot:
+    """A manifest id, held to the level and bounds its entry recorded, or a path that must resolve under ``SNAPSHOTS_DIR``.
+
+    A relative path is rooted at ``SNAPSHOTS_DIR``, not at the cwd.
+    """
     if isinstance(ref, int) or ref.isdigit():
         for entry in UndoStack().entries():
             if entry["id"] == int(ref) and entry["path"] is None:
                 raise ValueError(f"undo entry {ref} is floating text with no snapshot; undo removes it")
             if entry["id"] == int(ref):
-                return Path(entry["path"])
+                return snapshots._load_entry(entry)
         raise KeyError(f"no undo entry with id {ref}")
     root = config.SNAPSHOTS_DIR.resolve()
     path = (root / ref).resolve()
     if not path.is_relative_to(root):
         raise ValueError(f"{ref!r} resolves outside the snapshots directory {root}")
-    return path
+    try:
+        return snapshots.load(path)
+    except snapshots.UNREADABLE as exc:
+        raise snapshots.SnapshotLoadError(f"cannot load snapshot {path}: {exc}") from exc
 
 def _entry_id(path: Path) -> int | None:
     ids = [e["id"] for e in UndoStack().entries() if e["path"] == str(path)]
@@ -743,9 +756,11 @@ def snapshot(target: str | dict[str, Any], label: str, world: str | None = None)
 def restore(snapshot: str | int, dry_run: bool = False) -> dict[str, Any]:
     """Put a snapshot back by path or undo id, sending only the cells that differ; what it overwrites is pushed as a ``restore`` entry.
 
+    A snapshot file that is missing or cannot be read, or an undo id whose snapshot names a level other than the one its entry recorded, fails with code ``snapshot_unreadable`` before anything is sent.
+
     RETURNS: world, bounds, restored, dry_run, blocks, snapshot, undo_id, jobs.
     """
-    snap = snapshots.load(_snapshot_path(snapshot))
+    snap = _load_snapshot(snapshot)
     result = snapshots.restore(bridge(), snap, dry_run=dry_run)
     out: dict[str, Any] = {
         "world": snap.world, "bounds": snap.bounds.to_json(), "restored": str(snap.path), "dry_run": dry_run,
@@ -759,8 +774,8 @@ def restore(snapshot: str | int, dry_run: bool = False) -> dict[str, Any]:
 def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
     """Reverse the ``n`` newest edits not yet undone, from any session; each pushes an ``undo`` entry that plain ``undo`` skips.
 
-    Stops at the first failure with ``ok`` false, and ``undone``, ``snapshot`` and ``undo_id`` still name what was
-    reversed and pushed before it. An entry whose snapshot file is missing or cannot be read fails with code
+    Stops at the first failure with ``ok`` false. ``undone`` still names what was reversed before it, and
+    ``snapshot`` and ``undo_id`` the newest snapshot pushed, the failed restore's own when it took one. An entry whose snapshot file is missing or cannot be read fails with code
     ``snapshot_unreadable``.
 
     RETURNS: dry_run, count, undone, blocks, snapshot, undo_id, jobs.
@@ -773,9 +788,8 @@ def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
         "dry_run": dry_run, "count": len(results), "undone": sorted(undone, reverse=True), "blocks": sum(r.blocks for r in results),
         "snapshot": None, "undo_id": None, "jobs": [job for r in results for job in r.jobs],
     }
-    # A text undo takes no snapshot, and a failed restore's snapshot is never pushed, so the one to report
-    # is the last snapshot a successful restore pushed.
-    last = next((r.before_result for r in reversed(results) if r.ok and r.before_result is not None), None)
+    # A text undo takes no snapshot, so the one to report is the last snapshot any restore pushed, a failed one included.
+    last = next((r.before_result for r in reversed(results) if r.before_result is not None), None)
     if last is not None:
         out["snapshot"], out["undo_id"] = str(last.path), _entry_id(last.path)
     failed = [r for r in results if not r.ok]
@@ -800,7 +814,9 @@ async def list_snapshots(world: str | None = None, limit: int = 20) -> dict[str,
 
 @tool
 async def list_undo(limit: int = 20) -> dict[str, Any]:
-    """Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored.
+    """Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored, and texts.
+
+    A floating-text entry has ``texts``, the ids its undo removes, and null ``path`` and ``bounds``.
 
     RETURNS: manifest, total, entries.
     """

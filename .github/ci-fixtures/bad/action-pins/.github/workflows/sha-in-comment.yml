@@ -1,0 +1,8 @@
+# Must fail action-pins.sh at line 8 and nowhere else:
+# the sha is in the comment, the ref is a tag.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # 11d5960a326750d5838078e36cf38b85af677262
