@@ -1,0 +1,8 @@
+# Called by twice-mid.yml, never asserted on its own.
+on: workflow_call
+jobs:
+  inner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - run: "true"

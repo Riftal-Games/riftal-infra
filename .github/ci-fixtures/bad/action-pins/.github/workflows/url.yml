@@ -1,0 +1,8 @@
+# Must fail action-pins.sh at line 8 and nowhere else:
+# a URL is no ref GitHub resolves, whatever commit it ends in.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262

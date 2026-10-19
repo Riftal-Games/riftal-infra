@@ -1,0 +1,10 @@
+# Must fail action-pins.sh at line 8 and nowhere else: an explicit `?` after a
+# `{` fails whatever it names, because the key can sit on a line of its own.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - { ?
+          uses
+          : actions/checkout@11d5960a326750d5838078e36cf38b85af677262 }

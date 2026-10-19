@@ -1,0 +1,8 @@
+# Must fail action-pins.sh at line 8 and nowhere else: a tag and an anchor
+# together between a `[` and a uses key do not hide the key from the flow check.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - [ !!str &a uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 ]

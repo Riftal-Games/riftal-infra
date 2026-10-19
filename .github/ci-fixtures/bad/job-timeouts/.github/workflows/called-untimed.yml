@@ -1,0 +1,8 @@
+# Called by calls-untimed.yml two directories up, never asserted on its own.
+# Its job has no timeout-minutes, so it runs for the 360-minute default.
+on: workflow_call
+jobs:
+  inner:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: "true"
