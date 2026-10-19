@@ -52,11 +52,15 @@ if [ -f "$here/RiftalMines.phar" ]; then
 	# the top of /plugins, already in the roster, and require-accounts.sh has
 	# stopped the boot before this script runs when it is not built.
 	#
-	# The plugin's bundled config names a schema and user this stack never
-	# provisions, and it connects on enable, so a config with the wrong
-	# password takes the whole server down. Rendering from this container's
-	# own environment on every boot means the password is always the one
-	# mysql was started with.
+	# The plugin's bundled config names a schema this stack does not have,
+	# and it connects on enable, so a wrong config or a refused login takes
+	# the whole server down. The mines login's password comes only from
+	# RIFTAL_DB_PASSWORD_MINES (ADR 008), so its absence is named here,
+	# before PocketMine starts.
+	if [ -z "${RIFTAL_DB_PASSWORD_MINES:-}" ]; then
+		echo "start-instance.sh: RiftalMines.phar is built and RIFTAL_DB_PASSWORD_MINES is not set; the instance takes it from images/.env" >&2
+		exit 1
+	fi
 	mkdir -p /data/plugin_data/RiftalMines
 	bash "$here/render-config.sh" /data/plugin_data/RiftalMines/config.yml
 	cp "$here/RiftalMines.phar" "$roster/"
