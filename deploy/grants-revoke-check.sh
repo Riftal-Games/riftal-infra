@@ -11,8 +11,14 @@
 # Nothing records that mapping yet, so the operator supplies it, and a tag in
 # use with no mapping is a refusal, never a pass. Every tag in use other than
 # <release-tag> is checked against its own file. A tag is in use when a running
-# container, a stopped container or a file under INSTANCES_DIR names it (ADR
-# 006's balance snapshot "When").
+# container, a stopped container, an instance definition's image file or any
+# other file under INSTANCES_DIR names it (ADR 006's balance snapshot "When").
+#
+# An instance's tag is recorded in instances/<id>/image, one line
+# <INSTANCE_IMAGE>:<tag>. Each immediate subdirectory of INSTANCES_DIR is an
+# instance definition and must hold that file; a top-level entry that is not a
+# directory, other than .gitkeep, is an error. The scan reads the checkout it
+# runs from, so run it from riftal-infra main at the release commit.
 #
 # Environment:
 #   INSTANCE_IMAGE     required, the image name without its tag
@@ -20,10 +26,10 @@
 #   INSTANCES_DIR      default instances/ beside deploy/, not the working directory
 #
 # Exit status: 0 one GRANTS REVOKE OK line; 1 one GRANTS REVOKE REFUSED line per
-# new REVOKE and tag; 2 usage, an unreadable file or instance definition, a
-# failed definition scan, a file outside the dialect below, a failed runtime, an
-# image whose tag cannot be read, or a tag in use with no grants.sql. Never a
-# pass on 2.
+# new REVOKE and tag; 2 usage, an unreadable file or instance definition, an
+# instance definition with no valid image file, a failed definition scan, a file
+# outside the dialect below, a failed runtime, an image whose tag cannot be read,
+# or a tag in use with no grants.sql. Never a pass on 2.
 #
 # The reader accepts one dialect, the one riftal-game lib/resources/sql/
 # grants.sql is written in, and exits 2 naming the file and line on anything
@@ -142,10 +148,44 @@ while IFS=$'\t' read -r name image; do
   note_image "$image" "stopped container $name"
 done <<<"$all"
 
+# read_image_file <file>: validates an instance's image file and records its tag.
+read_image_file() {
+  local file="$1" raw body tag
+  readable "$file" || die "cannot read instance definition $file"
+  IFS= read -r -d '' raw <"$file" || true
+  [ "$(wc -c <"$file")" -eq "$(printf '%s' "$raw" | wc -c)" ] || die "$file holds a NUL byte"
+  body="${raw%$'\n'}"
+  [[ $body != *$'\n'* ]] || die "$file holds more than one line"
+  case "$body" in
+    "$INSTANCE_IMAGE":*) tag="${body#"$INSTANCE_IMAGE":}" ;;
+    *) die "$file names '$body', not $INSTANCE_IMAGE:<tag>" ;;
+  esac
+  if ! [[ $tag =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || [ "$tag" = latest ]; then
+    die "$file names tag '$tag', which is not an immutable tag"
+  fi
+  note_image "$body" "instance definition $file"
+}
+
+INSTANCES_DIR="${INSTANCES_DIR%/}"
+declare -A image_file=()
+definitions=0
+shopt -s nullglob dotglob
+for entry in "$INSTANCES_DIR"/*; do
+  if [ -d "$entry" ]; then
+    read_image_file "$entry/image"
+    image_file[$entry/image]=1
+    definitions=$((definitions + 1))
+  elif [ "${entry##*/}" != .gitkeep ]; then
+    die "$entry is not a directory, and an instance definition is a directory"
+  fi
+done
+shopt -u nullglob dotglob
+
 # -L follows links, and lists a dangling one so that readable refuses it.
 defs="$(find -L "$INSTANCES_DIR" ! -type d | sort)" || die "cannot scan instance definitions in $INSTANCES_DIR"
 while IFS= read -r def; do
   [ -n "$def" ] || continue
+  [ -z "${image_file[$def]:-}" ] || continue
   readable "$def" || die "cannot read instance definition $def"
   line_no=0
   while IFS= read -r line || [ -n "$line" ]; do
@@ -198,5 +238,5 @@ done
 
 [ "$refused" -eq 0 ] || exit 1
 in_use="$(printf '%s\n' "${!used[@]}" | sort | paste -sd ' ' -)"
-printf 'GRANTS REVOKE OK: %s REVOKE statement(s) in %s, %s older tag(s) checked, tags in use: %s, runtime: %s\n' \
-  "${#new_revokes[@]}" "$new_grants" "$checked" "${in_use:-none}" "${runtime[*]}"
+printf 'GRANTS REVOKE OK: %s REVOKE statement(s) in %s, %s older tag(s) checked, tags in use: %s, runtime: %s, instance definitions read: %s\n' \
+  "${#new_revokes[@]}" "$new_grants" "$checked" "${in_use:-none}" "${runtime[*]}" "$definitions"
