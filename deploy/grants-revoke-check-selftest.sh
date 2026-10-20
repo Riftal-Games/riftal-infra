@@ -45,6 +45,7 @@ grants quoted.sql "SELECT '--'; $revoke_b"
 grants dashes.sql "SELECT 1--1; $revoke_b"
 printf -- '-- ok\n/* caf\351 */ %s\n' "$revoke_b" >"$DIR/latin1.sql"
 printf 'GRANT SELECT ON t TO r;\n\0\n%s\n' "$revoke_b" >"$DIR/nul.sql"
+printf 'GRANT SELECT ON t TO r;\f\n%s\n' "$revoke_b" >"$DIR/formfeed.sql"
 grants lower.sql 'revoke if exists riftal_role_accounts from riftal_role_mines;'
 grants word.sql 'GRANT SELECT ON revokes TO riftal_role_mines;'
 
@@ -68,7 +69,7 @@ containers digest a-1 "$img@sha256:0123456789abcdef"
 
 failures=0
 ran=0
-expected=32
+expected=33
 # check <exit> <regex some output line must match> <case> <running> <all> <arg>...
 check() {
   local want="$1" match="$2" case="$3" run="$4" all="$5" out got
@@ -125,6 +126,8 @@ LC_ALL=C.UTF-8 check 2 'latin1.sql has a byte other than printable ASCII' \
   'a non-UTF-8 byte does not hide a REVOKE' one-old one-old latin1.sql v2 v1=none.sql
 check 2 'nul.sql has a byte other than printable ASCII' \
   'a NUL does not hide a REVOKE' one-old one-old nul.sql v2 v1=none.sql
+check 2 'formfeed.sql has a byte other than printable ASCII' \
+  'a form feed is refused, not read as whitespace' one-old one-old formfeed.sql v2 v1=none.sql
 check 2 'inblock.sql:1: a /\* \*/ comment' \
   'a reader failure on an older tag file is an error, not a pass' one-old one-old b.sql v2 v1=inblock.sql
 check 0 'OK: 0 REVOKE statement\(s\) in word.sql' \

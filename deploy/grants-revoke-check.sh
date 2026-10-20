@@ -82,8 +82,8 @@ readable "$new_grants" || die "cannot read $new_grants"
 [ -d "$INSTANCES_DIR" ] || die "cannot read instance definitions in $INSTANCES_DIR"
 
 revokes() {
-  if LC_ALL=C grep -a -q '[^[:print:][:space:]]' "$1"; then
-    echo "grants-revoke-check.sh: $1 has a byte other than printable ASCII or whitespace, which the reader does not handle" >&2
+  if LC_ALL=C grep -a -q "[^[:print:]"$'\t\r'"]" "$1"; then
+    echo "grants-revoke-check.sh: $1 has a byte other than printable ASCII, tab, CR or LF, which the reader does not handle" >&2
     return 2
   fi
   LC_ALL=C awk '
