@@ -21,7 +21,7 @@ instance starts on the newer build, so the procedure already rules it out.
 
 A `grants.sql` change is coupled the same way. `run-migrations.sh` applies the
 `GRANTS_FILE` it is given on every run, a run with nothing pending included
-(`../migrations/run-migrations.sh:304`), so the file's REVOKEs reach the
+(`../migrations/run-migrations.sh:309`), so the file's REVOKEs reach the
 database on every run, and on a fresh server a role holds only what the file
 grants. A change is coupled
 when a plugin build that an instance may still run, or be rolled back to,
@@ -474,7 +474,9 @@ Why the two cannot be split:
 So, for any release whose run applies a `grants.sql` from PR #923 onward to a
 database whose last run applied one from before it:
 
-1. Stop every instance cleanly.
+1. Stop every instance cleanly. Then remove each stopped container on the old
+   tag and repoint each `instances/` definition at the new one, or
+   `grants-revoke-check.sh` still counts that tag as in use and refuses.
 2. Back up as in The window's backup and restore, above, and record the set
    name. Restoring it is a rollback only until the first instance on the new
    tag admits a player; after that it is Nasir's call, never a rollback.

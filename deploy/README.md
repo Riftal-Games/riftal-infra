@@ -325,14 +325,18 @@ Exit 2, never a pass, is a usage error, an unreadable file, a runtime that
 failed, an image with no tag, a `latest` tag, a digest or an image id, or a tag
 in use with no `grants.sql`. Otherwise it prints `GRANTS REVOKE OK:`.
 
-Statements compare after dropping `--` comments and collapsing whitespace, so a
-reworded REVOKE counts as new and refuses. A tag is refused against its own
-file, not against the oldest, so no ordering of tags is needed.
+A statement containing the word REVOKE counts as one, after dropping `--`
+comments and collapsing whitespace, so a REVOKE after a `/* */` or `#` comment
+is still seen, and a reworded one, or one whose comment changed, refuses. A tag
+is refused against its own file, not the oldest, so no ordering is needed.
 
 `INSTANCE_IMAGE` is the image name without its tag. `CONTAINER_RUNTIME`
-defaults to `docker` and may carry arguments, since production names its own
-runtime; the check only runs `ps` and `ps -a`. `INSTANCES_DIR` defaults to
-`../instances`.
+defaults to `docker` and may carry arguments; the check only runs `ps` and
+`ps -a`. A pass covers only the runtime it was given, and the `OK` line names
+it with the tags in use, so run the check once on each machine that runs
+instances (ADR 006: no older-tag container anywhere). `INSTANCES_DIR` defaults
+to `instances/` beside `deploy/`, which does not exist yet, so the check exits 2
+until it does.
 
 ```bash
 INSTANCE_IMAGE=registry.example/riftal/pocketmine-mp \
@@ -340,8 +344,7 @@ INSTANCE_IMAGE=registry.example/riftal/pocketmine-mp \
   v1=/tmp/grants-v1.sql
 ```
 
-`grants-revoke-check-selftest.sh` proves each rule in CI with a fake runtime and
-fixture files.
+`grants-revoke-check-selftest.sh` proves each rule in CI with fixtures.
 
 ## Environment
 

@@ -14,25 +14,32 @@
 # Every tag in use other than <release-tag> is checked, so no ordering of tags
 # is needed and no tag older than the oldest is skipped.
 #
-# A tag is in use when it is named by (ADR 006's balance snapshot "When", all three):
+# A tag is in use when any one of these names it (ADR 006's balance snapshot
+# "When"):
 #   - a running container,
 #   - a stopped container,
 #   - a file under INSTANCES_DIR.
+#
+# Containers are listed from the one CONTAINER_RUNTIME given, so a pass covers
+# that runtime only. ADR 006 requires no older-tag container on any machine, so
+# run the check once per machine that runs instances, each with its own runtime.
 #
 # Environment:
 #   INSTANCE_IMAGE     required, the image name without its tag
 #   CONTAINER_RUNTIME  default docker; may carry arguments, for example
 #                      "wsl -d Ubuntu-26.04 -u runner --exec docker"
-#   INSTANCES_DIR      default ../instances
+#   INSTANCES_DIR      default instances/ beside deploy/, not the working directory
 #
 #     0  one GRANTS REVOKE OK line
 #     1  one GRANTS REVOKE REFUSED line per new REVOKE and tag
 #     2  usage, an unreadable file, a runtime that failed, an image whose tag
 #        cannot be read, or a tag in use with no grants.sql; never a pass
 #
-# REVOKE statements compare after dropping -- comments and collapsing
-# whitespace. Anything else about a statement counts as a different statement,
-# which errs toward refusing.
+# A statement containing the word REVOKE anywhere is a REVOKE, so one that
+# follows a /* */ or # comment is still seen. They compare after dropping --
+# comments and collapsing whitespace. Anything else about a statement, a /* */
+# or # comment included, counts as a different statement, which errs toward
+# refusing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,7 +77,7 @@ readable "$new_grants" || die "cannot read $new_grants"
 revokes() {
   sed -e 's/--.*$//' "$1" | tr '\n\r\t' '   ' | tr -s ' ' | tr ';' '\n' |
     sed -e 's/^ //' -e 's/ $//' |
-    { grep -i -E '^REVOKE( |$)' || [ "$?" -eq 1 ]; }
+    { grep -i -w 'REVOKE' || [ "$?" -eq 1 ]; }
 }
 
 declare -A used=()
@@ -159,5 +166,6 @@ done
 if [ "$refused" -ne 0 ]; then
   exit 1
 fi
-printf 'GRANTS REVOKE OK: %s REVOKE statement(s) in %s, %s older tag(s) checked\n' \
-  "${#new_revokes[@]}" "$new_grants" "$checked"
+in_use="$(printf '%s\n' "${!used[@]}" | sort | paste -sd ' ' -)"
+printf 'GRANTS REVOKE OK: %s REVOKE statement(s) in %s, %s older tag(s) checked, tags in use: %s, runtime: %s\n' \
+  "${#new_revokes[@]}" "$new_grants" "$checked" "${in_use:-none}" "${runtime[*]}"

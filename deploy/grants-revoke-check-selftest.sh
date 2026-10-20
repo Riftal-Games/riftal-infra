@@ -38,6 +38,10 @@ grants ab.sql "$revoke_a" "$revoke_b"
 grants b.sql "$revoke_b"
 grants spaced.sql '-- REVOKE in a comment;' 'REVOKE IF EXISTS' '   UPDATE (balance_minor_units)' '  ON balances  FROM riftal_role_economy; -- trailing'
 printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\r\n' >"$DIR/crlf.sql"
+grants block.sql "/* old note */ $revoke_a"
+grants hash.sql '# old note' "$revoke_a"
+grants lower.sql 'revoke if exists riftal_role_accounts from riftal_role_mines;'
+grants word.sql 'GRANT SELECT ON revokes TO riftal_role_mines;'
 
 # containers <file> <name> <image> ...
 containers() {
@@ -59,7 +63,7 @@ containers digest a-1 "$img@sha256:0123456789abcdef"
 
 failures=0
 ran=0
-expected=22
+expected=26
 # check <exit> <regex some output line must match> <case> <running> <all> <arg>...
 check() {
   local want="$1" match="$2" case="$3" run="$4" all="$5" out got
@@ -80,11 +84,11 @@ check() {
   fi
 }
 
-check 0 '^GRANTS REVOKE OK: 1 REVOKE statement\(s\) in b.sql, 0 older tag' \
+check 0 '^GRANTS REVOKE OK: 1 REVOKE statement\(s\) in b.sql, 0 older tag\(s\) checked, tags in use: v2, runtime: bash .*/runtime$' \
   'only the release tag in use passes' one-new one-new b.sql v2
 check 0 '^GRANTS REVOKE OK: 1 REVOKE statement\(s\) in a.sql, 0 older tag' \
   'no container and no definition passes' none none a.sql v2
-check 0 'in none.sql, 1 older tag' 'a new grants.sql with no REVOKE passes against an older tag' \
+check 0 'in none.sql, 1 older tag\(s\) checked, tags in use: v1, runtime' 'a new grants.sql with no REVOKE passes against an older tag' \
   one-old one-old none.sql v2 v1=a.sql
 check 0 'in ab.sql, 1 older tag' 'a REVOKE the older tag already carries passes' \
   one-old one-old ab.sql v2 v1=ab.sql
@@ -100,6 +104,14 @@ check 1 'is new against tag v1 \(stopped container a-1\)$' \
   'a REVOKE new against a stopped container refuses' none one-old ab.sql v2 v1=a.sql
 check 1 '^GRANTS REVOKE REFUSED: "REVOKE IF EXISTS UPDATE \(balance_minor_units\) ON balances FROM riftal_role_economy" is new against tag v1 ' \
   'a multi-line REVOKE is read as one statement and refuses' one-old one-old spaced.sql v2 v1=none.sql
+check 1 '^GRANTS REVOKE REFUSED: "/\* old note \*/ REVOKE IF EXISTS UPDATE' \
+  'a REVOKE after a block comment is seen and refuses' one-old one-old block.sql v2 v1=none.sql
+check 1 '^GRANTS REVOKE REFUSED: "# old note REVOKE IF EXISTS UPDATE' \
+  'a REVOKE after a # comment is seen and refuses' one-old one-old hash.sql v2 v1=none.sql
+check 1 '^GRANTS REVOKE REFUSED: "revoke if exists riftal_role_accounts' \
+  'a lowercase revoke is seen and refuses' one-old one-old lower.sql v2 v1=none.sql
+check 0 'OK: 0 REVOKE statement\(s\) in word.sql' \
+  'a word merely containing revoke is not a REVOKE' one-old one-old word.sql v2 v1=none.sql
 
 printf '%s\n' "image: $img:v1" >"$DIR/instances/a.yaml"
 INSTANCES_DIR="$DIR/instances" check 1 'is new against tag v1 \(instance definition .*/instances/a.yaml:1\)$' \
