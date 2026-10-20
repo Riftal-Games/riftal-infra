@@ -259,8 +259,7 @@ jobs:
         if: always()
         run: bash .github/scripts/ci-container-sweep.sh
 
-  # ADR 024. This job holds only a read token and starts no bot or server
-  # here; riftal-infra#1088 adds the harness steps where marked. Every
+  # ADR 024. The job holds a read token, starts no bot or server, and every
   # check before a container refuses with ::error:: and ends the job.
   bot-proofs:
     name: bot proofs
@@ -271,7 +270,7 @@ jobs:
       contents: read
       issues: read
     outputs:
-      exposure: ${{ steps.exposure.outputs.exposure }}
+      exposure: ${{ steps.harness.outputs.exposure || steps.exposure.outputs.exposure }}
 
     steps:
       # persist-credentials: false leaves no token in .git/config for any step
@@ -280,10 +279,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # no-bots is true until a bot starts. The harness replaces it with
-      # pending at the first bot, found on any finding, and none only once
-      # every listing is judged clean. bots-stopped-file files on found and
-      # pending, so this value files nothing.
+      # ADR 024 names pending, found and none. no-bots is this job's own
+      # starting value, held until a bot starts, and files nothing. The job
+      # output takes the exposure written by a step with id harness when
+      # one ran, and this step's value otherwise.
       - name: Exposure, no bot has started
         id: exposure
         run: printf 'exposure=no-bots\n' >> "$GITHUB_OUTPUT"
@@ -319,16 +318,16 @@ jobs:
           . images/devtools-image.sh
           devtools_extract "$RUNNER_TEMP/riftal-devtools"
 
-      # riftal-infra#1088: the instance steps go here, each judging its
-      # listings against steps.eth0.outputs.address and running the network
-      # checks of ADR 024 item 3 after every instance's LOADS.
+      # steps.eth0.outputs.address is what every socket listing is judged
+      # against.
 
       - name: Remove this job's containers
         if: always()
         run: bash .github/scripts/ci-container-sweep.sh
 
-  # No checkout and no script from the PR tree: the only job with issues:
-  # write, so no step that runs PR-head code can close what this opens.
+  # The only job with issues: write. It has no checkout, so no step in it
+  # runs a script from the PR's tree; the run: block below is in the workflow
+  # file, which review covers.
   bots-stopped-file:
     name: file bots-stopped
     needs: bot-proofs
@@ -349,9 +348,9 @@ jobs:
           set -euo pipefail
           title="bots-stopped: exposure $EXPOSURE in run ${GITHUB_RUN_ID}"
           body="The bot-proofs job ended with exposure \`$EXPOSURE\` at $HEAD_SHA: $RUN_URL. found means a listing showed a socket that is exposure; pending means bots ran and the run ended before every listing was judged. A run started after this is not evidence. Only the steward or Nasir closes this (ADR 024 item 3)."
-          jq -n --arg title "$title" --arg body "$body" \
+          /usr/bin/jq -n --arg title "$title" --arg body "$body" \
             '{title: $title, body: $body, labels: ["bots-stopped"]}' |
-            curl -fsS -X POST \
+            /usr/bin/curl -fsS -X POST \
               -H "Authorization: Bearer $GITHUB_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
               -d @- "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/issues" >/dev/null

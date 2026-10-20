@@ -30,7 +30,8 @@ devtools_image() {
 
 # $1 the directory to copy /devtools into, which must not exist yet. Prints
 # the pinned tag and its image id. The container is only ever created, never
-# started, and is gone before this returns.
+# started, and removed before this returns. When the copy fails, its removal
+# is best effort and the job's sweep reaps what is left.
 devtools_extract() {
   local dest="$1" name id
   name="riftal_smoke_ci_${GITHUB_RUN_ID:?}_${GITHUB_RUN_ATTEMPT:?}_devtools"

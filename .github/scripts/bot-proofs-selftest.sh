@@ -11,7 +11,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=16
+EXPECTED_ASSERTIONS=25
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -44,6 +44,10 @@ conf="$work/wslconfig"
 export WSLCONFIG="$conf"
 printf '[wsl2]\nmemory=12GB\nNetworkingMode = bridged\n' > "$conf"
 expect "bridged under [wsl2]" ok "networkingMode=bridged" wslconfig_bridged
+printf '[wsl2]\nnetworkingMode=bridged\nnetworkingMode=mirrored\n' > "$conf"
+expect "conflicting networkingMode keys" refused "does not set networkingMode=bridged" wslconfig_bridged
+printf '[wsl2]\nnetworkingMode=bridged\n[wsl2]\nmemory=1GB\n' > "$conf"
+expect "a second [wsl2] section" refused "does not set networkingMode=bridged" wslconfig_bridged
 printf '[wsl2]\nnetworkingMode=mirrored\n' > "$conf"
 expect "mirrored" refused "does not set networkingMode=bridged" wslconfig_bridged
 printf '[experimental]\nnetworkingMode=bridged\n[wsl2]\nmemory=1GB\n' > "$conf"
@@ -51,9 +55,13 @@ expect "bridged outside [wsl2]" refused "does not set networkingMode=bridged" ws
 WSLCONFIG="$work/absent" expect "a missing .wslconfig" refused "cannot read" wslconfig_bridged
 
 fake ip <<'EOF'
-printf '2: eth0    inet 192.168.0.223/24 brd 192.168.0.255 scope global eth0\n'
+printf '2: eth0    inet 192.0.2.23/24 brd 192.0.2.255 scope global eth0\n'
 EOF
-expect "one eth0 address" ok "192.168.0.223" eth0_address
+expect "one eth0 address" ok "192.0.2.23" eth0_address
+fake ip <<'EOF'
+printf '2: eth0    inet 192.0.2.23/24 scope global eth0\n2: eth0    inet 192.0.2.24/24 scope global eth0\n'
+EOF
+expect "two eth0 addresses" refused "exactly one IPv4 address" eth0_address
 fake ip <<'EOF'
 exit 0
 EOF
@@ -73,6 +81,14 @@ printf '[{"number":9}]'
 EOF
 expect "an open bots-stopped issue" refused "1 open bots-stopped" bots_stopped_clear
 fake curl <<'EOF'
+printf '<html>'
+EOF
+expect "an issue list that is not JSON" refused "came back unreadable" bots_stopped_clear
+fake curl <<'EOF'
+jq -nc '[range(100) | {number: ., pull_request: {}}]'
+EOF
+expect "a full page of items" refused "full page" bots_stopped_clear
+fake curl <<'EOF'
 exit 22
 EOF
 expect "an unreadable issue list" refused "cannot read the open" bots_stopped_clear
@@ -82,6 +98,10 @@ printf '%s\n' "$sha" > "$work/pin.sha"
 log="$work/docker.log"
 fake docker <<EOF
 printf '%s\n' "\$*" >> "$log"
+case "\$1" in
+  cp) [ -z "\${FAKE_FAIL_CP:-}" ] || exit 1 ;;
+  create) [ -z "\${FAKE_FAIL_CREATE:-}" ] || exit 1 ;;
+esac
 case "\$1 \$2" in
   "image inspect") [ "\${FAKE_TAG:-yes}" = yes ] && { [ "\$3" = --format ] && echo sha256:abc; exit 0; }; exit 1 ;;
 esac
@@ -102,8 +122,18 @@ if [ ! -s "$log" ] || ! grep -qE '^(pull|create) ' "$log"; then
 else
   fail "a missing tag reached pull or create: $(cat "$log")"
 fi
+: > "$log"
+FAKE_FAIL_CREATE=1 expect "a failing docker create" refused "cannot create a container" devtools_extract "$work/out" "$work/pin.sha"
+: > "$log"
+FAKE_FAIL_CP=1 expect "a failing docker cp" refused "cannot copy /devtools" devtools_extract "$work/out" "$work/pin.sha"
+if grep -qE '^rm -v riftal_smoke_ci_77_2_devtools$' "$log"; then
+  pass "a failed copy still removes the container"
+else
+  fail "a failed copy left the container: $(cat "$log")"
+fi
 mkdir "$work/there"
 expect "a destination that exists" refused "already exists" devtools_extract "$work/there" "$work/pin.sha"
+expect "an unreadable pin file" refused "cannot read the pinned" devtools_image "$work/absent.sha"
 printf 'latest\n' > "$work/pin.sha"
 expect "a pin that is not a sha" refused "not a full 40-character" devtools_image "$work/pin.sha"
 

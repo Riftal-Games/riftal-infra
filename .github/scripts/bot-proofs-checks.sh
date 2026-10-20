@@ -7,7 +7,9 @@
 WSLCONFIG="${WSLCONFIG:-/mnt/c/Users/nasir/.wslconfig}"
 
 # The mode as configured, which takes effect only at the next WSL restart. A
-# key outside [wsl2] does not count, and keys are case-insensitive.
+# key outside [wsl2] does not count and keys are case-insensitive. A second
+# [wsl2] section or a second networkingMode key refuses even when one says
+# bridged, since which one WSL applies is not worth guessing.
 wslconfig_bridged() {
   local text
   if ! text="$(timeout 10 cat "$WSLCONFIG" 2>/dev/null)"; then
@@ -15,16 +17,20 @@ wslconfig_bridged() {
     return 1
   fi
   if awk '
-      /^[[:space:]]*\[/ { section = tolower($0); gsub(/[[:space:]]/, "", section); next }
+      /^[[:space:]]*\[/ {
+        section = tolower($0); gsub(/[[:space:]]/, "", section)
+        if (section == "[wsl2]") sections++
+        next
+      }
       section == "[wsl2]" {
         line = tolower($0); gsub(/[[:space:]]/, "", line)
-        if (line == "networkingmode=bridged") found = 1
+        if (line ~ /^networkingmode=/) { keys++; if (line != "networkingmode=bridged") bad = 1 }
       }
-      END { exit !found }' <<<"$text"; then
+      END { exit !(sections == 1 && keys == 1 && !bad) }' <<<"$text"; then
     printf 'networkingMode=bridged in %s\n' "$WSLCONFIG"
     return 0
   fi
-  printf '::error::%s does not set networkingMode=bridged under [wsl2]; a bot run needs the mode ADR 016 judged\n' "$WSLCONFIG"
+  printf '::error::%s does not set networkingMode=bridged once, under a single [wsl2] section; a bot run needs the mode ADR 016 judged\n' "$WSLCONFIG"
   return 1
 }
 
@@ -45,9 +51,10 @@ eth0_address() {
 }
 
 # Reads with the job's own GITHUB_TOKEN, which holds issues: read. The issues
-# endpoint also lists pull requests, so those are filtered out.
+# endpoint also lists pull requests, so those are filtered out. A full page
+# refuses, since a second page would go unread.
 bots_stopped_clear() {
-  local api="${GITHUB_API_URL:-https://api.github.com}" body count
+  local api="${GITHUB_API_URL:-https://api.github.com}" body counts total count
   if ! body="$(timeout 30 curl -fsS \
       -H "Authorization: Bearer ${GITHUB_TOKEN:?}" \
       -H 'Accept: application/vnd.github+json' \
@@ -55,8 +62,14 @@ bots_stopped_clear() {
     printf '::error::cannot read the open bots-stopped issues\n'
     return 1
   fi
-  if ! count="$(jq -er 'map(select(.pull_request == null)) | length' <<<"$body")"; then
+  if ! counts="$(jq -er '"\(length) \(map(select(.pull_request == null)) | length)"' <<<"$body")"; then
     printf '::error::the open bots-stopped issues came back unreadable\n'
+    return 1
+  fi
+  total="${counts% *}"
+  count="${counts#* }"
+  if [ "$total" -ge 100 ]; then
+    printf '::error::a full page of bots-stopped items came back; refusing rather than leave a second page unread\n'
     return 1
   fi
   if [ "$count" -ne 0 ]; then
