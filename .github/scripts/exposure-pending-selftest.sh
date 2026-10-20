@@ -12,7 +12,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=28
+expected=29
 
 # $1 label, $2 pass or fail, $3 text the output must hold, $4 workflow file
 expect() {
@@ -92,6 +92,8 @@ mutant unlisted-step-before-pending '/- name: Exposure, no bot has started/i\   
   "step 3 (Start something) is ahead of any exposure=pending write"
 mutant unlisted-action-before-pending '/- name: Exposure, no bot has started/i\      - uses: some/action@11d5960a326750d5838078e36cf38b85af677262\n' \
   "is ahead of any exposure=pending write and is not on the allowlist"
+mutant outputs-continuation '/^      exposure: /a\        bots running' \
+  "a line under outputs indented deeper than its keys"
 mutant no-job-output '/^    outputs:/,/^$/d' \
   "has no outputs.exposure for bots-stopped-file to read"
 

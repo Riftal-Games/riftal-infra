@@ -5,7 +5,8 @@
 # so a bot started before that write leaves bots-stopped-file nothing to file.
 #
 # Fail-closed for what it reads: a workflow, job or step key off the lists
-# below, a step shape it cannot place, and odd indentation below 10 spaces are
+# below, a step shape it cannot place, a line under the job's outputs indented
+# deeper than the output keys, and odd indentation below 10 spaces are
 # refused. Places it does not read are under Limits. Listed, with every key
 # compared after its quotes and spaces are stripped:
 #   workflow keys  name, on, permissions, concurrency, env, jobs. env may hold
@@ -20,19 +21,25 @@
 # is the single write below, with an id and no uses:, no if:, no env or with
 # block and no key but name, id, run and continue-on-error. Its
 # continue-on-error is accepted only as false.
-# outputs.exposure must be exactly a || chain of steps.<id>.outputs.exposure
+# outputs.exposure sits on one line, since a deeper line under outputs is
+# refused, and must be exactly a || chain of steps.<id>.outputs.exposure
 # operands that includes the pending step's operand, since the first non-empty
 # operand wins. No operand placed before the pending one may belong to a step
 # that completes ahead of the pending step. Operands after it are not judged.
 #
-# Limits, deliberate: 2-space indentation only, and flow-style or folded run
-# values are refused as unplaceable. A script a step calls is not followed, so
-# an edit inside one is for review. Steps after the pending step are placed but
-# not judged, and other jobs are not read. Reads files only. Also not read:
-#   children of the workflow keys on, permissions and concurrency;
+# Limits, deliberate: 2-space indentation only. A flow-style run such as
+# run: [a] is read as a plain scalar and fails only because its text is not on
+# the allowlist. A folded run: > is refused as neither one line nor a | block.
+# Neither is refused after the pending step. A script a step calls is not
+# followed, so an edit inside one is for review. Steps after the pending step
+# are placed but not judged, and other jobs are not read. Reads files only.
+# Also not read:
+#   children of the workflow keys name, on, permissions and concurrency;
 #   children of the job keys name, runs-on, timeout-minutes and permissions;
 #   outputs keys other than exposure;
-#   a line indented 11 or more spaces outside a run;
+#   lines indented deeper than 8 spaces under a step's name, id, uses, if and
+#   continue-on-error;
+#   a line indented 11 or more spaces in a step outside a run;
 #   the values under a step's env and with keys, so persist-credentials: true
 #   on actions/checkout is accepted.
 set -euo pipefail
@@ -131,7 +138,8 @@ steps_of() {
     }
     jsect == "outputs" {
       if (!och) och = indent(line)
-      if (indent(line) == och && key(line) == "exposure") {
+      if (indent(line) > och) refuse("a line under outputs indented deeper than its keys")
+      else if (indent(line) == och && key(line) == "exposure") {
         if (nexp++) refuse("outputs.exposure is given twice")
         print "O" sep val(line)
       }
