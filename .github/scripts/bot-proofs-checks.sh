@@ -5,6 +5,25 @@
 # the bot-proofs job, one step per check, and by bot-proofs-selftest.sh.
 
 WSLCONFIG="${WSLCONFIG:-/mnt/c/Users/nasir/.wslconfig}"
+JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
+CURL_BIN="${CURL_BIN:-/usr/bin/curl}"
+
+# bots-stopped-file calls jq and curl by absolute path and is the only job in
+# this workflow that files the stop, so a runner without them must fail here,
+# on a run that can still be read, and not when a filing is needed. The riftal
+# runners share one distro filesystem, so this holds for whichever one
+# bots-stopped-file lands on.
+runner_tools_present() {
+  local tool
+  printf 'runner %s\n' "${RUNNER_NAME:-unknown}"
+  for tool in "$JQ_BIN" "$CURL_BIN"; do
+    if [ ! -f "$tool" ] || [ ! -x "$tool" ]; then
+      printf '::error::%s is not an executable file on runner %s, so bots-stopped-file could not file a stop\n' "$tool" "${RUNNER_NAME:-unknown}"
+      return 1
+    fi
+  done
+  printf 'jq and curl present\n'
+}
 
 # The mode as configured, which takes effect only at the next WSL restart. A
 # key outside [wsl2] does not count and keys are case-insensitive. A second
