@@ -279,6 +279,22 @@ jobs:
         with:
           persist-credentials: false
 
+      # bots-stopped-file calls these by absolute path and is the one place the
+      # stop gets written, so a runner without them must fail here, on a run
+      # that can still be read, and not when a filing is needed. Both runners
+      # share one distro filesystem, so this holds for whichever one
+      # bots-stopped-file lands on.
+      - name: Runner has /usr/bin/jq and /usr/bin/curl
+        run: |
+          printf 'runner %s\n' "$RUNNER_NAME"
+          for tool in /usr/bin/jq /usr/bin/curl; do
+            if [ ! -f "$tool" ] || [ ! -x "$tool" ]; then
+              printf '::error::%s is not an executable file on runner %s, so bots-stopped-file could not file a stop\n' "$tool" "$RUNNER_NAME"
+              exit 1
+            fi
+          done
+          printf 'jq and curl present\n'
+
       # ADR 024 names pending, found and none. no-bots is this job's own
       # starting value, held until a bot starts, and files nothing. The job
       # output takes the exposure written by a step with id harness when
