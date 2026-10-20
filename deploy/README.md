@@ -305,6 +305,44 @@ A log left out of the middle of the list makes two stops look consecutive or
 hides one between them, so give it every lifetime in order.
 `custody-alert-check-selftest.sh` proves each rule in CI against fixture logs.
 
+## Grants REVOKE check
+
+`grants-revoke-check.sh <new-grants.sql> <release-tag> [<tag>=<grants.sql> ...]`
+belongs in `/deploy-release` stage 1, before migrations and grants are applied. A
+REVOKE in `grants.sql` takes a privilege from every instance at once, while
+stage 2 rolls instances one at a time, so a REVOKE applied while an instance
+still runs the previous tag breaks that instance until its turn (riftal-infra#944,
+the riftal-pm workspace's ADR 008 item 3).
+
+It finds every tag still in use by the three checks ADR 006 pins for the balance
+snapshot: a running container, a stopped container, and a file under
+`instances/` naming `INSTANCE_IMAGE:<tag>`. Every tag other than `<release-tag>`
+needs a `<tag>=<grants.sql>` argument, the `grants.sql` of the riftal-game
+commit that tag's plugins were built from. No release record holds that mapping
+yet, so the operator supplies it. It prints one `GRANTS REVOKE REFUSED:` line per
+REVOKE that the tag's file lacks, naming the statement and the tag, and exits 1.
+Exit 2, never a pass, is a usage error, an unreadable file, a runtime that
+failed, an image with no tag, a `latest` tag, a digest or an image id, or a tag
+in use with no `grants.sql`. Otherwise it prints `GRANTS REVOKE OK:`.
+
+Statements compare after dropping `--` comments and collapsing whitespace, so a
+reworded REVOKE counts as new and refuses. A tag is refused against its own
+file, not against the oldest, so no ordering of tags is needed.
+
+`INSTANCE_IMAGE` is the image name without its tag. `CONTAINER_RUNTIME`
+defaults to `docker` and may carry arguments, since production names its own
+runtime; the check only runs `ps` and `ps -a`. `INSTANCES_DIR` defaults to
+`../instances`.
+
+```bash
+INSTANCE_IMAGE=registry.example/riftal/pocketmine-mp \
+  deploy/grants-revoke-check.sh ../riftal-game/lib/resources/sql/grants.sql v2 \
+  v1=/tmp/grants-v1.sql
+```
+
+`grants-revoke-check-selftest.sh` proves each rule in CI with a fake runtime and
+fixture files.
+
 ## Environment
 
 | Variable | Required | Default | Meaning |

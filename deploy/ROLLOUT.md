@@ -448,9 +448,11 @@ Grants change: riftal-game PR #923 (merge commit `b6860bb`), in
 build carrying riftal-game PR #891 (merge commit `9a80ef1`), which moved every
 balance change into `CALL economy_ledger_credit` and `CALL
 economy_ledger_debit` (`economy/resources/sql/economy.sql:35`, `:47` at
-`9a80ef1`). PR #891 is an ancestor of PR #923. Related: riftal-infra#944
-would have `/deploy-release` stage 1 refuse a `grants.sql` REVOKE newer
-than the oldest instance's tag.
+`9a80ef1`). PR #891 is an ancestor of PR #923. Related: `grants-revoke-check.sh`
+(riftal-infra#944), which belongs in `/deploy-release` stage 1 before
+migrations are applied, refuses a `grants.sql` REVOKE new against any tag a running
+container, a stopped container or an instance definition still names
+(`README.md`, Grants REVOKE check).
 
 What PR #923 does: leaves `riftal_role_economy` only `UPDATE (account_id)` on
 `balances`, for the ensure upsert, and revokes `UPDATE (balance_minor_units,

@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Self-test for grants-revoke-check.sh. Uses a fake container runtime and
+# fixture files and starts no container. Every rule has a case that must refuse
+# and one that must pass, so a check that refuses everything fails here as
+# surely as one that refuses nothing. GRANTS_REVOKE_CHECK names another copy of
+# the script to test.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHECK="${GRANTS_REVOKE_CHECK:-$SCRIPT_DIR/grants-revoke-check.sh}"
+DIR="$(mktemp -d)"
+trap 'rm -rf "$DIR"' EXIT
+
+img='registry.example/riftal/pocketmine-mp'
+mkdir -p "$DIR/instances" "$DIR/empty"
+
+# FAKE_RUNNING and FAKE_ALL are the files `ps` and `ps -a` print.
+cat >"$DIR/runtime" <<'EOF'
+#!/usr/bin/env bash
+[ -z "${FAKE_FAIL:-}" ] || exit 1
+case "$*" in
+  'ps --format'*) cat "$FAKE_RUNNING" ;;
+  'ps -a --format'*) cat "$FAKE_ALL" ;;
+  *) exit 3 ;;
+esac
+EOF
+
+grants() {
+  local name="$1"
+  shift
+  printf '%s\n' "$@" >"$DIR/$name"
+}
+revoke_a='REVOKE IF EXISTS UPDATE (balance_minor_units) ON balances FROM riftal_role_economy;'
+revoke_b='REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;'
+grants none.sql '-- a comment naming REVOKE; and nothing else' 'GRANT SELECT ON accounts TO riftal_role_mines;'
+grants a.sql "$revoke_a"
+grants ab.sql "$revoke_a" "$revoke_b"
+grants b.sql "$revoke_b"
+grants spaced.sql '-- REVOKE in a comment;' 'REVOKE IF EXISTS' '   UPDATE (balance_minor_units)' '  ON balances  FROM riftal_role_economy; -- trailing'
+printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\r\n' >"$DIR/crlf.sql"
+
+# containers <file> <name> <image> ...
+containers() {
+  local file="$1"
+  shift
+  : >"$DIR/$file"
+  while [ "$#" -gt 0 ]; do
+    printf '%s\t%s\n' "$1" "$2" >>"$DIR/$file"
+    shift 2
+  done
+}
+containers none
+containers one-old a-1 "$img:v1" other mysql:8
+containers one-new a-1 "$img:v2" other mysql:8
+containers byid a-1 0123456789ab
+containers latest a-1 "$img:latest"
+containers untagged a-1 "$img"
+containers digest a-1 "$img@sha256:0123456789abcdef"
+
+failures=0
+ran=0
+expected=22
+# check <exit> <regex some output line must match> <case> <running> <all> <arg>...
+check() {
+  local want="$1" match="$2" case="$3" run="$4" all="$5" out got
+  shift 5
+  ran=$((ran + 1))
+  set +e
+  out="$(cd "$DIR" && INSTANCE_IMAGE="$img" CONTAINER_RUNTIME="bash $DIR/runtime" \
+    INSTANCES_DIR="${INSTANCES_DIR:-$DIR/empty}" FAKE_RUNNING="$DIR/$run" FAKE_ALL="$DIR/$all" \
+    bash "$CHECK" "$@" 2>&1)"
+  got=$?
+  set -e
+  if [ "$got" -ne "$want" ] || ! grep -q -E -- "$match" <<<"$out" ||
+    { [ "$want" -ne 1 ] && grep -q 'GRANTS REVOKE REFUSED' <<<"$out"; }; then
+    printf 'FAIL %s: want exit %s matching /%s/, got exit %s:\n%s\n' "$case" "$want" "$match" "$got" "$out"
+    failures=$((failures + 1))
+  else
+    printf 'ok   %s\n' "$case"
+  fi
+}
+
+check 0 '^GRANTS REVOKE OK: 1 REVOKE statement\(s\) in b.sql, 0 older tag' \
+  'only the release tag in use passes' one-new one-new b.sql v2
+check 0 '^GRANTS REVOKE OK: 1 REVOKE statement\(s\) in a.sql, 0 older tag' \
+  'no container and no definition passes' none none a.sql v2
+check 0 'in none.sql, 1 older tag' 'a new grants.sql with no REVOKE passes against an older tag' \
+  one-old one-old none.sql v2 v1=a.sql
+check 0 'in ab.sql, 1 older tag' 'a REVOKE the older tag already carries passes' \
+  one-old one-old ab.sql v2 v1=ab.sql
+check 0 'in spaced.sql, 1 older tag' 'whitespace, comments and line breaks do not make a REVOKE new' \
+  one-old one-old spaced.sql v2 v1=a.sql
+check 0 'in crlf.sql, 1 older tag' 'CRLF line ends do not make a REVOKE new' \
+  one-old one-old crlf.sql v2 v1=b.sql
+check 0 'in a.sql, 1 older tag' 'a REVOKE the new file dropped is not a hazard' \
+  one-old one-old a.sql v2 v1=ab.sql
+check 1 '^GRANTS REVOKE REFUSED: "REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines" is new against tag v1 \(running container a-1\)$' \
+  'a REVOKE new against a running container refuses' one-old one-old ab.sql v2 v1=a.sql
+check 1 'is new against tag v1 \(stopped container a-1\)$' \
+  'a REVOKE new against a stopped container refuses' none one-old ab.sql v2 v1=a.sql
+check 1 '^GRANTS REVOKE REFUSED: "REVOKE IF EXISTS UPDATE \(balance_minor_units\) ON balances FROM riftal_role_economy" is new against tag v1 ' \
+  'a multi-line REVOKE is read as one statement and refuses' one-old one-old spaced.sql v2 v1=none.sql
+
+printf '%s\n' "image: $img:v1" >"$DIR/instances/a.yaml"
+INSTANCES_DIR="$DIR/instances" check 1 'is new against tag v1 \(instance definition .*/instances/a.yaml:1\)$' \
+  'a REVOKE new against an instance definition refuses' none none ab.sql v2 v1=a.sql
+INSTANCES_DIR="$DIR/instances" check 0 'in ab.sql, 1 older tag' \
+  'a definition naming an older tag with the same REVOKEs passes' none none ab.sql v2 v1=ab.sql
+INSTANCES_DIR="$DIR/instances" check 2 'no <tag>=<grants.sql>' \
+  'a definition naming an older tag with no grants.sql is an error, not a pass' none none ab.sql v2
+printf '%s\n' "image: $img:v2" >"$DIR/instances/a.yaml"
+INSTANCES_DIR="$DIR/instances" check 0 'in ab.sql, 0 older tag' \
+  'a definition naming only the release tag passes' none none ab.sql v2
+printf '%s\n' "image: $img" >"$DIR/instances/a.yaml"
+INSTANCES_DIR="$DIR/instances" check 2 'names .* with no tag' \
+  'a definition naming the image with no tag is an error' none none ab.sql v2
+rm "$DIR/instances/a.yaml"
+
+check 2 'tag v1 \(running container a-1\) has no <tag>=<grants.sql>' \
+  'an older tag with no grants.sql is an error, not a pass' one-old one-old ab.sql v2
+check 2 'cannot read missing.sql for tag v1' 'an unreadable grants.sql for an older tag is an error' \
+  one-old one-old ab.sql v2 v1=missing.sql
+check 2 'image known only by id' 'an image known only by id is an error' byid byid ab.sql v2
+check 2 'not an immutable tag' 'a latest tag is an error' latest latest ab.sql v2
+check 2 'with no tag' 'an image with no tag is an error' untagged untagged ab.sql v2
+check 2 'with no tag|not an immutable tag' 'an image by digest is an error' digest digest ab.sql v2
+FAKE_FAIL=1 check 2 'failed' 'a runtime that fails is an error, not a pass' none none ab.sql v2
+
+if [ "$failures" -ne 0 ] || [ "$ran" -ne "$expected" ]; then
+  printf '%s case(s) failed, %s of %s expected case(s) ran\n' "$failures" "$ran" "$expected"
+  exit 1
+fi
+echo 'grants-revoke-check self-test passed'
