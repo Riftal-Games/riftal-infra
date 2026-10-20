@@ -135,7 +135,7 @@ check "instance gets RIFTAL_DB_PASSWORD_MINES and never the root password, insta
     and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_MINES == null
     and .[\"instance-b\"].environment.MYSQL_ROOT_PASSWORD == null" <<<"$real" >/dev/null'
 
-printf '\n== start-instance.sh keeps what start-pocketmine does for instance-b\n'
+printf '\n== start-instance.sh keeps what start-pocketmine does\n'
 # Runs a copy of start-instance.sh with its absolute paths moved under a
 # scratch root and php and wget stubbed, so nothing boots and nothing is
 # fetched. $1 is the uid the ownership check treats as pocketmine; the rest
@@ -222,7 +222,7 @@ check "a file in /plugins not owned by pocketmine is warned about" \
   'boot "$((me + 1))" && grep -q "=== WARNING ===" "$b/out" && grep -q "Cached.phar" "$b/out"'
 check "no ownership warning when pocketmine owns everything" \
   'boot "$me" && ! grep -q WARNING "$b/out"'
-check "a source folder instance-b would load joins the roster with its src (riftal-infra#274)" \
+check "a source folder at the top of /plugins joins the roster with its src (riftal-infra#274)" \
   'FOLDERS=1 boot "$me" && [ "$(cat "$b/roster")" = "$(printf "%s\n" Cached.phar Folder)" ] &&
     [ -f "$(sed -n "s/^--plugins=//p" "$b/args")/Folder/src/Main.php" ]'
 check "a folder without plugin.yml or src, as instance-only is, stays out of the roster" \

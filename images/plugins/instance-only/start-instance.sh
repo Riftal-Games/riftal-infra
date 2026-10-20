@@ -37,7 +37,7 @@ fi
 
 # A source folder loads only through DevTools.phar's FolderPluginLoader, which
 # takes a directory holding plugin.yml and src/. Copying it whether or not
-# DevTools is present loads it here exactly when instance-b would. -L because
+# DevTools is present loads it exactly when DevTools is. -L because
 # PocketMine follows a symlink where a copied link might dangle.
 for dir in /plugins/*/; do
 	if [ -e "${dir}plugin.yml" ] && [ -d "${dir}src" ]; then

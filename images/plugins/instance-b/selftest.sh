@@ -21,6 +21,9 @@ check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
 # environment assignments. The shared /plugins holds contracts.phar, as on the
 # real stack, and instance-only every tracked config and start-instance.sh.
 root="$work/boot"
+# Every path under the shared /plugins and the content hash of each file, so
+# an in-place overwrite shows as well as an added or removed name.
+shared_state() { (cd "$root/plugins" && { find . ! -type f; find . -type f -exec sha256sum {} +; } | sort); }
 boot() {
   local script="$1" phars="$2" phar
   shift 2
@@ -44,7 +47,7 @@ printf '%s\n' "\$@" > "$root/args"
 for a; do case "\$a" in --plugins=*) ls "\${a#--plugins=}" > "$root/roster" ;; esac; done
 EOF
   chmod +x "$root/bin/php"
-  ls -R "$root/plugins" > "$root/before"
+  shared_state > "$root/before"
   env -i HOME="$work" PATH="$root/bin:$PATH" TMPDIR="$root" MYSQL_ROOT_PASSWORD=x "$@" \
     bash "$root/start.sh" > "$root/out" 2>&1 < /dev/null && [ -s "$root/args" ]
 }
@@ -71,7 +74,7 @@ check "without RiftalEconomy.phar, the roster is the shared plugins alone and no
   'boot "$DIR/start.sh" "RiftalMines.phar RiftalRanks.phar" && [ "$(cat "$root/roster")" = contracts.phar ] &&
     [ ! -e "$root/data/plugin_data" ]'
 check "nothing is written into the shared /plugins" \
-  'boot "$DIR/start.sh" "$all" RIFTAL_DB_PASSWORD_ECONOMY=pw && ls -R "$root/plugins" | cmp -s - "$root/before"'
+  'boot "$DIR/start.sh" "$all" RIFTAL_DB_PASSWORD_ECONOMY=pw && shared_state | cmp -s - "$root/before"'
 check "a source folder at the top of the shared /plugins joins the roster, instance-only does not" \
   'source_folder=Dev boot "$DIR/start.sh" "$all" RIFTAL_DB_PASSWORD_ECONOMY=pw &&
     [ "$(cat "$root/roster")" = "$(printf "%s\n" Dev RiftalEconomy.phar contracts.phar)" ]'

@@ -13,8 +13,8 @@ container's own filesystem with `RiftalEconomy.phar` and its config alone
 beside it, so the rest of this folder never reaches its roster.
 `instance` runs `start-instance.sh` instead of the image's `start-pocketmine`:
 it assembles its plugin roster in the container's own disposable filesystem
-and renders the config onto the volume as uid 1000. It otherwise
-does what `start-pocketmine` does for `instance-b`: the ownership warning,
+and renders the config onto the volume as uid 1000. Both instances run it, and
+it otherwise does what `start-pocketmine` does: the ownership warning,
 every plugin a loader takes from the top of `./plugins`, `POCKETMINE_PLUGINS`
 from Poggit (into the roster, never `./plugins`) and `POCKETMINE_ANSI`. That
 includes a source folder holding `plugin.yml` and `src/`, which only a
