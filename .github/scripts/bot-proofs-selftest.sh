@@ -11,7 +11,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=25
+EXPECTED_ASSERTIONS=30
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -53,6 +53,20 @@ expect "mirrored" refused "does not set networkingMode=bridged" wslconfig_bridge
 printf '[experimental]\nnetworkingMode=bridged\n[wsl2]\nmemory=1GB\n' > "$conf"
 expect "bridged outside [wsl2]" refused "does not set networkingMode=bridged" wslconfig_bridged
 WSLCONFIG="$work/absent" expect "a missing .wslconfig" refused "cannot read" wslconfig_bridged
+
+tools="$work/tools"
+mkdir "$tools" "$tools/a-directory"
+printf '#!/bin/sh\n' > "$tools/jq"
+printf '#!/bin/sh\n' > "$tools/curl"
+chmod 755 "$tools/jq" "$tools/curl"
+printf '#!/bin/sh\n' > "$tools/not-executable"
+chmod 644 "$tools/not-executable"
+export RUNNER_NAME=fixture-runner
+JQ_BIN="$tools/jq" CURL_BIN="$tools/curl" expect "jq and curl both executable" ok "jq and curl present" runner_tools_present
+JQ_BIN="$tools/absent" CURL_BIN="$tools/curl" expect "a missing jq" refused "$tools/absent is not an executable file" runner_tools_present
+JQ_BIN="$tools/jq" CURL_BIN="$tools/absent" expect "a missing curl" refused "$tools/absent is not an executable file" runner_tools_present
+JQ_BIN="$tools/jq" CURL_BIN="$tools/a-directory" expect "a directory in place of curl" refused "$tools/a-directory is not an executable file" runner_tools_present
+JQ_BIN="$tools/not-executable" CURL_BIN="$tools/curl" expect "a mode 0644 file in place of jq" refused "$tools/not-executable is not an executable file" runner_tools_present
 
 fake ip <<'EOF'
 printf '2: eth0    inet 192.0.2.23/24 brd 192.0.2.255 scope global eth0\n'

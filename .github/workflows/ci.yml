@@ -279,6 +279,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Runner has /usr/bin/jq and /usr/bin/curl
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          runner_tools_present
+
       # ADR 024 names pending, found and none. no-bots is this job's own
       # starting value, held until a bot starts, and files nothing. The job
       # output takes the exposure written by a step with id harness when
