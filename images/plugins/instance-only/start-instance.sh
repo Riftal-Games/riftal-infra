@@ -34,6 +34,16 @@ if [ "${#shared[@]}" -gt 0 ]; then
 	cp "${shared[@]}" "$roster/"
 fi
 
+# A source folder loads only through DevTools.phar's FolderPluginLoader, which
+# takes a directory holding plugin.yml and src/. Copying it whether or not
+# DevTools is present loads it here exactly when instance-b would. -L because
+# PocketMine follows a symlink where a copied link might dangle.
+for dir in /plugins/*/; do
+	if [ -e "${dir}plugin.yml" ] && [ -d "${dir}src" ]; then
+		cp -RL "${dir%/}" "$roster/"
+	fi
+done
+
 # POCKETMINE_PLUGINS is "Name[:version] ...", fetched from Poggit when not
 # already in /plugins. The download lands in the roster, not /plugins, so
 # this instance never writes into the directory instance-b loads from.
