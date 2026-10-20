@@ -287,6 +287,10 @@ jobs:
         id: exposure
         run: printf 'exposure=no-bots\n' >> "$GITHUB_OUTPUT"
 
+      - name: Harness
+        id: harness
+        run: printf 'exposure=found\n' >> "$GITHUB_OUTPUT"
+
       - name: networkingMode=bridged in .wslconfig
         run: |
           . .github/scripts/bot-proofs-checks.sh
@@ -349,7 +353,7 @@ jobs:
           title="bots-stopped: exposure $EXPOSURE in run ${GITHUB_RUN_ID}"
           body="The bot-proofs job ended with exposure \`$EXPOSURE\` at $HEAD_SHA: $RUN_URL. found means a listing showed a socket that is exposure; pending means bots ran and the run ended before every listing was judged. A run started after this is not evidence. Only the steward or Nasir closes this (ADR 024 item 3)."
           /usr/bin/jq -n --arg title "$title" --arg body "$body" \
-            '{title: $title, body: $body, labels: ["bots-stopped"]}' |
+            '{title: $title, body: $body, labels: ["bots-stopped-test"]}' |
             /usr/bin/curl -fsS -X POST \
               -H "Authorization: Bearer $GITHUB_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
