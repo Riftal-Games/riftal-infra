@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Drops and recreates the shared database for a wipe between MVPs. It is the
-# database step only: instances are stopped and a backup is taken before it.
-# The whole procedure, with its rollback, is deploy/WIPE.md.
+# Drops and recreates the shared database for a wipe between MVPs, after
+# wipe-volumes.sh has cleared every instance volume. Instances are stopped and
+# a backup is taken before it. The whole procedure, with its rollback, is
+# deploy/WIPE.md.
 #
 # The schema is dropped whole rather than truncated table by table, so no list
 # of tables can fall behind the migrations. A list would miss a derived table
@@ -79,6 +80,20 @@ sql() {
 [ "$(sql "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '$MYSQL_DATABASE'")" = "1" ] \
   || fail "no database $MYSQL_DATABASE on $MYSQL_HOST:$MYSQL_PORT"
 
+# The one dev predicate (riftal-pm#1314): two keys with no default, the second
+# read only once the check above has found that database on the server.
+if [ -z "${RIFTAL_DEV_ENV+set}" ]; then
+  dev="RIFTAL_DEV_ENV is unset"
+elif [ -z "$RIFTAL_DEV_ENV" ]; then
+  dev="RIFTAL_DEV_ENV is empty"
+elif [ "$RIFTAL_DEV_ENV" != 1 ]; then
+  dev="RIFTAL_DEV_ENV is '$RIFTAL_DEV_ENV', not 1"
+elif [ "$MYSQL_DATABASE" != riftal_dev ]; then
+  dev="RIFTAL_DEV_ENV is 1 against database $MYSQL_DATABASE, not riftal_dev"
+else
+  dev=dev
+fi
+
 # A connected instance would keep writing through the wipe, into tables the
 # drop is about to remove or the migrations are about to recreate. This reads
 # the moment of the check only: stopping every instance first is the operator's
@@ -102,6 +117,9 @@ grep -Eq '^GRANT ([^,]+, )*(PROCESS|ALL PRIVILEGES)(, [^,]+)* ON \*\.\* TO ' <<<
 read -r _ own sessions < <(grep '^counts' <<<"$probe") || true
 [ "$own" = "1" ] || fail "the processlist does not show this session, so it cannot see the others; is performance_schema off?"
 [ "$sessions" = "0" ] || fail "$sessions other session(s) are connected to $MYSQL_HOST:$MYSQL_PORT; close every other connection, instances first"
+
+source "$(dirname "${BASH_SOURCE[0]}")/wipe-volumes.sh"
+wipe_volumes "$dev"
 
 echo "wipe $MYSQL_DATABASE: dropping and recreating at $MYSQL_HOST:$MYSQL_PORT, backup set $BACKUP_SET"
 sql "DROP DATABASE \`$MYSQL_DATABASE\`; CREATE DATABASE \`$MYSQL_DATABASE\`"

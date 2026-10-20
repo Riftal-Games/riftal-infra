@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Self-test for restore.sh, against real, throwaway mysql:8 containers and
-# real, throwaway world volumes. Runs on the self-hosted CI runner via
-# `docker`, the same way ../deploy/selftest.sh and ../migrations/selftest.sh
-# already do; not runnable on Nasir's Windows machine, which has no docker,
-# only wslc. See ../deploy/README.md for the wslc form.
+# real, throwaway world volumes. Calls `docker` directly, as
+# ../deploy/selftest.sh and ../migrations/selftest.sh do, so it runs on the
+# self-hosted CI runner and, on Nasir's Windows machine, under the WSL
+# fallback engine:
+#   wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/.../deploy/restore-selftest.sh
+# ../deploy/README.md shows a manual restore run under wslc.
 #
 # This is the drill the spec requires actually be performed, not just
 # documented: it backs up a database row and a world marker file, mutates

@@ -1,0 +1,20 @@
+# Expected: no port policy finding.
+#
+# The shape images/compose.yaml takes: 19132 as udp on an address that comes
+# from a variable defaulting to 127.0.0.1, a tcp port that is not Bedrock on
+# 127.0.0.1, and a database other containers reach on the stack network
+# without any publish at all.
+services:
+  instance:
+    image: local-pocketmine-mp:fixture
+    ports:
+      - "${PORTS_FIXTURE_BIND:-127.0.0.1}:19132:19132/udp"
+      - target: 19140
+        published: "19140"
+        host_ip: 127.0.0.1
+        protocol: tcp
+
+  mysql:
+    image: mysql:8
+    expose:
+      - "3306"

@@ -61,6 +61,17 @@ ADR 017 P8 (riftal-infra#932). From the server console only:
   the directory before `RiftalCustody` enables, so the restart is not killed
   by custody's own boot probe. A boot without the gate leaves it there, and
   custody stops that boot.
+- `devfaults-chunk-save-fail <level> <chunkX> <chunkZ>` fails the next
+  durable save of that chunk, for ADR 030 (riftal-infra#1124). `<level>` is
+  the level's folder name and must be loaded on this instance, and the chunk
+  coordinates are integers. The fault is single-use and keyed on the level
+  and chunk: the first matching `DurableChunkSaveEvent` is cancelled, logged
+  as `cancelled the durable save of chunk <chunkX> <chunkZ> in <level>`, and
+  the fault is gone. A save of any other chunk is untouched. An armed fault
+  whose chunk is never saved stays armed until the process ends, so read the
+  cancel line rather than assume it was spent. The command exists only when
+  `RiftalContracts` is loaded with `DurableChunkSaveEvent`; without it the
+  boot logs that the command is not registered and the other two still are.
 
 ## Dev bots tile contents
 
@@ -71,6 +82,21 @@ container tile's server-side contents one slot a line, each with the item's
 Bedrock id, meta and count, and the first line with the server tick. A bot
 also gets the lines in chat. It reads only, and reports a chunk nothing holds
 loaded rather than loading it.
+
+## Dev bots test hooks
+
+Spec 020 criteria 22 to 24 (riftal-infra#1124) take two more commands from
+`plugins/RiftalDevBots.php`, under the same gate and from the console or an
+admitted dev bot:
+
+- `devbots-autosave <on|off> [level]` sets one level's autosave, as
+  `save-off` does for every level, and logs the level, the tick and the result.
+- `devbots-shulker <bot>` hands an admitted dev bot a shulker box holding one
+  stick. It makes an item, which hard rule 1 forbids everywhere else, so it
+  gives to nobody but an admitted dev bot.
+
+Criterion 23's failed player save is `devfaults-flush-fail` above, and its
+failed durable chunk save is `devfaults-chunk-save-fail` above.
 
 ## The world index
 

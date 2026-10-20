@@ -1,0 +1,6 @@
+# The pmmp-core docker/start.sh that start-instance.sh was last checked
+# against, installed in the image as /usr/bin/start-pocketmine. Read by
+# check-start-sh.sh. Update both lines together, and only after carrying any
+# change in start.sh into start-instance.sh.
+sha256 19b623b59925e9f5adcac47a2f83b5e734efc7146d1ca50e38ce3a0d293f1792
+pmmp-core b05191886feccf9fec3831cced604dfc80f347bb

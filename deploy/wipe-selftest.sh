@@ -11,10 +11,15 @@
 # table behind and fail here. Each refusal in wipe.sh is driven, and must leave
 # the fixture unchanged.
 #
+# The fixture also holds capture_fence with the row migration 0027 seeds.
+# wipe-check must pass with that row lowered and fail with it raised or gone.
+#
 # The confirmed wipe must write nothing to stderr, and its stdout must be
-# exactly its two progress lines, naming the default port deploy/README.md's
+# exactly wipe-volumes.sh's line for the one volume, holding no level, and its
+# own two progress lines, naming the default port deploy/README.md's
 # MYSQL_PORT row documents, so a failure set -e lets through, or a default
 # that drifts from the README, fails here though the wipe exits 0.
+# wipe-volumes-selftest.sh covers the volumes.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -94,6 +99,22 @@ CREATE TABLE economy_balance_snapshot (
   )
 );
 SQL
+# riftal-game's migration 0027 seeds capture_fence's one row, so a migrated
+# schema is never all empty. riftal-game is a separate private repo this CI
+# does not check out, so its table and seed are copied here as 0027 writes them.
+docker exec -i "$C" bash -c 'cat > /tmp/migrations/0002_capture_fence.sql' <<'SQL'
+CREATE TABLE capture_fence (
+  id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+  request_id VARCHAR(64) CHARACTER SET ascii NULL,
+  raised_until DATETIME(3) NULL,
+  CONSTRAINT capture_fence_one_row_chk CHECK (id = 1),
+  CONSTRAINT capture_fence_pair_chk CHECK (
+    (request_id IS NULL AND raised_until IS NULL)
+    OR (request_id IS NOT NULL AND raised_until IS NOT NULL)
+  )
+);
+INSERT INTO capture_fence (id) VALUES (1);
+SQL
 
 migrate() {
   env_run -e MYSQL_DATABASE="$DB" -e MIGRATIONS_DIR=/tmp/migrations \
@@ -101,11 +122,12 @@ migrate() {
 }
 wipe() {
   env_run -e MYSQL_USER="${WIPE_USER:-root}" ${WIPE_MAX_AGE:+-e "WIPE_BACKUP_MAX_AGE_MINUTES=$WIPE_MAX_AGE"} \
-    ${WIPE_TZ:+-e "TZ=$WIPE_TZ"} \
+    ${WIPE_TZ:+-e "TZ=$WIPE_TZ"} -e WORLDS_DIR=/tmp/worlds -e LEVEL_LOCKS_DIR=/tmp/locks \
     -e MYSQL_DATABASE="$1" -e WIPE_CONFIRM="$2" -e BACKUP_SET="$3" "$C" bash /deploy/wipe.sh
 }
 check() {
-  env_run -e MYSQL_DATABASE="$DB" "$C" bash /deploy/wipe-check.sh
+  env_run -e MYSQL_DATABASE="$DB" -e WORLDS_DIR=/tmp/worlds -e LEVEL_LOCKS_DIR=/tmp/locks \
+    "$@" "$C" bash /deploy/wipe-check.sh
 }
 snapshot_rows() { q "SELECT COUNT(*) FROM $DB.economy_balance_snapshot"; }
 
@@ -127,7 +149,7 @@ done
 # backup.sh's fails the confirmed wipe below rather than only every real wipe.
 # It runs 14 hours east of UTC, so a stamp taken in local time reads as a set
 # from the future and fails that wipe too.
-sh_in "mkdir -p /tmp/worlds/riftal_smoke_vol && printf 'x\n' > /tmp/worlds/riftal_smoke_vol/level.dat"
+sh_in "mkdir -p /tmp/locks /tmp/worlds/riftal_smoke_vol && printf 'x\n' > /tmp/worlds/riftal_smoke_vol/level.dat"
 env_run -e TZ=RIFT-14 -e MYSQL_USER=root -e MYSQL_DATABASE="$DB" -e BACKUP_ROOT=/tmp/backups -e WORLDS_DIR=/tmp/worlds \
   "$C" bash /deploy/backup.sh >"$LOGS/backup.log" 2>&1 || { cat "$LOGS/backup.log"; exit 1; }
 sh_in 'sets=(/tmp/backups/[0-9]*); [ "${#sets[@]}" = 1 ] && cp -r "${sets[0]}" /tmp/set'
@@ -176,7 +198,7 @@ stamped tennanos "sed -n '/^timestamp: /s/Z\$/0Z/p' /tmp/set/manifest.txt" rifta
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=41
+EXPECTED_ASSERTIONS=46
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -331,12 +353,15 @@ if [ -s "$LOGS/wipe.err" ]; then
 else
   pass "the confirmed wipe writes nothing to stderr"
 fi
-printf 'wipe %s: dropping and recreating at %s:%s, backup set %s\nwipe %s: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh\n' \
-  "$DB" "$MYSQL_HOST" "$DOCUMENTED_DEFAULT_PORT" "$wipe_set" "$DB" >"$LOGS/wipe.expected"
+{
+  printf 'wipe %s: volume riftal_smoke_vol: cleared 0 level(s) and the contents of players/ and plugin_data/\n' "$DB"
+  printf 'wipe %s: dropping and recreating at %s:%s, backup set %s\nwipe %s: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh\n' \
+    "$DB" "$MYSQL_HOST" "$DOCUMENTED_DEFAULT_PORT" "$wipe_set" "$DB"
+} >"$LOGS/wipe.expected"
 if cmp -s "$LOGS/wipe.expected" "$LOGS/wipe.log"; then
-  pass "the confirmed wipe's stdout is exactly its two progress lines"
+  pass "the confirmed wipe's stdout is exactly its three progress lines"
 else
-  fail "the confirmed wipe's stdout is not exactly its two progress lines"
+  fail "the confirmed wipe's stdout is not exactly its three progress lines"
   # A failed wipe has printed wipe.log above.
   if [ "$wipe_ok" -eq 1 ]; then diff "$LOGS/wipe.expected" "$LOGS/wipe.log" || true; fi
 fi
@@ -352,6 +377,45 @@ if check >"$LOGS/check-wiped.log" 2>&1; then
 else
   fail "wipe-check should pass after the wipe"; cat "$LOGS/check-wiped.log"
 fi
+grep -qx "wipe-check $DB: ok, 2 migration(s) applied, 4 table(s) empty but for 1 seeded row(s)" "$LOGS/check-wiped.log" \
+  && pass "wipe-check's ok line counts the seeded capture_fence row" || { fail "wipe-check's ok line"; cat "$LOGS/check-wiped.log"; }
+FENCE="capture_fence should hold only migration 0027's row, id 1 and lowered"
+fence_fails() {
+  if check >"$LOGS/check-fence-$1.log" 2>&1; then
+    fail "wipe-check passed with capture_fence $1"
+  elif grep -qF "FAIL $FENCE; it holds $2" "$LOGS/check-fence-$1.log"; then
+    pass "wipe-check fails with capture_fence $1"
+  else
+    fail "wipe-check failed with capture_fence $1 without naming it"; cat "$LOGS/check-fence-$1.log"
+  fi
+}
+q "UPDATE $DB.capture_fence SET request_id = 'r1', raised_until = UTC_TIMESTAMP(3) + INTERVAL 60 SECOND"
+fence_fails raised "1 row(s), 0 of them that row"
+q "DELETE FROM $DB.capture_fence"
+fence_fails empty "0 row(s), 0 of them that row"
+q "INSERT INTO $DB.capture_fence (id) VALUES (1)"
+# A table list that cannot be read, or reads as nothing, checks no table at all,
+# so it must fail rather than pass as zero tables all empty. The first mysql on
+# PATH fails only the table-list query, as a dropped connection would; the
+# account sees schema_migrations alone, so the list it reads is empty.
+sh_in "mkdir -p /tmp/failing-bin && printf '%s\n' '#!/bin/bash' \
+  'case \"\$*\" in *information_schema.TABLES*) echo \"ERROR 2013 (HY000): Lost connection\" >&2; exit 1;; esac' \
+  'exec /usr/bin/mysql \"\$@\"' > /tmp/failing-bin/mysql && chmod +x /tmp/failing-bin/mysql"
+q "CREATE USER 'listless'@'%' IDENTIFIED BY 'selftest'; GRANT SELECT ON $DB.schema_migrations TO 'listless'@'%'"
+unlisted_fails() {
+  local name="$1" reason="$2"
+  shift 2
+  if check "$@" >"$LOGS/check-$name.log" 2>&1; then
+    fail "wipe-check passed when $name"; cat "$LOGS/check-$name.log"
+  elif grep -qF "FAIL $reason" "$LOGS/check-$name.log"; then
+    pass "wipe-check fails when $name"
+  else
+    fail "wipe-check failed when $name without saying so"; cat "$LOGS/check-$name.log"
+  fi
+}
+unlisted_fails "the table-list query fails" "could not list the tables" \
+  -e PATH=/tmp/failing-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+unlisted_fails "the table list is empty" "information_schema lists no table but schema_migrations" -e MYSQL_USER=listless
 [ "$(snapshot_rows)" = "0" ] && pass "economy_balance_snapshot exists and is empty" \
   || fail "economy_balance_snapshot should exist and be empty, got '$(snapshot_rows)'"
 [ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$DB' AND TABLE_NAME = 'stray_unmigrated'")" = "0" ] \
