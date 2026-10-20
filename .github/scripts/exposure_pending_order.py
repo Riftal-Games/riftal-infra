@@ -33,8 +33,9 @@ persist-credentials: false as its only with entry and no env, or a run whose
 every line, once spaces around it are dropped and blank and # lines are set
 apart, is in RUN_LINES. The pending step has an id, a run that is PENDING_WRITE
 once spaces and newlines around it are dropped and no key but name, id, run and
-continue-on-error, which is accepted only as a plain false. Ids start with a
-letter or _ and go on in letters, digits, _ and -.
+continue-on-error, which is accepted only as a plain false. A step not after
+the pending step whose run contains exposure=pending is refused unless it is the
+pending step. Ids start with a letter or _ and go on in letters, digits, _ and -.
 
 GitHub looks steps.<id> up without regard to case (actions/runner b6d10b5,
 src/Sdk/DTPipelines/Pipelines/ContextData/DictionaryContextData.cs:77, behind
@@ -54,10 +55,11 @@ Limits: PyYAML stands in for GitHub's parser and is not compared with it. Not
 read: the contents of other jobs, whose ids are read as keys of jobs; the values
 under workflow name, on, permissions and concurrency and of workflow env
 variables; a job's name, runs-on, timeout-minutes and permissions; the values of
-outputs keys other than exposure; if and continue-on-error values on a step
-ahead of the pending step; a script a step calls. A step after the pending step
-is read as a mapping, so its keys meet the refusals above, and for its id, which
-meets the id rules above; nothing else of it is read (riftal-infra#1240).
+outputs keys other than exposure; if values on a step ahead of the pending
+step, and its continue-on-error value unless its run is PENDING_WRITE and it
+has an id; a script a step calls. A step after the pending step is read as a
+mapping, so its keys meet the refusals above, and for its id, which meets the id
+rules above; nothing else of it is read (riftal-infra#1240).
 """
 
 import re
