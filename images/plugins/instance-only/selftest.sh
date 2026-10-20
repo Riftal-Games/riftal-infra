@@ -26,12 +26,13 @@ trap 'rm -rf "$work"' EXIT
 ACCOUNTS_PW=selftestAccountsPassword01
 RANKS_PW=selftestRanksPassword0001
 ECONOMY_PW=selftestEconomyPassword01
-printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\n' \
-  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" > "$work/env"
+MINES_PW=selftestMinesPassword0001
+printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\n' \
+  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=85
+EXPECTED_ASSERTIONS=87
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -111,43 +112,39 @@ check "instance-b without mem_limit is caught" \
 check "instance with cpus 4 is caught" \
   '[ "$(unbounded "$(edited "0,/cpus: 2/s/cpus: 2/cpus: 4/")")" = instance ]'
 
-printf '\n== the rendered config points at this stack\n'
+printf '\n== the rendered config points at this stack as the mines login (ADR 008)\n'
 cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$work/"
 rendered="$work/RiftalMines.config.yml"
-check "rendering refuses an unset password and writes nothing" \
-  '! env -u MYSQL_ROOT_PASSWORD bash "$work/render-config.sh" "$rendered" 2>/dev/null && [ ! -e "$rendered" ]'
-
-# Base64 output, a common way to generate the password, carries / and +.
-password='a/b+c&d='
-check "a password holding / + & renders" \
-  'MYSQL_ROOT_PASSWORD="$password" bash "$work/render-config.sh" "$rendered"'
-check "a password that would break the YAML string is refused" \
-  '! MYSQL_ROOT_PASSWORD="a\"b" bash "$work/render-config.sh" "$rendered" 2>/dev/null'
-check "a password holding a backslash is refused" \
-  '! MYSQL_ROOT_PASSWORD="a\\b" bash "$work/render-config.sh" "$rendered" 2>/dev/null'
+TEMPLATE="$DIR/RiftalMines.config.yml.template"
+check "rendering needs no password in the environment and writes the template as is" \
+  'env -i PATH="$PATH" bash "$work/render-config.sh" "$rendered" && cmp -s "$TEMPLATE" "$rendered"'
 db() { sed -n "s/^  $1: \"\(.*\)\"\$/\1/p" "${2:-$rendered}"; }
-check "the password renders verbatim and no placeholder is left" \
-  '[ "$(db password)" = "$password" ] && ! grep -q __ "$rendered"'
+check "the rendered config logs in as the mines login, never root" \
+  '[ "$(db username)" = mines ] && [ "$(grep -c "^ *username:" "$rendered")" = 1 ]'
+check "the rendered config holds an empty password and no placeholder" \
+  'grep -qx "  password: \"\"" "$rendered" && [ "$(grep -c "^ *password:" "$rendered")" = 1 ] && ! grep -q __ "$rendered"'
 check "the host is the compose mysql service" \
   '[ "$(db host)" = mysql ] && jq -e ".services.mysql" <<<"$real" >/dev/null'
 check "the schema is the one compose creates" \
   '[ "$(db schema)" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ]'
 check "the registered world is the lumber spec's world" \
   'grep -q "^  $(jq -r .world "$SPEC"): \"worlds/$(jq -r .world "$SPEC").json\"\$" "$rendered"'
-check "instance gets mysql's password and instance-b gets none" \
-  'jq -e ".services | .instance.environment.MYSQL_ROOT_PASSWORD == .mysql.environment.MYSQL_ROOT_PASSWORD
-    and .instance.environment.MYSQL_ROOT_PASSWORD != null
+check "instance gets RIFTAL_DB_PASSWORD_MINES and never the root password, instance-b neither" \
+  'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_MINES == \"$MINES_PW\"
+    and .instance.environment.MYSQL_ROOT_PASSWORD == null
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_MINES == null
     and .[\"instance-b\"].environment.MYSQL_ROOT_PASSWORD == null" <<<"$real" >/dev/null'
 
-printf '\n== start-instance.sh keeps what start-pocketmine does for instance-b\n'
+printf '\n== start-instance.sh keeps what start-pocketmine does\n'
 # Runs a copy of start-instance.sh with its absolute paths moved under a
 # scratch root and php and wget stubbed, so nothing boots and nothing is
 # fetched. $1 is the uid the ownership check treats as pocketmine; the rest
 # are environment assignments. The shared /plugins starts with Cached.phar.
 # With MINES set, RiftalMines.phar is built, contracts.phar sits at the top of
-# /plugins as on the real stack, and a config rendered by hand with a password
-# no stack has sits next to it. With RANKS set, RiftalRanks.phar is built,
-# and with ECONOMY set, RiftalEconomy.phar.
+# /plugins as on the real stack, a config rendered by hand sits next to it, and
+# the volume holds one an earlier boot rendered as root. With RANKS set,
+# RiftalRanks.phar is built, and with ECONOMY set, RiftalEconomy.phar.
+ROOT_PW=rootPasswordFromAnEarlierBoot
 boot() {
   local owner="$1" root="$work/boot"
   shift
@@ -159,13 +156,22 @@ boot() {
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
     : > "$root/plugins/contracts.phar"
-    MYSQL_ROOT_PASSWORD=stale bash "$root/render-config.sh" "$root/RiftalMines.config.yml"
+    mkdir -p "$root/data/plugin_data/RiftalMines"
+    printf 'database:\n  username: "root"\n  password: "%s"\n' "$ROOT_PW" |
+      tee "$root/RiftalMines.config.yml" > "$root/data/plugin_data/RiftalMines/config.yml"
   fi
   if [ -n "${RANKS:-}" ]; then
     : > "$root/RiftalRanks.phar"
   fi
   if [ -n "${ECONOMY:-}" ]; then
     : > "$root/RiftalEconomy.phar"
+  fi
+  # A source folder DevTools would load, and two it would refuse.
+  if [ -n "${FOLDERS:-}" ]; then
+    mkdir -p "$root/plugins/Folder/src" "$root/plugins/NoSrc" "$root/plugins/NoManifest/src"
+    : > "$root/plugins/Folder/plugin.yml"
+    : > "$root/plugins/Folder/src/Main.php"
+    : > "$root/plugins/NoSrc/plugin.yml"
   fi
   sed -e "s#/plugins#$root/plugins#g; s#/data#$root/data#g" \
     -e "s#/opt/pocketmine#$root/pm#g; s#-user pocketmine#-user $owner#g" \
@@ -216,15 +222,27 @@ check "a file in /plugins not owned by pocketmine is warned about" \
   'boot "$((me + 1))" && grep -q "=== WARNING ===" "$b/out" && grep -q "Cached.phar" "$b/out"'
 check "no ownership warning when pocketmine owns everything" \
   'boot "$me" && ! grep -q WARNING "$b/out"'
+check "a source folder at the top of /plugins joins the roster with its src (riftal-infra#274)" \
+  'FOLDERS=1 boot "$me" && [ "$(cat "$b/roster")" = "$(printf "%s\n" Cached.phar Folder)" ] &&
+    [ -f "$(sed -n "s/^--plugins=//p" "$b/args")/Folder/src/Main.php" ]'
+check "a folder without plugin.yml or src, as instance-only is, stays out of the roster" \
+  'FOLDERS=1 boot "$me" && ! grep -qE "NoSrc|NoManifest" "$b/roster"'
 
-printf '\n== RiftalMines gets the password its container boots with (riftal-infra#266)\n'
+printf '\n== RiftalMines logs in as mines, its password only in the environment (riftal-infra#246)\n'
 mines_config="$b/data/plugin_data/RiftalMines/config.yml"
-check "the config on the volume carries MYSQL_ROOT_PASSWORD, not the stale rendered file" \
-  'MINES=1 boot "$me" MYSQL_ROOT_PASSWORD="$password" &&
-    [ "$(db password "$mines_config")" = "$password" ] && grep -qx RiftalMines.phar "$b/roster" &&
+# Files under the volume holding either password.
+leaked() { grep -rlF -e "$MINES_PW" -e "$ROOT_PW" "$b/data" || true; }
+check "the template replaces the root config on the volume, not the hand-rendered copy" \
+  'MINES=1 boot "$me" RIFTAL_DB_PASSWORD_MINES="$MINES_PW" &&
+    cmp -s "$TEMPLATE" "$mines_config" && grep -qx RiftalMines.phar "$b/roster" &&
     grep -qx contracts.phar "$b/roster"'
-check "an unset MYSQL_ROOT_PASSWORD stops the boot before php, naming it" \
-  '! MINES=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "MYSQL_ROOT_PASSWORD is not set" "$b/out"'
+check "after that boot no file on the volume holds the mines or the root password" \
+  'MINES=1 boot "$me" RIFTAL_DB_PASSWORD_MINES="$MINES_PW" && [ -z "$(leaked)" ]'
+check "a password left on the volume is caught" \
+  'printf "%s\n" "$MINES_PW" > "$b/data/stray" && [ "$(leaked)" = "$b/data/stray" ]'
+check "an unset RIFTAL_DB_PASSWORD_MINES stops the boot before php, naming it, root password or not" \
+  '! MINES=1 boot "$me" MYSQL_ROOT_PASSWORD="$ROOT_PW" && [ ! -e "$b/args" ] &&
+    grep -q "RIFTAL_DB_PASSWORD_MINES is not set" "$b/out"'
 
 printf '\n== RiftalRanks connects as the ranks login, its password only in the environment (riftal-infra#558)\n'
 RANKS_CONFIG="$DIR/RiftalRanks.config.yml"
@@ -251,9 +269,9 @@ check "the economy config names the compose mysql, its schema and the economy lo
   '[ "$(db host "$ECONOMY_CONFIG")" = mysql ] && [ "$(db username "$ECONOMY_CONFIG")" = economy ] &&
     [ "$(db schema "$ECONOMY_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
     grep -qx "  password: \"\"" "$ECONOMY_CONFIG"'
-check "instance gets RIFTAL_DB_PASSWORD_ECONOMY from images/.env and instance-b gets none" \
+check "instance and instance-b get RIFTAL_DB_PASSWORD_ECONOMY from images/.env (riftal-infra#348)" \
   'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_ECONOMY == \"$ECONOMY_PW\"
-    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_ECONOMY == null" <<<"$real" >/dev/null'
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_ECONOMY == \"$ECONOMY_PW\"" <<<"$real" >/dev/null'
 check "with RiftalEconomy.phar built, the tracked config lands on the volume and the phar joins the roster" \
   'ECONOMY=1 boot "$me" RIFTAL_DB_PASSWORD_ECONOMY="$ECONOMY_PW" &&
     cmp -s "$ECONOMY_CONFIG" "$economy_on_volume" && grep -qx RiftalEconomy.phar "$b/roster"'
@@ -340,7 +358,7 @@ undelivered() {
 check "instance and instance-b both run the delivery with the designer index mounted" \
   '[ -z "$(undelivered "$real")" ] &&
     [ "$(jq -c ".services.instance.command[-2:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-only/start-instance.sh\"]" ] &&
-    [ "$(jq -c ".services[\"instance-b\"].command[-1:]" <<<"$real")" = "[\"start-pocketmine\"]" ]'
+    [ "$(jq -c ".services[\"instance-b\"].command[-2:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-b/start.sh\"]" ]'
 check "an instance without the index mounted is caught" \
   '[ "$(undelivered "$(edited "0,/world_index.json:ro/{/world_index.json:ro/d}")")" = instance ]'
 
@@ -359,11 +377,12 @@ deliver() {
   bash "$root/deliver.sh" "$@" > "$root/out" 2>&1
 }
 d="$work/deliver/data/plugin_data"
-check "RiftalRanks, RiftalRiots, RiftalEconomy and RiftalMines each get the designer index byte for byte, stale copy replaced" \
+check "RiftalRanks, RiftalRiots, RiftalEconomy, RiftalMines and RiftalGangs each get the designer index byte for byte, stale copy replaced" \
   'deliver "$INDEX" true && cmp -s "$INDEX" "$d/RiftalRanks/world_index.json" &&
     cmp -s "$INDEX" "$d/RiftalRiots/world_index.json" &&
     cmp -s "$INDEX" "$d/RiftalEconomy/world_index.json" &&
-    cmp -s "$INDEX" "$d/RiftalMines/world_index.json"'
+    cmp -s "$INDEX" "$d/RiftalMines/world_index.json" &&
+    cmp -s "$INDEX" "$d/RiftalGangs/world_index.json"'
 check "the copies belong to the uid the script runs as, uid 1000 in the image" \
   'deliver "$INDEX" true && [ -f "$d/RiftalRiots/world_index.json" ] && [ -z "$(find "$d" ! -user "$me")" ]'
 check "the start command runs after delivery with its arguments intact" \
@@ -430,7 +449,6 @@ shipped_configs() {
   ECONOMY_SHIPPED="$game/economy/resources/config.yml"
 }
 shipped_configs
-TEMPLATE="$DIR/RiftalMines.config.yml.template"
 SKIPPED=0
 # That skip covers only an absent default sibling checkout, and each skipped
 # assertion is counted, so EXPECTED_ASSERTIONS catches one that was deleted.

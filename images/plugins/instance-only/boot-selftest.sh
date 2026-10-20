@@ -3,14 +3,15 @@
 # `instance` service's chain, run directly without the require-* checks and
 # the index delivery compose puts in front of it, through the three outcomes
 # a clone can be in (riftal-infra#228):
-# RiftalMines.phar unbuilt, built with no MYSQL_ROOT_PASSWORD, and built with
-# one. selftest.sh beside this pins the script with php stubbed; only a real
+# RiftalMines.phar unbuilt, built with no RIFTAL_DB_PASSWORD_MINES, and built
+# with one. selftest.sh beside this pins the script with php stubbed; only a real
 # boot shows PocketMine loading the copied roster and reading the config
 # rendered onto a fresh /data as uid 1000.
 #
 # RiftalMines itself lives in the private riftal-game, which CI cannot check
 # out, and it connects to MySQL on enable. A stand-in phar of the same name
-# takes its place and logs the password PocketMine hands it from that config.
+# takes its place and logs the password in its config, the password in its
+# environment, and how many files under /data/plugin_data hold the latter.
 # BootProbe, a script plugin in the shared /plugins, logs the enabled plugins
 # once the server is up and shuts it down cleanly.
 #
@@ -26,7 +27,7 @@ PASSWORD='selftest-a/b+c&d='
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=3
+EXPECTED_ASSERTIONS=4
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -78,8 +79,18 @@ declare(strict_types=1);
 namespace riftal\dev\minesstandin;
 class Main extends \pocketmine\plugin\PluginBase{
 	protected function onEnable() : void{
-		$password = $this->getConfig()->getNested("database.password");
-		$this->getLogger()->info("mines-standin password=" . var_export($password, true));
+		$configured = $this->getConfig()->getNested("database.password");
+		$environment = getenv("RIFTAL_DB_PASSWORD_MINES");
+		$held = 0;
+		if(is_string($environment) && $environment !== ""){
+			$files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator("/data/plugin_data", \FilesystemIterator::SKIP_DOTS));
+			foreach($files as $file){
+				if($file->isFile() && str_contains((string) file_get_contents($file->getPathname()), $environment)){
+					$held++;
+				}
+			}
+		}
+		$this->getLogger()->info("mines-standin configured=" . var_export($configured, true) . " environment=" . var_export($environment, true) . " files-holding-it=" . $held);
 	}
 }
 SRC);
@@ -136,22 +147,33 @@ why="$(loaded BootProbe)"
 [ -z "$why" ] && pass "an unbuilt phar is skipped and the instance reaches Done" \
   || fail "the unbuilt boot: $why"
 
-printf '\n== built with no MYSQL_ROOT_PASSWORD: refuses before PocketMine starts\n'
-boot built
-if [ "$RC" -ne 0 ] && grep -q 'MYSQL_ROOT_PASSWORD is not set' <<<"$LOG" \
-    && ! grep -q 'Starting Minecraft' <<<"$LOG"; then
-  pass "the boot stops before php, naming MYSQL_ROOT_PASSWORD"
-else
-  fail "expected a refusal naming MYSQL_ROOT_PASSWORD before PocketMine, got exit $RC: $(tail -n 20 <<<"$LOG")"
-fi
+# $1 the assertion's name, the rest docker run flags. Passes when the built
+# boot stops before PocketMine and names RIFTAL_DB_PASSWORD_MINES.
+refuses() {
+  local label="$1"
+  shift
+  boot built "$@"
+  if [ "$RC" -ne 0 ] && grep -q 'RIFTAL_DB_PASSWORD_MINES is not set' <<<"$LOG" \
+      && ! grep -q 'Starting Minecraft' <<<"$LOG"; then
+    pass "$label: the boot stops before php, naming RIFTAL_DB_PASSWORD_MINES"
+  else
+    fail "$label: expected a refusal naming RIFTAL_DB_PASSWORD_MINES before PocketMine, got exit $RC: $(tail -n 20 <<<"$LOG")"
+  fi
+}
 
-printf '\n== built with a password: RiftalMines loads and reads it from /data\n'
-boot built -e "MYSQL_ROOT_PASSWORD=$PASSWORD"
+printf '\n== built with no RIFTAL_DB_PASSWORD_MINES: refuses before PocketMine starts\n'
+refuses "no variables"
+
+printf '\n== built with only MYSQL_ROOT_PASSWORD: the root password does not stand in\n'
+refuses "root password only" -e "MYSQL_ROOT_PASSWORD=$PASSWORD"
+
+printf '\n== built with RIFTAL_DB_PASSWORD_MINES: RiftalMines loads and reads it from the environment\n'
+boot built -e "RIFTAL_DB_PASSWORD_MINES=$PASSWORD"
 why="$(loaded BootProbe,RiftalMines)"
-if [ -z "$why" ] && ! grep -qF "mines-standin password='$PASSWORD'" <<<"$LOG"; then
-  why="expected the rendered password, got: $(grep -o 'mines-standin password=.*' <<<"$LOG" || printf none)"
+if [ -z "$why" ] && ! grep -qF "mines-standin configured='' environment='$PASSWORD' files-holding-it=0" <<<"$LOG"; then
+  why="expected an empty configured password, the environment's, and no file holding it, got: $(grep -o 'mines-standin .*' <<<"$LOG" || printf none)"
 fi
-[ -z "$why" ] && pass "RiftalMines loads from the roster with the password rendered onto /data" \
+[ -z "$why" ] && pass "RiftalMines loads from the roster with the password from the environment and none on /data" \
   || fail "the built boot: $why"
 
 printf '\n'
