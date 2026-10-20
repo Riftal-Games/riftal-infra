@@ -146,6 +146,9 @@ jobs:
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
 
+      - name: Bot proofs pre-container checks and devtools pin self-test
+        run: bash .github/scripts/bot-proofs-selftest.sh
+
       - name: Capture plugin self-test
         run: bash images/plugins/capture-selftest.sh
 
@@ -255,3 +258,101 @@ jobs:
       - name: Remove this job's containers
         if: always()
         run: bash .github/scripts/ci-container-sweep.sh
+
+  # ADR 024. This job holds only a read token and starts no bot or server
+  # here; riftal-infra#1088 adds the harness steps where marked. Every
+  # check before a container refuses with ::error:: and ends the job.
+  bot-proofs:
+    name: bot proofs
+    runs-on: [self-hosted, linux, riftal]
+    # Under ci-sweep-selftest.sh's reap_after, like every job here.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      exposure: ${{ steps.exposure.outputs.exposure }}
+
+    steps:
+      # persist-credentials: false leaves no token in .git/config for any step
+      # that runs code from the PR head.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      # no-bots is true until a bot starts. The harness replaces it with
+      # pending at the first bot, found on any finding, and none only once
+      # every listing is judged clean. bots-stopped-file files on found and
+      # pending, so this value files nothing.
+      - name: Exposure, no bot has started
+        id: exposure
+        run: printf 'exposure=no-bots\n' >> "$GITHUB_OUTPUT"
+
+      - name: networkingMode=bridged in .wslconfig
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          wslconfig_bridged
+
+      - name: No open bots-stopped issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          bots_stopped_clear
+
+      - name: Record the eth0 address
+        id: eth0
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          if ! address="$(eth0_address)"; then
+            printf '%s\n' "$address"
+            exit 1
+          fi
+          printf 'eth0 address %s\n' "$address"
+          printf 'address=%s\n' "$address" >> "$GITHUB_OUTPUT"
+
+      - name: Label this job's containers
+        run: bash .github/scripts/ci-docker-label.sh
+
+      - name: Extract the pinned devtools image
+        run: |
+          . images/devtools-image.sh
+          devtools_extract "$RUNNER_TEMP/riftal-devtools"
+
+      # riftal-infra#1088: the instance steps go here, each judging its
+      # listings against steps.eth0.outputs.address and running the network
+      # checks of ADR 024 item 3 after every instance's LOADS.
+
+      - name: Remove this job's containers
+        if: always()
+        run: bash .github/scripts/ci-container-sweep.sh
+
+  # No checkout and no script from the PR tree: the only job with issues:
+  # write, so no step that runs PR-head code can close what this opens.
+  bots-stopped-file:
+    name: file bots-stopped
+    needs: bot-proofs
+    if: always() && (needs.bot-proofs.outputs.exposure == 'found' || needs.bot-proofs.outputs.exposure == 'pending')
+    runs-on: [self-hosted, linux, riftal]
+    timeout-minutes: 5
+    permissions:
+      issues: write
+
+    steps:
+      - name: Open a bots-stopped issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPOSURE: ${{ needs.bot-proofs.outputs.exposure }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          title="bots-stopped: exposure $EXPOSURE in run ${GITHUB_RUN_ID}"
+          body="The bot-proofs job ended with exposure \`$EXPOSURE\` at $HEAD_SHA: $RUN_URL. found means a listing showed a socket that is exposure; pending means bots ran and the run ended before every listing was judged. A run started after this is not evidence. Only the steward or Nasir closes this (ADR 024 item 3)."
+          jq -n --arg title "$title" --arg body "$body" \
+            '{title: $title, body: $body, labels: ["bots-stopped"]}' |
+            curl -fsS -X POST \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -d @- "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/issues" >/dev/null
+          printf 'opened a bots-stopped issue for run %s\n' "$GITHUB_RUN_ID"
