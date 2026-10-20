@@ -4,11 +4,15 @@ before any step that is not on the allowlist (ADR 024 item 3). A cancelled run
 carries the job output of the steps that completed, so a bot started first
 leaves bots-stopped-file nothing to file.
 
-Every value compared is read after YAML parsing, from PyYAML's composed nodes
-with no type resolution, so quoting, comments, spacing, flow style and folded,
-block or continued scalars arrive as the string the parser reads. Refused
-before any comparison: a character outside printable ASCII, an anchor, alias
-or tag, a key repeated in one mapping, a node of the wrong kind.
+Every value compared is read after YAML parsing, from the text of PyYAML's
+composed scalar nodes and never their resolved type, so quoting, comments,
+spacing, flow style and folded, block or continued scalars arrive as the string
+the parser reads. Refused before parsing: a character outside printable ASCII
+in the file, an anchor, alias or tag. Refused wherever the check reads one, which
+ends the check: a scalar holding a character outside printable ASCII and
+newline, as a double-quoted escape can, a key repeated in a mapping, a key that
+is not a scalar, a node of the wrong kind. A part the check does not read is
+not examined for these.
 
 Keys allowed, any other refused:
   workflow  name, on, permissions, concurrency, env (HADOLINT_VERSION and
@@ -17,18 +21,19 @@ Keys allowed, any other refused:
   step      name, id, uses, if, continue-on-error, run, env (GITHUB_TOKEN set
             to ${{ github.token }} only), with.
 A step ahead of the pending step is actions/checkout by a 40-hex sha, with
-persist-credentials: false its only with entry, or a run whose every line,
-blank and # lines apart, is in RUN_LINES. The pending step has an id, a run
-that is exactly PENDING_WRITE and no key but name, id, run and
-continue-on-error, which is accepted only as a plain false. Ids are letters,
-digits, _ and -.
+persist-credentials: false as its only with entry and no env, or a run whose
+every line, once spaces around it are dropped and blank and # lines are set
+apart, is in RUN_LINES. The pending step has an id, a run that is PENDING_WRITE
+once spaces and newlines around it are dropped and no key but name, id, run and
+continue-on-error, which is accepted only as a plain false. Ids start with a
+letter or _ and go on in letters, digits, _ and -.
 
 GitHub looks steps.<id> up without regard to case (actions/runner b6d10b5,
 src/Sdk/DTPipelines/Pipelines/ContextData/DictionaryContextData.cs:77, behind
 src/Runner.Worker/StepsContext.cs), so ids compare lowercased and two that
 differ only by case are refused. outputs.exposure must be exactly a || chain of
 steps.<id>.outputs.exposure operands that includes the pending step's, and
-exactly one outputs key is spelled exposure in any case. The first non-empty
+outputs holds exactly one key that reads exposure in any case, in lower case. The first non-empty
 operand wins, so no operand before the pending one may belong to a step ahead
 of the pending step; operands after it are not judged. With no pending step the
 check passes when every step is on the allowlist.
@@ -36,8 +41,8 @@ check passes when every step is on the allowlist.
 Limits: PyYAML stands in for GitHub's parser and is not compared with it. Not
 read: other jobs; the values under workflow name, on, permissions and
 concurrency and of workflow env variables; a job's name, runs-on,
-timeout-minutes and permissions; outputs keys other than exposure; name, if
-and continue-on-error values on a step ahead of the pending step; a script a
+timeout-minutes and permissions; outputs keys other than exposure; if and
+continue-on-error values on a step ahead of the pending step; a script a
 step calls. A step after the pending step is read for its id only
 (riftal-infra#1240).
 """
@@ -86,7 +91,7 @@ def parse(text):
         raise Refuse("it holds a character outside printable ASCII, which YAML parsers read differently")
     try:
         for event in yaml.parse(text, Loader=yaml.SafeLoader):
-            if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None) or getattr(event, "tag", None):
+            if getattr(event, "anchor", None) or getattr(event, "tag", None):
                 raise Refuse(f"line {event.start_mark.line + 1} has an anchor, alias or tag")
         return yaml.compose(text, Loader=yaml.SafeLoader)
     except yaml.YAMLError as err:
@@ -105,6 +110,8 @@ def mapping(node, what):
 def scalar(node, what):
     if not isinstance(node, yaml.ScalarNode):
         raise Refuse(f"{what} is not a scalar")
+    if re.search(r"[^\x20-\x7e\n]", node.value):
+        raise Refuse(f"{what} holds a character outside printable ASCII and newline")
     return node.value
 
 
@@ -124,7 +131,7 @@ def submap(step, key):
 
 def pending_problem(step, run):
     flag = step.get("continue-on-error")
-    if run.strip() != PENDING_WRITE:
+    if run.strip(" \n") != PENDING_WRITE:
         return "its run is not that single write"
     if "id" not in step:
         return "it has no id"
@@ -141,8 +148,8 @@ def ahead_problem(step, run):
             return "it has uses beside run or env"
         if not CHECKOUT.fullmatch(scalar(step["uses"], "uses")):
             return f"it uses {step['uses'].value}, which is not actions/checkout by commit sha"
-        bad = next((k for k, v in submap(step, "with").items() if (k, scalar(v, k)) != ("persist-credentials", "false")), None)
-        return bad and f"it has the with entry {bad}"
+        entries = {k: scalar(v, k) for k, v in submap(step, "with").items()}
+        return None if entries == {"persist-credentials": "false"} else "its with is not exactly persist-credentials: false"
     if "with" in step:
         return "it has a with block and is not actions/checkout"
     if "run" not in step:
@@ -150,7 +157,7 @@ def ahead_problem(step, run):
     bad = next((k for k, v in submap(step, "env").items() if (k, scalar(v, k)) != ("GITHUB_TOKEN", "${{ github.token }}")), None)
     if bad:
         return f"it has the env variable {bad}"
-    bad = next((text for text in map(str.strip, run.split("\n")) if text and not text.startswith("#") and text not in RUN_LINES), None)
+    bad = next((text for text in (line.strip(" ") for line in run.split("\n")) if text and not text.startswith("#") and text not in RUN_LINES), None)
     return bad and f"the run line '{bad}' is not on the allowlist"
 
 
@@ -171,7 +178,7 @@ def judge(path, job):
     if [key for key in outputs if key.lower() == "exposure"] != ["exposure"]:
         raise Refuse("outputs must hold exactly one key spelled exposure")
     expr = scalar(outputs["exposure"], "outputs.exposure")
-    if "steps" not in body or not isinstance(body["steps"], yaml.SequenceNode):
+    if not isinstance(body.get("steps"), yaml.SequenceNode):
         raise Refuse("steps is not a sequence")
     ids = {}
     pending_at = pending_id = None

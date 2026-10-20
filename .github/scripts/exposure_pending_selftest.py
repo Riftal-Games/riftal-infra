@@ -36,6 +36,9 @@ CHAIN_WANT = "outputs.exposure is not exactly a || chain"
 ONE_KEY = "outputs must hold exactly one key spelled exposure"
 SHA_WANT = "which is not actions/checkout by commit sha"
 PASS = "=all on the allowlist"
+CREDS = "        with:\n          persist-credentials: false\n"
+CREDS_WANT = "its with is not exactly persist-credentials: false"
+NOT_PRINTABLE = "outside printable ASCII and newline"
 FLOW_NOBOTS = "      - {name: Exposure, id: 'exposure', run: \"printf 'exposure=no-bots\\\\n' >> \\\"$GITHUB_OUTPUT\\\"\"}\n"
 
 
@@ -50,6 +53,10 @@ def rep(*pairs):
 
 def add(anchor, extra):
     return rep(anchor, anchor + extra)
+
+
+def dq(text):
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def shadow(id_line):
@@ -87,9 +94,13 @@ cases = [
     ("flow-style-step", rep(NOBOTS, "      - {name: Start, run: node run-bot.js}\n\n" + NOBOTS), "the run line 'node run-bot.js' is not on the allowlist"),
     ("unlisted-action", rep(NOBOTS, f"      - uses: some/action@{SHA}\n\n" + NOBOTS), SHA_WANT),
     ("checkout-by-tag", rep("checkout@" + SHA, "checkout@v4"), SHA_WANT),
-    ("checkout-persist-credentials-true", rep("persist-credentials: false", "persist-credentials: true"), "it has the with entry persist-credentials"),
+    ("checkout-persist-credentials-true", rep("persist-credentials: false", "persist-credentials: true"), CREDS_WANT),
+    ("checkout-no-with", rep(CREDS, ""), CREDS_WANT),
+    ("checkout-with-ref", add(CREDS, "          ref: main\n"), CREDS_WANT),
+    ("checkout-with-env", rep(CREDS, "        env:\n          NODE_OPTIONS: --require ./x.js\n" + CREDS), "it has uses beside run or env"),
     ("checkout-with-run", rep("        with:\n          persist", "        run: node devtools/bot.js\n        with:\n          persist"), "it has uses beside run or env"),
     ("with-on-run-step", add(RUNNER, "        with:\n          x: y\n"), "it has a with block and is not actions/checkout"),
+    ("comment-line-in-run", add("          runner_tools_present\n", "          # not a command\n"), PASS),
     ("bad-middle-run-line", add("          runner_tools_present\n", "          node run-bot.js\n"), "the run line 'node run-bot.js' is not on the allowlist"),
     ("plain-run-continuation", add("exposure=no-bots\\n' >> \"$GITHUB_OUTPUT\"\n", "          && node devtools/bot.js\n"), "is not on the allowlist"),
     ("shell-quoted-key", add(RUNNER, '        "shell" : node devtools/bot.js {0}\n'), "it has the key shell"),
@@ -97,6 +108,17 @@ cases = [
     ("env-token-value", add(RUNNER, "        env:\n          GITHUB_TOKEN: $(node devtools/bot.js)\n"), "it has the env variable GITHUB_TOKEN"),
     ("duplicate-run-key", add(RUNNER, "        run: true\n        run: node run-bot.js\n"), "repeats a key"),
     ("anchor", rep(RUNNER, "      - name: &n Runner\n"), "has an anchor, alias or tag"),
+    ("alias", rep(RUNNER, "      - name: &n Runner\n", "id: harness", "id: *n"), "has an anchor, alias or tag"),
+    ("tag", rep(RUNNER, "      - name: !!str Runner\n"), "has an anchor, alias or tag"),
+    ("ahead-run-escaped-vertical-tab", rep(NOBOTS, '      - run: "\\v# || node devtools/bot.js"\n\n' + NOBOTS), NOT_PRINTABLE),
+    ("ahead-run-escaped-unicode-space", rep(NOBOTS, '      - run: "\\u2003# || node devtools/bot.js"\n\n' + NOBOTS), NOT_PRINTABLE),
+    ("pending-run-escaped-trailing-vertical-tab", rep(f"run: {WRITE}\n\n", "run: " + dq(WRITE)[:-1] + '\\v"\n\n'), NOT_PRINTABLE),
+    ("pending-id-upper-case", rep(PEND_ID, "        id: PENDING\n"), "=(id pending) writing"),
+    ("ahead-step-no-run-or-uses", rep(NOBOTS, "      - name: Nothing\n\n" + NOBOTS), "it has no run"),
+    ("non-scalar-key", add(RUNNER, "        ? [a]\n        : b\n"), "is not a mapping with scalar keys"),
+    ("mapping-wrong-kind", add(RUNNER, "        env: x\n"), "env is not a mapping with scalar keys"),
+    ("scalar-wrong-kind", rep(EXPR_LINE, "      exposure: [x]\n"), "outputs.exposure is not a scalar"),
+    ("steps-not-a-sequence", lambda text: text.split("    steps:\n")[0] + "    steps: x\n", "steps is not a sequence"),
     ("second-document", lambda text: text + "---\nname: other\n", "PyYAML cannot read it"),
     ("non-ascii", add("jobs:\n", "  # \u2028\n"), "outside printable ASCII"),
     ("job-services", add("    timeout-minutes: 15\n", "    services: {db: {image: x}}\n"), "job key services is not on the allowlist"),
