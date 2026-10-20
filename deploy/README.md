@@ -194,6 +194,22 @@ cleared, so a corrupt tar for one world in a multi-world set aborts the whole
 restore instead of being found only after earlier worlds have already been
 cleared and left neither restored nor in their pre-restore state.
 
+After the tars list cleanly and still before anything is dropped or cleared,
+`restore.sh` refuses while any other session is connected to the database
+server, whatever that session's default database, because a running instance
+would keep writing through the restore. Stop every instance and the `backup`
+service first. There is no override. The check reads
+`performance_schema.processlist` and refuses rather than guesses when it
+cannot see every session:
+
+| Refusal | Meaning |
+|---|---|
+| `refused: <n> other session(s) are connected to <host>:<port>; close every other connection, instances first` | Another connection is open. Close it and run again |
+| `refused: <user> lacks PROCESS, directly or through an active role, so it cannot see every session` | Without `PROCESS` the account sees only its own threads, so a count of 0 proves nothing. Use the admin account |
+| `refused: the processlist does not show this session, so it cannot see the others; is performance_schema off?` | The count is not trusted until it includes the script's own connection |
+
+The check reads the moment it runs. A session opened afterwards is not seen.
+
 Wiping between MVPs is its own runbook, [`WIPE.md`](WIPE.md). It drops and
 recreates the database and clears the levels, `players/` and `plugin_data/`
 on every instance volume, and its rollback is this restore with the backup

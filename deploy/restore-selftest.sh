@@ -94,7 +94,7 @@ docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=17
+EXPECTED_ASSERTIONS=22
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -122,12 +122,12 @@ provision_backup_login() {
 # PID 1 ignores it, so only the SIGKILL from -k ends the client, and that
 # leaves the container running. Removing it by name is what frees the runner.
 run_restore() {
-  local backup_set="$1" rc=0
+  local backup_set="$1" user="${2:-root}" rc=0
   timeout -k 5 60 docker run --rm -m 1g --cpus 1 --name "$RESTORE_CONTAINER" --network "$NETWORK" \
     -v "$SCRIPT_DIR/restore.sh:/deploy/restore.sh:ro" \
     -v "$BACKUPS_VOL:/backups:ro" \
     -v "$WORLD_A_VOL:/worlds/world-a" -v "$WORLD_B_VOL:/worlds/world-b" \
-    -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
+    -e MYSQL_HOST=mysql -e MYSQL_USER="$user" -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_SET="$backup_set" \
     mysql:8 bash /deploy/restore.sh || rc=$?
   docker rm -f -v "$RESTORE_CONTAINER" >/dev/null 2>&1 || true
@@ -255,6 +255,63 @@ untouched_balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE i
   && pass "the good restore from the earlier assertion is still in place after the failed attempt" \
   || fail "expected balance 500 to survive the failed restore attempt, got $untouched_balance"
 
+section "a restore is refused while another session is connected, or without PROCESS, and changes nothing"
+exec_sql 'UPDATE riftal_selftest.accounts SET balance = 777 WHERE id = 1'
+world_a 'echo 777 > /world/blocks_broken_mine_a.txt'
+# An account with every privilege on the schema but no PROCESS sees only its
+# own threads in the processlist, so it would count 0 with a session connected.
+exec_sql "CREATE USER 'restorer'@'%' IDENTIFIED BY 'selftest'; GRANT ALL ON riftal_selftest.* TO 'restorer'@'%'"
+# Tagged so the session is found by its own text and never by another's.
+docker exec -d "$MYSQL_CONTAINER" mysql -uroot -pselftest -e 'SELECT SLEEP(600) AS riftal_selftest_held'
+held=0
+for _ in $(seq 1 20); do
+  held="$(query riftal_selftest "SELECT COUNT(*) FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP(% AS riftal_selftest_held'")"
+  [ "$held" = "1" ] && break
+  sleep 0.5
+done
+if [ "$held" != "1" ]; then
+  echo "the session meant to stay connected never appeared in the processlist" >&2
+  exit 1
+fi
+
+refused_unchanged() {
+  local label="$1" pattern="$2" user="$3" balance marker
+  if run_restore "/backups/$dir1" "$user" >"$LOGS/out-$label.log" 2>&1; then
+    fail "$label: the restore should exit nonzero"
+  elif grep -q "$pattern" "$LOGS/out-$label.log"; then
+    pass "$label: refused with '$pattern'"
+  else
+    fail "$label: expected '$pattern' in the refusal"; cat "$LOGS/out-$label.log"
+  fi
+  balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE id = 1' 2>/dev/null || true)"
+  marker="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
+  if [ "$balance" = "777" ] && [ "$marker" = "777" ]; then
+    pass "$label: the database and the world volume are as they were"
+  else
+    fail "$label: expected balance 777 and marker 777 untouched, got '$balance' and '$marker'"
+  fi
+}
+refused_unchanged connected-session "other session(s) are connected" root
+refused_unchanged no-process "lacks PROCESS" restorer
+
+held_id="$(query riftal_selftest "SELECT ID FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP(% AS riftal_selftest_held'")"
+case "$held_id" in
+  '' | *[!0-9]*) echo "the held session's id read '$held_id'" >&2; exit 1 ;;
+esac
+exec_sql "KILL $held_id"
+for _ in $(seq 1 30); do
+  [ "$(query riftal_selftest "SELECT COUNT(*) FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP(% AS riftal_selftest_held'")" = "0" ] && break
+  sleep 0.5
+done
+# The same set restores once the session is gone, so the refusals above came
+# from the session and the account, not from the set.
+if run_restore "/backups/$dir1" >"$LOGS"/out-released.log 2>&1 \
+  && [ "$(query riftal_selftest 'SELECT balance FROM accounts WHERE id = 1')" = "500" ]; then
+  pass "with the session gone, the same set restores to the backup-time balance"
+else
+  fail "expected the restore to succeed once the held session ended"; cat "$LOGS"/out-released.log
+fi
+
 printf '\n'
 ran=$((PASSES + FAILURES))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
@@ -266,4 +323,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures and triggers and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures and triggers and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS.\n' "$PASSES"
