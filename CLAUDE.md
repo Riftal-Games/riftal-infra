@@ -21,7 +21,7 @@ Concretely:
 | Path | Contents |
 |---|---|
 | `proxy/` | WaterdogPE `config.yml`, server list, forced hosts, resource pack settings |
-| `instances/` | One definition per running instance: which worlds it serves, its `instance_id`, its resources, its `server.properties` and `pocketmine.yml` overrides |
+| `instances/` | One definition per running instance: which worlds it serves, its `instance_id`, its resources, its `server.properties` and `pocketmine.yml` overrides. `instances/<instance_id>/image` holds one line, `<INSTANCE_IMAGE>:<tag>`, the record of the image tag that instance runs (`deploy/README.md`). |
 | `migrations/` | Production migration runner and applied-state records. Migration files themselves are authored in `riftal-game/lib/resources/sql/migrations/`. |
 | `deploy/` | Rollout and rollback scripts, backup jobs, health checks |
 | `images/` | The local dev stack: `compose.yaml` (`mysql`, core instances `instance` and `instance-b` on the `local-pocketmine-mp` image, and `backup`), `.env.example`, and `plugins/`, the dev-only plugins and start scripts bind-mounted into the instances, with their self-tests. No Dockerfile: the core image is built in `pmmp-core`. `core-image.sha` pins the pmmp-core sha whose `local-pocketmine-mp:<sha>` tag every CI check that boots the core image runs, through `core-image.sh`; a new pin is a normal PR. |
