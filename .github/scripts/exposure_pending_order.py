@@ -21,6 +21,8 @@ every step, and the env and with of a step ahead of the pending step. Every key
 and value the check reads is therefore printable ASCII and newline, where
 Python's lower() and .NET's ordinal ignore-case comparison agree, which is why
 the lowercase comparisons of job ids, outputs keys and step ids below are sound.
+A file that cannot be opened fails the check with an error. A file that is not
+valid UTF-8 stops the script with a traceback and exit status 1.
 
 Keys allowed, any other refused:
   workflow  name, on, permissions, concurrency, env (HADOLINT_VERSION and
