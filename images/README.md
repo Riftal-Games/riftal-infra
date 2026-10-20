@@ -147,8 +147,8 @@ carry none of the three yet.
 Every instance loads riftal-game's `custody` plugin, `RiftalCustody`, which
 keeps item entities out of every chunk save and players out of tiles (ADR 013,
 riftal-pm `docs/decisions/013-item-yielding-entities-are-never-saved.md`).
-It sits at the top of `plugins/`, so `instance-b` loads it straight from
-`/plugins` and `start-instance.sh` copies it into `instance`'s roster. Both
+It sits at the top of `plugins/`, so `start-instance.sh` copies it into
+each instance's roster, `instance-b`'s through `plugins/instance-b/start.sh`. Both
 instances start through `plugins/require-custody.sh`, after the world index
 delivery and `require-accounts.sh`. It stops the boot before PocketMine when
 `plugins/RiftalCustody.phar` is missing or empty. The phar is gitignored, so

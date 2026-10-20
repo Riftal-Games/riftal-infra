@@ -135,7 +135,7 @@ check "instance gets RIFTAL_DB_PASSWORD_MINES and never the root password, insta
     and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_MINES == null
     and .[\"instance-b\"].environment.MYSQL_ROOT_PASSWORD == null" <<<"$real" >/dev/null'
 
-printf '\n== start-instance.sh keeps what start-pocketmine does for instance-b\n'
+printf '\n== start-instance.sh keeps what start-pocketmine does\n'
 # Runs a copy of start-instance.sh with its absolute paths moved under a
 # scratch root and php and wget stubbed, so nothing boots and nothing is
 # fetched. $1 is the uid the ownership check treats as pocketmine; the rest
@@ -222,7 +222,7 @@ check "a file in /plugins not owned by pocketmine is warned about" \
   'boot "$((me + 1))" && grep -q "=== WARNING ===" "$b/out" && grep -q "Cached.phar" "$b/out"'
 check "no ownership warning when pocketmine owns everything" \
   'boot "$me" && ! grep -q WARNING "$b/out"'
-check "a source folder instance-b would load joins the roster with its src (riftal-infra#274)" \
+check "a source folder at the top of /plugins joins the roster with its src (riftal-infra#274)" \
   'FOLDERS=1 boot "$me" && [ "$(cat "$b/roster")" = "$(printf "%s\n" Cached.phar Folder)" ] &&
     [ -f "$(sed -n "s/^--plugins=//p" "$b/args")/Folder/src/Main.php" ]'
 check "a folder without plugin.yml or src, as instance-only is, stays out of the roster" \
@@ -269,9 +269,9 @@ check "the economy config names the compose mysql, its schema and the economy lo
   '[ "$(db host "$ECONOMY_CONFIG")" = mysql ] && [ "$(db username "$ECONOMY_CONFIG")" = economy ] &&
     [ "$(db schema "$ECONOMY_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
     grep -qx "  password: \"\"" "$ECONOMY_CONFIG"'
-check "instance gets RIFTAL_DB_PASSWORD_ECONOMY from images/.env and instance-b gets none" \
+check "instance and instance-b get RIFTAL_DB_PASSWORD_ECONOMY from images/.env (riftal-infra#348)" \
   'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_ECONOMY == \"$ECONOMY_PW\"
-    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_ECONOMY == null" <<<"$real" >/dev/null'
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_ECONOMY == \"$ECONOMY_PW\"" <<<"$real" >/dev/null'
 check "with RiftalEconomy.phar built, the tracked config lands on the volume and the phar joins the roster" \
   'ECONOMY=1 boot "$me" RIFTAL_DB_PASSWORD_ECONOMY="$ECONOMY_PW" &&
     cmp -s "$ECONOMY_CONFIG" "$economy_on_volume" && grep -qx RiftalEconomy.phar "$b/roster"'
@@ -358,7 +358,7 @@ undelivered() {
 check "instance and instance-b both run the delivery with the designer index mounted" \
   '[ -z "$(undelivered "$real")" ] &&
     [ "$(jq -c ".services.instance.command[-2:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-only/start-instance.sh\"]" ] &&
-    [ "$(jq -c ".services[\"instance-b\"].command[-1:]" <<<"$real")" = "[\"start-pocketmine\"]" ]'
+    [ "$(jq -c ".services[\"instance-b\"].command[-2:]" <<<"$real")" = "[\"bash\",\"/plugins/instance-b/start.sh\"]" ]'
 check "an instance without the index mounted is caught" \
   '[ "$(undelivered "$(edited "0,/world_index.json:ro/{/world_index.json:ro/d}")")" = instance ]'
 
