@@ -7,12 +7,20 @@ leaves bots-stopped-file nothing to file.
 Every value compared is read after YAML parsing, from the text of PyYAML's
 composed scalar nodes and never their resolved type, so quoting, comments,
 spacing, flow style and folded, block or continued scalars arrive as the string
-the parser reads. Refused before parsing: a character outside printable ASCII
-in the file, an anchor, alias or tag. Refused wherever the check reads one, which
-ends the check: a scalar holding a character outside printable ASCII and
-newline, as a double-quoted escape can, a key repeated in a mapping, a key that
-is not a scalar, a node of the wrong kind. A part the check does not read is
-not examined for these.
+the parser reads.
+
+Refused for the whole file, which ends the check: a character outside printable
+ASCII other than carriage return and newline, tested on the raw text before
+parsing; an anchor, an alias or a tag, tested on PyYAML's event stream while it
+parses; text PyYAML cannot read as exactly one document. Refused at each mapping
+or scalar the check reads, which also ends the check: a key or a value holding a
+character outside printable ASCII and newline, as a double-quoted escape can; a
+key repeated in a mapping; a key that is not a scalar; a node of the wrong kind.
+The mappings read are the workflow, its env, its jobs, the job, its outputs,
+every step, and the env and with of a step ahead of the pending step. Every key
+and value the check reads is therefore printable ASCII and newline, where
+Python's lower() and .NET's ordinal ignore-case comparison agree, which is why
+the lowercase comparisons of job ids, outputs keys and step ids below are sound.
 
 Keys allowed, any other refused:
   workflow  name, on, permissions, concurrency, env (HADOLINT_VERSION and
@@ -31,20 +39,25 @@ letter or _ and go on in letters, digits, _ and -.
 GitHub looks steps.<id> up without regard to case (actions/runner b6d10b5,
 src/Sdk/DTPipelines/Pipelines/ContextData/DictionaryContextData.cs:77, behind
 src/Runner.Worker/StepsContext.cs), so ids compare lowercased and two that
-differ only by case are refused. outputs.exposure must be exactly a || chain of
+differ only by case are refused. Also refused: a job that is not in the
+workflow, another job id that differs from the job's only by case, and steps
+that is not a sequence. outputs.exposure must be exactly a || chain of
 steps.<id>.outputs.exposure operands that includes the pending step's, and
-outputs holds exactly one key that reads exposure in any case, in lower case. The first non-empty
-operand wins, so no operand before the pending one may belong to a step ahead
-of the pending step; operands after it are not judged. With no pending step the
-check passes when every step is on the allowlist.
+outputs holds exactly one key that reads exposure in any case, spelled in lower
+case; its other keys are allowed and their values are not read. The first
+non-empty operand wins, so no operand before the pending one may be the id of a
+step ahead of the pending step; operands after it are not judged. With no
+pending step the chain and outputs key rules still apply, and the check passes
+when every step is on the allowlist; no operand is judged.
 
 Limits: PyYAML stands in for GitHub's parser and is not compared with it. Not
-read: other jobs; the values under workflow name, on, permissions and
-concurrency and of workflow env variables; a job's name, runs-on,
-timeout-minutes and permissions; outputs keys other than exposure; if and
-continue-on-error values on a step ahead of the pending step; a script a
-step calls. A step after the pending step is read for its id only
-(riftal-infra#1240).
+read: the contents of other jobs, whose ids are read as keys of jobs; the values
+under workflow name, on, permissions and concurrency and of workflow env
+variables; a job's name, runs-on, timeout-minutes and permissions; the values of
+outputs keys other than exposure; if and continue-on-error values on a step
+ahead of the pending step; a script a step calls. A step after the pending step
+is read as a mapping, so its keys meet the refusals above, and for its id, which
+meets the id rules above; nothing else of it is read (riftal-infra#1240).
 """
 
 import re
@@ -80,6 +93,7 @@ STEP_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 OPERAND = r"steps\.(" + STEP_ID.pattern + r")\.outputs\.exposure"
 CHAIN = re.compile(r"\$\{\{ " + OPERAND + r"( \|\| " + OPERAND + r")* \}\}")
 CHECKOUT = re.compile(r"actions/checkout@[0-9a-f]{40}")
+NOT_TEXT = re.compile(r"[^\x20-\x7e\n]")
 
 
 class Refuse(Exception):
@@ -101,6 +115,9 @@ def parse(text):
 def mapping(node, what):
     if not isinstance(node, yaml.MappingNode) or not all(isinstance(key, yaml.ScalarNode) for key, _ in node.value):
         raise Refuse(f"{what} is not a mapping with scalar keys")
+    for key, _ in node.value:
+        if NOT_TEXT.search(key.value):
+            raise Refuse(f"a key of {what} holds a character outside printable ASCII and newline")
     out = {key.value: value for key, value in node.value}
     if len(out) != len(node.value):
         raise Refuse(f"{what} repeats a key")
@@ -110,7 +127,7 @@ def mapping(node, what):
 def scalar(node, what):
     if not isinstance(node, yaml.ScalarNode):
         raise Refuse(f"{what} is not a scalar")
-    if re.search(r"[^\x20-\x7e\n]", node.value):
+    if NOT_TEXT.search(node.value):
         raise Refuse(f"{what} holds a character outside printable ASCII and newline")
     return node.value
 
