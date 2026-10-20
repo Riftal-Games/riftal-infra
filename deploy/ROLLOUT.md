@@ -21,9 +21,11 @@ instance starts on the newer build, so the procedure already rules it out.
 
 A `grants.sql` change is coupled the same way. `run-migrations.sh` applies the
 `GRANTS_FILE` it is given on every run, a run with nothing pending included
-(`../migrations/run-migrations.sh:304`), so the file's REVOKEs reach the
+(`../migrations/run-migrations.sh:309`), so the file's REVOKEs reach the
 database on every run, and on a fresh server a role holds only what the file
-grants. A change is coupled
+grants. `grants-revoke-check.sh` belongs in `/deploy-release` stage 1, before
+the migrations run, and refuses a REVOKE that is new against a tag that can
+still run (`README.md`, Grants REVOKE check). A change is coupled
 when a plugin build that an instance may still run, or be rolled back to,
 needs a privilege the file revokes or does not grant: every statement of that
 build that uses it fails with ERROR 1142 or 1143.
@@ -335,6 +337,16 @@ Why the two cannot be split:
 So, for any release that takes a database from before 0010 to after it:
 
 1. Stop every instance cleanly.
+   Then, before stage 1 applies the grants, run `grants-revoke-check.sh` with
+   the new file, the release tag and `<tag>=<file>` for the older tag
+   (`README.md`, Grants REVOKE check). The file's REVOKE is new against the
+   older tag, and the check counts a stopped container of that tag and an
+   instance definition naming it as the tag in use, so it refuses the run
+   until, on each machine that runs instances, every stopped container of the
+   older tag is removed (its volumes stay) and every definition under
+   `instances/` names the release tag. Step 4 starts every instance on the new
+   tag. Run it once per runtime and per machine, with `INSTANCE_IMAGE` the
+   exact reference that runtime reports; a pass on one covers no other.
 2. Back up as in The window's backup and restore, above, and record the set
    name. Restoring it is a rollback only until the first instance on the new
    tag admits a player; after that it is Nasir's call, never a rollback.
@@ -449,9 +461,10 @@ Grants change: riftal-game PR #923 (merge commit `b6860bb`), in
 build carrying riftal-game PR #891 (merge commit `9a80ef1`), which moved every
 balance change into `CALL economy_ledger_credit` and `CALL
 economy_ledger_debit` (`economy/resources/sql/economy.sql:35`, `:47` at
-`9a80ef1`). PR #891 is an ancestor of PR #923. Related: riftal-infra#944
-would have `/deploy-release` stage 1 refuse a `grants.sql` REVOKE newer
-than the oldest instance's tag.
+`9a80ef1`). PR #891 is an ancestor of PR #923. Related:
+`grants-revoke-check.sh` (riftal-infra#1187, closing riftal-infra#944), which
+belongs in `/deploy-release` stage 1 and refuses a `grants.sql` REVOKE that is
+new against any tag a container or an instance definition still names.
 
 What PR #923 does: leaves `riftal_role_economy` only `UPDATE (account_id)` on
 `balances`, for the ensure upsert, and revokes `UPDATE (balance_minor_units,
@@ -478,7 +491,7 @@ database whose last run applied one from before it:
    name. Restoring it is a rollback only until the first instance on the new
    tag admits a player; after that it is Nasir's call, never a rollback.
 3. Run the migrations. The log reads `applying grants from <file>`
-   (`run-migrations.sh:262`) with no `failed` after it. Confirm the REVOKE
+   (`run-migrations.sh:267`) with no `failed` after it. Confirm the REVOKE
    held: the `balances` line of
 
    ```sh
