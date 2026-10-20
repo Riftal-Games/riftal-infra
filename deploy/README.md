@@ -194,6 +194,22 @@ cleared, so a corrupt tar for one world in a multi-world set aborts the whole
 restore instead of being found only after earlier worlds have already been
 cleared and left neither restored nor in their pre-restore state.
 
+After the tars list cleanly and still before anything is dropped or cleared,
+`restore.sh` refuses while any other session is connected to the database
+server, whatever that session's default database, because a running instance
+would keep writing through the restore. Stop every instance and the `backup`
+service first. There is no override. The check reads
+`performance_schema.processlist` and refuses rather than guesses when it
+cannot see every session:
+
+| Refusal | Meaning |
+|---|---|
+| `refused: <n> other session(s) are connected to <host>:<port>; close every other connection, instances first` | Another connection is open. Close it and run again |
+| `refused: <user> lacks PROCESS, directly or through an active role, so it cannot see every session` | Without `PROCESS` the account sees only its own threads, so a count of 0 proves nothing. Use the admin account |
+| `refused: the processlist does not show this session, so it cannot see the others; is performance_schema off?` | The count is not trusted until it includes the script's own connection |
+
+The check reads the moment it runs. A session opened afterwards is not seen.
+
 Wiping between MVPs is its own runbook, [`WIPE.md`](WIPE.md). It drops and
 recreates the database and clears the levels, `players/` and `plugin_data/`
 on every instance volume, and its rollback is this restore with the backup
@@ -304,6 +320,99 @@ already fails one boot on any `EMERGENCY` line; this is the view across boots.
 A log left out of the middle of the list makes two stops look consecutive or
 hides one between them, so give it every lifetime in order.
 `custody-alert-check-selftest.sh` proves each rule in CI against fixture logs.
+
+## Grants REVOKE check
+
+`grants-revoke-check.sh <new-grants.sql> <release-tag> [<tag>=<grants.sql> ...]`
+refuses a `grants.sql` whose REVOKE statements are new against an image tag
+that can still run (riftal-infra#944, riftal-pm ADR 008 item 3).
+`../migrations/run-migrations.sh` applies the file on every run, and
+`/deploy-release` stage 1 runs the migrations before stage 2 rolls instances
+one at a time. A REVOKE applied while an instance still runs the previous tag
+takes a privilege that instance still needs: every statement that uses it
+fails with ERROR 1142 or 1143. The check reads files and lists containers. It
+stops, starts and removes nothing.
+
+The check belongs in `/deploy-release` stage 1, before the migrations run. The
+skill does not run it yet; until the skill's wiring lands, whoever runs stage 1
+runs the check by hand and does not start the migrations on a refusal.
+
+Each `<tag>=<file>` names the `grants.sql` that tag's plugins were built from.
+Nothing records that mapping yet, so the operator supplies it from the
+riftal-game commit the tag was built at, and it stays manual until the image
+that carries the plugins records that commit. A tag in use with no mapping is a
+refusal, never a pass.
+
+`instances/<id>/image` records the tag an instance runs: one line,
+`<INSTANCE_IMAGE>:<tag>`, with an optional final LF. The tag matches
+`[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}` and is not `latest`. Each immediate
+subdirectory of `INSTANCES_DIR` is one instance definition and must hold that
+file, a regular readable one, links followed. A top-level entry that is not a
+directory, other than `.gitkeep`, is an error, because a definition is a
+directory. The scan reads the checkout it runs from, so run it from riftal-infra
+`main` at the release commit. A deploy or a rollback of one instance is a
+one-line change to its file.
+
+A tag is in use when any of these names it:
+
+- a running container;
+- a stopped container, listed by `ps -a`;
+- an instance definition's `image` file;
+- any other file under `INSTANCES_DIR`, links followed, with the line it
+  appears on.
+
+Every tag in use other than `<release-tag>` is checked. A REVOKE in the new file
+that the older tag's file does not also carry is new against that tag. A REVOKE
+the new file drops is not a hazard. Statements compare as a set of texts with
+whitespace collapsed, so the check does not see a REVOKE the older file later
+undoes with a GRANT of the same privilege: it counts as carried.
+
+| Exit | Output |
+|---|---|
+| 0 | One `GRANTS REVOKE OK:` line: the REVOKE count, the file, the older tags checked, the tags in use, the runtime, the instance definitions read |
+| 1 | One `GRANTS REVOKE REFUSED:` line per new REVOKE and tag, each naming the container or definition that holds the tag |
+| 2 | Usage, an unreadable file or instance definition, a definition with no valid `image` file, a top-level entry that is not a directory, a failed definition scan, a failed runtime, an image whose tag cannot be read, a tag in use with no `grants.sql`, or a file outside the dialect below |
+
+Exit 2 is never a pass. The reader accepts the one dialect riftal-game's
+`lib/resources/sql/grants.sql` is written in, and exits 2 naming the file and
+line on anything else: no `#` or `/* */` comment, quote, backtick, backslash,
+`DROP` or client command, and every statement begins with `CREATE ROLE`,
+`GRANT` or `REVOKE`. A `--` comment ends at the line end, and no byte may be
+other than printable ASCII, tab, CR or LF.
+
+Environment:
+
+| Variable | Required | Default | Meaning |
+|---|---|---|---|
+| `INSTANCE_IMAGE` | yes | | The image name without its tag, exactly as the runtime reports it |
+| `CONTAINER_RUNTIME` | no | `docker` | The runtime command, which may carry arguments |
+| `INSTANCES_DIR` | no | `instances/` beside `deploy/` | Where instance definitions are read, whatever the working directory |
+
+What a pass does not cover:
+
+- **One runtime per run.** Containers come from the single `CONTAINER_RUNTIME`
+  given, on the one machine it reaches. Run the check once per runtime and per
+  machine that runs instances, each with its own `INSTANCE_IMAGE` and its own
+  result. A pass on one machine says nothing about another.
+- **One reference per run.** `INSTANCE_IMAGE` must be the exact reference the
+  runtime reports, registry prefix included. A container under any other
+  reference is skipped as not ours, so a mistyped value passes with the
+  containers it should have caught unseen. Take it from the runtime's own
+  output, for example `docker ps -a --format '{{.Image}}'`, and never from the
+  compose file.
+- **Mutable references.** A container or definition naming the image with no
+  tag, by digest, as `latest`, or known only by id exits 2, because its tag
+  cannot be read.
+
+Example, with one instance still on `v1` and the release at `v2`:
+
+```sh
+INSTANCE_IMAGE=registry.example/riftal/pocketmine-mp \
+  deploy/grants-revoke-check.sh new/grants.sql v2 v1=old/grants.sql
+```
+
+`grants-revoke-check-selftest.sh` proves each rule in CI against a fake
+container runtime and fixture files, and starts no container.
 
 ## Environment
 

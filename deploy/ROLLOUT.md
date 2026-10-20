@@ -21,9 +21,11 @@ instance starts on the newer build, so the procedure already rules it out.
 
 A `grants.sql` change is coupled the same way. `run-migrations.sh` applies the
 `GRANTS_FILE` it is given on every run, a run with nothing pending included
-(`../migrations/run-migrations.sh:304`), so the file's REVOKEs reach the
+(`../migrations/run-migrations.sh:309`), so the file's REVOKEs reach the
 database on every run, and on a fresh server a role holds only what the file
-grants. A change is coupled
+grants. `grants-revoke-check.sh` belongs in `/deploy-release` stage 1, before
+the migrations run, and refuses a REVOKE that is new against a tag that can
+still run (`README.md`, Grants REVOKE check). A change is coupled
 when a plugin build that an instance may still run, or be rolled back to,
 needs a privilege the file revokes or does not grant: every statement of that
 build that uses it fails with ERROR 1142 or 1143.
@@ -138,10 +140,11 @@ Rollout rules).
 
 Before it:
 
-1. Stop cleanly every instance that started on the new tag.
+1. Stop cleanly every instance that started on the new tag, and the `backup`
+   service.
 2. Run `restore.sh` with `BACKUP_SET` the recorded set, as in `README.md`,
    Running it locally. Success is `restore <set>: complete, database <db> and
-   <n> world volume(s) rebuilt` (`restore.sh:72`), `<n>` the count in the
+   <n> world volume(s) rebuilt` (`restore.sh:101`), `<n>` the count in the
    manifest's `world_volumes:`.
 3. Run `../migrations/run-migrations.sh`, which every restore needs for its
    grants and logins (`README.md`, Restore). The directories it is given
@@ -448,9 +451,10 @@ Grants change: riftal-game PR #923 (merge commit `b6860bb`), in
 build carrying riftal-game PR #891 (merge commit `9a80ef1`), which moved every
 balance change into `CALL economy_ledger_credit` and `CALL
 economy_ledger_debit` (`economy/resources/sql/economy.sql:35`, `:47` at
-`9a80ef1`). PR #891 is an ancestor of PR #923. Related: riftal-infra#944
-would have `/deploy-release` stage 1 refuse a `grants.sql` REVOKE newer
-than the oldest instance's tag.
+`9a80ef1`). PR #891 is an ancestor of PR #923. Related:
+`grants-revoke-check.sh` (riftal-infra#1187, closing riftal-infra#944), which
+belongs in `/deploy-release` stage 1 and refuses a `grants.sql` REVOKE that is
+new against any tag a container or an instance definition still names.
 
 What PR #923 does: leaves `riftal_role_economy` only `UPDATE (account_id)` on
 `balances`, for the ensure upsert, and revokes `UPDATE (balance_minor_units,
@@ -473,11 +477,20 @@ So, for any release whose run applies a `grants.sql` from PR #923 onward to a
 database whose last run applied one from before it:
 
 1. Stop every instance cleanly.
+   Then, before stage 1 applies the grants, run `grants-revoke-check.sh` with
+   the new file, the release tag and `<tag>=<file>` for each older tag still
+   in use (`README.md`, Grants REVOKE check). The check counts a stopped
+   container of an older tag and an instance definition naming one as that tag
+   in use, so it refuses the run until, on each machine that runs instances,
+   every stopped container of the older tag is removed (its volumes stay) and
+   every `instances/<id>/image` names the release tag. Run it once per
+   runtime and per machine, with `INSTANCE_IMAGE` the exact reference that
+   runtime reports; a pass on one covers no other.
 2. Back up as in The window's backup and restore, above, and record the set
    name. Restoring it is a rollback only until the first instance on the new
    tag admits a player; after that it is Nasir's call, never a rollback.
 3. Run the migrations. The log reads `applying grants from <file>`
-   (`run-migrations.sh:262`) with no `failed` after it. Confirm the REVOKE
+   (`run-migrations.sh:267`) with no `failed` after it. Confirm the REVOKE
    held: the `balances` line of
 
    ```sh
@@ -513,7 +526,7 @@ it:
 - Serial: nothing runs against the server, so every role, grant, login and
   password stays as that run left it.
 - By restore onto the same server: `restore.sh` drops and recreates only the
-  database (`restore.sh:53-55`). Roles, logins and their grants live in the
+  database (`restore.sh:82-84`). Roles, logins and their grants live in the
   `mysql` schema and stay, procedure grants included: on mysql:8 8.4.11,
   `mysql.tables_priv`, `columns_priv` and `procs_priv` held 12, 30 and 6 rows
   for the schema before the drop and the same after it. The pre-#454

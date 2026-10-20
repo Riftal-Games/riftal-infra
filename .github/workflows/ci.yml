@@ -62,6 +62,9 @@ jobs:
       - name: Custody alert check self-test
         run: bash deploy/custody-alert-check-selftest.sh
 
+      - name: Grants REVOKE check self-test
+        run: bash deploy/grants-revoke-check-selftest.sh
+
       # Synthetic timings and fixture configs only, so it also runs before any
       # container step.
       - name: Write latency check self-test
@@ -167,8 +170,17 @@ jobs:
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
 
+      - name: start.sh parity check self-test
+        run: bash images/plugins/instance-only/check-start-sh-selftest.sh
+
+      - name: start-instance.sh checked against the image's start.sh
+        run: bash images/plugins/instance-only/check-start-sh.sh
+
       - name: Instance boot on the pinned core image self-test
         run: bash images/plugins/instance-only/boot-selftest.sh
+
+      - name: Instance-b start script self-test
+        run: bash images/plugins/instance-b/selftest.sh
 
       - name: Instance restart policy and boot gate self-test
         run: bash images/plugins/restart/selftest.sh

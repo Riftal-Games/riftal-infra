@@ -1,4 +1,5 @@
 # RiftalMines.phar is already covered by the repo root's *.phar rule.
 # start-instance.sh renders the config onto the volume and reads no copy here,
-# but a copy rendered by hand still carries a real database password.
+# and a copy edited by hand to hold a database password must never be
+# committed.
 RiftalMines.config.yml
