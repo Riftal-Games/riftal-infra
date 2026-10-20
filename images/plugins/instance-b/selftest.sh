@@ -12,7 +12,7 @@ trap 'rm -rf "$work"' EXIT
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=6
+EXPECTED_ASSERTIONS=7
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -27,6 +27,10 @@ boot() {
   rm -rf "$root"
   mkdir -p "$root/plugins/instance-only" "$root/data" "$root/pm" "$root/bin"
   : > "$root/plugins/contracts.phar"
+  if [ -n "${source_folder:-}" ]; then
+    mkdir -p "$root/plugins/$source_folder/src"
+    : > "$root/plugins/$source_folder/plugin.yml"
+  fi
   cp "$ONLY/RiftalRanks.config.yml" "$ONLY/RiftalEconomy.config.yml" \
     "$ONLY/render-config.sh" "$ONLY/RiftalMines.config.yml.template" "$root/plugins/instance-only/"
   for phar in $phars; do : > "$root/plugins/instance-only/$phar"; done
@@ -60,7 +64,7 @@ check "with every instance-only phar built, the roster is the shared plugins and
 sed 's#cp "\$only/start-instance.sh" #cp "$only"/* #' "$DIR/start.sh" > "$work/leaky.sh"
 check "a start script that stages all of instance-only is caught" \
   '! cmp -s "$DIR/start.sh" "$work/leaky.sh" &&
-    boot "$work/leaky.sh" "$all" RIFTAL_DB_PASSWORD_ECONOMY=pw RIFTAL_DB_PASSWORD_RANKS=pw && ! economy_only'
+    boot "$work/leaky.sh" "$all" RIFTAL_DB_PASSWORD_ECONOMY=pw RIFTAL_DB_PASSWORD_RANKS=pw RIFTAL_DB_PASSWORD_MINES=pw && ! economy_only'
 check "with RiftalEconomy.phar built, an unset RIFTAL_DB_PASSWORD_ECONOMY stops the boot before php, naming it" \
   '! boot "$DIR/start.sh" "$all" && [ ! -e "$root/args" ] && grep -q "RIFTAL_DB_PASSWORD_ECONOMY is not set" "$root/out"'
 check "without RiftalEconomy.phar, the roster is the shared plugins alone and no password is needed" \
@@ -68,6 +72,9 @@ check "without RiftalEconomy.phar, the roster is the shared plugins alone and no
     [ ! -e "$root/data/plugin_data" ]'
 check "nothing is written into the shared /plugins" \
   'boot "$DIR/start.sh" "$all" RIFTAL_DB_PASSWORD_ECONOMY=pw && ls -R "$root/plugins" | cmp -s - "$root/before"'
+check "a source folder at the top of the shared /plugins joins the roster, instance-only does not" \
+  'source_folder=Dev boot "$DIR/start.sh" "$all" RIFTAL_DB_PASSWORD_ECONOMY=pw &&
+    [ "$(cat "$root/roster")" = "$(printf "%s\n" Dev RiftalEconomy.phar contracts.phar)" ]'
 check "the roster php gets is made outside /plugins" \
   'boot "$DIR/start.sh" "$all" RIFTAL_DB_PASSWORD_ECONOMY=pw &&
     roster="$(sed -n "s/^--plugins=//p" "$root/args")" && [[ "$roster" == "$root"/* ]] &&
