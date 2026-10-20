@@ -100,7 +100,7 @@ containers digest a-1 "$img@sha256:0123456789abcdef"
 
 failures=0
 ran=0
-expected=101
+expected=102
 # check <exit> <regex some output line must match> <case> <running> <all> <arg>...
 check() {
   local want="$1" match="$2" case="$3" run="$4" all="$5" out got
@@ -200,6 +200,9 @@ INSTANCES_DIR="$DIR/bad" check 2 'cannot read instance definition .*/i/image' 'a
 mkdir "$DIR/bad/i/image"
 INSTANCES_DIR="$DIR/bad" check 2 'cannot read instance definition .*/i/image' 'an image that is a directory is an error' none none ab.sql v2
 rmdir "$DIR/bad/i/image"
+ln -s "$DIR/bad/gone" "$DIR/bad/i/image"
+INSTANCES_DIR="$DIR/bad" check 2 'cannot read instance definition .*/i/image' 'a dangling image link is an error' none none ab.sql v2
+rm "$DIR/bad/i/image"
 printf '%s\n' "$img:v2" >"$DIR/bad/i/image"
 chmod 000 "$DIR/bad/i/image"
 if [ -r "$DIR/bad/i/image" ]; then
