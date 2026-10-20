@@ -104,7 +104,8 @@ failed durable chunk save is `devfaults-chunk-save-fail` above.
 read-only at `/etc/riftal/world_index.json` and start through
 `plugins/deliver-world-index.sh`, which copies it to
 `/data/plugin_data/RiftalRanks/`, `/data/plugin_data/RiftalRiots/`,
-`/data/plugin_data/RiftalEconomy/` and `/data/plugin_data/RiftalMines/` on every
+`/data/plugin_data/RiftalEconomy/`, `/data/plugin_data/RiftalMines/` and
+`/data/plugin_data/RiftalGangs/` on every
 boot, as uid 1000, before handing over to the instance's own start script.
 The designer file is the deploy's index. RiftalRanks and RiftalRiots also bundle a
 `resources/world_index.json` and read that one until riftal-game#208 switches
@@ -113,7 +114,8 @@ RiftalEconomy bundles none; its sell shop reads the delivered copy.
 RiftalMines bundles none either; its join teleport, once
 `join_teleport.enabled` is on, reads the delivered copy and rejects every join
 without it. RiftalMines loads on `instance` alone, so on `instance-b` that copy
-sits unread. It
+sits unread. RiftalGangs bundles none; it finds the contested mine in the
+delivered copy and refuses to enable without it. It
 names worlds, never instances, so every instance gets the same one and a split
 changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
