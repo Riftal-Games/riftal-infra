@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Proves exposure_pending_order.py can fail. Each case is the good fixture, or
+ci.yml for a name starting ci.yml, with edits. It must be refused for its own
+reason, or accepted where YAML reads the edit as the same value (want starting
+with =). Reads files only. Needs an interpreter with PyYAML.
+"""
+
+import importlib.util
+import pathlib
+import sys
+import tempfile
+
+sys.dont_write_bytecode = True
+here = pathlib.Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location("order", here / "exposure_pending_order.py")
+order = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(order)
+
+WRITE = "printf 'exposure=pending\\n' >> \"$GITHUB_OUTPUT\""
+PENDING = f"      - name: Exposure, bots may start\n        id: pending\n        run: {WRITE}\n\n"
+BOT = "      - name: Harness\n        id: harness\n        run: bash start-first-bot.sh\n"
+EXPR = "${{ steps.harness.outputs.exposure || steps.pending.outputs.exposure || steps.exposure.outputs.exposure }}"
+EXPR_LINE = f"      exposure: {EXPR}\n"
+SHADOWED = "      exposure: ${{ steps.exposure.outputs.exposure || steps.pending.outputs.exposure }}\n"
+PEND_ID = "        id: pending\n"
+NOBOTS_ID = "        id: exposure\n"
+NOBOTS = "      - name: Exposure, no bot has started\n" + NOBOTS_ID + "        run: printf 'exposure=no-bots\\n' >> \"$GITHUB_OUTPUT\"\n"
+RUNNER = "      - name: Runner has /usr/bin/jq and /usr/bin/curl\n"
+ETH0 = "      # steps.eth0.outputs.address is what"
+FIRST_BOT = "      - name: Start the first bot\n        run: node devtools/bot.js\n\n"
+SHA = "11d5960a326750d5838078e36cf38b85af677262"
+PENDING_BAD = "which is accepted only as a plain false"
+SHADOW_WANT = "outputs.exposure reads step exposure, which completes before the pending step"
+AHEAD = "is ahead of any exposure=pending write and is not on the allowlist"
+CHAIN_WANT = "outputs.exposure is not exactly a || chain"
+ONE_KEY = "outputs must hold exactly one key spelled exposure"
+SHA_WANT = "which is not actions/checkout by commit sha"
+PASS = "=all on the allowlist"
+FLOW_NOBOTS = "      - {name: Exposure, id: 'exposure', run: \"printf 'exposure=no-bots\\\\n' >> \\\"$GITHUB_OUTPUT\\\"\"}\n"
+
+
+def rep(*pairs):
+    def edit(text):
+        for old, new in zip(pairs[::2], pairs[1::2]):
+            assert old in text, f"edit target missing: {old!r}"
+            text = text.replace(old, new, 1)
+        return text
+    return edit
+
+
+def add(anchor, extra):
+    return rep(anchor, anchor + extra)
+
+
+def shadow(id_line):
+    return rep(EXPR_LINE, SHADOWED, NOBOTS_ID, id_line)
+
+
+cases = [
+    ("pending-missing", rep(PENDING, ""), "step 4 (Harness) " + AHEAD),
+    ("pending-after-bot-step", rep(PENDING + BOT, BOT + "\n" + PENDING.rstrip("\n") + "\n"), "step 4 (Harness) " + AHEAD),
+    ("pending-quoted-if", add(PEND_ID, '        "if": false\n'), PENDING_BAD + ": it has the key if"),
+    ("pending-shell", add(PEND_ID, "        shell: node devtools/bot.js {0}\n"), PENDING_BAD + ": it has the key shell"),
+    ("pending-continue-on-error", add(PEND_ID, "        continue-on-error: true\n"), "its continue-on-error is not a plain false"),
+    ("pending-continue-on-error-quoted", add(PEND_ID, "        continue-on-error: 'false'\n"), "its continue-on-error is not a plain false"),
+    ("pending-no-id", rep(PEND_ID, ""), PENDING_BAD + ": it has no id"),
+    ("pending-with-bot-start", rep("run: printf 'exposure=pending", "run: bash start-first-bot.sh; printf 'exposure=pending"), "its run is not that single write"),
+    ("pending-folded-run", rep(f"run: {WRITE}\n\n", f"run: >\n          {WRITE}\n          node run-bot.js\n\n"), "its run is not that single write"),
+    ("pending-id-commented", rep(PEND_ID, "        id: pending # c\n"), PASS),
+    ("pending-output-not-read", rep(" || steps.pending.outputs.exposure", ""), "outputs.exposure does not read steps.pending.outputs.exposure"),
+    ("outputs-shadowed", rep(EXPR_LINE, SHADOWED), SHADOW_WANT),
+    ("outputs-shadowed-id-single-quoted", shadow("        id: 'exposure'\n"), SHADOW_WANT),
+    ("outputs-shadowed-id-commented", shadow("        id: exposure # no-bots\n"), SHADOW_WANT),
+    ("outputs-shadowed-id-quoted-key", shadow('        "id" : exposure\n'), SHADOW_WANT),
+    ("outputs-shadowed-id-upper-case", shadow("        id: EXPOSURE\n"), SHADOW_WANT),
+    ("outputs-shadowed-operand-upper-case", rep(EXPR_LINE, SHADOWED.replace("steps.exposure", "steps.EXPOSURE")), SHADOW_WANT),
+    ("outputs-shadowed-id-flow-step", rep(EXPR_LINE, SHADOWED, NOBOTS, FLOW_NOBOTS), SHADOW_WANT),
+    ("ids-differ-by-case", rep("id: harness", "id: Pending"), "repeats the id Pending, which GitHub reads without regard to case"),
+    ("id-with-a-dot", rep("id: harness", "id: harness.x"), "which is not letters, digits, _ and -"),
+    ("outputs-continuation", add(EXPR_LINE, "        bots running\n"), CHAIN_WANT),
+    ("outputs-folded-continuation", rep(EXPR_LINE, "      exposure: >\n        " + EXPR + "\n        bots running\n"), CHAIN_WANT),
+    ("outputs-literal-operand", rep(EXPR_LINE, "      exposure: ${{ 'no-bots' || steps.pending.outputs.exposure }}\n"), CHAIN_WANT),
+    ("outputs-key-also-upper-case", add(EXPR_LINE, "      Exposure: x\n"), ONE_KEY),
+    ("outputs-none", rep("    outputs:\n" + EXPR_LINE, ""), ONE_KEY),
+    ("outputs-commented", rep(EXPR_LINE, EXPR_LINE.rstrip("\n") + " # c\n"), PASS),
+    ("unlisted-step-before-pending", rep(NOBOTS, "      - name: Start something\n        run: node run-bot.js\n\n" + NOBOTS), "step 3 (Start something) " + AHEAD),
+    ("flow-style-step", rep(NOBOTS, "      - {name: Start, run: node run-bot.js}\n\n" + NOBOTS), "the run line 'node run-bot.js' is not on the allowlist"),
+    ("unlisted-action", rep(NOBOTS, f"      - uses: some/action@{SHA}\n\n" + NOBOTS), SHA_WANT),
+    ("checkout-by-tag", rep("checkout@" + SHA, "checkout@v4"), SHA_WANT),
+    ("checkout-persist-credentials-true", rep("persist-credentials: false", "persist-credentials: true"), "it has the with entry persist-credentials"),
+    ("checkout-with-run", rep("        with:\n          persist", "        run: node devtools/bot.js\n        with:\n          persist"), "it has uses beside run or env"),
+    ("with-on-run-step", add(RUNNER, "        with:\n          x: y\n"), "it has a with block and is not actions/checkout"),
+    ("bad-middle-run-line", add("          runner_tools_present\n", "          node run-bot.js\n"), "the run line 'node run-bot.js' is not on the allowlist"),
+    ("plain-run-continuation", add("exposure=no-bots\\n' >> \"$GITHUB_OUTPUT\"\n", "          && node devtools/bot.js\n"), "is not on the allowlist"),
+    ("shell-quoted-key", add(RUNNER, '        "shell" : node devtools/bot.js {0}\n'), "it has the key shell"),
+    ("env-bash-env", add(RUNNER, "        env: {BASH_ENV: devtools/start-bot.sh}\n"), "it has the env variable BASH_ENV"),
+    ("env-token-value", add(RUNNER, "        env:\n          GITHUB_TOKEN: $(node devtools/bot.js)\n"), "it has the env variable GITHUB_TOKEN"),
+    ("duplicate-run-key", add(RUNNER, "        run: true\n        run: node run-bot.js\n"), "repeats a key"),
+    ("anchor", rep(RUNNER, "      - name: &n Runner\n"), "has an anchor, alias or tag"),
+    ("second-document", lambda text: text + "---\nname: other\n", "PyYAML cannot read it"),
+    ("non-ascii", add("jobs:\n", "  # \u2028\n"), "outside printable ASCII"),
+    ("job-services", add("    timeout-minutes: 15\n", "    services: {db: {image: x}}\n"), "job key services is not on the allowlist"),
+    ("workflow-defaults", rep("jobs:", "defaults:\n  run:\n    shell: node devtools/bot.js {0}\n\njobs:"), "top-level key defaults is not on the allowlist"),
+    ("workflow-env", rep("jobs:", "env:\n  BASH_ENV: devtools/start-bot.sh\n\njobs:"), "workflow env variable BASH_ENV is not on the allowlist"),
+    ("job-id-by-case", lambda text: text + "  Bot-Proofs:\n    runs-on: x\n", "differs from bot-proofs only by case"),
+    ("no-job", rep("  bot-proofs:", "  other:"), "no job bot-proofs"),
+    ("crlf", lambda text: text.replace("\n", "\r\n"), PASS),
+    ("good-fixture", None, PASS),
+    ("ci.yml", None, "=none can start a bot and no exposure=pending write is needed yet"),
+    (
+        "ci.yml-pending-then-bot-step",
+        rep(ETH0, PENDING + FIRST_BOT.replace("bot\n", "bot\n        id: harness\n", 1) + ETH0, "harness.outputs.exposure || steps.exposure", "harness.outputs.exposure || steps.pending.outputs.exposure || steps.exposure"),
+        "=8 step(s) ahead of step 9 (id pending) writing exposure=pending, all on the allowlist",
+    ),
+]
+sources = [here.parent / "ci-fixtures/good/exposure-pending/pending-first.yml", here.parent / "workflows/ci.yml"]
+
+failures = 0
+for name, edit, want in cases:
+    base = sources[name.startswith("ci.yml")].read_text(encoding="utf-8")
+    text = edit(base) if edit else base
+    assert edit is None or text != base, f"{name}: the edit changed nothing"
+    with tempfile.TemporaryDirectory() as tmp:
+        file = pathlib.Path(tmp, "workflow.yml")
+        file.write_bytes(text.encode("utf-8"))
+        errors, summary = order.check(str(file))
+    accepts = want.startswith("=")
+    got = summary if accepts else "\n".join(errors)
+    ok = bool(errors) != accepts and want.lstrip("=") in got
+    print(f"  ok    {name}" if ok else f"::error::{name}: wanted '{want}', got: {got}")
+    failures += not ok
+errors, _ = order.check(str(here / "absent.yml"))
+failures += not any("cannot read" in error for error in errors)
+if failures:
+    sys.exit(1)
+print("exposure_pending_order.py refuses every mutant for its own reason")

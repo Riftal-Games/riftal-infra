@@ -253,6 +253,13 @@ jobs:
         working-directory: designer
         run: uv run --frozen python -m designer.tools_doc --check
 
+      # Both need the PyYAML that designer/uv.lock pins, so they follow the sync.
+      - name: Self-test, prove the exposure=pending order check can fail
+        run: uv run --frozen --project designer python .github/scripts/exposure_pending_selftest.py
+
+      - name: bot-proofs writes exposure=pending before any step that may start a bot
+        run: uv run --frozen --project designer python .github/scripts/exposure_pending_order.py
+
       # always() rather than failure(): a cancelled run is the case that leaks,
       # because the runner kills a self-test before its EXIT trap fires.
       - name: Remove this job's containers
