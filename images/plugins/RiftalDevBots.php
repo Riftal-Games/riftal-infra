@@ -3,10 +3,10 @@
 /**
  * @name RiftalDevBots
  * @main riftal\dev\bots\Main
- * @version 0.4.0
+ * @version 0.5.0
  * @api 5.0.0
  * @softdepend RiftalCustody
- * @description Dev stack only. Admits the headless player bots from devtools/bot.
+ * @description Dev stack only. Admits the headless player bots from devtools/bot, and lets a player watch through a bot's eyes.
  */
 
 // The softdepend keeps RiftalCustody enabled until this plugin has disabled, so
@@ -35,14 +35,30 @@ use pocketmine\item\Item;
 use pocketmine\item\VanillaItems;
 use pocketmine\nbt\NBT;
 use pocketmine\nbt\tag\ListTag;
+use pocketmine\network\mcpe\protocol\CameraInstructionPacket;
+use pocketmine\network\mcpe\protocol\CameraPresetsPacket;
+use pocketmine\network\mcpe\protocol\ClientboundPacket;
+use pocketmine\network\mcpe\protocol\types\camera\CameraPreset;
+use pocketmine\network\mcpe\protocol\types\camera\CameraSetInstruction;
+use pocketmine\network\mcpe\protocol\types\camera\CameraSetInstructionEase;
+use pocketmine\network\mcpe\protocol\types\camera\CameraSetInstructionEaseType;
+use pocketmine\network\mcpe\protocol\types\camera\CameraSetInstructionRotation;
 use pocketmine\permission\DefaultPermissions;
+use pocketmine\permission\Permission;
+use pocketmine\permission\PermissionManager;
 use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
+use pocketmine\scheduler\ClosureTask;
+use pocketmine\Server;
 use pocketmine\utils\Process;
 use pocketmine\world\format\Chunk;
 use pocketmine\world\format\io\GlobalItemDataHandlers;
 use pocketmine\world\World;
+use Throwable;
+use function array_filter;
+use function array_map;
 use function count;
+use function implode;
 use function is_string;
 use function preg_match;
 use function strrchr;
@@ -88,6 +104,9 @@ final class DevEnvGate{
  * with no XUID, so a server that requires Xbox auth would refuse them
  * anyway, and this plugin refuses them first with a clear reason.
  *
+ * /watch <bot> gives a real client a camera behind a bot's eyes, since bots
+ * render nothing; see WatchCommand.
+ *
  * This lives here until lib exists; riftal-game tracks moving it into
  * RiftalGames\Lib\Dev so plugins can ask whether a player is a dev bot
  * through lib rather than calling another plugin.
@@ -119,6 +138,8 @@ final class Main extends PluginBase{
 	 */
 	private array $bots = [];
 
+	private ?WatchCommand $watch = null;
+
 	protected function onEnable() : void{
 		$server = $this->getServer();
 		$requested = $server->getConfigGroup()->getConfigBool("riftal-dev-bots", false);
@@ -145,7 +166,11 @@ final class Main extends PluginBase{
 		$manager->registerEvent(PlayerQuitEvent::class, $this->onQuit(...), EventPriority::MONITOR, $this);
 
 		if($this->admitting){
+			WatchCommand::registerPermission();
+			$this->watch = new WatchCommand($server, $this->getLogger(), $this->isBot(...));
+			$this->getScheduler()->scheduleRepeatingTask(new ClosureTask($this->watch->moveCameras(...)), 1);
 			$server->getCommandMap()->registerAll("riftaldevbots", [
+				$this->watch,
 				new CrashCommand($this->getLogger()),
 				new TileCommand($this->getLogger(), $this->isBot(...)),
 				new AutosaveCommand($this->getLogger(), $this->isBot(...)),
@@ -246,6 +271,7 @@ final class Main extends PluginBase{
 
 	private function onQuit(PlayerQuitEvent $event) : void{
 		$player = $event->getPlayer();
+		$this->watch?->onQuit($player);
 		$name = strtolower($player->getName());
 		if(($this->bots[$name] ?? null) !== $player->getId()){
 			return;
@@ -486,5 +512,157 @@ final class ShulkerCommand extends Command{
 			$sender->sendMessage($line);
 		}
 		return true;
+	}
+}
+
+/**
+ * Bots render nothing, so this is how a person sees what one sees: it sets the
+ * viewer's camera to the bot's eyes every tick until the viewer returns with
+ * /watch alone, or the viewer or the bot leaves.
+ *
+ * Registered only when Main admits dev bots, and it targets only an admitted
+ * dev bot. watch/selftest.sh holds the follow, every way a watch ends, and the
+ * camera fault that must not reach the scheduler.
+ */
+final class WatchCommand extends Command{
+
+	public const NAME = "watch";
+	public const PERMISSION = "riftal.devbots.watch";
+
+	// The camera is set every tick, so easing over one tick turns 20 jumps a
+	// second into continuous motion.
+	private const EASE_SECONDS = 0.05;
+
+	/** @var array<int, array{Player, Player}> viewer entity id => [viewer, bot] */
+	private array $watching = [];
+
+	/** @param Closure(Player) : bool $isBot */
+	public function __construct(private Server $server, private Logger $logger, private Closure $isBot){
+		parent::__construct(self::NAME, "Dev stack only. See what a dev bot sees; /watch alone returns your camera.", "/" . self::NAME . " [bot]");
+		$this->setPermission(self::PERMISSION);
+	}
+
+	public static function registerPermission() : void{
+		$user = PermissionManager::getInstance()->getPermission(DefaultPermissions::ROOT_USER);
+		DefaultPermissions::registerPermission(new Permission(self::PERMISSION, "Watch through a dev bot's eyes"), [$user]);
+	}
+
+	public function execute(CommandSender $sender, string $commandLabel, array $args) : bool{
+		if(!$sender instanceof Player){
+			$sender->sendMessage("Only a player in the world can watch.");
+			return true;
+		}
+		if(count($args) === 0){
+			if(isset($this->watching[$sender->getId()])){
+				$this->stop($sender, "back to your own view");
+			}else{
+				$online = array_map(static fn(Player $bot) => $bot->getName(), array_filter($this->server->getOnlinePlayers(), $this->isBot));
+				$sender->sendMessage(count($online) === 0 ? "No dev bots online." : "Dev bots online: " . implode(", ", $online));
+			}
+			return true;
+		}
+		$bot = $this->server->getPlayerExact($args[0]);
+		if($bot === null || !($this->isBot)($bot)){
+			$sender->sendMessage("No dev bot called $args[0] is online.");
+			return true;
+		}
+		// The client resolves a camera instruction's preset by its index in the
+		// last preset list it was sent, and the core never sends one.
+		if($this->send($sender, CameraPresetsPacket::create([self::freePreset()]))){
+			$this->watching[$sender->getId()] = [$sender, $bot];
+			$sender->sendMessage("Watching " . $bot->getName() . ". /watch to return.");
+		}
+		return true;
+	}
+
+	/**
+	 * Ends the watches a leaving session was part of. It sends the leaving
+	 * session nothing, and a bot's watchers get their own camera back.
+	 */
+	public function onQuit(Player $leaving) : void{
+		unset($this->watching[$leaving->getId()]);
+		foreach($this->watching as [$viewer, $bot]){
+			if($bot === $leaving){
+				$this->stop($viewer, $bot->getName() . " left");
+			}
+		}
+	}
+
+	public function moveCameras() : void{
+		foreach($this->watching as [$viewer, $bot]){
+			if(!$viewer->isConnected()){
+				unset($this->watching[$viewer->getId()]);
+				continue;
+			}
+			if(!$bot->isConnected()){
+				$this->stop($viewer, $bot->getName() . " is gone");
+				continue;
+			}
+			$location = $bot->getLocation();
+			$this->send($viewer, CameraInstructionPacket::create(
+				new CameraSetInstruction(
+					preset: 0,
+					ease: new CameraSetInstructionEase(CameraSetInstructionEaseType::LINEAR, self::EASE_SECONDS),
+					cameraPosition: $bot->getEyePos(),
+					rotation: new CameraSetInstructionRotation($location->getPitch(), $location->getYaw()),
+					facingPosition: null,
+					viewOffset: null,
+					entityOffset: null,
+					default: null,
+					ignoreStartingValuesComponent: false
+				),
+				null, null, null, null, null, null, null, null
+			));
+		}
+	}
+
+	private function stop(Player $viewer, string $reason) : void{
+		unset($this->watching[$viewer->getId()]);
+		if($this->send($viewer, CameraInstructionPacket::create(null, true, null, null, null, null, null, null, null))){
+			$viewer->sendMessage("Stopped watching: $reason.");
+		}
+	}
+
+	// moveCameras runs on the scheduler, where an exception nothing catches
+	// stops the whole server. A viewer whose session cannot be written to loses
+	// its watch and every other viewer keeps theirs.
+	private function send(Player $viewer, ClientboundPacket $packet) : bool{
+		try{
+			$viewer->getNetworkSession()->sendDataPacket($packet);
+			return true;
+		}catch(Throwable $e){
+			unset($this->watching[$viewer->getId()]);
+			$this->logger->error(self::NAME . ": camera released for " . $viewer->getName() . ": " . $e->getMessage());
+			return false;
+		}
+	}
+
+	private static function freePreset() : CameraPreset{
+		return new CameraPreset(
+			name: "minecraft:free",
+			parent: "",
+			xPosition: null,
+			yPosition: null,
+			zPosition: null,
+			pitch: null,
+			yaw: null,
+			rotationSpeed: null,
+			snapToTarget: null,
+			horizontalRotationLimit: null,
+			verticalRotationLimit: null,
+			continueTargeting: null,
+			blockListeningRadius: null,
+			viewOffset: null,
+			entityOffset: null,
+			radius: null,
+			yawLimitMin: null,
+			yawLimitMax: null,
+			audioListenerType: null,
+			playerEffects: null,
+			aimAssist: null,
+			controlScheme: null,
+			applyInheritedStartingRotation: false,
+			startingRotation: null
+		);
 	}
 }

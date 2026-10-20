@@ -118,7 +118,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/tile-contents/*.php images/plugins/capture-harness/*.php images/plugins/restart/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/tile-contents/*.php images/plugins/capture-harness/*.php images/plugins/restart/*.php images/plugins/watch/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
@@ -126,7 +126,7 @@ jobs:
           docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/tile-contents/*.php /plugins/capture-harness/*.php /plugins/restart/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/tile-contents/*.php /plugins/capture-harness/*.php /plugins/restart/*.php /plugins/watch/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -160,6 +160,12 @@ jobs:
 
       - name: Dev bots join order self-test
         run: bash images/plugins/join-order/selftest.sh
+
+      # A healthy run takes under half a minute. The bound keeps one wedged
+      # boot from spending the rest of the job's 15 minutes.
+      - name: Dev bots watch camera self-test
+        timeout-minutes: 10
+        run: bash images/plugins/watch/selftest.sh
 
       - name: Dev bots crash hook self-test
         run: bash images/plugins/crash-hook/selftest.sh
