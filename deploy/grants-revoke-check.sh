@@ -30,16 +30,23 @@
 #                      "wsl -d Ubuntu-26.04 -u runner --exec docker"
 #   INSTANCES_DIR      default instances/ beside deploy/, not the working directory
 #
+# Exit status:
 #     0  one GRANTS REVOKE OK line
 #     1  one GRANTS REVOKE REFUSED line per new REVOKE and tag
-#     2  usage, an unreadable file, a runtime that failed, an image whose tag
-#        cannot be read, or a tag in use with no grants.sql; never a pass
+#     2  usage, an unreadable file, a file the reader cannot handle (below), a
+#        runtime that failed, an image whose tag cannot be read, or a tag in use
+#        with no grants.sql; never a pass
 #
 # A statement containing the word REVOKE anywhere is a REVOKE, so one that
 # follows a /* */ or # comment is still seen. They compare after dropping --
 # comments and collapsing whitespace. Anything else about a statement, a /* */
 # or # comment included, counts as a different statement, which errs toward
 # refusing.
+#
+# The reader is not a SQL parser. Rather than guess where MySQL ends a comment
+# or a string, it exits 2 on a file with any byte but printable ASCII, tab, CR
+# or LF, a quote or backtick outside a -- comment, a -- not followed by
+# whitespace, or a /* */ comment that spans lines or shares a line with a --.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -61,7 +68,7 @@ shift 2
 
 readable() { [ -f "$1" ] && [ -r "$1" ]; }
 
-declare -A baseline=()
+declare -A baseline=() old_revokes=()
 for pair in "$@"; do
   tag="${pair%%=*}"
   file="${pair#*=}"
@@ -75,9 +82,32 @@ readable "$new_grants" || die "cannot read $new_grants"
 [ -d "$INSTANCES_DIR" ] || die "cannot read instance definitions in $INSTANCES_DIR"
 
 revokes() {
-  sed -e 's/--.*$//' "$1" | tr '\n\r\t' '   ' | tr -s ' ' | tr ';' '\n' |
-    sed -e 's/^ //' -e 's/ $//' |
-    { grep -i -w 'REVOKE' || [ "$?" -eq 1 ]; }
+  if LC_ALL=C grep -a -q '[^[:print:][:space:]]' "$1"; then
+    echo "grants-revoke-check.sh: $1 has a byte other than printable ASCII or whitespace, which the reader does not handle" >&2
+    return 2
+  fi
+  LC_ALL=C awk '
+    function bad(why) {
+      printf "grants-revoke-check.sh: %s:%d: %s, which the reader does not handle\n", FILENAME, NR, why > "/dev/stderr"
+      failed = 1
+    }
+    {
+      i = index($0, "--"); pre = i ? substr($0, 1, i - 1) : $0
+      if (i && substr($0, i + 2, 1) ~ /[^ \t\r]/) bad("a -- not followed by whitespace")
+      if (pre ~ /[\047"`]/) bad("a quote or backtick")
+      s = pre; open = block = 0
+      while ((p = index(s, open ? "*/" : "/*")) > 0) { block = 1; open = !open; s = substr(s, p + 2) }
+      if (open || (block && i)) bad("a /* */ comment that spans lines or shares a line with --")
+      text = text " " pre
+    }
+    END {
+      if (failed) exit 2
+      n = split(text, st, ";")
+      for (k = 1; k <= n; k++) {
+        t = st[k]; gsub(/[ \t\r]+/, " ", t); gsub(/^ | $/, "", t)
+        if (tolower(t) ~ /(^|[^a-z0-9_])revoke([^a-z0-9_]|$)/) print t
+      }
+    }' "$1"
 }
 
 declare -A used=()
@@ -140,11 +170,15 @@ for tag in "${!used[@]}"; do
   elif ! readable "${baseline[$tag]}"; then
     echo "grants-revoke-check.sh: cannot read ${baseline[$tag]} for tag $tag" >&2
     missing=1
+  else
+    old_revokes[$tag]="$(revokes "${baseline[$tag]}")" || missing=1
   fi
 done
+new_text="$(revokes "$new_grants")" || missing=1
 [ "$missing" -eq 0 ] || exit 2
 
-mapfile -t new_revokes < <(revokes "$new_grants")
+new_revokes=()
+[ -z "$new_text" ] || mapfile -t new_revokes <<<"$new_text"
 refused=0
 for tag in $(printf '%s\n' "${!used[@]}" | sort); do
   [ "$tag" != "$release_tag" ] || continue
@@ -152,7 +186,7 @@ for tag in $(printf '%s\n' "${!used[@]}" | sort); do
   declare -A have=()
   while IFS= read -r old; do
     [ -z "$old" ] || have[$old]=1
-  done < <(revokes "${baseline[$tag]}")
+  done <<<"${old_revokes[$tag]}"
   for stmt in "${new_revokes[@]}"; do
     [ -n "$stmt" ] || continue
     if [ -z "${have[$stmt]:-}" ]; then

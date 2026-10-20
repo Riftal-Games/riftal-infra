@@ -322,21 +322,28 @@ commit that tag's plugins were built from. No release record holds that mapping
 yet, so the operator supplies it. It prints one `GRANTS REVOKE REFUSED:` line per
 REVOKE that the tag's file lacks, naming the statement and the tag, and exits 1.
 Exit 2, never a pass, is a usage error, an unreadable file, a runtime that
-failed, an image with no tag, a `latest` tag, a digest or an image id, or a tag
-in use with no `grants.sql`. Otherwise it prints `GRANTS REVOKE OK:`.
+failed, an image with no tag, a `latest` tag, a digest or an image id, a tag
+in use with no `grants.sql`, or a file the reader cannot handle. Otherwise it
+prints `GRANTS REVOKE OK:`.
 
 A statement containing the word REVOKE counts as one, after dropping `--`
 comments and collapsing whitespace, so a REVOKE after a `/* */` or `#` comment
 is still seen, and a reworded one, or one whose comment changed, refuses. A tag
 is refused against its own file, not the oldest, so no ordering is needed.
 
+The reader is not a SQL parser, so it exits 2 rather than guess where MySQL
+ends a comment or a string: on any byte but printable ASCII, tab, CR or LF
+(a NUL included), a quote or backtick outside a `--` comment, a `--` not
+followed by whitespace, or a `/* */` comment that spans lines or shares a line
+with a `--`. The real `grants.sql` has none of these.
+
 `INSTANCE_IMAGE` is the image name without its tag. `CONTAINER_RUNTIME`
 defaults to `docker` and may carry arguments; the check only runs `ps` and
 `ps -a`. A pass covers only the runtime it was given, and the `OK` line names
 it with the tags in use, so run the check once on each machine that runs
 instances (ADR 006: no older-tag container anywhere). `INSTANCES_DIR` defaults
-to `instances/` beside `deploy/`, which does not exist yet, so the check exits 2
-until it does.
+to `instances/` beside `deploy/`. That directory is tracked but holds only
+`.gitkeep`, so it adds no tags, and the check finds tags from containers alone.
 
 ```bash
 INSTANCE_IMAGE=registry.example/riftal/pocketmine-mp \

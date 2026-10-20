@@ -40,6 +40,11 @@ grants spaced.sql '-- REVOKE in a comment;' 'REVOKE IF EXISTS' '   UPDATE (balan
 printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\r\n' >"$DIR/crlf.sql"
 grants block.sql "/* old note */ $revoke_a"
 grants hash.sql '# old note' "$revoke_a"
+grants inblock.sql "/* see riftal-game#123 -- old */ $revoke_b"
+grants quoted.sql "SELECT '--'; $revoke_b"
+grants dashes.sql "SELECT 1--1; $revoke_b"
+printf -- '-- ok\n/* caf\351 */ %s\n' "$revoke_b" >"$DIR/latin1.sql"
+printf 'GRANT SELECT ON t TO r;\n\0\n%s\n' "$revoke_b" >"$DIR/nul.sql"
 grants lower.sql 'revoke if exists riftal_role_accounts from riftal_role_mines;'
 grants word.sql 'GRANT SELECT ON revokes TO riftal_role_mines;'
 
@@ -63,7 +68,7 @@ containers digest a-1 "$img@sha256:0123456789abcdef"
 
 failures=0
 ran=0
-expected=26
+expected=32
 # check <exit> <regex some output line must match> <case> <running> <all> <arg>...
 check() {
   local want="$1" match="$2" case="$3" run="$4" all="$5" out got
@@ -110,6 +115,18 @@ check 1 '^GRANTS REVOKE REFUSED: "# old note REVOKE IF EXISTS UPDATE' \
   'a REVOKE after a # comment is seen and refuses' one-old one-old hash.sql v2 v1=none.sql
 check 1 '^GRANTS REVOKE REFUSED: "revoke if exists riftal_role_accounts' \
   'a lowercase revoke is seen and refuses' one-old one-old lower.sql v2 v1=none.sql
+check 2 'inblock.sql:1: a /\* \*/ comment that spans lines or shares a line with --' \
+  'a -- inside a block comment does not hide a REVOKE' one-old one-old inblock.sql v2 v1=none.sql
+check 2 'quoted.sql:1: a quote or backtick' \
+  'a -- inside a quoted string does not hide a REVOKE' one-old one-old quoted.sql v2 v1=none.sql
+check 2 'dashes.sql:1: a -- not followed by whitespace' \
+  'a -- with no whitespace after it does not hide a REVOKE' one-old one-old dashes.sql v2 v1=none.sql
+LC_ALL=C.UTF-8 check 2 'latin1.sql has a byte other than printable ASCII' \
+  'a non-UTF-8 byte does not hide a REVOKE' one-old one-old latin1.sql v2 v1=none.sql
+check 2 'nul.sql has a byte other than printable ASCII' \
+  'a NUL does not hide a REVOKE' one-old one-old nul.sql v2 v1=none.sql
+check 2 'inblock.sql:1: a /\* \*/ comment' \
+  'a reader failure on an older tag file is an error, not a pass' one-old one-old b.sql v2 v1=inblock.sql
 check 0 'OK: 0 REVOKE statement\(s\) in word.sql' \
   'a word merely containing revoke is not a REVOKE' one-old one-old word.sql v2 v1=none.sql
 
