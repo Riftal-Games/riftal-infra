@@ -35,9 +35,9 @@
 # client command is ever read, and none can hide or stand in for a REVOKE.
 #
 # A pass does not cover:
-#   - more than one runtime: containers are listed from the one
-#     CONTAINER_RUNTIME given, so run the check once per runtime that runs
-#     instances;
+#   - more than one runtime or host: containers are listed from the one
+#     CONTAINER_RUNTIME given, on the one host it reaches, so run the check once
+#     per runtime and per host that runs instances;
 #   - an image under any reference other than INSTANCE_IMAGE: it must be the
 #     exact reference the runtime reports, or those containers are not seen;
 #   - a REVOKE the older file later undoes: statements compare as a set of
@@ -54,9 +54,7 @@ die() {
   exit 2
 }
 
-if [ "$#" -lt 2 ]; then
-  die 'usage: grants-revoke-check.sh <new-grants.sql> <release-tag> [<tag>=<grants.sql> ...]'
-fi
+[ "$#" -ge 2 ] || die 'usage: grants-revoke-check.sh <new-grants.sql> <release-tag> [<tag>=<grants.sql> ...]'
 [ -n "${INSTANCE_IMAGE:-}" ] || die 'INSTANCE_IMAGE is not set'
 new_grants="$1"
 release_tag="$2"
@@ -68,9 +66,7 @@ declare -A baseline=() old_revokes=()
 for pair in "$@"; do
   tag="${pair%%=*}"
   file="${pair#*=}"
-  if [ "$tag" = "$pair" ] || [ -z "$tag" ] || [ -z "$file" ]; then
-    die "'$pair' is not <tag>=<grants.sql>"
-  fi
+  [ "$tag" != "$pair" ] && [ -n "$tag" ] && [ -n "$file" ] || die "'$pair' is not <tag>=<grants.sql>"
   baseline[$tag]="$file"
 done
 
@@ -146,7 +142,8 @@ while IFS=$'\t' read -r name image; do
   note_image "$image" "stopped container $name"
 done <<<"$all"
 
-defs="$(find "$INSTANCES_DIR" -type f | sort)" || die "cannot scan instance definitions in $INSTANCES_DIR"
+# -L follows links, and lists a dangling one so that readable refuses it.
+defs="$(find -L "$INSTANCES_DIR" ! -type d | sort)" || die "cannot scan instance definitions in $INSTANCES_DIR"
 while IFS= read -r def; do
   [ -n "$def" ] || continue
   readable "$def" || die "cannot read instance definition $def"
@@ -199,9 +196,7 @@ for tag in $(printf '%s\n' "${!used[@]}" | sort); do
   unset have
 done
 
-if [ "$refused" -ne 0 ]; then
-  exit 1
-fi
+[ "$refused" -eq 0 ] || exit 1
 in_use="$(printf '%s\n' "${!used[@]}" | sort | paste -sd ' ' -)"
 printf 'GRANTS REVOKE OK: %s REVOKE statement(s) in %s, %s older tag(s) checked, tags in use: %s, runtime: %s\n' \
   "${#new_revokes[@]}" "$new_grants" "$checked" "${in_use:-none}" "${runtime[*]}"

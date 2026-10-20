@@ -23,11 +23,7 @@ case "$*" in
 esac
 EOF
 # FAKE_FIND is `fail` for a scan that fails, else the one path the scan prints.
-cat >"$DIR/bin/find" <<'EOF'
-#!/usr/bin/env bash
-[ "$FAKE_FIND" != fail ] || exit 1
-echo "$FAKE_FIND"
-EOF
+printf '%s\n' '#!/usr/bin/env bash' '[ "$FAKE_FIND" != fail ] || exit 1' 'echo "$FAKE_FIND"' >"$DIR/bin/find"
 chmod +x "$DIR/bin/find"
 grants() { local name="$1"; shift; printf '%s\n' "$@" >"$DIR/$name"; }
 revoke_a='REVOKE IF EXISTS UPDATE (balance_minor_units) ON balances FROM riftal_role_economy;'
@@ -55,6 +51,7 @@ grants midblock.sql 'REVOKE /* ; */ riftal_role_accounts FROM riftal_role_mines;
 grants multiblock.sql '/* old note' '-- still a note */' "$revoke_b"
 grants quit.sql "$grant_a" 'quit;' "$revoke_b"
 grants unterminated.sql "$grant_a" 'quit'
+grants event.sql 'CREATE EVENT e ON SCHEDULE AT CURRENT_TIMESTAMP DO REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;'
 grants drop.sql 'DROP ROLE IF EXISTS riftal_role_economy;' 'SET DEFAULT ROLE NONE TO riftal_economy;'
 grants select.sql "$grant_a" 'SELECT 1;' "$revoke_b"
 grants revokes.sql 'REVOKES IF EXISTS x FROM y;'
@@ -75,6 +72,7 @@ rejects=(
   'multiblock.sql:1: a character outside'
   'quit.sql:2: a statement that does not begin with CREATE ROLE, GRANT or REVOKE'
   'unterminated.sql:2: a statement that does not begin'
+  'event.sql:1: a statement that does not begin'
   'drop.sql:1: a statement that does not begin'
   'select.sql:2: a statement that does not begin'
   'revokes.sql:1: a statement that does not begin'
@@ -102,7 +100,7 @@ containers digest a-1 "$img@sha256:0123456789abcdef"
 
 failures=0
 ran=0
-expected=71
+expected=77
 # check <exit> <regex some output line must match> <case> <running> <all> <arg>...
 check() {
   local want="$1" match="$2" case="$3" run="$4" all="$5" out got
@@ -161,6 +159,14 @@ def "$img:v1" 2 'no <tag>=<grants.sql>' 'a definition naming an older tag with n
 def "$img:v2" 0 'in ab.sql, 0 older tag' 'a definition naming only the release tag passes' ab.sql
 def "$img" 2 'names .* with no tag' 'a definition naming the image with no tag is an error' ab.sql
 rm "$DIR/instances/a.yaml"
+mkdir "$DIR/real" "$DIR/via-file" "$DIR/via-dir" "$DIR/dangling"
+printf '%s\n' "image: $img:v1" >"$DIR/real/a.yaml"
+ln -s "$DIR/real/a.yaml" "$DIR/via-file/a.yaml"; ln -s "$DIR/real" "$DIR/via-dir/sub"; ln -s "$DIR/real" "$DIR/via-root"
+ln -s "$DIR/real/gone.yaml" "$DIR/dangling/a.yaml"
+for d in via-file via-dir via-root; do
+  INSTANCES_DIR="$DIR/$d" check 1 'is new against tag v1 \(instance definition .*a.yaml:1\)$' "a definition reached through a link ($d) is scanned" none none ab.sql v2 v1=a.sql
+done
+INSTANCES_DIR="$DIR/dangling" check 2 'cannot read instance definition .*/a.yaml' 'a dangling definition link is an error, not a pass' none none ab.sql v2
 PATH="$DIR/bin:$PATH" FAKE_FIND="$DIR/instances/gone.yaml" check 2 'cannot read instance definition .*/gone.yaml' 'an unreadable instance definition is an error, not a pass' none none ab.sql v2
 PATH="$DIR/bin:$PATH" FAKE_FIND=fail check 2 'cannot scan instance definitions' 'a failed definition scan is an error, not a pass' none none ab.sql v2
 old 2 'tag v1 \(running container a-1\) has no <tag>=<grants.sql>' 'an older tag with no grants.sql is an error, not a pass' ab.sql
