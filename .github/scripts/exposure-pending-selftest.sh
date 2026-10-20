@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Proves exposure-pending-order.sh can fail. ci.yml passes it today because its
-# bot-proofs job starts no bot, so a check that always passed would look the
-# same. Each mutant below is the good fixture with one defect, and must be
-# refused for its own reason. Reads files only and starts no container.
+# Proves exposure-pending-order.sh can fail. A bot-proofs job that starts no bot
+# passes it, so a check that always passed would look the same. Each mutant
+# below is the good fixture with one defect, and must be refused for its own
+# reason. Reads files only and starts no container.
 set -uo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +12,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 ran=0
-expected=15
+expected=28
 
 # $1 label, $2 pass or fail, $3 text the output must hold, $4 workflow file
 expect() {
@@ -56,11 +56,38 @@ mutant pending-continue-on-error 's/^        id: pending/        id: pending\n  
   "step 4 (Exposure, bots may start) writes exposure=pending but is not one unconditional step"
 mutant pending-no-id '/^        id: pending/d' \
   "writes exposure=pending but is not one unconditional step with an id"
-mutant pending-with-bot-start '/exposure=pending/s/run: /run: bash start-first-bot.sh; /'   "writes exposure=pending but is not one unconditional step"
+mutant pending-with-bot-start '/exposure=pending/s/run: /run: bash start-first-bot.sh; /' \
+  "writes exposure=pending but is not one unconditional step"
 mutant pending-output-not-read 's/ || steps.pending.outputs.exposure//' \
   "outputs.exposure does not read steps.pending.outputs.exposure"
 mutant pending-output-shadowed 's/exposure: .*/exposure: ${{ steps.exposure.outputs.exposure || steps.pending.outputs.exposure }}/' \
   "outputs.exposure reads step exposure, which completes before the pending step"
+mutant bad-middle-run-line '/^          . .github\/scripts\/bot-proofs-checks.sh/a\          node run-bot.js' \
+  "the run line 'node run-bot.js' is not on the allowlist"
+mutant shell-on-allowlisted-step '/- name: Runner has/a\        shell: node devtools/bot.js {0}' \
+  "it has the key shell"
+mutant env-bash-env-on-allowlisted-step '/- name: Runner has/a\        env:\n          BASH_ENV: devtools/start-bot.sh' \
+  "it has the env variable BASH_ENV"
+mutant pending-quoted-if '/^        id: pending/a\        "if": false' \
+  "it has an if: or continue-on-error:"
+mutant pending-with-shell '/^        id: pending/a\        shell: node devtools/bot.js {0}' \
+  "it has the key shell"
+mutant checkout-with-ref '/persist-credentials: false/a\          ref: attacker' \
+  "it has the with key ref"
+mutant folded-plain-run '/exposure=no-bots/a\          \&\& node devtools/bot.js' \
+  "a run scalar that continues past its first line"
+mutant job-services '/^    timeout-minutes/a\    services:\n      db:\n        image: x' \
+  "job key services is not on the allowlist"
+mutant job-defaults '/^    timeout-minutes/a\    defaults:\n      run:\n        shell: node devtools/bot.js {0}' \
+  "job key defaults is not on the allowlist"
+mutant workflow-defaults '/^jobs:/i\defaults:\n  run:\n    shell: node devtools/bot.js {0}\n' \
+  "top-level key defaults is not on the allowlist"
+mutant workflow-env '/^jobs:/i\env:\n  BASH_ENV: devtools/start-bot.sh\n' \
+  "workflow env variable BASH_ENV is not on the allowlist"
+mutant outputs-literal-operand "s/exposure: .*/exposure: \\\${{ 'no-bots' || steps.pending.outputs.exposure }}/" \
+  "outputs.exposure is not exactly a || chain"
+mutant outputs-and-operand "s/exposure: .*/exposure: \\\${{ steps.pending.outputs.exposure \\&\\& 'no-bots' }}/" \
+  "outputs.exposure is not exactly a || chain"
 mutant unlisted-step-before-pending '/- name: Exposure, no bot has started/i\      - name: Start something\n        run: node run-bot.js\n' \
   "step 3 (Start something) is ahead of any exposure=pending write"
 mutant unlisted-action-before-pending '/- name: Exposure, no bot has started/i\      - uses: some/action@11d5960a326750d5838078e36cf38b85af677262\n' \
