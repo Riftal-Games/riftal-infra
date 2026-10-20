@@ -1,0 +1,33 @@
+# Passes: every step ahead of the pending step is on the allowlist, the pending
+# step is one unconditional step with an id that outputs.exposure reads, and a
+# bot step follows it. The self-test derives every mutant from this file.
+name: fixture
+
+jobs:
+  bot-proofs:
+    runs-on: [self-hosted, linux, riftal]
+    timeout-minutes: 15
+    outputs:
+      exposure: ${{ steps.harness.outputs.exposure || steps.pending.outputs.exposure || steps.exposure.outputs.exposure }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Runner has /usr/bin/jq and /usr/bin/curl
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          runner_tools_present
+
+      - name: Exposure, no bot has started
+        id: exposure
+        run: printf 'exposure=no-bots\n' >> "$GITHUB_OUTPUT"
+
+      - name: Exposure, bots may start
+        id: pending
+        run: printf 'exposure=pending\n' >> "$GITHUB_OUTPUT"
+
+      - name: Harness
+        id: harness
+        run: bash start-first-bot.sh
