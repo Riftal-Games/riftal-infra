@@ -145,12 +145,12 @@ COMPOSE_RUN = table(
     "e=env l=label p=publish u=user v=volume w=workdir d=detach i=interactive T=no-TTY q=quiet "
     "P=service-ports",
 )
-# The first admits a quote before the binary, so a command inside bash -c "..." or an ssh
-# argument is read as the command it is.
-BINARY = re.compile(
-    r"(?<![^\s;&|(`'\"])(?:[\w./-]*/)?(?:docker|podman|nerdctl)(?:-compose)?(?=[\s;&|)`'\"]|$)"
-    r"|(?<![^\s;&|(`])\"?\$\{?[A-Za-z_]\w*\}?\"?(?=[ \t]+(?:run|create|container|compose)\s)"
-)
+# A start of a word: after a blank, a command separator or a quote, so a command inside
+# bash -c "..." or an ssh argument is read as the command it is.
+WORD_START = re.compile(r"(?<![^\s;&|(`'\"])(?=[^\s;&|()])")
+CONTAINER = re.compile(r"(?:.*/)?(?:docker|podman|nerdctl)(?:-compose)?")
+VERBS = {(verb, "lit") for verb in ("run", "create", "container", "compose")}
+PROBE = re.compile(r"(?:\b(?:which|type|hash|whereis)|-[vV])\s+$")
 # A docker publish, [ip:][host:]container[/proto], each port a number or a range.
 PUBLISH = re.compile(
     r"(?:(\[[0-9a-fA-F:.]*\]|[^:\[\]]*):(?=\d*(?:-\d+)?:))?(?:(\d*(?:-\d+)?):)?(\d+)(?:-(\d+))?"
@@ -323,7 +323,9 @@ def check_command(words, findings, path, where):
     seen, i, verb = [], 0, "compose"
     if not words[0][0].endswith("-compose"):
         i = options(words, 1, GLOBAL, [])
-        verb = literal(words[i]) if i < len(words) else ""
+        if i == len(words):
+            raise Unparseable("a container binary with no subcommand, so what it runs is not here")
+        verb = literal(words[i])
         if verb == "container" and i + 1 < len(words):
             i += 1
             verb = literal(words[i])
@@ -356,16 +358,51 @@ def check_command(words, findings, path, where):
                                     "--publish-all publishes every exposed port on every interface."))
 
 
+def inside_string(head):
+    """Whether the end of head, the text before a word on its line, is inside a quoted string."""
+    state, i = "", 0
+    while i < len(head):
+        c = head[i]
+        i += 2 if c == "\\" and state != "'" else 1
+        if state:
+            state = "" if c == state else state
+        elif c in "'\"":
+            state = c
+    return bool(state)
+
+
 def check_script(path, text, findings):
-    for match in BINARY.finditer(text):
-        start, where = match.start(), f"line {text.count(chr(10), 0, match.start()) + 1}"
-        if text[text.rfind("\n", 0, start) + 1:start].lstrip().startswith("#"):
+    for match in WORD_START.finditer(text):
+        start = match.start()
+        head = text[text.rfind(chr(10), 0, start) + 1:start]
+        if head.lstrip().startswith("#"):
             continue
-        # A quoted command word, "docker" run, is read from its own opening quote.
-        if text[start - 1:start] in ("'", '"') and text[match.end():match.end() + 1] == text[start - 1]:
-            start -= 1
+        where = f"line {text.count(chr(10), 0, start) + 1}"
         try:
-            check_command(command_words(text, start), findings, path, where)
+            value, kind, lead = word(text, start)[1]
+        except Unparseable:
+            continue
+        words = command_words(text, start)
+        try:
+            if head.rstrip().endswith("alias") and re.search(r"docker|podman|nerdctl", value):
+                raise Unparseable("an alias that names a container binary")
+            if kind == "lit":
+                if not CONTAINER.fullmatch(value):
+                    continue
+                if text.rfind("=(", 0, start) > text.rfind(")", 0, start):
+                    raise Unparseable("a container command held in an array runs where this cannot see it")
+                if len(words) == 1 and PROBE.search(head):
+                    continue
+            elif lead or inside_string(head):
+                continue
+            else:
+                try:
+                    after = options(words, 1, GLOBAL, [])
+                except Unparseable:
+                    after = next((k for k, w in enumerate(words) if (w[0], w[1]) in VERBS), len(words))
+                if after >= len(words) or (words[after][0], words[after][1]) not in VERBS:
+                    continue
+            check_command(words, findings, path, where)
         except Unparseable as exc:
             findings.append(Finding("RUN_UNPARSEABLE", path, where, f"{exc}. Write the command "
                                     "so every word this policy decides on is visible here."))

@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=220
+EXPECTED_ASSERTIONS=227
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -665,8 +665,8 @@ expect_ports_bad "$FIXTURES/bad/ports-wide-bind.compose.yaml" LOOPBACK_BIND_REQU
 expect_ports_bad "$FIXTURES/bad/ports-network-mode.compose.yaml" HOST_NETWORK_MODE 1
 expect_real_ports_clean
 
-# Where RUN_UNPARSEABLE is the answer, a guessing parser read the command as
-# clean. run-instance has no extension and is found only by its shebang.
+# Each bad fixture is one command the policy must report, never read as clean.
+# run-instance, rollout.v2 and start.SH are found by discovery alone.
 section "shell port policy, through scan.sh's own check_shell_ports"
 SP="$FIXTURES/bad/shell-ports"
 expect_scan_ok shell_ports "$FIXTURES/good/shell-ports.sh"
@@ -682,6 +682,13 @@ expect_ports_bad "$SP/array.sh" RUN_UNPARSEABLE 1 shell_ports
 expect_ports_bad "$SP/multiline-quote.sh" LOOPBACK_BIND_REQUIRED 1 shell_ports
 expect_ports_bad "$SP/compose-run.sh" LOOPBACK_BIND_REQUIRED 1 shell_ports
 expect_ports_bad "$SP/run-instance" LOOPBACK_BIND_REQUIRED 1 shell_ports
+expect_ports_bad "$SP/rollout.v2" LOOPBACK_BIND_REQUIRED 1 shell_ports
+expect_ports_bad "$SP/start.SH" LOOPBACK_BIND_REQUIRED 1 shell_ports
+expect_ports_bad "$SP/quoted-binary.sh" LOOPBACK_BIND_REQUIRED 1 shell_ports
+expect_ports_bad "$SP/expansion-binary.sh" LOOPBACK_BIND_REQUIRED 1 shell_ports
+expect_ports_bad "$SP/array-command.sh" RUN_UNPARSEABLE 1 shell_ports
+expect_ports_bad "$SP/bare-binary.sh" RUN_UNPARSEABLE 1 shell_ports
+expect_ports_bad "$SP/alias.sh" RUN_UNPARSEABLE 1 shell_ports
 
 section "php lint, broken file at each position in a multi-file batch"
 expect_php_lint_clean "$FIXTURES/good/php-plugins"
@@ -694,7 +701,7 @@ expect_scan_fails dockerfiles "$REPO_ROOT/no-such-tree"
 expect_scan_fails compose "$FIXTURES/good" "$REPO_ROOT/no-such-lister.sh"
 expect_scan_fails shell_ports "$FIXTURES/good" "$REPO_ROOT/no-such-lister.sh"
 
-section "the exact invocation ci.yml uses: a kind, no root, no prune argument"
+section "scan.sh given a kind alone, no root and no prune argument"
 expect_real_scan dockerfiles "$FIXTURES/bad/Dockerfile"
 expect_real_scan compose "$FIXTURES/bad/schema.compose.yaml"
 expect_real_scan shell_ports "$FIXTURES/bad/shell-ports/tcp.sh"
