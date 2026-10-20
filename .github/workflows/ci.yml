@@ -290,8 +290,7 @@ jobs:
       - name: Harness
         id: harness
         run: |
-          printf 'exposure=pending\n' >> "$GITHUB_OUTPUT"
-          sleep 600
+          printf 'exposure=none\n' >> "$GITHUB_OUTPUT"
 
       - name: networkingMode=bridged in .wslconfig
         run: |
