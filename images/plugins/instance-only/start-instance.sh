@@ -1,11 +1,11 @@
 #!/bin/bash
 # The `instance` service's command in images/compose.yaml, and instance-b's
 # through ../instance-b/start.sh, which stages a copy with RiftalEconomy.phar
-# alone beside it. PocketMine loads plugins from one flat directory and
-# /plugins is the ./plugins bind instance-b shares, so the roster is
-# assembled in the container's own disposable filesystem: every plugin at the
-# top of /plugins, plus RiftalMines.phar, RiftalRanks.phar and
-# RiftalEconomy.phar once built. It mounts nothing and runs as uid 1000, so
+# and RiftalPlots.phar alone beside it. PocketMine loads plugins from one flat
+# directory and /plugins is the ./plugins bind instance-b shares, so the
+# roster is assembled in the container's own disposable filesystem: every
+# plugin at the top of /plugins, plus RiftalMines.phar, RiftalRanks.phar,
+# RiftalEconomy.phar and RiftalPlots.phar once built. It mounts nothing and runs as uid 1000, so
 # /data/plugin_data on a fresh volume stays writable by PocketMine.
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
@@ -105,6 +105,17 @@ if [ -f "$here/RiftalEconomy.phar" ]; then
 	mkdir -p /data/plugin_data/RiftalEconomy
 	cp "$here/RiftalEconomy.config.yml" /data/plugin_data/RiftalEconomy/config.yml
 	cp "$here/RiftalEconomy.phar" "$roster/"
+fi
+
+if [ -f "$here/RiftalPlots.phar" ]; then
+	# RiftalPlots depends on nothing, and its shipped config names no database,
+	# so none is staged here. The password is still required, so an instance
+	# that loads the plugin always holds the plots login it connects with.
+	if [ -z "${RIFTAL_DB_PASSWORD_PLOTS:-}" ]; then
+		echo "start-instance.sh: RiftalPlots.phar is built and RIFTAL_DB_PASSWORD_PLOTS is not set; the instance takes it from images/.env" >&2
+		exit 1
+	fi
+	cp "$here/RiftalPlots.phar" "$roster/"
 fi
 
 cd /opt/pocketmine

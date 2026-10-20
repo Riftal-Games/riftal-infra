@@ -3,14 +3,16 @@
 Plugins the `instance` service loads and `instance-b` loads only in part
 (`../../compose.yaml`). `RiftalDevBots.php` one level up is a single script
 both instances want; `RiftalMines` is not, because it resets the worlds
-`instance` hosts and no others. `RiftalEconomy` is wanted on both
-(riftal-infra#348), so `instance-b` takes it from here and nothing else.
+`instance` hosts and no others. `RiftalEconomy` and `RiftalPlots` are wanted
+on both (riftal-infra#348, #345), so `instance-b` takes those two from here and
+nothing else.
 
 Both instances see this folder through the shared `./plugins` bind, and
 PocketMine never loads from a subfolder. `instance-b` runs
 `../instance-b/start.sh`, which stages a copy of `start-instance.sh` in the
-container's own filesystem with `RiftalEconomy.phar` and its config alone
-beside it, so the rest of this folder never reaches its roster.
+container's own filesystem with `RiftalEconomy.phar`, its config and
+`RiftalPlots.phar` alone beside it, so the rest of this folder never reaches
+its roster.
 `instance` runs `start-instance.sh` instead of the image's `start-pocketmine`:
 it assembles its plugin roster in the container's own disposable filesystem
 and renders the config onto the volume as uid 1000. Both instances run it, and
@@ -233,6 +235,29 @@ when it is unset, and
 the migration runner provisions `economy` with `riftal_role_economy`. Its
 sell locations come from the `world_index.json` `deliver-world-index.sh`
 puts in the same folder.
+
+## `RiftalPlots` and the `plots` login
+
+`RiftalPlots.phar` loads on `instance` and on `instance-b`
+(riftal-infra#345), because spec 017 criterion 4 has a claim on either
+written to the shared database. Both are given the `plots` login from the
+same `images/.env` value. `instance-b` hosts `plots_b`, not the `plots`
+level, so it holds no plot grid and a claim there teleports nobody. Build it
+with the recipe above, `plots` in place of `mines` in the copy loop and
+`plots:instance-only/RiftalPlots` in place of the `mines` pair. Like `mines`,
+it pins `axolotl-pm/pocketmine-mp`, so `link-replaced.sh` is what gets it past
+pharynx. It depends on nothing, so `contracts.phar` is not needed to load it,
+though `contracts/` is still copied for its Composer path repository.
+
+`start-instance.sh` copies `RiftalPlots.phar` into the roster and stops the
+boot naming `RIFTAL_DB_PASSWORD_PLOTS` when it is unset. It stages no config:
+the plugin's shipped config names no database, so there is nothing to
+override. The migration runner provisions `plots` with `riftal_role_plots`,
+which `grants.sql` creates with SELECT on `plots` and `plot_chunks` and
+EXECUTE on `plots_claim`. Run the runner with `-e RIFTAL_DB_PASSWORD_PLOTS`
+exported before the next boot. It exits non-zero for a login whose role the
+`grants.sql` it was given does not create, which is the case for a checkout
+of riftal-game older than riftal-game#1650.
 
 ## Why an override is required, not optional
 

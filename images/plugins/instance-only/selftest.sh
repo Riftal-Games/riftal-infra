@@ -27,12 +27,13 @@ ACCOUNTS_PW=selftestAccountsPassword01
 RANKS_PW=selftestRanksPassword0001
 ECONOMY_PW=selftestEconomyPassword01
 MINES_PW=selftestMinesPassword0001
-printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\n' \
-  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" > "$work/env"
+PLOTS_PW=selftestPlotsPassword0001
+printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\nRIFTAL_DB_PASSWORD_PLOTS=%s\n' \
+  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" "$PLOTS_PW" > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=87
+EXPECTED_ASSERTIONS=91
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -143,7 +144,8 @@ printf '\n== start-instance.sh keeps what start-pocketmine does\n'
 # With MINES set, RiftalMines.phar is built, contracts.phar sits at the top of
 # /plugins as on the real stack, a config rendered by hand sits next to it, and
 # the volume holds one an earlier boot rendered as root. With RANKS set,
-# RiftalRanks.phar is built, and with ECONOMY set, RiftalEconomy.phar.
+# RiftalRanks.phar is built, with ECONOMY set, RiftalEconomy.phar, and with
+# PLOTS set, RiftalPlots.phar.
 ROOT_PW=rootPasswordFromAnEarlierBoot
 boot() {
   local owner="$1" root="$work/boot"
@@ -165,6 +167,9 @@ boot() {
   fi
   if [ -n "${ECONOMY:-}" ]; then
     : > "$root/RiftalEconomy.phar"
+  fi
+  if [ -n "${PLOTS:-}" ]; then
+    : > "$root/RiftalPlots.phar"
   fi
   # A source folder DevTools would load, and two it would refuse.
   if [ -n "${FOLDERS:-}" ]; then
@@ -279,6 +284,19 @@ check "with RiftalEconomy.phar built, an unset RIFTAL_DB_PASSWORD_ECONOMY stops 
   '! ECONOMY=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_ECONOMY is not set" "$b/out"'
 check "without RiftalEconomy.phar, no economy config lands and no economy password is needed" \
   'boot "$me" && [ ! -e "$economy_on_volume" ] && ! grep -q RiftalEconomy "$b/roster"'
+
+printf '\n== RiftalPlots connects as the plots login, its password only in the environment (riftal-infra#345)\n'
+plots_on_volume="$b/data/plugin_data/RiftalPlots"
+check "instance and instance-b get RIFTAL_DB_PASSWORD_PLOTS from images/.env" \
+  'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_PLOTS == \"$PLOTS_PW\"
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_PLOTS == \"$PLOTS_PW\"" <<<"$real" >/dev/null'
+check "with RiftalPlots.phar built, the phar joins the roster and no config or password lands on the volume" \
+  'PLOTS=1 boot "$me" RIFTAL_DB_PASSWORD_PLOTS="$PLOTS_PW" && grep -qx RiftalPlots.phar "$b/roster" &&
+    [ ! -e "$plots_on_volume" ] && ! grep -rqF "$PLOTS_PW" "$b/data"'
+check "with RiftalPlots.phar built, an unset RIFTAL_DB_PASSWORD_PLOTS stops the boot before php, naming it" \
+  '! PLOTS=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_PLOTS is not set" "$b/out"'
+check "without RiftalPlots.phar, the roster holds no plots plugin and no plots password is needed" \
+  'boot "$me" && ! grep -q RiftalPlots "$b/roster"'
 
 printf '\n== RiftalAccounts loads on every instance as the accounts login (riftal-infra#465)\n'
 ACCOUNTS_CONFIG="$DIR/../RiftalAccounts.config.yml"
