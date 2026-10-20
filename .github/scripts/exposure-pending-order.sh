@@ -4,9 +4,10 @@
 # item 3). A cancelled run carries the job output of the steps that completed,
 # so a bot started before that write leaves bots-stopped-file nothing to file.
 #
-# Fail-closed: a key, shape or indentation this file does not list is refused,
-# never skipped. Listed, with every key compared after its quotes and spaces
-# are stripped:
+# Fail-closed for what it reads: a workflow, job or step key off the lists
+# below, a step shape it cannot place, and odd indentation below 10 spaces are
+# refused. Places it does not read are under Limits. Listed, with every key
+# compared after its quotes and spaces are stripped:
 #   workflow keys  name, on, permissions, concurrency, env, jobs. env may hold
 #                  only HADOLINT_VERSION and HADOLINT_SHA256.
 #   job keys       name, runs-on, timeout-minutes, permissions, outputs, steps.
@@ -16,15 +17,24 @@
 # Every step up to and including the pending step is judged: actions/checkout,
 # or a run whose every line, comments dropped, is one of allowed_lines, and a
 # plain run scalar must be one line. The pending step is one whose whole run
-# is the single write below, with an id, no if:, no continue-on-error: and no
-# key but name, id and run. outputs.exposure must be exactly a || chain of
-# steps.<id>.outputs.exposure operands, none of a step that completes ahead of
-# the pending step, since the first non-empty operand wins.
+# is the single write below, with an id and no uses:, no if:, no env or with
+# block and no key but name, id, run and continue-on-error. Its
+# continue-on-error is accepted only as false.
+# outputs.exposure must be exactly a || chain of steps.<id>.outputs.exposure
+# operands that includes the pending step's operand, since the first non-empty
+# operand wins. No operand placed before the pending one may belong to a step
+# that completes ahead of the pending step. Operands after it are not judged.
 #
 # Limits, deliberate: 2-space indentation only, and flow-style or folded run
 # values are refused as unplaceable. A script a step calls is not followed, so
 # an edit inside one is for review. Steps after the pending step are placed but
-# not judged, and other jobs are not read. Reads files only.
+# not judged, and other jobs are not read. Reads files only. Also not read:
+#   children of the workflow keys on, permissions and concurrency;
+#   children of the job keys name, runs-on, timeout-minutes and permissions;
+#   outputs keys other than exposure;
+#   a line indented 11 or more spaces outside a run;
+#   the values under a step's env and with keys, so persist-credentials: true
+#   on actions/checkout is accepted.
 set -euo pipefail
 
 workflow="${1:-.github/workflows/ci.yml}"
@@ -229,7 +239,7 @@ while IFS= read -r rec; do
     pending_id="$id"
     pending_at="$total"
   elif [[ "$run" == *exposure=pending* ]]; then
-    fail "step $total ($name) writes exposure=pending but is not one unconditional step with an id whose whole run is: $pending_line, and no key but name, id and run: $reason"
+    fail "step $total ($name) writes exposure=pending but is not one unconditional step with an id whose whole run is: $pending_line, with no uses:, if:, env or with block, no continue-on-error other than false, and no key but name, id, run and continue-on-error: $reason"
   elif step_allowed "$uses" "$run" "$opts" "$bad"; then
     before=$((before + 1))
   else
