@@ -337,16 +337,6 @@ Why the two cannot be split:
 So, for any release that takes a database from before 0010 to after it:
 
 1. Stop every instance cleanly.
-   Then, before stage 1 applies the grants, run `grants-revoke-check.sh` with
-   the new file, the release tag and `<tag>=<file>` for the older tag
-   (`README.md`, Grants REVOKE check). The file's REVOKE is new against the
-   older tag, and the check counts a stopped container of that tag and an
-   instance definition naming it as the tag in use, so it refuses the run
-   until, on each machine that runs instances, every stopped container of the
-   older tag is removed (its volumes stay) and every definition under
-   `instances/` names the release tag. Step 4 starts every instance on the new
-   tag. Run it once per runtime and per machine, with `INSTANCE_IMAGE` the
-   exact reference that runtime reports; a pass on one covers no other.
 2. Back up as in The window's backup and restore, above, and record the set
    name. Restoring it is a rollback only until the first instance on the new
    tag admits a player; after that it is Nasir's call, never a rollback.
@@ -487,6 +477,15 @@ So, for any release whose run applies a `grants.sql` from PR #923 onward to a
 database whose last run applied one from before it:
 
 1. Stop every instance cleanly.
+   Then, before stage 1 applies the grants, run `grants-revoke-check.sh` with
+   the new file, the release tag and `<tag>=<file>` for each older tag still
+   in use (`README.md`, Grants REVOKE check). The check counts a stopped
+   container of an older tag and an instance definition naming one as that tag
+   in use, so it refuses the run until, on each machine that runs instances,
+   every stopped container of the older tag is removed (its volumes stay) and
+   every definition under `instances/` names the release tag. Run it once per
+   runtime and per machine, with `INSTANCE_IMAGE` the exact reference that
+   runtime reports; a pass on one covers no other.
 2. Back up as in The window's backup and restore, above, and record the set
    name. Restoring it is a rollback only until the first instance on the new
    tag admits a player; after that it is Nasir's call, never a rollback.
