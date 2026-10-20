@@ -100,7 +100,7 @@ containers digest a-1 "$img@sha256:0123456789abcdef"
 
 failures=0
 ran=0
-expected=77
+expected=102
 # check <exit> <regex some output line must match> <case> <running> <all> <arg>...
 check() {
   local want="$1" match="$2" case="$3" run="$4" all="$5" out got
@@ -124,7 +124,7 @@ check() {
 # old <exit> <regex> <case> <new file> [<older tag's file>]: one container on tag v1.
 old() { check "$1" "$2" "$3" one-old one-old "$4" v2 ${5:+"v1=$5"}; }
 
-check 0 '^GRANTS REVOKE OK: 1 REVOKE statement\(s\) in b.sql, 0 older tag\(s\) checked, tags in use: v2, runtime: bash .*/runtime$' 'only the release tag passes' one-new one-new b.sql v2
+check 0 '^GRANTS REVOKE OK: 1 REVOKE statement\(s\) in b.sql, 0 older tag\(s\) checked, tags in use: v2, runtime: bash .*/runtime, instance definitions read: 0$' 'only the release tag passes' one-new one-new b.sql v2
 check 0 '^GRANTS REVOKE OK: 1 REVOKE statement\(s\) in a.sql, 0 older tag' 'no container and no definition passes' none none a.sql v2
 old 0 'in none.sql, 1 older tag\(s\) checked, tags in use: v1, runtime' 'a new grants.sql with no REVOKE passes against an older tag' none.sql a.sql
 old 0 'in ab.sql, 1 older tag' 'a REVOKE the older tag already carries passes' ab.sql ab.sql
@@ -148,25 +148,87 @@ for r in "${rejects[@]}"; do
   old 2 "$r" "$f as the new file is an error, not a pass" "$f" none.sql
   old 2 "$r" "$f as an older tag's file is an error, not a pass" b.sql "$f"
 done
-# def <image reference> <exit> <regex> <case> <new file> [<older tag's file>]: no container, one definition.
+# def <image reference> <exit> <regex> <case> <new file> [<older tag's file>]: no container, one instance directory on the release tag whose a.yaml names the reference.
 def() {
-  printf '%s\n' "image: $1" >"$DIR/instances/a.yaml"
+  mkdir -p "$DIR/instances/a"
+  printf '%s\n' "$img:v2" >"$DIR/instances/a/image"
+  printf '%s\n' "image: $1" >"$DIR/instances/a/a.yaml"
   INSTANCES_DIR="$DIR/instances" check "$2" "$3" "$4" none none "$5" v2 ${6:+"v1=$6"}
 }
-def "$img:v1" 1 'is new against tag v1 \(instance definition .*/instances/a.yaml:1\)$' 'a REVOKE new against an instance definition refuses' ab.sql a.sql
+def "$img:v1" 1 'is new against tag v1 \(instance definition .*/instances/a/a.yaml:1\)$' 'a REVOKE new against an instance definition refuses' ab.sql a.sql
 def "$img:v1" 0 'in ab.sql, 1 older tag' 'a definition naming an older tag with the same REVOKEs passes' ab.sql ab.sql
 def "$img:v1" 2 'no <tag>=<grants.sql>' 'a definition naming an older tag with no grants.sql is an error, not a pass' ab.sql
 def "$img:v2" 0 'in ab.sql, 0 older tag' 'a definition naming only the release tag passes' ab.sql
 def "$img" 2 'names .* with no tag' 'a definition naming the image with no tag is an error' ab.sql
-rm "$DIR/instances/a.yaml"
-mkdir "$DIR/real" "$DIR/via-file" "$DIR/via-dir" "$DIR/dangling"
-printf '%s\n' "image: $img:v1" >"$DIR/real/a.yaml"
-ln -s "$DIR/real/a.yaml" "$DIR/via-file/a.yaml"; ln -s "$DIR/real" "$DIR/via-dir/sub"; ln -s "$DIR/real" "$DIR/via-root"
-ln -s "$DIR/real/gone.yaml" "$DIR/dangling/a.yaml"
+rm -r "$DIR/instances/a"
+mkdir -p "$DIR/real/i" "$DIR/via-file/i" "$DIR/via-dir" "$DIR/via-image/i" "$DIR/dangling/i"
+printf '%s\n' "$img:v2" >"$DIR/real/i/image"
+printf '%s\n' "image: $img:v1" >"$DIR/real/i/a.yaml"
+cp "$DIR/real/i/image" "$DIR/via-file/i/image"
+cp "$DIR/real/i/image" "$DIR/dangling/i/image"
+ln -s "$DIR/real/i/a.yaml" "$DIR/via-file/i/a.yaml"; ln -s "$DIR/real/i" "$DIR/via-dir/sub"; ln -s "$DIR/real" "$DIR/via-root"
+ln -s "$DIR/real/i/image" "$DIR/via-image/i/image"
+ln -s "$DIR/real/i/gone.yaml" "$DIR/dangling/i/a.yaml"
 for d in via-file via-dir via-root; do
   INSTANCES_DIR="$DIR/$d" check 1 'is new against tag v1 \(instance definition .*a.yaml:1\)$' "a definition reached through a link ($d) is scanned" none none ab.sql v2 v1=a.sql
 done
+INSTANCES_DIR="$DIR/via-image" check 0 'in ab.sql, 0 older tag.*instance definitions read: 1$' 'an image file reached through a link is read' none none ab.sql v2
 INSTANCES_DIR="$DIR/dangling" check 2 'cannot read instance definition .*/a.yaml' 'a dangling definition link is an error, not a pass' none none ab.sql v2
+
+# bad <case> <regex> <printf format of the image file>: one instance directory, which must exit 2.
+bad() {
+  rm -rf "$DIR/bad"; mkdir -p "$DIR/bad/i"
+  printf "$3" >"$DIR/bad/i/image"
+  INSTANCES_DIR="$DIR/bad" check 2 "$2" "$1" none none ab.sql v2
+}
+bad 'an empty image file is an error, not a pass' "bad/i/image names ''" ''
+bad 'an image file of two lines is an error' 'more than one line' "$img:v2\n$img:v2\n"
+bad 'an image file with a CR is an error' 'not an immutable tag' "$img:v2\r\n"
+bad 'an image file with a NUL is an error' 'NUL byte' "$img:v2\0\n"
+bad 'an image file with leading whitespace is an error' 'names .*, not ' " $img:v2\n"
+bad 'an image file with trailing whitespace is an error' 'not an immutable tag' "$img:v2 \n"
+bad 'an image file naming no tag is an error' 'names .*, not ' "$img\n"
+bad 'an image file naming an empty tag is an error' 'not an immutable tag' "$img:\n"
+bad 'an image file naming a tag starting with a dash is an error' 'not an immutable tag' "$img:-v2\n"
+bad 'an image file naming latest is an error' 'not an immutable tag' "$img:latest\n"
+bad 'an image file naming a digest is an error' 'names .*, not ' "$img@sha256:0123456789abcdef\n"
+bad 'an image file naming another registry is an error' 'names .*, not ' "other.example/riftal/pocketmine-mp:v2\n"
+bad 'an image file naming the image under a prefix is an error' 'names .*, not ' "other.example/$img:v2\n"
+bad 'an image file naming a longer image name is an error' 'names .*, not ' "$img-extra:v2\n"
+rm "$DIR/bad/i/image"
+INSTANCES_DIR="$DIR/bad" check 2 'cannot read instance definition .*/i/image' 'an instance directory with no image file is an error' none none ab.sql v2
+mkdir "$DIR/bad/i/image"
+INSTANCES_DIR="$DIR/bad" check 2 'cannot read instance definition .*/i/image' 'an image that is a directory is an error' none none ab.sql v2
+rmdir "$DIR/bad/i/image"
+ln -s "$DIR/bad/gone" "$DIR/bad/i/image"
+INSTANCES_DIR="$DIR/bad" check 2 'cannot read instance definition .*/i/image' 'a dangling image link is an error' none none ab.sql v2
+rm "$DIR/bad/i/image"
+printf '%s\n' "$img:v2" >"$DIR/bad/i/image"
+chmod 000 "$DIR/bad/i/image"
+if [ -r "$DIR/bad/i/image" ]; then
+  ran=$((ran + 1))
+  echo 'skip an unreadable image file: this user reads mode 000 files'
+else
+  INSTANCES_DIR="$DIR/bad" check 2 'cannot read instance definition .*/i/image' 'an unreadable image file is an error' none none ab.sql v2
+fi
+chmod 600 "$DIR/bad/i/image"
+printf '%s\n' "image: $img:v2" >"$DIR/bad/a.yaml"
+INSTANCES_DIR="$DIR/bad" check 2 'a.yaml is not a directory' 'a top-level file is an error, not a definition' none none ab.sql v2
+rm "$DIR/bad/a.yaml"
+ln -s "$DIR/bad/gone" "$DIR/bad/dangling"
+INSTANCES_DIR="$DIR/bad" check 2 'bad/dangling is not a directory' 'a top-level dangling link is an error' none none ab.sql v2
+rm "$DIR/bad/dangling"
+: >"$DIR/bad/.gitkeep"
+INSTANCES_DIR="$DIR/bad" check 0 'in ab.sql, 0 older tag.*instance definitions read: 1$' 'a .gitkeep beside a definition is not a definition' none none ab.sql v2
+rm -r "$DIR/bad/i"
+INSTANCES_DIR="$DIR/bad" check 0 'in ab.sql, 0 older tag.*tags in use: none, .*instance definitions read: 0$' 'only a .gitkeep passes with zero definitions' none none ab.sql v2
+
+# Two instance directories, one on the release tag and one on v1.
+mkdir -p "$DIR/two/a" "$DIR/two/b"
+printf '%s\n' "$img:v2" >"$DIR/two/a/image"
+printf '%s\n' "$img:v1" >"$DIR/two/b/image"
+INSTANCES_DIR="$DIR/two" check 0 '^GRANTS REVOKE OK: 2 REVOKE statement\(s\) in ab.sql, 1 older tag\(s\) checked, tags in use: v1 v2, .*instance definitions read: 2$' 'two definitions, one on v1 whose file carries the REVOKE, pass' none none ab.sql v2 v1=ab.sql
+INSTANCES_DIR="$DIR/two" check 1 'is new against tag v1 \(instance definition .*/two/b/image\)$' 'two definitions, one on v1 whose file lacks a new REVOKE, refuse' none none ab.sql v2 v1=a.sql
 PATH="$DIR/bin:$PATH" FAKE_FIND="$DIR/instances/gone.yaml" check 2 'cannot read instance definition .*/gone.yaml' 'an unreadable instance definition is an error, not a pass' none none ab.sql v2
 PATH="$DIR/bin:$PATH" FAKE_FIND=fail check 2 'cannot scan instance definitions' 'a failed definition scan is an error, not a pass' none none ab.sql v2
 old 2 'tag v1 \(running container a-1\) has no <tag>=<grants.sql>' 'an older tag with no grants.sql is an error, not a pass' ab.sql

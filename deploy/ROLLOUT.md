@@ -483,7 +483,7 @@ database whose last run applied one from before it:
    container of an older tag and an instance definition naming one as that tag
    in use, so it refuses the run until, on each machine that runs instances,
    every stopped container of the older tag is removed (its volumes stay) and
-   every definition under `instances/` names the release tag. Run it once per
+   every `instances/<id>/image` names the release tag. Run it once per
    runtime and per machine, with `INSTANCE_IMAGE` the exact reference that
    runtime reports; a pass on one covers no other.
 2. Back up as in The window's backup and restore, above, and record the set

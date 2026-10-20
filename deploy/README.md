@@ -338,15 +338,28 @@ skill does not run it yet; until the skill's wiring lands, whoever runs stage 1
 runs the check by hand and does not start the migrations on a refusal.
 
 Each `<tag>=<file>` names the `grants.sql` that tag's plugins were built from.
-Nothing records that mapping, so the operator supplies it from the riftal-game
-commit the tag was built at. A tag in use with no mapping is a refusal, never a
-pass.
+Nothing records that mapping yet, so the operator supplies it from the
+riftal-game commit the tag was built at, and it stays manual until the image
+that carries the plugins records that commit. A tag in use with no mapping is a
+refusal, never a pass.
+
+`instances/<id>/image` records the tag an instance runs: one line,
+`<INSTANCE_IMAGE>:<tag>`, with an optional final LF. The tag matches
+`[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}` and is not `latest`. Each immediate
+subdirectory of `INSTANCES_DIR` is one instance definition and must hold that
+file, a regular readable one, links followed. A top-level entry that is not a
+directory, other than `.gitkeep`, is an error, because a definition is a
+directory. The scan reads the checkout it runs from, so run it from riftal-infra
+`main` at the release commit. A deploy or a rollback of one instance is a
+one-line change to its file.
 
 A tag is in use when any of these names it:
 
 - a running container;
 - a stopped container, listed by `ps -a`;
-- a file under `INSTANCES_DIR`, links followed, with the line it appears on.
+- an instance definition's `image` file;
+- any other file under `INSTANCES_DIR`, links followed, with the line it
+  appears on.
 
 Every tag in use other than `<release-tag>` is checked. A REVOKE in the new file
 that the older tag's file does not also carry is new against that tag. A REVOKE
@@ -356,9 +369,9 @@ undoes with a GRANT of the same privilege: it counts as carried.
 
 | Exit | Output |
 |---|---|
-| 0 | One `GRANTS REVOKE OK:` line: the REVOKE count, the file, the older tags checked, the tags in use, the runtime |
+| 0 | One `GRANTS REVOKE OK:` line: the REVOKE count, the file, the older tags checked, the tags in use, the runtime, the instance definitions read |
 | 1 | One `GRANTS REVOKE REFUSED:` line per new REVOKE and tag, each naming the container or definition that holds the tag |
-| 2 | Usage, an unreadable file or instance definition, a failed definition scan, a failed runtime, an image whose tag cannot be read, a tag in use with no `grants.sql`, or a file outside the dialect below |
+| 2 | Usage, an unreadable file or instance definition, a definition with no valid `image` file, a top-level entry that is not a directory, a failed definition scan, a failed runtime, an image whose tag cannot be read, a tag in use with no `grants.sql`, or a file outside the dialect below |
 
 Exit 2 is never a pass. The reader accepts the one dialect riftal-game's
 `lib/resources/sql/grants.sql` is written in, and exits 2 naming the file and
@@ -373,7 +386,7 @@ Environment:
 |---|---|---|---|
 | `INSTANCE_IMAGE` | yes | | The image name without its tag, exactly as the runtime reports it |
 | `CONTAINER_RUNTIME` | no | `docker` | The runtime command, which may carry arguments |
-| `INSTANCES_DIR` | no | `instances/` beside `deploy/` | Where instance definitions are scanned, whatever the working directory |
+| `INSTANCES_DIR` | no | `instances/` beside `deploy/` | Where instance definitions are read, whatever the working directory |
 
 What a pass does not cover:
 
