@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# The harness of the bot-proofs job (ADR 024 item 5, riftal-infra#1088), run by
-# that job's harness step alone. It starts no bot: it boots instance A beside MySQL
-# on a job network, takes item 2's per-start checks, and answers one hold with the
-# root listing, which must attribute docker-proxy and a socket of this runner.
+# The harness of the bot-proofs job (ADR 024 item 5, riftal-infra#1088), run by that
+# job's harness step alone. It starts no bot: it boots instance A beside MySQL on a job
+# network, takes item 2's per-start checks, and answers one hold with the root listing.
 #
-# Exit status: 0 when every listing was judged clean, every assertion passed, the
-# expected count ran and teardown's listings were empty; 3 when a listing is
-# exposure, whatever else failed; any other status is a failure with no finding.
-# The step turns that status into the exposure output, with GITHUB_OUTPUT unset here.
+# Exit status: 0 when every listing was clean, every assertion passed, the expected
+# count ran and teardown's listings were empty; 3 when a listing is exposure, whatever
+# else failed; any other status is a failure with no finding. The step turns that into
+# the exposure output, with GITHUB_OUTPUT unset here.
 #
 # Each condition reaches check single-quoted and is expanded by its eval.
 # shellcheck disable=SC2016,SC2034,SC2086,SC1090,SC1091
@@ -20,8 +19,7 @@ ID="${GITHUB_RUN_ID:-}_${GITHUB_RUN_ATTEMPT:-}"
 P=riftal_smoke_ci_$ID
 NET=${P}_net DB=${P}_db A=${P}_a VOL=${P}_adata CAP=${P}_cap SETS=${P}_sets IMG=${P}_tool
 for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG"; do
-  [[ $name =~ ^riftal_smoke_ci_[0-9]+_[0-9]+_[a-z]+$ && ! $name =~ world|player|backup ]] ||
-    { printf '::error::%s is not a name this harness may create\n' "$name"; exit 1; }
+  [[ $name =~ ^riftal_smoke_ci_[0-9]+_[0-9]+_[a-z]+$ && ! $name =~ world|player|backup ]] || { printf '::error::%s is not a name this harness may create\n' "$name"; exit 1; }
 done
 
 # A runner timeout leaves exposure pending, so the harness ends itself first.
@@ -39,7 +37,7 @@ NODE="$DT/node-runtime/bin/node"
 [ -x "$NODE" ] || { printf '::error::%s is not the devtools image'"'"'s node\n' "$NODE"; exit 1; }
 ETH0="$(eth0_address)" || { printf '%s\n' "$ETH0"; exit 1; }
 
-EXPECTED_ASSERTIONS=12
+EXPECTED_ASSERTIONS=13
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
 FOUND=0 PASSES=0 FAILURES=0 spid=""
@@ -53,7 +51,6 @@ check() {
   else FAILURES=$((FAILURES + 1)); printf 'FAIL %s\n' "$1"; fi
 }
 
-# Prints what this run still holds, one line each, and fails when docker cannot say.
 residue() {
   local kind out
   for kind in "ps -a --format {{.Names}}" "volume ls --format {{.Name}}" "network ls --format {{.Name}}" "images --format {{.Repository}}"; do
@@ -108,7 +105,7 @@ finish() {
     printf '::error::%s of %s assertions ran and %s failed\n' "$ran" "$EXPECTED_ASSERTIONS" "$FAILURES"
     status=1
   fi
-  printf 'harness status %s after %ss, %s passed, %s failed, listings exposure: %s\n' "$status" "$SECONDS" "$PASSES" "$FAILURES" "$FOUND"
+  printf 'harness status %s after %ss, %s of %s assertions ran, %s passed, %s failed, listings exposure: %s\n' "$status" "$SECONDS" "$ran" "$EXPECTED_ASSERTIONS" "$PASSES" "$FAILURES" "$FOUND"
   exit "$status"
 }
 trap finish EXIT
@@ -122,29 +119,29 @@ const { takeListing } = require(`${process.env.DT}/socket-listing`)
 
 async function hold () {
   const sock = dgram.createSocket('udp4')
-  await new Promise(resolve => sock.bind(0, '127.0.0.1', resolve))
-  const held = sock.address().port
+  const held = await new Promise(resolve => sock.bind(0, '127.0.0.1', () => resolve(sock.address().port)))
   console.log(`RUNNER pid=${process.pid} port=${held}`)
   const listing = await takeListing({ platform: 'linux', pid: process.pid, liveBots: 1 })
   console.log(`RUNNER LISTING ${listing.verdict}: ${listing.reason}`)
   const e = process.env
   const h = rootHold({ image: e.IMAGE, nameFor: n => `${e.PREFIX}_rootlisting_${n}`, eth0: e.ETH0, instances: [parseInstance(e.INSTANCE)], maxHolds: 1, command: args => ({ file: 'docker', args, timeoutMs: 40000 }) })
-  await h.answer(1, { port: held }, listing)
-  const failures = h.failures({ released: new Map([[1, 'open']]), done: { holds: 1, ports: [held] } })
+  const answer = await h.answer(1, { port: held }, listing)
+  let state = 'open'
+  try { sock.address() } catch { state = 'closed' }
+  console.log(`${answer} 1\nPROBE RELEASED 1 ${held} ${state}`)
+  const failures = h.failures({ released: new Map([[1, state]]), done: { holds: 1, ports: [held] } })
   failures.forEach(f => console.log(`HOLD FAILURE ${f}`))
   process.exit(failures.length === 0 ? 0 : failures.some(f => f.includes(' exposed')) ? 3 : 1)
 }
 
 const [mode, port] = process.argv.slice(2)
 if (mode === 'ping') {
-  ping('127.0.0.1', Number(port), 5000).then(msg => {
-    console.log(`PONG ${pongServerString(msg)}`)
-    process.exit(pongServerString(msg) ? 0 : 1)
-  })
+  ping('127.0.0.1', Number(port), 5000).then(msg => { console.log(`PONG ${pongServerString(msg)}`); process.exit(pongServerString(msg) ? 0 : 1) })
 } else hold()
 JS
 
-printf 'run %s, head %s, runner %s, eth0 %s\n' "$ID" "${GITHUB_SHA:-unknown}" "${RUNNER_NAME:-unknown}" "$ETH0"
+PRHEAD="$(git -C "$ROOT" cat-file -p HEAD | awk '/^parent /&&++n==2{print $2}' || true)"
+printf 'run %s, pr head %s, checkout %s, runner %s, eth0 %s, expecting %s assertions\n' "$ID" "${PRHEAD:-${GITHUB_SHA:-unknown}}" "${GITHUB_SHA:-unknown}" "${RUNNER_NAME:-unknown}" "$ETH0" "$EXPECTED_ASSERTIONS"
 for image in "$CORE_IMAGE" "$DEVTOOLS_IMAGE"; do printf 'image %s %s\n' "$image" "$(docker image inspect --format '{{.Id}}' "$image")"; done
 printf 'node %s\n' "$("$NODE" --version)"
 
@@ -201,6 +198,8 @@ read -r RPID RPORT < <(sed -n 's/^RUNNER pid=\([0-9]*\) port=\([0-9]*\)$/\1 \2/p
 printf 'sockets in the root listing with no owning process on :323, which decide nothing here:\n'
 { grep -E '[:]323 ' "$work/hold.log" | grep -v 'users:' || true; } | sed 's/^/  /'
 check "the root listing was judged clean" '[ "$rc" = 0 ]'
+check "hold 1 was answered probed and released open on port ${RPORT:-none}" \
+  'grep -qx "probed 1" "$work/hold.log" && grep -qx "PROBE RELEASED 1 ${RPORT:-0} open" "$work/hold.log"'
 check "the root listing attributes 127.0.0.1:$H to docker-proxy" \
   'grep -qE "127\.0\.0\.1:$H +[0-9.*:]+ +users:\(\(\"docker-proxy\",pid=" "$work/hold.log"'
 check "the root listing attributes 127.0.0.1:${RPORT:-none} to this runner's process, pid ${RPID:-none}" \
