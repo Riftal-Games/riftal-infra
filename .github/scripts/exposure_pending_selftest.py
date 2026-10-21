@@ -97,6 +97,8 @@ cases = [
     ("after-pending-if-on-uses-step", add(BOT, f"\n      - uses: actions/checkout@{SHA}\n        if: always()\n"), SWEEP_WANT),
     ("after-pending-teardown-with-if", add(BOT, "\n" + SWEEP), PASS),
     ("after-pending-teardown-extended", add(BOT, "\n" + SWEEP.replace("sweep.sh", "sweep.sh; node devtools/bot.js")), SWEEP_WANT),
+    ("after-pending-teardown-shell", add(BOT, "\n" + SWEEP.replace("        run:", "        shell: node devtools/bot.js {0}\n        run:")), "step 6 is after the exposure=pending write: it has the key shell"),
+    ("after-pending-teardown-env", add(BOT, "\n" + SWEEP.replace("        run:", "        env: {BASH_ENV: devtools/start-bot.sh}\n        run:")), "step 6 is after the exposure=pending write: it has the key env"),
     ("after-pending-teardown-other-script", add(BOT, "\n" + SWEEP.replace("ci-container-sweep", "start-bots")), SWEEP_WANT),
     ("after-pending-late-writes-earlier-output", rep(EXPR_LINE, EXPR_LINE.replace("${{ ", "${{ steps.late.outputs.exposure || "), BOT, BOT + "\n" + LATE), LATE_WANT),
     ("after-pending-harness-renamed", rep("id: harness", "id: judge", "steps.harness", "steps.judge"), "outputs.exposure reads step judge before the pending step"),
