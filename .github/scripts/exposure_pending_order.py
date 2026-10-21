@@ -50,9 +50,18 @@ steps.<id>.outputs.exposure operands that includes the pending step's, and
 outputs holds exactly one key that reads exposure in any case, spelled in lower
 case; its other keys are allowed and their values are not read. The first
 non-empty operand wins, so no operand before the pending one may be the id of a
-step ahead of the pending step; operands after it are not judged. With no
-pending step the chain and outputs key rules still apply, and the check passes
-when every step is on the allowlist; no operand is judged.
+step ahead of the pending step, nor of a step after it other than the one with
+the id harness, which judges the listings and writes found or none; operands
+after the pending one are not judged.
+
+A step after the pending step may carry an if only when its run, once spaces and
+newlines around it are dropped, is in TEARDOWN_RUNS. Any other if, always(),
+!cancelled() and failure() included, runs the step after a cancel or failure
+that came before the pending write completed, so a bot could start with no
+pending written.
+
+With no pending step the chain and outputs key rules still apply, and the check
+passes when every step is on the allowlist; no operand is judged.
 
 Limits: PyYAML stands in for GitHub's parser and is not compared with it. Not
 read: the contents of other jobs, whose ids are read as keys of jobs; the values
@@ -61,8 +70,12 @@ variables; a job's name, needs, if, runs-on, timeout-minutes and permissions;
 the values of outputs keys other than exposure; if values on a step ahead of the pending
 step, and its continue-on-error value unless its run is PENDING_WRITE and it
 has an id; a script a step calls. A step after the pending step is read as a
-mapping, so its keys meet the refusals above, and for its id, which meets the id
-rules above; nothing else of it is read (riftal-infra#1240).
+mapping, so its keys meet the refusals above, for its id, which meets the id
+rules above, and for an if, judged as above. Its run is read only when it has
+an if; its env, with and continue-on-error are not read, nor is what it writes
+to its outputs, so the harness step is trusted to write found or none and only
+which step ids outputs.exposure may read ahead of pending are judged
+(riftal-infra#1240).
 """
 
 import re
@@ -90,6 +103,8 @@ devtools_extract "$RUNNER_TEMP/riftal-devtools"
 bash .github/scripts/ci-container-sweep.sh
 """.split("\n")
 )
+TEARDOWN_RUNS = frozenset({"bash .github/scripts/ci-container-sweep.sh"})
+HARNESS_ID = "harness"
 WORKFLOW_KEYS = {"name", "on", "permissions", "concurrency", "env", "jobs"}
 JOB_KEYS = {"name", "needs", "if", "runs-on", "timeout-minutes", "permissions", "outputs", "steps"}
 STEP_KEYS = {"name", "id", "uses", "if", "continue-on-error", "run", "env", "with"}
@@ -183,6 +198,13 @@ def ahead_problem(step, run):
     return bad and f"the run line '{bad}' is not on the allowlist"
 
 
+def after_problem(step):
+    run = scalar(step["run"], "run") if "run" in step else ""
+    if "if" in step and run.strip(" \n") not in TEARDOWN_RUNS:
+        return "it has an if, which runs it after a cancel or failure that came before the pending write completed, and it is not a teardown step"
+    return None
+
+
 def judge(path, job):
     errors = []
     with open(path, encoding="utf-8", newline="") as handle:
@@ -214,6 +236,8 @@ def judge(path, job):
                 raise Refuse(f"step {number} repeats the id {ident}, which GitHub reads without regard to case")
             ids[ident.lower()] = number
         if pending_at:
+            if why := after_problem(step):
+                errors.append(f"step {number} is after the exposure=pending write: {why}")
             continue
         run = scalar(step["run"], "run") if "run" in step else ""
         label = scalar(step["name"], "name") if "name" in step else "unnamed"
@@ -234,6 +258,8 @@ def judge(path, job):
             for name in operands[: operands.index(pending_id)]:
                 if ids.get(name, pending_at) < pending_at:
                     errors.append(f"outputs.exposure reads step {name}, which completes before the pending step, so exposure=pending can never be the output")
+                elif ids.get(name, pending_at) > pending_at and name != HARNESS_ID:
+                    errors.append(f"outputs.exposure reads step {name} before the pending step, and that step runs after the pending write and is not the {HARNESS_ID} step, so it can hide pending while bots run")
     if pending_id:
         return errors, f"{job}: {pending_at - 1} step(s) ahead of step {pending_at} (id {pending_id}) writing exposure=pending, all on the allowlist, and outputs.exposure reads it"
     return errors, f"{job}: all steps on the allowlist, none can start a bot and no exposure=pending write is needed yet"
