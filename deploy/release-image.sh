@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the release image (spec 016, acceptance criterion 3): the core image
-# pinned by images/core-image.sha plus the plugin phars, under an immutable tag
-# on the local daemon. Nothing is pushed anywhere.
+# pinned by images/core-image.sha plus the six production phars in
+# /opt/riftal/plugins, under an immutable tag on the local daemon. Nothing is
+# pushed anywhere.
 #
 #   release-image.sh <directory holding the built phars>
 #
@@ -13,13 +14,18 @@
 # as it exists. Two builds of the same core sha on one date therefore need the
 # date or the pin to differ.
 #
-# Sourcing this file defines release_tag and runs nothing.
+# Sourcing this file sets errexit, nounset and pipefail in the caller, sources
+# images/core-image.sh and defines release_tag, REQUIRED_PHARS and main. It
+# builds nothing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/../images/core-image.sh"
 
-REQUIRED_PHARS=(RiftalCustody.phar RiftalAccounts.phar contracts.phar)
+REQUIRED_PHARS=(
+  RiftalCustody.phar RiftalAccounts.phar contracts.phar
+  RiftalMines.phar RiftalRanks.phar RiftalEconomy.phar
+)
 
 # $1 repo, $2 UTC date as YYYY-MM-DD, $3 the full 40-character sha. Prints the
 # tag, or a message on stderr and returns 1.
@@ -49,7 +55,7 @@ main() {
 
   for name in "${REQUIRED_PHARS[@]}"; do
     if [ ! -s "$phars/$name" ]; then
-      printf '::error::%s is missing or empty in %s; every instance loads it\n' "$name" "$phars"
+      printf '::error::%s is missing or empty in %s; the release image carries it\n' "$name" "$phars"
       return 1
     fi
   done
@@ -69,6 +75,7 @@ main() {
   cp "$SCRIPT_DIR/../images/release/Dockerfile" "$ctx/Dockerfile"
   for name in "${REQUIRED_PHARS[@]}"; do
     cp "$phars/$name" "$ctx/plugins/$name"
+    chmod 0444 "$ctx/plugins/$name"
     sums+="${sums:+,}$name=$(sha256sum "$ctx/plugins/$name" | cut -d' ' -f1)"
   done
 
@@ -77,9 +84,9 @@ main() {
     --build-arg "CORE_TAG=${CORE_IMAGE##*:}" \
     --label "org.riftal.core-image=$CORE_IMAGE" \
     --label "org.riftal.phars=$sums" \
-    -t "$ref" "$ctx"
+    -t "$ref" "$ctx" || return 1
 
-  id="$(docker image inspect --format '{{.Id}}' "$ref")"
+  id="$(docker image inspect --format '{{.Id}}' "$ref")" || return 1
   printf 'release image %s (%s) built from %s\n' "$ref" "$id" "$CORE_IMAGE"
 }
 
