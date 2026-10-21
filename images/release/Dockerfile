@@ -12,4 +12,13 @@ FROM ${CORE_REPO}:${CORE_TAG}
 # volume there hides or outlives what the image holds, so the phars live
 # outside both. Core's start-pocketmine hard-codes --plugins=/plugins and does
 # not read this path: nothing in this image starts from it yet.
-COPY --chown=1000:1000 plugins/ /opt/riftal/plugins/
+# The runtime user pocketmine owns neither the phars nor their directories, so
+# it can neither rewrite nor replace a phar: a replacement would survive a
+# restart in the container's writable layer and the tag would stop deciding
+# which build runs. The phars' mode 0444 is set in the build context by
+# deploy/release-image.sh, and the directory modes are fixed here so the umask
+# of whoever built the image does not decide them.
+COPY --chown=0:0 plugins/ /opt/riftal/plugins/
+USER root
+RUN chmod 0755 /opt/riftal /opt/riftal/plugins
+USER pocketmine
