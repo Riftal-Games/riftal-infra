@@ -73,7 +73,8 @@ main() {
   done
 
   docker build \
-    --build-arg "CORE_IMAGE=$CORE_IMAGE" \
+    --build-arg "CORE_REPO=${CORE_IMAGE%:*}" \
+    --build-arg "CORE_TAG=${CORE_IMAGE##*:}" \
     --label "org.riftal.core-image=$CORE_IMAGE" \
     --label "org.riftal.phars=$sums" \
     -t "$ref" "$ctx"
