@@ -40,10 +40,15 @@ Four corrections to the current SKILL.md text:
    and a fresh `wslc run` against the same `riftal-world` volume.
 4. Step 4's command also lacks `RIFTAL_DEV_ENV=1`, which
    `images/plugins/RiftalDevBots.php` requires for bot admission alongside
-   `--riftal-dev-bots=on` and `--xbox-auth=false` (riftal-infra#176;
-   `images/compose.yaml`'s `instance` service sets it). Without it the
-   container boots clean and refuses every bot with no error. Add this line
-   to step 4's `wslc run`, above the `POCKETMINE_ARGS` line:
+   `--riftal-dev-bots=on` and `--xbox-auth=false` (riftal-infra#113, closed by
+   PR #176; `images/compose.yaml`'s `instance` service sets it). Without it
+   the plugin still enables and logs a boot `WARNING`, `riftal-dev-bots is on
+   but xbox-auth is on or RIFTAL_DEV_ENV=1 is not set; dev bots will be
+   refused`, which step 4's severity check does not catch because it matches
+   only `EMERGENCY`, `ALERT`, `CRITICAL` and `ERROR`. It then logs
+   `dev bots refused` and kicks every bot at pre-login with `dev bots are
+   disabled on this server`. Add this line to step 4's `wslc run`, above the
+   `POCKETMINE_ARGS` line:
 
    ```sh
      -e "RIFTAL_DEV_ENV=1" \
