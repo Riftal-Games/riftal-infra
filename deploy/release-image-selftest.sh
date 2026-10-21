@@ -5,10 +5,11 @@
 # existing tag are refused. The image records GAME_COMMIT and the sha256 of
 # GRANTS_SQL in its labels and holds no grants.sql. The image it builds is on
 # ubuntu:24.04 and the pinned core revision, holds the phars named in
-# REQUIRED_PHARS intact in /opt/riftal/plugins, owned by pocketmine and
-# read-only, holds none in /plugins, runs unprivileged and is never tagged
-# latest. Builds on the local daemon under a riftal_smoke_ name and
-# removes it. Needs the core image pinned in images/core-image.sha.
+# REQUIRED_PHARS intact in /opt/riftal/plugins, owned by root, mode 0444 and in
+# a root-owned 0755 directory pocketmine cannot write, holds none in /plugins,
+# has pocketmine as its configured user and is never tagged latest. Builds on
+# the local daemon under a riftal_smoke_ name and removes it. Needs the core
+# image pinned in images/core-image.sha.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +17,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=38
+EXPECTED_ASSERTIONS=40
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -131,7 +132,7 @@ else
   fi
   user="$(docker image inspect --format '{{.Config.User}}' "$image:$tag")"
   if [ "$user" = pocketmine ]; then
-    pass "the image runs as pocketmine"
+    pass "the image's configured user is pocketmine"
   else
     fail "the image runs as '$user'"
   fi
@@ -162,11 +163,24 @@ else
   else
     fail "grants.sql in the image: $grants_files"
   fi
-  unowned="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -type f \( ! -user pocketmine -o ! -perm 444 \)')"
+  unowned="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -type f \( ! -user root -o ! -perm 444 \)')"
   if [ -z "$unowned" ]; then
-    pass "every phar in /opt/riftal/plugins is owned by pocketmine and read-only"
+    pass "every phar in /opt/riftal/plugins is owned by root and mode 444"
   else
-    fail "phar(s) not owned by pocketmine or not mode 444: $unowned"
+    fail "phar(s) not owned by root or not mode 444: $unowned"
+  fi
+  dirs="$(docker run --rm -m 1g --cpus 1 --entrypoint stat "$image:$tag" -c '%n %U %a' /opt/riftal /opt/riftal/plugins)"
+  want_dirs="$(printf '%s\n' '/opt/riftal root 755' '/opt/riftal/plugins root 755')"
+  if [ "$dirs" = "$want_dirs" ]; then
+    pass "/opt/riftal and /opt/riftal/plugins are owned by root and mode 755"
+  else
+    fail "the directories are: $dirs"
+  fi
+  writable="$(docker run --rm -m 1g --cpus 1 --user pocketmine --entrypoint sh "$image:$tag" -c 'for p in /opt/riftal /opt/riftal/plugins /opt/riftal/plugins/*; do [ -w "$p" ] && echo "$p"; done; true')"
+  if [ -z "$writable" ]; then
+    pass "pocketmine can write none of /opt/riftal, /opt/riftal/plugins or a phar in it"
+  else
+    fail "pocketmine can write: $writable"
   fi
   # A phar under /plugins would be hidden by a mount or outlived by a reused
   # volume, so the tag would not decide which build runs.

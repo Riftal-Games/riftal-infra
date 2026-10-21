@@ -23,8 +23,8 @@
 # same core sha on one date therefore need the date or the pin to differ.
 #
 # Sourcing this file sets errexit, nounset and pipefail in the caller, sources
-# images/core-image.sh and defines release_tag, REQUIRED_PHARS and main. It
-# builds nothing.
+# images/core-image.sh and defines SCRIPT_DIR, release_tag, REQUIRED_PHARS and
+# main. It builds nothing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -435,10 +435,11 @@ ten production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
 `RiftalAccounts.phar`, `contracts.phar`, `RiftalMines.phar`, `RiftalRanks.phar`,
 `RiftalEconomy.phar`, `RiftalGangs.phar`, `RiftalRiots.phar`, `RiftalPlots.phar`
 and `RiftalAnvil.phar`, from `../images/release/Dockerfile`. They are
-read-only and owned by `pocketmine`. They sit outside `/data` and `/plugins`,
-the base's two VOLUMEs, so a mount or a reused volume cannot hide them or keep
-an older tag's copies. `/plugins` in the image holds no phar. The script uses
-only the local Docker daemon and pushes nowhere. A registry is a separate
+mode 0444 and owned by root, in directories owned by root, so `pocketmine` can
+neither rewrite nor replace one. They sit outside `/data` and `/plugins`,
+the base's two VOLUMEs, so a mount or a reused volume cannot hide them there or
+keep an older tag's copies. `/plugins` in the image holds no phar. The script
+uses only the local Docker daemon and pushes nowhere. A registry is a separate
 decision, because a paid one costs money.
 
 This image does not yet start from `/opt/riftal/plugins`. Core's
@@ -492,8 +493,9 @@ phars yet.
 the tag, the refusal of each phar when empty, the absence of a `latest` tag and
 the refusal of an existing tag. In the image it checks each phar byte for byte,
 that `/opt/riftal/plugins` holds exactly the ten, that they are owned by
-`pocketmine` and mode 444, that `/plugins` holds no phar, the Ubuntu 24.04
-release file, the `pocketmine` user and the pinned core revision label. It
+root and mode 444, that their directories are root-owned and mode 755, that
+`pocketmine` can write none of them, that `/plugins` holds no phar, the Ubuntu
+24.04 release file, the `pocketmine` user and the pinned core revision label. It
 refuses a malformed `GAME_COMMIT` and a `GRANTS_SQL` that is not a non-empty
 file, checks `org.riftal.game-commit` and `org.riftal.grants-sha256` against
 the inputs and that the image holds no `grants.sql`. It needs the pinned core
