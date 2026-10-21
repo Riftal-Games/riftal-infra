@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The harness of the bot-proofs job (ADR 024 item 5, riftal-infra#1088), run by that
-# job's harness step alone. It starts no bot: it boots instance A beside MySQL on a job
-# network, takes item 2's per-start checks, and answers one hold with the root listing.
+# job's harness step alone. It boots instance A beside MySQL on a job network, takes
+# item 2's per-start checks, answers one hold with the root listing, and plays ADR 015
+# proof 1 with bots against the head's backup.sh and again against a mutant of it.
 #
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
 # count ran and teardown's listings were empty; 3 when a listing is exposure, whatever
@@ -19,7 +20,8 @@ ID="${GITHUB_RUN_ID:-}_${GITHUB_RUN_ATTEMPT:-}"
 [[ $ID =~ ^[0-9]+_[0-9]+$ ]] || { printf '::error::no run id and attempt\n'; exit 1; }
 P=riftal_smoke_ci_$ID
 NET=${P}_net DB=${P}_db A=${P}_a VOL=${P}_adata CAP=${P}_cap SETS=${P}_sets IMG=${P}_tool
-for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG"; do
+RDB=${P}_rdb RVOL=${P}_rvol BK=${P}_bk
+for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG" "$RDB" "$RVOL" "$BK"; do
   [[ $name =~ ^riftal_smoke_ci_[0-9]+_[0-9]+_[a-z]+$ && ! $name =~ world|player|backup ]] || { printf '::error::%s is not a name this harness may create\n' "$name"; exit 1; }
 done
 
@@ -39,14 +41,20 @@ ETH0="$(eth0_address)" || { printf '%s\n' "$ETH0"; exit 1; }
 
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
-EXPECTED_ASSERTIONS=13 FOUND=0 PASSES=0 FAILURES=0 spid=""
+EXPECTED_ASSERTIONS=17 FOUND=0 PASSES=0 FAILURES=0 spid="" under="" RED=""
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
-# $1 what is claimed; $2 a condition, evaluated
+# $1 what is claimed; $2 a condition, evaluated. Under a mutant a failure is
+# collected in RED instead of counted.
 check() {
-  if eval "$2"; then PASSES=$((PASSES + 1)); printf 'ok   %s\n' "$1"
-  else FAILURES=$((FAILURES + 1)); printf 'FAIL %s\n' "$1"; fi
+  if eval "$2"; then
+    [ -n "$under" ] || { PASSES=$((PASSES + 1)); printf 'ok   %s\n' "$1"; }
+  elif [ -n "$under" ]; then
+    RED+="red under $under: $1"$'\n'
+  else
+    FAILURES=$((FAILURES + 1)); printf 'FAIL %s\n' "$1"
+  fi
 }
 
 residue() {
@@ -74,11 +82,11 @@ halt() {
 teardown() {
   local left=""
   halt
-  docker stop -t 30 "$DB" >/dev/null 2>&1 || true
+  docker stop -t 30 "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
   for _ in $(seq 1 30); do
-    docker rm -v "$DB" >/dev/null 2>&1 || true
+    docker rm -v "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
     docker network rm "$NET" >/dev/null 2>&1 || true
-    docker volume rm "$VOL" "$CAP" "$SETS" >/dev/null 2>&1 || true
+    docker volume rm "$VOL" "$CAP" "$SETS" "$RVOL" >/dev/null 2>&1 || true
     docker image rm "$IMG:head" >/dev/null 2>&1 || true
     left="$(residue)" || left="docker could not list"
     [ -n "$left" ] || break
@@ -157,7 +165,7 @@ chmod -R a+rX "$work"
 mkfifo "$work/in"
 docker run --rm -i --name "$A" -m 2g --cpus 2 --network "$NET" -p 127.0.0.1::19132/udp \
   -v "$VOL:/data" -v "$work/plugins:/plugins:ro" -v "$CAP:/capture:ro" -e RIFTAL_DEV_ENV=1 \
-  -e "POCKETMINE_ARGS=--level-type=flat --xbox-auth=false --riftal-dev-bots=on --auto-report.enabled=0" \
+  -e "POCKETMINE_ARGS=--level-type=flat --xbox-auth=false --riftal-dev-bots=on --auto-report.enabled=0 --ticks-per.autosave=200" \
   "$CORE_IMAGE" start-pocketmine <"$work/in" >"$LOG" 2>&1 &
 spid=$!; exec 3>"$work/in"
 check "A reaches LOADS: Done, RiftalCapture and RiftalDevBots enabled, nothing above WARNING" \
@@ -199,3 +207,105 @@ check "the root listing attributes 127.0.0.1:$H to docker-proxy" \
   'grep -qE "127\.0\.0\.1:$H +[0-9.*:]+ +users:\(\(\"docker-proxy\",pid=" "$work/hold.log"'
 check "the root listing attributes 127.0.0.1:${RPORT:-none} to this runner's process, pid ${RPID:-none}" \
   'grep -qE "127\.0\.0\.1:${RPORT:-0} +[0-9.*:]+ +users:\(\(\"[^\"]+\",pid=${RPID:-0}," "$work/hold.log"'
+[ "$FOUND" = 0 ] || exit 3
+[ "$FAILURES" -eq 0 ] || exit 1
+
+# ADR 015 proof 1. A held volume's players/ comes from the stage of the held
+# tick, so a stack dropped and picked up during the stall is in p1a's file once
+# and in p1b's not at all.
+STALL=90
+# $1 a literal string; $2 a file; $3 seconds to wait for the string in it
+await() { timeout "$3" bash -c 'until grep -qF -- "$0" "$1" 2>/dev/null; do sleep 0.2; done' "$1" "$2"; }
+
+# Counts the minecraft:dirt entries of each named bot's saved inventory on /v.
+cat >"$work/count.js" <<'JS'
+const fs = require('fs')
+const zlib = require('zlib')
+const nbt = require('/devtools/node_modules/prismarine-nbt')
+;(async () => {
+  for (const name of process.argv.slice(2)) {
+    const file = `/v/players/${name}.dat`
+    const held = fs.existsSync(file) ? nbt.simplify((await nbt.parse(zlib.gunzipSync(fs.readFileSync(file)), 'big')).parsed).Inventory ?? [] : []
+    console.log(`${name} ${held.filter(i => i.Name === 'minecraft:dirt').length}`)
+  }
+})()
+JS
+
+# $1 a tag for the run's files; $2 the backup script to run; $3 its request id.
+# Sets BRC, JRC and EARLY, the last being 1 when the tars began before the bots finished.
+p1_run() {
+  local bots="$work/$1-bots.log" bk="$work/$1-bk.log" bpid jpid
+  docker run --rm -m 1g --cpus 1 -v "$VOL:/d" "$IMG:head" rm -f /d/players/p1a.dat /d/players/p1b.dat
+  rm -f "$work/stall" "$work/end"
+  BOT_PORT="$H" CAPTURE_STALL_FILE="$work/stall" CAPTURE_END_FILE="$work/end" \
+    timeout 240 "$NODE" "$DT/run-scenario.js" capture-stall-drop-pickup --container "$A" --engine docker \
+    --in-distro --max-holds 2 --hold-budget-sec 60 --listing-image "$DEVTOOLS_IMAGE" --listing-name-prefix "$P" \
+    --eth0 "$ETH0" --instance "$H,$C,$GW" >"$bots" 2>&1 </dev/null &
+  bpid=$!
+  await "CAPTURE WAIT stall" "$bots" 120 || true
+  docker run --rm --name "$BK" -m 1g --cpus 1 --network "$NET" \
+    -v "$2:/deploy/backup.sh:ro" -v "$SETS:/backups" -v "$CAP:/capture" -v "$VOL:/worlds/a:ro" \
+    -e MYSQL_HOST=db -e MYSQL_USER=root -e MYSQL_PASSWORD="$PW" -e MYSQL_DATABASE=riftal_smoke_ci \
+    -e CAPTURE_TEST_REQUEST_ID="$3" -e CAPTURE_TEST_STALL_SECONDS="$STALL" \
+    "$IMG:head" bash /deploy/backup.sh >"$bk" 2>&1 &
+  jpid=$!
+  await "capture $3 held" "$LOG" 60 || true
+  touch "$work/stall"
+  BRC=0; wait "$bpid" || BRC=$?
+  [ "$BRC" -ne 4 ] || FOUND=1
+  EARLY=0; ! grep -qF "snapshotting world volume" "$bk" || EARLY=1
+  touch "$work/end"
+  JRC=0; wait "$jpid" || JRC=$?
+  sed 's/^/  bots | /' "$bots"
+  sed 's/^/  run | /' "$bk"
+}
+
+# $1 the run's tag. Restores its set onto a fresh volume with the head's
+# restore.sh, then reads the manifest and the restored inventories.
+p1_restore() {
+  local set
+  set="$(sed -n 's|.*complete at /backups/||p' "$work/$1-bk.log")"
+  docker volume create "$RVOL" >/dev/null
+  docker run --rm -m 1g --cpus 1 --network "$NET" -v "$ROOT/deploy/restore.sh:/deploy/restore.sh:ro" \
+    -v "$SETS:/backups:ro" -v "$RVOL:/worlds/a" -e MYSQL_HOST=rdb -e MYSQL_USER=root -e MYSQL_PASSWORD="$PW" \
+    -e MYSQL_DATABASE=riftal_smoke_ci -e BACKUP_SET="/backups/$set" "$IMG:head" bash /deploy/restore.sh 2>&1 | sed 's/^/  restore | /' || true
+  MANIFEST="$(docker run --rm -m 1g --cpus 1 -v "$SETS:/b:ro" "$IMG:head" cat "/b/$set/manifest.txt" || true)"
+  STACKS="$(docker run --rm -m 1g --cpus 1 -v "$RVOL:/v:ro" -v "$work/count.js:/count.js:ro" "$DEVTOOLS_IMAGE" \
+    /devtools/node-runtime/bin/node /count.js p1a p1b || true)"
+  docker volume rm "$RVOL" >/dev/null
+  printf 'manifest:\n%s\nrestored dirt stacks: %s\n' "$MANIFEST" "$(tr '\n' ' ' <<<"$STACKS")"
+}
+
+# $1 the run's tag; $2 its request id
+p1_judge() {
+  TAG="$1" RID="$2"
+  p1_restore "$TAG"
+  check "[p1-bots] proof 1's bots passed behind clean holds inside the stall, and the run completed" \
+    '[ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-drop-pickup" "$work/$TAG-bots.log" && [ "$EARLY" = 0 ] && [ "$JRC" = 0 ]'
+  check "[p1-manifest] 1. the manifest marks A held $RID" 'grep -qxF "capture_mode.a: held $RID" <<<"$MANIFEST"'
+  check "[p1-stacks] 1. the restored set holds exactly one stack in p1a's file and none in p1b's" \
+    'grep -qx "p1a 1" <<<"$STACKS" && grep -qx "p1b 0" <<<"$STACKS"'
+}
+
+docker run -d --rm --name "$RDB" -m 1g --cpus 1 --network "$NET" --network-alias rdb \
+  -e MYSQL_ROOT_PASSWORD="$PW" mysql:8 >/dev/null
+p1_run head "$ROOT/deploy/backup.sh" "p1-$ID"
+timeout 90 bash -c 'until docker exec "$0" mysqladmin ping -h 127.0.0.1 --silent >/dev/null 2>&1; do sleep 1; done' "$RDB"
+p1_judge head "p1-$ID"
+[ "$FOUND" = 0 ] || exit 3
+[ "$FAILURES" -eq 0 ] || { tail -n 60 "$LOG"; exit 1; }
+
+# The held volume's tar reads the live players/ in place of the stage, so the
+# restored set holds what the bots left: p1b's stack, and none in p1a's file.
+sed 's|-C "$vol/.capture/$request_id" players|-C "$vol" players|' "$ROOT/deploy/backup.sh" >"$work/stage-ignored.sh"
+printf '\n== mutant stage-ignored, against proof 1\n'
+diff "$ROOT/deploy/backup.sh" "$work/stage-ignored.sh" || true
+under=stage-ignored
+if ! cmp -s "$ROOT/deploy/backup.sh" "$work/stage-ignored.sh"; then
+  p1_run mut "$work/stage-ignored.sh" "p1m-$ID"
+  p1_judge mut "p1m-$ID"
+fi
+under=""
+printf '%s' "$RED"
+check "mutant stage-ignored turns only [p1-stacks] red, with p1b's file holding the stack" \
+  '[ "$(grep -c "^red under" <<<"$RED")" = 1 ] && grep -q "^red under stage-ignored: \[p1-stacks\]" <<<"$RED" && grep -qx "p1b 1" <<<"$STACKS"'
