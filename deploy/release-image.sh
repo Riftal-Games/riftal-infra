@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the release image (spec 016, acceptance criterion 3): the core image
-# pinned by images/core-image.sha plus the six production phars in
+# pinned by images/core-image.sha plus the ten production phars in
 # /opt/riftal/plugins, under an immutable tag on the local daemon. Nothing is
 # pushed anywhere.
 #
@@ -33,6 +33,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRED_PHARS=(
   RiftalCustody.phar RiftalAccounts.phar contracts.phar
   RiftalMines.phar RiftalRanks.phar RiftalEconomy.phar
+  RiftalGangs.phar RiftalRiots.phar RiftalPlots.phar RiftalAnvil.phar
 )
 
 # $1 repo, $2 UTC date as YYYY-MM-DD, $3 the full 40-character sha. Prints the
