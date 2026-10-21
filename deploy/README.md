@@ -422,16 +422,27 @@ already be on the daemon, since nothing here builds or pulls it. The image adds
 six production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
 `RiftalAccounts.phar`, `contracts.phar`, `RiftalMines.phar`, `RiftalRanks.phar`
 and `RiftalEconomy.phar`, from `../images/release/Dockerfile`. They are
-read-only and owned by `pocketmine`. They sit outside `/data` and `/plugins`,
+owned by `root` with no write bit, in directories with none either, so the server's
+user cannot replace or add one. They sit outside `/data` and `/plugins`,
 the base's two VOLUMEs, so a mount or a reused volume cannot hide them or keep
 an older tag's copies. `/plugins` in the image holds no phar. The script uses
 only the local Docker daemon and pushes nowhere. A registry is a separate
 decision, because a paid one costs money.
 
-This image does not yet start from `/opt/riftal/plugins`. Core's
-`start-pocketmine` passes `--plugins=/plugins`, and nothing in the image or in a
-deploy selects a per-instance roster from the image path, so no instance runs
-the image's own phars today. That start command is riftal-infra#1253.
+The image's command is `/opt/riftal/start-release.sh` (`../images/release/`),
+not core's `start-pocketmine`, which passes `--plugins=/plugins`. It builds the
+roster from `/opt/riftal/plugins` and passes PocketMine that directory alone,
+so a mount or a reused volume on `/plugins` is never read. RiftalCustody,
+RiftalAccounts and contracts load everywhere. `RIFTAL_PLUGINS` adds
+`RiftalMines`, `RiftalRanks` and `RiftalEconomy`, space or comma separated, and
+a name outside those three stops the boot. The instance sets `RIFTAL_DB_HOST`
+and `RIFTAL_DB_SCHEMA`, which the script writes into each loaded plugin's
+`/data/plugin_data/<Plugin>/config.yml` on every boot, from the configs the
+dev stack uses. The password of Accounts and of each added plugin comes from
+`RIFTAL_DB_PASSWORD_<ACCOUNTS|MINES|RANKS|ECONOMY>`, and a missing one stops the
+boot before PocketMine starts. A `--plugins` or `--data` in `POCKETMINE_ARGS` is
+refused. The script prints each roster phar's sha256 as a `roster` line, which
+is what the label can be compared with.
 
 The phars come from riftal-game's build. The recipes are in
 `../images/README.md` (Custody, Accounts, contracts) and in
@@ -446,9 +457,8 @@ daemon that built it, for as long as the tag exists there. Another daemon can
 build the same tag over different phars; riftal-pm#1622 tracks a composite tag.
 The tag carries no riftal-game commit, so the image records what it holds in
 two labels: `org.riftal.core-image` and `org.riftal.phars`, each phar's sha256.
-Do not record the tag in `../instances/<id>/image` until riftal-infra#1253
-lands: that one-line record is a deploy, and no instance runs the image's
-phars yet.
+Recording the tag in `../instances/<id>/image` is a deploy,
+and an instance started from the image runs the image's own phars.
 
 `release-image-selftest.sh` builds one under a `riftal_smoke_` name and checks
 the tag, the refusal of each phar when empty, the absence of a `latest` tag and
@@ -457,6 +467,13 @@ that `/opt/riftal/plugins` holds exactly the six, that they are owned by
 `pocketmine` and mode 444, that `/plugins` holds no phar, the Ubuntu 24.04
 release file, the `pocketmine` user and the pinned core revision label. It needs
 the pinned core image on the daemon.
+
+`release-start-selftest.sh` builds two tags over stub plugins that differ in
+version, then boots tag N, N+1 and N on one named `/data` volume and one reused
+`/plugins` volume that holds stale copies. Each boot must report the sha256s its
+own image's `org.riftal.phars` label names and enable exactly its roster at its
+tag's version. It also checks the refusals above, the rendered configs and that
+the server's user cannot add a file to `/opt/riftal/plugins`.
 
 ## Environment
 

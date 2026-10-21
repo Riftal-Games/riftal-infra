@@ -3,7 +3,7 @@
 # naming. Malformed tag input, each phar when empty and an existing tag are
 # refused. The image it builds is on ubuntu:24.04 and the pinned core revision,
 # holds the phars named in REQUIRED_PHARS intact in /opt/riftal/plugins, owned
-# by pocketmine and read-only, holds none in /plugins, runs unprivileged and is
+# by root and read-only, holds none in /plugins, runs unprivileged and is
 # never tagged latest. Builds on the local daemon under a riftal_smoke_ name and
 # removes it. Needs the core image pinned in images/core-image.sha.
 set -euo pipefail
@@ -118,11 +118,11 @@ else
   else
     fail "the image is built on core revision '$revision', not the pinned $sha"
   fi
-  unowned="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -type f \( ! -user pocketmine -o ! -perm 444 \)')"
+  unowned="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -type f \( ! -user root -o ! -perm 444 \)')"
   if [ -z "$unowned" ]; then
-    pass "every phar in /opt/riftal/plugins is owned by pocketmine and read-only"
+    pass "every phar in /opt/riftal/plugins is owned by root and read-only"
   else
-    fail "phar(s) not owned by pocketmine or not mode 444: $unowned"
+    fail "phar(s) not owned by root or not mode 444: $unowned"
   fi
   # A phar under /plugins would be hidden by a mount or outlived by a reused
   # volume, so the tag would not decide which build runs.

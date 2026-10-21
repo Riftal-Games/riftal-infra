@@ -10,6 +10,15 @@ FROM ${CORE_REPO}:${CORE_TAG}
 
 # The base declares /data and /plugins as VOLUMEs, and a mount or a reused
 # volume there hides or outlives what the image holds, so the phars live
-# outside both. Core's start-pocketmine hard-codes --plugins=/plugins and does
-# not read this path: nothing in this image starts from it yet.
-COPY --chown=1000:1000 plugins/ /opt/riftal/plugins/
+# outside both. Everything under /opt/riftal belongs to root and has no write
+# bit, so the process that loads the phars cannot replace one or add another.
+# start-release.sh builds the instance's roster from this path and passes it to
+# PocketMine, which makes the image tag decide which build runs.
+USER root
+COPY plugins/ /opt/riftal/plugins/
+COPY plugin_data/ /opt/riftal/plugin_data/
+COPY start-release.sh /opt/riftal/start-release.sh
+RUN chmod -R a-w /opt/riftal && chmod a+x /opt/riftal/start-release.sh
+USER pocketmine
+
+CMD ["/opt/riftal/start-release.sh"]

@@ -15,8 +15,8 @@
 # same core sha on one date therefore need the date or the pin to differ.
 #
 # Sourcing this file sets errexit, nounset and pipefail in the caller, sources
-# images/core-image.sh and defines release_tag, REQUIRED_PHARS and main. It
-# builds nothing.
+# images/core-image.sh and defines release_tag, REQUIRED_PHARS, plugin_config
+# and main. It builds nothing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,6 +45,17 @@ release_tag() {
   fi
   tag="$repo-$date-${sha:0:7}"
   printf '%s\n' "$tag"
+}
+
+# $1 a plugin name. Prints the dev stack's config for it, which start-release.sh
+# renders the database host and schema of.
+plugin_config() {
+  local images="$SCRIPT_DIR/../images/plugins"
+  case "$1" in
+    RiftalAccounts) printf '%s\n' "$images/RiftalAccounts.config.yml" ;;
+    RiftalMines) printf '%s\n' "$images/instance-only/RiftalMines.config.yml.template" ;;
+    *) printf '%s\n' "$images/instance-only/$1.config.yml" ;;
+  esac
 }
 
 main() {
@@ -77,6 +88,12 @@ main() {
     cp "$phars/$name" "$ctx/plugins/$name"
     chmod 0444 "$ctx/plugins/$name"
     sums+="${sums:+,}$name=$(sha256sum "$ctx/plugins/$name" | cut -d' ' -f1)"
+  done
+
+  cp "$SCRIPT_DIR/../images/release/start-release.sh" "$ctx/start-release.sh"
+  for name in RiftalAccounts RiftalMines RiftalRanks RiftalEconomy; do
+    mkdir -p "$ctx/plugin_data/$name"
+    cp "$(plugin_config "$name")" "$ctx/plugin_data/$name/config.yml"
   done
 
   docker build \
