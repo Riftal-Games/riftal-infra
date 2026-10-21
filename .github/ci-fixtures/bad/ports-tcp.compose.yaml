@@ -1,0 +1,10 @@
+# Expected: BEDROCK_TCP_PUBLISH once, at services.instance.ports[0].
+#
+# Compose reads a publish with no protocol as tcp. This container comes up,
+# reports healthy, and no Bedrock client can join it, because Bedrock is RakNet
+# over UDP. The bind is 127.0.0.1 so no other rule fires.
+services:
+  instance:
+    image: local-pocketmine-mp:fixture
+    ports:
+      - "127.0.0.1:19132:19132"

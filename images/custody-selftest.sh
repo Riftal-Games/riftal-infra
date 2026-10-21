@@ -76,7 +76,7 @@ real="$(model "$COMPOSE")"
 check "instance and instance-b both run it before their start script" \
   '[ -z "$(unguarded "$real")" ] &&
     [ "$(jq -r ".services | to_entries[] | select(.value.image | test(\"pocketmine\")) | .key" <<<"$real" | sort | tr "\n" " ")" = "instance instance-b " ]'
-sed 's#"bash", "/plugins/require-custody.sh", "start-pocketmine"#"start-pocketmine"#' "$COMPOSE" > "$work/compose.yaml"
+sed 's#"bash", "/plugins/require-custody.sh", "bash", "/plugins/instance-b/start.sh"#"bash", "/plugins/instance-b/start.sh"#' "$COMPOSE" > "$work/compose.yaml"
 check "an instance that skips it is caught" '[ "$(unguarded "$(model "$work/compose.yaml")")" = instance-b ]'
 
 printf '\n== every script plugin both instances load softdepends on RiftalCustody\n'

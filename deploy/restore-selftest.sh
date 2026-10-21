@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Self-test for restore.sh, against real, throwaway mysql:8 containers and
-# real, throwaway world volumes. Runs on the self-hosted CI runner via
-# `docker`, the same way ../deploy/selftest.sh and ../migrations/selftest.sh
-# already do; not runnable on Nasir's Windows machine, which has no docker,
-# only wslc. See ../deploy/README.md for the wslc form.
+# real, throwaway world volumes. Calls `docker` directly, as
+# ../deploy/selftest.sh and ../migrations/selftest.sh do, so it runs on the
+# self-hosted CI runner and, on Nasir's Windows machine, under the WSL
+# fallback engine:
+#   wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/.../deploy/restore-selftest.sh
+# ../deploy/README.md shows a manual restore run under wslc.
 #
 # This is the drill the spec requires actually be performed, not just
 # documented: it backs up a database row and a world marker file, mutates
@@ -16,12 +18,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUFFIX="$$-$(date +%s)"
-NETWORK="riftal-restore-selftest-net-$SUFFIX"
-MYSQL_CONTAINER="riftal-restore-selftest-mysql-$SUFFIX"
-RESTORE_CONTAINER="riftal-restore-selftest-restore-$SUFFIX"
-BACKUPS_VOL="riftal-restore-selftest-backups-$SUFFIX"
-WORLD_A_VOL="riftal-restore-selftest-world-a-$SUFFIX"
-WORLD_B_VOL="riftal-restore-selftest-world-b-$SUFFIX"
+# riftal_smoke_ names, because the guard lets a volume be removed only under
+# that prefix, so this runs and cleans up the same on a dev machine as in CI.
+NETWORK="riftal_smoke_restore_net_$SUFFIX"
+MYSQL_CONTAINER="riftal_smoke_restore_mysql_$SUFFIX"
+RESTORE_CONTAINER="riftal_smoke_restore_restore_$SUFFIX"
+BACKUPS_VOL="riftal_smoke_restore_backups_$SUFFIX"
+WORLD_A_VOL="riftal_smoke_restore_world_a_$SUFFIX"
+WORLD_B_VOL="riftal_smoke_restore_world_b_$SUFFIX"
+BACKUP_PW=selftestPasswordBackupLogin01
 
 # Per run, so two runs sharing a host, as the self-hosted CI runners do,
 # never read each other's logs.
@@ -43,7 +48,7 @@ docker volume create "$BACKUPS_VOL" >/dev/null
 docker volume create "$WORLD_A_VOL" >/dev/null
 docker volume create "$WORLD_B_VOL" >/dev/null
 
-docker run -d --rm --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
+docker run -d --rm -m 1g --cpus 1 --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
   mysql:8 >/dev/null
 
@@ -74,42 +79,55 @@ exec_sql() {
 # or wrong-volume restore reads as an obviously wrong value below.
 exec_sql 'CREATE TABLE riftal_selftest.accounts (id INT PRIMARY KEY, balance INT);
           INSERT INTO riftal_selftest.accounts VALUES (1, 500);'
-# restore.sh drops the database, and its procedures with it, so this one
-# exists after the restore only if backup.sh dumped routines.
+# restore.sh drops the database, and its procedures and triggers with it, so
+# these exist after the restore only if backup.sh dumped them, which the
+# backup login can do only through SHOW_ROUTINE and TRIGGER.
 exec_sql 'CREATE PROCEDURE riftal_selftest.balance_of_1()
           SELECT balance FROM riftal_selftest.accounts WHERE id = 1'
-docker run --rm -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
+exec_sql 'CREATE TRIGGER riftal_selftest.accounts_no_negative BEFORE INSERT
+          ON riftal_selftest.accounts FOR EACH ROW
+          SET NEW.balance = GREATEST(NEW.balance, 0)'
+docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo 17 > /world/blocks_broken_mine_a.txt' >/dev/null
-docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
+docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
   'echo world-b-at-backup > /world/marker.txt' >/dev/null
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=15
+EXPECTED_ASSERTIONS=22
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
 
 run_backup() {
-  docker run --rm --network "$NETWORK" \
+  docker run --rm -m 1g --cpus 1 --network "$NETWORK" \
     -v "$SCRIPT_DIR/backup.sh:/deploy/backup.sh:ro" \
     -v "$BACKUPS_VOL:/backups" \
     -v "$WORLD_A_VOL:/worlds/world-a:ro" -v "$WORLD_B_VOL:/worlds/world-b:ro" \
-    -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
+    -e MYSQL_HOST=mysql -e MYSQL_PASSWORD="$BACKUP_PW" \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION=10 \
     mysql:8 bash /deploy/backup.sh
+}
+
+provision_backup_login() {
+  docker run --rm -m 1g --cpus 1 --network "$NETWORK" \
+    -v "$SCRIPT_DIR/../migrations/run-migrations.sh:/run-migrations.sh:ro" \
+    -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
+    -e MYSQL_DATABASE=riftal_selftest -e MIGRATIONS_DIR=/missing \
+    -e RIFTAL_DB_PASSWORD_BACKUP="$BACKUP_PW" \
+    mysql:8 bash /run-migrations.sh
 }
 
 # The docker client forwards timeout's SIGTERM to restore.sh's bash, which as
 # PID 1 ignores it, so only the SIGKILL from -k ends the client, and that
 # leaves the container running. Removing it by name is what frees the runner.
 run_restore() {
-  local backup_set="$1" rc=0
-  timeout -k 5 60 docker run --rm --name "$RESTORE_CONTAINER" --network "$NETWORK" \
+  local backup_set="$1" user="${2:-root}" rc=0
+  timeout -k 5 60 docker run --rm -m 1g --cpus 1 --name "$RESTORE_CONTAINER" --network "$NETWORK" \
     -v "$SCRIPT_DIR/restore.sh:/deploy/restore.sh:ro" \
     -v "$BACKUPS_VOL:/backups:ro" \
     -v "$WORLD_A_VOL:/worlds/world-a" -v "$WORLD_B_VOL:/worlds/world-b" \
-    -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
+    -e MYSQL_HOST=mysql -e MYSQL_USER="$user" -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_SET="$backup_set" \
     mysql:8 bash /deploy/restore.sh || rc=$?
   docker rm -f -v "$RESTORE_CONTAINER" >/dev/null 2>&1 || true
@@ -117,13 +135,18 @@ run_restore() {
 }
 
 backups() {
-  docker run --rm -v "$BACKUPS_VOL:/backups" mysql:8 bash -c "$1"
+  docker run --rm -m 1g --cpus 1 -v "$BACKUPS_VOL:/backups" mysql:8 bash -c "$1"
 }
 world_a() {
-  docker run --rm -v "$WORLD_A_VOL:/world" mysql:8 bash -c "$1"
+  docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c "$1"
 }
 
-section "a backup is taken while balance is 500 and mine_a shows 17 blocks broken"
+section "a backup is taken by the backup login while balance is 500 and mine_a shows 17 blocks broken"
+if provision_backup_login >"$LOGS"/out-provision.log 2>&1; then
+  pass "the migration runner provisions the backup login"
+else
+  fail "the migration runner should provision the backup login"; cat "$LOGS"/out-provision.log
+fi
 if run_backup >"$LOGS"/out-backup.log 2>&1; then
   pass "the backup run exits 0"
 else
@@ -152,10 +175,17 @@ restored_balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE id
 
 restored_call="$(query riftal_selftest 'CALL balance_of_1()' 2>"$LOGS"/out-call.log || true)"
 if [ "$restored_call" = "500" ]; then
-  pass "a stored procedure survives the backup and restore and still runs"
+  pass "a stored procedure survives a backup taken by the backup login and still runs"
 else
-  fail "expected CALL balance_of_1() to return 500 after the restore, got '$restored_call'"
+  fail "expected CALL balance_of_1() to return 500 after a restore from the backup login's dump, got '$restored_call'"
   cat "$LOGS"/out-call.log
+fi
+
+restored_trigger="$(query riftal_selftest "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='riftal_selftest'")"
+if [ "$restored_trigger" = "accounts_no_negative" ]; then
+  pass "a trigger survives a backup taken by the backup login"
+else
+  fail "expected trigger accounts_no_negative after a restore from the backup login's dump, got '$restored_trigger'"
 fi
 
 restored_blocks="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
@@ -169,7 +199,7 @@ else
   pass "the post-backup stray file is gone: the volume was rebuilt, not merged onto"
 fi
 
-restored_world_b="$(docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'cat /world/marker.txt')"
+restored_world_b="$(docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'cat /world/marker.txt')"
 [ "$restored_world_b" = "world-b-at-backup" ] \
   && pass "world-b's marker also matches the backup-time value, proving every world volume is rebuilt, not just one" \
   || fail "expected world-b's restored marker, got $restored_world_b"
@@ -183,7 +213,7 @@ section "a backup set with one corrupt world tar is rejected before any world di
 dir2="corrupt-$SUFFIX"
 backups "cp -r /backups/$dir1 /backups/$dir2 && echo not-a-valid-gzip-archive > /backups/$dir2/worlds/world-b.tar.gz"
 world_a 'echo 123 > /world/blocks_broken_mine_a.txt'
-docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
+docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
   'echo drifted-again > /world/marker.txt' >/dev/null
 
 if run_restore "/backups/$dir2" >"$LOGS"/out-corrupt.log 2>&1; then
@@ -202,7 +232,7 @@ survives_a="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
   && pass "world-a, ordered ahead of the corrupt world-b tar, is untouched rather than cleared before the failure was found" \
   || fail "expected world-a's pre-restore-attempt marker 123 to survive, got $survives_a"
 
-survives_b="$(docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'cat /world/marker.txt')"
+survives_b="$(docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'cat /world/marker.txt')"
 [ "$survives_b" = "drifted-again" ] \
   && pass "world-b, whose own tar is the corrupt one, is untouched rather than left cleared and empty" \
   || fail "expected world-b's pre-restore-attempt marker to survive, got $survives_b"
@@ -225,6 +255,63 @@ untouched_balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE i
   && pass "the good restore from the earlier assertion is still in place after the failed attempt" \
   || fail "expected balance 500 to survive the failed restore attempt, got $untouched_balance"
 
+section "a restore is refused while another session is connected, or without PROCESS, and changes nothing"
+exec_sql 'UPDATE riftal_selftest.accounts SET balance = 777 WHERE id = 1'
+world_a 'echo 777 > /world/blocks_broken_mine_a.txt'
+# An account with every privilege on the schema but no PROCESS sees only its
+# own threads in the processlist, so it would count 0 with a session connected.
+exec_sql "CREATE USER 'restorer'@'%' IDENTIFIED BY 'selftest'; GRANT ALL ON riftal_selftest.* TO 'restorer'@'%'"
+# Tagged so the session is found by its own text and never by another's.
+docker exec -d "$MYSQL_CONTAINER" mysql -uroot -pselftest -e 'SELECT SLEEP(600) AS riftal_selftest_held'
+held=0
+for _ in $(seq 1 20); do
+  held="$(query riftal_selftest "SELECT COUNT(*) FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP(% AS riftal_selftest_held'")"
+  [ "$held" = "1" ] && break
+  sleep 0.5
+done
+if [ "$held" != "1" ]; then
+  echo "the session meant to stay connected never appeared in the processlist" >&2
+  exit 1
+fi
+
+refused_unchanged() {
+  local label="$1" pattern="$2" user="$3" balance marker
+  if run_restore "/backups/$dir1" "$user" >"$LOGS/out-$label.log" 2>&1; then
+    fail "$label: the restore should exit nonzero"
+  elif grep -q "$pattern" "$LOGS/out-$label.log"; then
+    pass "$label: refused with '$pattern'"
+  else
+    fail "$label: expected '$pattern' in the refusal"; cat "$LOGS/out-$label.log"
+  fi
+  balance="$(query riftal_selftest 'SELECT balance FROM accounts WHERE id = 1' 2>/dev/null || true)"
+  marker="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
+  if [ "$balance" = "777" ] && [ "$marker" = "777" ]; then
+    pass "$label: the database and the world volume are as they were"
+  else
+    fail "$label: expected balance 777 and marker 777 untouched, got '$balance' and '$marker'"
+  fi
+}
+refused_unchanged connected-session "other session(s) are connected" root
+refused_unchanged no-process "lacks PROCESS" restorer
+
+held_id="$(query riftal_selftest "SELECT ID FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP(% AS riftal_selftest_held'")"
+case "$held_id" in
+  '' | *[!0-9]*) echo "the held session's id read '$held_id'" >&2; exit 1 ;;
+esac
+exec_sql "KILL $held_id"
+for _ in $(seq 1 30); do
+  [ "$(query riftal_selftest "SELECT COUNT(*) FROM performance_schema.processlist WHERE INFO LIKE 'SELECT SLEEP(% AS riftal_selftest_held'")" = "0" ] && break
+  sleep 0.5
+done
+# The same set restores once the session is gone, so the refusals above came
+# from the session and the account, not from the set.
+if run_restore "/backups/$dir1" >"$LOGS"/out-released.log 2>&1 \
+  && [ "$(query riftal_selftest 'SELECT balance FROM accounts WHERE id = 1')" = "500" ]; then
+  pass "with the session gone, the same set restores to the backup-time balance"
+else
+  fail "expected the restore to succeed once the held session ended"; cat "$LOGS"/out-released.log
+fi
+
 printf '\n'
 ran=$((PASSES + FAILURES))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
@@ -236,4 +323,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup, drift, restore to the backup-time state across the database, its stored procedures and every world volume, loud failure on a missing backup set, and loud failure on a corrupt world tar with no world directory cleared.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures and triggers and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS.\n' "$PASSES"

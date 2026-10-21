@@ -27,6 +27,37 @@ subdirectories `WORLDS_DIR` holds. What appears there is decided by
 instance world volume. Splitting a world onto a new instance (`/add-instance`)
 adds one line there; the script needs no change, per `CLAUDE.md` hard rule 5.
 
+## The dump login
+
+`backup.sh` dumps as the login `backup`, whose password is
+`RIFTAL_DB_PASSWORD_BACKUP`. `../migrations/run-migrations.sh` creates it on
+any run with that variable set, grants it `riftal_role_backup`, and rotates it
+when the variable changes. On the compose stack the `dump-login` service is
+that run, and the `backup` service starts only after it exits 0
+(`../images/README.md`). The role holds `SELECT`, `SHOW VIEW` and `TRIGGER`
+on the schema and the global `SHOW_ROUTINE`. The last two matter: without
+them `mysqldump` still exits 0 and silently leaves every trigger or stored
+procedure out of the set. `../migrations/selftest.sh` proves `backup` is
+denied `INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`, `ALTER TABLE`,
+`DROP TABLE`, `LOCK TABLES`, `CREATE EVENT`, `CREATE USER` and `GRANT`.
+MySQL ties seeing a trigger to creating and dropping
+one, so `TRIGGER` lets `backup` drop any existing trigger in the schema,
+whatever the binlog setting, and with it whatever that trigger enforces. With
+the binlog on, as `binlog-check.sh` requires, MySQL refuses only
+`CREATE TRIGGER` to a login without `SUPER`. With the binlog off, or
+`log_bin_trust_function_creators` set, `backup` can create triggers too, and
+a `SIGNAL` trigger can block writers. `../migrations/selftest.sh` pins each
+of these: the refused create, the accepted drop, and the create once the
+guard is lifted.
+`backup` can change its own password and default role and take named locks
+(`GET_LOCK`), including the runner's `riftal_schema_migrations`, because
+those need no privilege. It can take shared row locks
+(`SELECT ... FOR SHARE`), because they come with the `SELECT` the dump needs.
+Their effect is on availability only: backups or migrations stop, or writers
+wait, until the login is reprovisioned or its session ends.
+`restore.sh` runs as the admin account, because it drops and recreates
+the schema and recreates each procedure under its original `DEFINER`.
+
 ## Retention
 
 `BACKUP_RETENTION` (default 10, see `images/.env.example`) is how many backup
@@ -163,10 +194,26 @@ cleared, so a corrupt tar for one world in a multi-world set aborts the whole
 restore instead of being found only after earlier worlds have already been
 cleared and left neither restored nor in their pre-restore state.
 
-Wiping the shared database between MVPs is its own runbook,
-[`WIPE.md`](WIPE.md). It drops and recreates the database only, leaving world
-volumes alone, and its rollback is this restore with the backup set taken
-just before the wipe. Every wipe of alpha or production data is Nasir's.
+After the tars list cleanly and still before anything is dropped or cleared,
+`restore.sh` refuses while any other session is connected to the database
+server, whatever that session's default database, because a running instance
+would keep writing through the restore. Stop every instance and the `backup`
+service first. There is no override. The check reads
+`performance_schema.processlist` and refuses rather than guesses when it
+cannot see every session:
+
+| Refusal | Meaning |
+|---|---|
+| `refused: <n> other session(s) are connected to <host>:<port>; close every other connection, instances first` | Another connection is open. Close it and run again |
+| `refused: <user> lacks PROCESS, directly or through an active role, so it cannot see every session` | Without `PROCESS` the account sees only its own threads, so a count of 0 proves nothing. Use the admin account |
+| `refused: the processlist does not show this session, so it cannot see the others; is performance_schema off?` | The count is not trusted until it includes the script's own connection |
+
+The check reads the moment it runs. A session opened afterwards is not seen.
+
+Wiping between MVPs is its own runbook, [`WIPE.md`](WIPE.md). It drops and
+recreates the database and clears the levels, `players/` and `plugin_data/`
+on every instance volume, and its rollback is this restore with the backup
+set taken just before the wipe. Every wipe of alpha or production data is Nasir's.
 
 ## Binary log retention
 
@@ -274,13 +321,193 @@ A log left out of the middle of the list makes two stops look consecutive or
 hides one between them, so give it every lifetime in order.
 `custody-alert-check-selftest.sh` proves each rule in CI against fixture logs.
 
+## Grants REVOKE check
+
+`grants-revoke-check.sh <new-grants.sql> <release-tag> [<tag>=<grants.sql> ...]`
+refuses a `grants.sql` whose REVOKE statements are new against an image tag
+that can still run (riftal-infra#944, riftal-pm ADR 008 item 3).
+`../migrations/run-migrations.sh` applies the file on every run, and
+`/deploy-release` stage 1 runs the migrations before stage 2 rolls instances
+one at a time. A REVOKE applied while an instance still runs the previous tag
+takes a privilege that instance still needs: every statement that uses it
+fails with ERROR 1142 or 1143. The check reads files and lists containers. It
+stops, starts and removes nothing.
+
+The check belongs in `/deploy-release` stage 1, before the migrations run. The
+skill does not run it yet; until the skill's wiring lands, whoever runs stage 1
+runs the check by hand and does not start the migrations on a refusal.
+
+Each `<tag>=<file>` names the `grants.sql` that tag's plugins were built from.
+The operator supplies it from the riftal-game commit the tag was built at. A tag
+in use with no mapping is a refusal, never a pass.
+
+A release image (see Release image below) carries the sha256 of that file in the
+label `org.riftal.grants-sha256`, and the commit in `org.riftal.game-commit`. The
+check reads the sha256 with `<runtime> image inspect` for every tag in use other
+than `<release-tag>`. The label holds the hash and not the file, and the image
+holds no `grants.sql`, so a labelled tag still needs its `<tag>=<file>`: the
+check cannot derive the file locally, and fetching it from a network or a
+registry is out of scope. What the label adds is that a supplied file whose
+sha256 differs from it exits 2, so a file from another commit exits 2 even when
+it is valid. A tag whose image has no label, or cannot be inspected on the
+runtime, is checked against the supplied file alone. A label that is not 64
+lowercase hex digits exits 2. Baking `grants.sql` into the image is tracked in
+riftal-infra#1272.
+
+`instances/<id>/image` records the tag an instance runs: one line,
+`<INSTANCE_IMAGE>:<tag>`, with an optional final LF. The tag matches
+`[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}` and is not `latest`. Each immediate
+subdirectory of `INSTANCES_DIR` is one instance definition and must hold that
+file, a regular readable one, links followed. A top-level entry that is not a
+directory, other than `.gitkeep`, is an error, because a definition is a
+directory. The scan reads the checkout it runs from, so run it from riftal-infra
+`main` at the release commit. A deploy or a rollback of one instance is a
+one-line change to its file.
+
+A tag is in use when any of these names it:
+
+- a running container;
+- a stopped container, listed by `ps -a`;
+- an instance definition's `image` file;
+- any other file under `INSTANCES_DIR`, links followed, with the line it
+  appears on.
+
+Every tag in use other than `<release-tag>` is checked. A REVOKE in the new file
+that the older tag's file does not also carry is new against that tag. A REVOKE
+the new file drops is not a hazard. Statements compare as a set of texts with
+whitespace collapsed, so the check does not see a REVOKE the older file later
+undoes with a GRANT of the same privilege: it counts as carried.
+
+| Exit | Output |
+|---|---|
+| 0 | One `GRANTS REVOKE OK:` line: the REVOKE count, the file, the older tags checked, the tags in use, the runtime, the instance definitions read |
+| 1 | One `GRANTS REVOKE REFUSED:` line per new REVOKE and tag, each naming the container or definition that holds the tag |
+| 2 | Usage, an unreadable file or instance definition, a definition with no valid `image` file, a top-level entry that is not a directory, a failed definition scan, a failed runtime, an image whose tag cannot be read, a tag in use with no `grants.sql`, a supplied file whose sha256 differs from the tag's label, a label that is not a sha256, or a file outside the dialect below |
+
+Exit 2 is never a pass. The reader accepts the one dialect riftal-game's
+`lib/resources/sql/grants.sql` is written in, and exits 2 naming the file and
+line on anything else: no `#` or `/* */` comment, quote, backtick, backslash,
+`DROP` or client command, and every statement begins with `CREATE ROLE`,
+`GRANT` or `REVOKE`. A `--` comment ends at the line end, and no byte may be
+other than printable ASCII, tab, CR or LF.
+
+Environment:
+
+| Variable | Required | Default | Meaning |
+|---|---|---|---|
+| `INSTANCE_IMAGE` | yes | | The image name without its tag, exactly as the runtime reports it |
+| `CONTAINER_RUNTIME` | no | `docker` | The runtime command, which may carry arguments |
+| `INSTANCES_DIR` | no | `instances/` beside `deploy/` | Where instance definitions are read, whatever the working directory |
+
+What a pass does not cover:
+
+- **One runtime per run.** Containers come from the single `CONTAINER_RUNTIME`
+  given, on the one machine it reaches. Run the check once per runtime and per
+  machine that runs instances, each with its own `INSTANCE_IMAGE` and its own
+  result. A pass on one machine says nothing about another.
+- **One reference per run.** `INSTANCE_IMAGE` must be the exact reference the
+  runtime reports, registry prefix included. A container under any other
+  reference is skipped as not ours, so a mistyped value passes with the
+  containers it should have caught unseen. Take it from the runtime's own
+  output, for example `docker ps -a --format '{{.Image}}'`, and never from the
+  compose file.
+- **Mutable references.** A container or definition naming the image with no
+  tag, by digest, as `latest`, or known only by id exits 2, because its tag
+  cannot be read.
+
+Example, with one instance still on `v1` and the release at `v2`:
+
+```sh
+INSTANCE_IMAGE=registry.example/riftal/pocketmine-mp \
+  deploy/grants-revoke-check.sh new/grants.sql v2 v1=old/grants.sql
+```
+
+`grants-revoke-check-selftest.sh` proves each rule in CI against a fake
+container runtime that serves labels, and fixture files, and starts no container.
+
+## Release image
+
+`GAME_COMMIT=<sha> GRANTS_SQL=<grants.sql> release-image.sh <phars directory>`
+builds an image on top of the pinned core
+image, `../images/core-image.sha`, which is `ubuntu:24.04` underneath and must
+already be on the daemon, since nothing here builds or pulls it. The image adds
+ten production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
+`RiftalAccounts.phar`, `contracts.phar`, `RiftalMines.phar`, `RiftalRanks.phar`,
+`RiftalEconomy.phar`, `RiftalGangs.phar`, `RiftalRiots.phar`, `RiftalPlots.phar`
+and `RiftalAnvil.phar`, from `../images/release/Dockerfile`. They are
+mode 0444 and owned by root, in directories owned by root, so `pocketmine` can
+neither rewrite nor replace one. They sit outside `/data` and `/plugins`,
+the base's two VOLUMEs, so a mount or a reused volume cannot hide them there or
+keep an older tag's copies. `/plugins` in the image holds no phar. The script
+uses only the local Docker daemon and pushes nowhere. A registry is a separate
+decision, because a paid one costs money.
+
+This image does not yet start from `/opt/riftal/plugins`. Core's
+`start-pocketmine` passes `--plugins=/plugins`, and nothing in the image or in a
+deploy selects a per-instance roster from the image path, so no instance runs
+the image's own phars today. That start command is riftal-infra#1253.
+
+`GAME_COMMIT` is the full lowercase 40-character riftal-game sha the phars and
+`GRANTS_SQL` were built from, and `GRANTS_SQL` is that commit's `grants.sql`.
+The script refuses a `GAME_COMMIT` that is unset or malformed and a `GRANTS_SQL`
+that is unset, missing, a directory or empty, and records them in the labels
+`org.riftal.game-commit` and `org.riftal.grants-sha256`. It is the operator's
+word that they match the phars, since nothing here builds
+riftal-game. The file itself is not put in the image.
+
+The phars come from riftal-game's build. The recipes are in
+`../images/README.md` (Custody, Accounts, contracts) and in
+`../images/plugins/instance-only/README.md` (Mines, Ranks, Economy). The script
+refuses a missing or empty one by name, and carries no dev-only plugin.
+
+Gangs, Riots, Plots and Anvil use the RiftalCustody recipe in
+`../images/README.md` with `gangs riots plots anvil contracts` added to its
+`git archive` paths, so `lib` and `contracts` sit beside them for their path
+repositories. `packages.sh phar` then builds a phar named after each folder, and
+each is copied to the name the script requires:
+
+```sh
+cp "$OUT/gangs.phar" RiftalGangs.phar
+cp "$OUT/riots.phar" RiftalRiots.phar
+cp "$OUT/plots.phar" RiftalPlots.phar
+cp "$OUT/anvil.phar" RiftalAnvil.phar
+```
+
+The image carries these four, but the per-instance roster does not offer them
+yet: nothing loads Gangs, Riots, Plots or Anvil from the image.
+
+The tag is `core-<UTC date>-<first 7 characters of the pinned pmmp-core sha>`,
+for example `core-2026-10-21-971d10b`, under the name `riftal/pocketmine-mp`
+(`RELEASE_IMAGE` overrides it, `RELEASE_DATE` the date). There is no `latest`.
+An existing tag is refused rather than rebuilt, so a tag names one image on the
+daemon that built it, for as long as the tag exists there. Another daemon can
+build the same tag over different phars; riftal-pm#1622 tracks a composite tag.
+The tag carries no riftal-game commit, so the image records what it holds in
+four labels: `org.riftal.core-image`, `org.riftal.phars` (each phar's sha256),
+`org.riftal.game-commit` and `org.riftal.grants-sha256`.
+Do not record the tag in `../instances/<id>/image` until riftal-infra#1253
+lands: that one-line record is a deploy, and no instance runs the image's
+phars yet.
+
+`release-image-selftest.sh` builds one under a `riftal_smoke_` name and checks
+the tag, the refusal of each phar when empty, the absence of a `latest` tag and
+the refusal of an existing tag. In the image it checks each phar byte for byte,
+that `/opt/riftal/plugins` holds exactly the ten, that they are owned by
+root and mode 444, that their directories are root-owned and mode 755, that
+`pocketmine` can write none of them, that `/plugins` holds no phar, the Ubuntu
+24.04 release file, the `pocketmine` user and the pinned core revision label. It
+refuses a malformed `GAME_COMMIT` and a `GRANTS_SQL` that is not a non-empty
+file, checks `org.riftal.game-commit` and `org.riftal.grants-sha256` against
+the inputs and that the image holds no `grants.sql`. It needs the pinned core
+image on the daemon.
+
 ## Environment
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
 | `MYSQL_HOST` | yes | | Database host, `mysql` in this stack |
 | `MYSQL_PORT` | no | `3306` | |
-| `MYSQL_USER` | no | `root` | |
+| `MYSQL_USER` | no | `backup` for `backup.sh`, `root` for `restore.sh` | |
 | `MYSQL_PASSWORD` | yes | | Read via `MYSQL_PWD` internally, same as `../migrations/run-migrations.sh` |
 | `MYSQL_DATABASE` | yes | | `riftal_dev` in the local stack |
 | `BACKUP_ROOT` | no | `/backups` | Where backup sets land; must be a volume, never the container's own layer |
@@ -316,10 +543,17 @@ run to finish and try again, or run it against a separate `BACKUP_ROOT`.
 
 ## Running it locally, via `wslc`
 
-`selftest.sh` and `restore-selftest.sh` are the real proof and run under
-`docker` on the self-hosted CI runner, the same split as
-`../migrations/selftest.sh`: not runnable on Nasir's Windows machine, which
-has no `docker`, only `wslc`. Each selftest run writes its logs to its own
+`selftest.sh` and `restore-selftest.sh` are the real proof and call `docker`
+directly, as `../migrations/selftest.sh` does: on the self-hosted CI runner,
+and on Nasir's Windows machine under the Docker in the WSL distro that hosts
+the CI runners:
+
+```sh
+MSYS_NO_PATHCONV=1 wsl -d Ubuntu-26.04 -u runner --exec bash \
+  /mnt/c/Users/nasir/riftal-games/riftal-infra/deploy/restore-selftest.sh
+```
+
+Each selftest run writes its logs to its own
 `mktemp -d` directory and removes it on exit, so concurrent runs on one host
 do not clobber each other. One backup run by hand, against the dev
 stack's own throwaway data, after `riftal-mysql` is up:
@@ -334,7 +568,7 @@ wslc run --rm --network riftal-dev \
   -v riftal-backups:/backups \
   -v riftal-world:/worlds/riftal-world:ro \
   -v riftal-world-b:/worlds/riftal-world-b:ro \
-  -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
+  -e MYSQL_HOST=mysql -e MYSQL_USER=backup -e MYSQL_PASSWORD="$RIFTAL_DB_PASSWORD_BACKUP" \
   -e MYSQL_DATABASE=riftal_dev -e BACKUP_RETENTION="${BACKUP_RETENTION:-10}" \
   mysql:8 bash /deploy/backup.sh
 ```

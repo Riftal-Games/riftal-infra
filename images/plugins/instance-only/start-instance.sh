@@ -1,17 +1,19 @@
 #!/bin/bash
-# The `instance` service's command in images/compose.yaml. PocketMine loads
-# plugins from one flat directory and /plugins is the ./plugins bind
-# instance-b shares, so this instance's roster is assembled in the
-# container's own disposable filesystem: every plugin at the top of /plugins,
-# plus RiftalMines.phar and RiftalRanks.phar once built. It mounts nothing
-# and runs as uid 1000, so /data/plugin_data on a fresh volume stays
-# writable by PocketMine.
+# The `instance` service's command in images/compose.yaml, and instance-b's
+# through ../instance-b/start.sh, which stages a copy with RiftalEconomy.phar
+# alone beside it. PocketMine loads plugins from one flat directory and
+# /plugins is the ./plugins bind instance-b shares, so the roster is
+# assembled in the container's own disposable filesystem: every plugin at the
+# top of /plugins, plus RiftalMines.phar, RiftalRanks.phar and
+# RiftalEconomy.phar once built. It mounts nothing and runs as uid 1000, so
+# /data/plugin_data on a fresh volume stays writable by PocketMine.
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
-# docker/start.sh), which instance-b runs and which cannot be reused here
-# because it hard-codes --plugins=/plugins. selftest.sh pins this copy of
-# that behaviour but never reads core's script, so a change to start.sh has
-# to be carried here by hand.
+# docker/start.sh), which cannot be reused here because it hard-codes
+# --plugins=/plugins. selftest.sh pins this copy of that behaviour, and
+# check-start-sh.sh fails CI when the image's start.sh is not the version
+# recorded in start-sh.sha256, so a change there is noticed but still has to
+# be carried here by hand.
 set -euo pipefail
 shopt -s nullglob
 
@@ -33,6 +35,16 @@ if [ "${#shared[@]}" -gt 0 ]; then
 	cp "${shared[@]}" "$roster/"
 fi
 
+# A source folder loads only through DevTools.phar's FolderPluginLoader, which
+# takes a directory holding plugin.yml and src/. Copying it whether or not
+# DevTools is present loads it exactly when DevTools is. -L because
+# PocketMine follows a symlink where a copied link might dangle.
+for dir in /plugins/*/; do
+	if [ -e "${dir}plugin.yml" ] && [ -d "${dir}src" ]; then
+		cp -RL "${dir%/}" "$roster/"
+	fi
+done
+
 # POCKETMINE_PLUGINS is "Name[:version] ...", fetched from Poggit when not
 # already in /plugins. The download lands in the roster, not /plugins, so
 # this instance never writes into the directory instance-b loads from.
@@ -52,11 +64,15 @@ if [ -f "$here/RiftalMines.phar" ]; then
 	# the top of /plugins, already in the roster, and require-accounts.sh has
 	# stopped the boot before this script runs when it is not built.
 	#
-	# The plugin's bundled config names a schema and user this stack never
-	# provisions, and it connects on enable, so a config with the wrong
-	# password takes the whole server down. Rendering from this container's
-	# own environment on every boot means the password is always the one
-	# mysql was started with.
+	# The plugin's bundled config names a schema this stack does not have,
+	# and it connects on enable, so a wrong config or a refused login takes
+	# the whole server down. The mines login's password comes only from
+	# RIFTAL_DB_PASSWORD_MINES (ADR 008), so its absence is named here,
+	# before PocketMine starts.
+	if [ -z "${RIFTAL_DB_PASSWORD_MINES:-}" ]; then
+		echo "start-instance.sh: RiftalMines.phar is built and RIFTAL_DB_PASSWORD_MINES is not set; the instance takes it from images/.env" >&2
+		exit 1
+	fi
 	mkdir -p /data/plugin_data/RiftalMines
 	bash "$here/render-config.sh" /data/plugin_data/RiftalMines/config.yml
 	cp "$here/RiftalMines.phar" "$roster/"
@@ -76,6 +92,19 @@ if [ -f "$here/RiftalRanks.phar" ]; then
 	mkdir -p /data/plugin_data/RiftalRanks
 	cp "$here/RiftalRanks.config.yml" /data/plugin_data/RiftalRanks/config.yml
 	cp "$here/RiftalRanks.phar" "$roster/"
+fi
+
+if [ -f "$here/RiftalEconomy.phar" ]; then
+	# RiftalEconomy declares depend: [RiftalContracts], met by contracts.phar
+	# as for RiftalMines above, and fails its enable without a password for
+	# the same reason as RiftalRanks.
+	if [ -z "${RIFTAL_DB_PASSWORD_ECONOMY:-}" ]; then
+		echo "start-instance.sh: RiftalEconomy.phar is built and RIFTAL_DB_PASSWORD_ECONOMY is not set; the instance takes it from images/.env" >&2
+		exit 1
+	fi
+	mkdir -p /data/plugin_data/RiftalEconomy
+	cp "$here/RiftalEconomy.config.yml" /data/plugin_data/RiftalEconomy/config.yml
+	cp "$here/RiftalEconomy.phar" "$roster/"
 fi
 
 cd /opt/pocketmine

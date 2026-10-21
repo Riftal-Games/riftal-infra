@@ -1,0 +1,9 @@
+# Expected: HOST_NETWORK_MODE once, at services.instance.
+#
+# network_mode: host puts every listening port of the container on every
+# interface of the machine and has no ports list for a rule to read. It
+# publishes nothing, so no other rule fires.
+services:
+  instance:
+    image: local-pocketmine-mp:fixture
+    network_mode: host

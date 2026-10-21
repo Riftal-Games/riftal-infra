@@ -52,21 +52,26 @@ the top of this runbook if either was just edited.
 
 ```sh
 wslc run -d -i --name riftal-instance-b --network riftal-dev \
+  --memory 2G --cpus 2 \
   -p "${INSTANCE_B_BIND:-127.0.0.1}:19133:19132/udp" \
   -v riftal-world-b:/data -v "$INFRA/images/plugins:/plugins" \
   -v "$INFRA/designer/world_index.json:/etc/riftal/world_index.json:ro" \
   -e "INSTANCE_ID=${INSTANCE_B_ID}" \
   -e "RIFTAL_DEV_ENV=1" \
   -e "RIFTAL_DB_PASSWORD_ACCOUNTS=${RIFTAL_DB_PASSWORD_ACCOUNTS}" \
+  -e "RIFTAL_DB_PASSWORD_ECONOMY=${RIFTAL_DB_PASSWORD_ECONOMY}" \
   -e "POCKETMINE_ARGS=--level-name=plots_b --level-type=flat --xbox-auth=false --motd=riftal-dev-b --riftal-dev-bots=on --auto-report.enabled=0" \
-  local-pocketmine-mp bash /plugins/deliver-world-index.sh bash /plugins/require-accounts.sh \
-  bash /plugins/require-custody.sh start-pocketmine
+  local-pocketmine-mp bash /plugins/restart/boot-gate.sh \
+  bash /plugins/deliver-world-index.sh bash /plugins/require-accounts.sh \
+  bash /plugins/require-custody.sh bash /plugins/instance-b/start.sh
 
 wslc logs riftal-instance-b
 ```
 
 This mirrors `images/compose.yaml`'s `instance-b` service definition
-line for line: same image tag, `19133/udp` published instead of `19132/udp`
+except for its `restart: on-failure` policy and RakNet healthcheck, which this
+`wslc run` does not carry (riftal-infra#578), and CI fails when the two
+disagree on any flag (`.github/scripts/wslc-drift.sh`): same image tag, `19133/udp` published instead of `19132/udp`
 (the container still listens on `19132` internally, `19133` is only where the
 host maps it), its own volume `riftal-world-b` instead of `riftal-world`,
 its own `INSTANCE_ID` value from `INSTANCE_B_ID` instead of `INSTANCE_ID`,
@@ -76,12 +81,16 @@ different worlds rather than one world cloned onto a second port.
 `RIFTAL_DEV_ENV=1` is the same on both: `images/plugins/RiftalDevBots.php`
 admits bots only with it set, alongside `--riftal-dev-bots=on` and
 `--xbox-auth=false`, so an `instance-b` created without it refuses every bot.
-The command chain is the same as compose's too: `require-custody.sh` stops the
+The command chain is the same as compose's too, `boot-gate.sh` first, though
+with no restart policy behind it the gate never sees a second start:
+`require-custody.sh` stops the
 boot before PocketMine when `images/plugins/RiftalCustody.phar` is missing or
 empty, so build it first (`images/README.md`, RiftalCustody), and
 `require-accounts.sh` does the same for `RiftalAccounts.phar`,
 `contracts.phar` and `RIFTAL_DB_PASSWORD_ACCOUNTS` (`images/README.md`,
-RiftalAccounts).
+RiftalAccounts). `images/plugins/instance-b/start.sh` loads
+`RiftalEconomy.phar` from `images/plugins/instance-only/` once built, and
+then stops the boot without `RIFTAL_DB_PASSWORD_ECONOMY`, as on `instance`.
 
 - [ ] The log reaches `Done (` for `riftal-instance-b`, same checks as the
       primary instance in step 4: no `[.../CRITICAL]`, `[.../EMERGENCY]`,

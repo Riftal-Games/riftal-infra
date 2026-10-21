@@ -43,6 +43,9 @@ jobs:
       - name: Self-test, prove the job timeout check can fail
         run: bash .github/scripts/job-timeouts-selftest.sh
 
+      - name: Self-test, prove the bot-proofs scope check can fail
+        run: bash .github/scripts/bot-proofs-scope-selftest.sh
+
       # Reads files only, for the same reason as the step above.
       - name: Self-test, prove the mysql:8 pull order check can fail
         run: bash .github/scripts/pull-mysql-order-selftest.sh
@@ -50,9 +53,25 @@ jobs:
       - name: Pull mysql:8 runs before every step that runs mysql:8
         run: bash .github/scripts/pull-mysql-order.sh
 
+      # docker compose config only, no container, so these also run before
+      # any container step.
+      - name: Self-test, prove the wslc run drift check can fail
+        run: bash .github/scripts/wslc-drift-selftest.sh
+
+      - name: Documented wslc run commands match images/compose.yaml
+        run: bash .github/scripts/wslc-drift.sh
+
       # Reads fixture logs only, so it also runs before any container step.
       - name: Custody alert check self-test
         run: bash deploy/custody-alert-check-selftest.sh
+
+      - name: Grants REVOKE check self-test
+        run: bash deploy/grants-revoke-check-selftest.sh
+
+      # Synthetic timings and fixture configs only, so it also runs before any
+      # container step.
+      - name: Write latency check self-test
+        run: bash deploy/write-latency-selftest.sh
 
       # Before any step that starts a container, so every one of them carries
       # this job's label for the sweep at the end.
@@ -75,8 +94,8 @@ jobs:
       - name: Self-test, prove every check can fail
         run: bash .github/scripts/selftest.sh
 
-      # Both scans run the shared script, and the self-test above drives that
-      # same script, discovery, dispatch, both check_ functions and the loop,
+      # Every scan runs the shared script, and the self-test above drives that
+      # same script, discovery, dispatch, every check_ function and the loop,
       # so a scan finding nothing here reflects an empty tree, not a check
       # nothing has ever run.
       - name: Lint Dockerfiles and Containerfiles
@@ -84,6 +103,11 @@ jobs:
 
       - name: Validate compose files
         run: bash .github/scripts/scan.sh compose
+
+      # The same discovery as the step above, so a compose file validated
+      # there is never one this policy skips.
+      - name: Compose port policy, 19132 as udp, binds on 127.0.0.1
+        run: bash .github/scripts/scan.sh ports
 
       - name: Every action is pinned by commit sha or image digest
         run: bash .github/scripts/action-pins.sh
@@ -97,7 +121,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/capture-harness/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/tile-contents/*.php images/plugins/capture-harness/*.php images/plugins/restart/*.php images/plugins/watch/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
@@ -105,7 +129,7 @@ jobs:
           docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/capture-harness/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/tile-contents/*.php /plugins/capture-harness/*.php /plugins/restart/*.php /plugins/watch/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -125,6 +149,12 @@ jobs:
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
 
+      - name: Release image self-test
+        run: bash deploy/release-image-selftest.sh
+
+      - name: Bot proofs pre-container checks and devtools pin self-test
+        run: bash .github/scripts/bot-proofs-selftest.sh
+
       - name: Capture plugin self-test
         run: bash images/plugins/capture-selftest.sh
 
@@ -140,11 +170,38 @@ jobs:
       - name: Dev bots join order self-test
         run: bash images/plugins/join-order/selftest.sh
 
+      # A healthy run takes under half a minute. The bound keeps one wedged
+      # boot from spending the rest of the job's 15 minutes.
+      - name: Dev bots watch camera self-test
+        timeout-minutes: 10
+        run: bash images/plugins/watch/selftest.sh
+
       - name: Dev bots crash hook self-test
         run: bash images/plugins/crash-hook/selftest.sh
 
+      - name: Dev bots tile contents self-test
+        run: bash images/plugins/tile-contents/selftest.sh
+
       - name: Instance-only plugin mount self-test
         run: bash images/plugins/instance-only/selftest.sh
+
+      - name: start.sh parity check self-test
+        run: bash images/plugins/instance-only/check-start-sh-selftest.sh
+
+      - name: start-instance.sh checked against the image's start.sh
+        run: bash images/plugins/instance-only/check-start-sh.sh
+
+      - name: Instance boot on the pinned core image self-test
+        run: bash images/plugins/instance-only/boot-selftest.sh
+
+      - name: Instance-b start script self-test
+        run: bash images/plugins/instance-b/selftest.sh
+
+      - name: Instance restart policy and boot gate self-test
+        run: bash images/plugins/restart/selftest.sh
+
+      - name: Dev faults hook self-test
+        run: bash images/plugins/dev-faults/selftest.sh
 
       - name: RiftalCustody on every instance self-test
         run: bash images/custody-selftest.sh
@@ -152,7 +209,7 @@ jobs:
       - name: Self-test, prove the mysql:8 pull can fail
         run: bash .github/scripts/pull-mysql-selftest.sh
 
-      # Every step from here to the wipe self-test runs mysql:8, a floating tag.
+      # Every step from here to the wipe self-tests runs mysql:8, a floating tag.
       # This pulls its newest release, so the runner's cached copy cannot go
       # stale unseen. Compose pulls it only when missing.
       - name: Pull mysql:8
@@ -167,11 +224,20 @@ jobs:
       - name: Restore drill self-test
         run: bash deploy/restore-selftest.sh
 
+      - name: Compose dump login self-test
+        run: bash images/dump-login-selftest.sh
+
       - name: Binlog retention check self-test
         run: bash deploy/binlog-selftest.sh
 
       - name: Wipe self-test
         run: bash deploy/wipe-selftest.sh
+
+      - name: Wipe volumes self-test
+        run: bash deploy/wipe-volumes-selftest.sh
+
+      - name: Write latency probe self-test
+        run: bash deploy/write-latency-probe-selftest.sh --probe
 
       # ADR 015 proofs 3, 4 and 5 without bots, on the pinned core, and each
       # mutant of backup.sh going red. A healthy run takes about four minutes.
@@ -199,8 +265,148 @@ jobs:
         working-directory: designer
         run: uv run --frozen python -m designer.tools_doc --check
 
+      # Both need the PyYAML that designer/uv.lock pins, so they follow the sync.
+      - name: Self-test, prove the exposure=pending order check can fail
+        run: uv run --frozen --project designer python .github/scripts/exposure_pending_selftest.py
+
+      - name: bot-proofs writes exposure=pending before any step that may start a bot
+        run: uv run --frozen --project designer python .github/scripts/exposure_pending_order.py
+
       # always() rather than failure(): a cancelled run is the case that leaks,
       # because the runner kills a self-test before its EXIT trap fires.
       - name: Remove this job's containers
         if: always()
         run: bash .github/scripts/ci-container-sweep.sh
+
+  # Decides whether bot-proofs has a bot to stop. It starts nothing, and a
+  # failure or an empty output leaves bot-proofs running.
+  bot-proofs-scope:
+    name: bot proofs scope
+    runs-on: [self-hosted, linux, riftal]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      serves: ${{ steps.scope.outputs.serves }}
+
+    steps:
+      # The full history, because the diff needs the merge base.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Changed paths and whether they serve bot-proofs
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          . .github/scripts/bot-proofs-scope.sh
+          scope_run "$EVENT" "$BASE" "$HEAD" "$GITHUB_OUTPUT"
+
+  # ADR 024. The job holds a read token, starts no bot or server, and every
+  # check before a container refuses with ::error:: and ends the job.
+  bot-proofs:
+    name: bot proofs
+    needs: bot-proofs-scope
+    # always() so a scope job that failed or wrote nothing still runs this one.
+    if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
+    runs-on: [self-hosted, linux, riftal]
+    # Under ci-sweep-selftest.sh's reap_after, like every job here.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      exposure: ${{ steps.harness.outputs.exposure || steps.exposure.outputs.exposure }}
+
+    steps:
+      # persist-credentials: false leaves no token in .git/config for any step
+      # that runs code from the PR head.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Runner has /usr/bin/jq and /usr/bin/curl
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          runner_tools_present
+
+      # ADR 024 names pending, found and none. no-bots is this job's own
+      # starting value, held until a bot starts, and files nothing. The job
+      # output takes the exposure written by a step with id harness when
+      # one ran, and this step's value otherwise.
+      - name: Exposure, no bot has started
+        id: exposure
+        run: printf 'exposure=no-bots\n' >> "$GITHUB_OUTPUT"
+
+      - name: networkingMode=bridged in .wslconfig
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          wslconfig_bridged
+
+      - name: No open bots-stopped issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          bots_stopped_clear
+
+      - name: Record the eth0 address
+        id: eth0
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          if ! address="$(eth0_address)"; then
+            printf '%s\n' "$address"
+            exit 1
+          fi
+          printf 'eth0 address %s\n' "$address"
+          printf 'address=%s\n' "$address" >> "$GITHUB_OUTPUT"
+
+      - name: Label this job's containers
+        run: bash .github/scripts/ci-docker-label.sh
+
+      - name: Extract the pinned devtools image
+        run: |
+          . images/devtools-image.sh
+          devtools_extract "$RUNNER_TEMP/riftal-devtools"
+
+      # steps.eth0.outputs.address is what every socket listing is judged
+      # against.
+
+      - name: Remove this job's containers
+        if: always()
+        run: bash .github/scripts/ci-container-sweep.sh
+
+  # The only job with issues: write. It has no checkout, so no step in it
+  # runs a script from the PR's tree; the run: block below is in the workflow
+  # file, which review covers.
+  bots-stopped-file:
+    name: file bots-stopped
+    needs: bot-proofs
+    if: always() && (needs.bot-proofs.outputs.exposure == 'found' || needs.bot-proofs.outputs.exposure == 'pending')
+    runs-on: [self-hosted, linux, riftal]
+    timeout-minutes: 5
+    permissions:
+      issues: write
+
+    steps:
+      - name: Open a bots-stopped issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPOSURE: ${{ needs.bot-proofs.outputs.exposure }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          title="bots-stopped: exposure $EXPOSURE in run ${GITHUB_RUN_ID}"
+          body="The bot-proofs job ended with exposure \`$EXPOSURE\` at $HEAD_SHA: $RUN_URL. found means a listing showed a socket that is exposure; pending means bots ran and the run ended before every listing was judged. A run started after this is not evidence. Only the steward or Nasir closes this (ADR 024 item 3)."
+          /usr/bin/jq -n --arg title "$title" --arg body "$body" \
+            '{title: $title, body: $body, labels: ["bots-stopped"]}' |
+            /usr/bin/curl -fsS -X POST \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -d @- "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/issues" >/dev/null
+          printf 'opened a bots-stopped issue for run %s\n' "$GITHUB_RUN_ID"
