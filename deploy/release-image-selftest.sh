@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Self-test for release-image.sh (riftal-infra#1251): the tag follows spec 016's
-# naming, every way of not producing a release is refused, and the image it
-# builds is on ubuntu:24.04 and the pinned core revision, holds exactly the six
-# production phars intact in /opt/riftal/plugins, owned by pocketmine and
-# read-only, holds none in /plugins, runs unprivileged and is never tagged
-# latest. Builds on the local daemon under a riftal_smoke_ name and removes it.
-# Needs the core image pinned in images/core-image.sha.
+# naming. Malformed tag input, each phar when empty and an existing tag are
+# refused. The image it builds is on ubuntu:24.04 and the pinned core revision,
+# holds the phars named in REQUIRED_PHARS intact in /opt/riftal/plugins, owned
+# by pocketmine and read-only, holds none in /plugins, runs unprivileged and is
+# never tagged latest. Builds on the local daemon under a riftal_smoke_ name and
+# removes it. Needs the core image pinned in images/core-image.sha.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

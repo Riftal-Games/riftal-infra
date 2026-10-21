@@ -10,9 +10,9 @@
 #   RELEASE_DATE   UTC date in the tag, default today
 #
 # The tag is core-<date>-<first 7 of the pinned pmmp-core sha>. A tag that
-# already exists is refused, never rebuilt, so a tag names one image for as long
-# as it exists. Two builds of the same core sha on one date therefore need the
-# date or the pin to differ.
+# already exists is refused, never rebuilt, so a tag names one image on the
+# daemon that built it, for as long as the tag exists there. Two builds of the
+# same core sha on one date therefore need the date or the pin to differ.
 #
 # Sourcing this file sets errexit, nounset and pipefail in the caller, sources
 # images/core-image.sh and defines release_tag, REQUIRED_PHARS and main. It
