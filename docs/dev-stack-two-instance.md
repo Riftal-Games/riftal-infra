@@ -8,7 +8,7 @@ the edit outright regardless of what this repo's own `.claude/settings.json`
 or agent definitions say. **A human needs to fold this into
 `.claude/skills/dev-stack/SKILL.md` by hand.**
 
-Three corrections to the current SKILL.md text:
+Four corrections to the current SKILL.md text:
 
 1. The "Bring it up" section's opening line still reads "one core
    `instance`". Since riftal-infra#129, `images/compose.yaml` defines two:
@@ -38,6 +38,19 @@ Three corrections to the current SKILL.md text:
    A `riftal-instance` container created without the flag reports crashes
    until it is recreated: `stop` on stdin, wait for the shutdown line, remove,
    and a fresh `wslc run` against the same `riftal-world` volume.
+4. Step 4's command also lacks `RIFTAL_DEV_ENV=1`, which
+   `images/plugins/RiftalDevBots.php` requires for bot admission alongside
+   `--riftal-dev-bots=on` and `--xbox-auth=false` (riftal-infra#176;
+   `images/compose.yaml`'s `instance` service sets it). Without it the
+   container boots clean and refuses every bot with no error. Add this line
+   to step 4's `wslc run`, above the `POCKETMINE_ARGS` line:
+
+   ```sh
+     -e "RIFTAL_DEV_ENV=1" \
+   ```
+
+   A `riftal-instance` created without it refuses bots until it is recreated,
+   as in correction 3.
 
 ## 5. Second instance (`instance-b`)
 
