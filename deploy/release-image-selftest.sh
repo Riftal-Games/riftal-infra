@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Self-test for release-image.sh (riftal-infra#1251): the tag follows spec 016's
-# naming. Malformed tag input, each phar when empty and an existing tag are
-# refused. The image it builds is on ubuntu:24.04 and the pinned core revision,
+# naming. Malformed tag input, each phar when empty, a GAME_COMMIT that is not a
+# full lowercase sha, a GRANTS_SQL that is unset, missing or empty and an
+# existing tag are refused. The image records GAME_COMMIT and the sha256 of
+# GRANTS_SQL in its labels and holds no grants.sql. The image it builds is on ubuntu:24.04 and the pinned core revision,
 # holds the phars named in REQUIRED_PHARS intact in /opt/riftal/plugins, owned
 # by pocketmine and read-only, holds none in /plugins, runs unprivileged and is
 # never tagged latest. Builds on the local daemon under a riftal_smoke_ name and
@@ -13,7 +15,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=23
+EXPECTED_ASSERTIONS=33
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -48,6 +50,9 @@ done
 
 phars="$work/phars"
 mkdir "$phars"
+export GAME_COMMIT=0123456789abcdef0123456789abcdef01234567
+export GRANTS_SQL="$work/grants.sql"
+printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\n' > "$GRANTS_SQL"
 for name in "${REQUIRED_PHARS[@]}"; do
   printf 'phar %s\n' "$name" > "$phars/$name"
 done
@@ -62,6 +67,26 @@ for name in "${REQUIRED_PHARS[@]}"; do
     fail "an empty $name was refused without naming it: $out"
   fi
   printf 'phar %s\n' "$name" > "$phars/$name"
+done
+
+for bad in "" 0123456789abcdef 0123456789ABCDEF0123456789ABCDEF01234567 "${GAME_COMMIT}0"; do
+  if out="$(GAME_COMMIT=$bad RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
+    fail "GAME_COMMIT '$bad' was accepted"
+  elif grep -qF "GAME_COMMIT \"$bad\" is not a full 40-character" <<<"$out"; then
+    pass "GAME_COMMIT '$bad' is refused by value"
+  else
+    fail "GAME_COMMIT '$bad' was refused without naming it: $out"
+  fi
+done
+: > "$work/empty.sql"
+for bad in "" "$work/gone.sql" "$work/empty.sql"; do
+  if out="$(GRANTS_SQL=$bad RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
+    fail "GRANTS_SQL '$bad' was accepted"
+  elif grep -qF "GRANTS_SQL \"$bad\" is unset, missing or empty" <<<"$out"; then
+    pass "GRANTS_SQL '$bad' is refused by value"
+  else
+    fail "GRANTS_SQL '$bad' was refused without naming it: $out"
+  fi
 done
 
 if out="$(RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
@@ -117,6 +142,24 @@ else
     pass "the image is built on the pinned core revision"
   else
     fail "the image is built on core revision '$revision', not the pinned $sha"
+  fi
+  label_game="$(docker image inspect --format '{{index .Config.Labels "org.riftal.game-commit"}}' "$image:$tag")"
+  if [ "$label_game" = "$GAME_COMMIT" ]; then
+    pass "the image names the riftal-game commit in org.riftal.game-commit"
+  else
+    fail "org.riftal.game-commit is '$label_game', not $GAME_COMMIT"
+  fi
+  label_grants="$(docker image inspect --format '{{index .Config.Labels "org.riftal.grants-sha256"}}' "$image:$tag")"
+  if [ "$label_grants" = "$(sha256sum "$GRANTS_SQL" | cut -d' ' -f1)" ]; then
+    pass "the image records the sha256 of grants.sql in org.riftal.grants-sha256"
+  else
+    fail "org.riftal.grants-sha256 is '$label_grants', not the sha256 of the given grants.sql"
+  fi
+  grants_files="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find / -xdev -name grants.sql 2>/dev/null; true')"
+  if [ -z "$grants_files" ]; then
+    pass "the image holds no grants.sql"
+  else
+    fail "grants.sql in the image: $grants_files"
   fi
   unowned="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -type f \( ! -user pocketmine -o ! -perm 444 \)')"
   if [ -z "$unowned" ]; then

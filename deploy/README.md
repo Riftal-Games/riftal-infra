@@ -338,10 +338,21 @@ skill does not run it yet; until the skill's wiring lands, whoever runs stage 1
 runs the check by hand and does not start the migrations on a refusal.
 
 Each `<tag>=<file>` names the `grants.sql` that tag's plugins were built from.
-Nothing records that mapping yet, so the operator supplies it from the
-riftal-game commit the tag was built at, and it stays manual until the image
-that carries the plugins records that commit. A tag in use with no mapping is a
-refusal, never a pass.
+The operator supplies it from the riftal-game commit the tag was built at. A tag
+in use with no mapping is a refusal, never a pass.
+
+A release image (see Release image below) carries the sha256 of that file in the
+label `org.riftal.grants-sha256`, and the commit in `org.riftal.game-commit`. The
+check reads the sha256 with `<runtime> image inspect` for every tag in use other
+than `<release-tag>`. The label holds the hash and not the file, and the image
+holds no `grants.sql`, so a labelled tag still needs its `<tag>=<file>`: the
+check cannot derive the file locally, and fetching it from a network or a
+registry is out of scope. What the label adds is that a supplied file whose
+sha256 differs from it exits 2, so a file taken from the wrong commit no longer
+passes by being syntactically valid. A tag whose image has no label, or is not
+on the runtime, is checked against the supplied file alone, as before. A label
+that is not 64 lowercase hex digits exits 2. Reading the file from the image is
+a separate change that needs `grants.sql` baked in.
 
 `instances/<id>/image` records the tag an instance runs: one line,
 `<INSTANCE_IMAGE>:<tag>`, with an optional final LF. The tag matches
@@ -371,7 +382,7 @@ undoes with a GRANT of the same privilege: it counts as carried.
 |---|---|
 | 0 | One `GRANTS REVOKE OK:` line: the REVOKE count, the file, the older tags checked, the tags in use, the runtime, the instance definitions read |
 | 1 | One `GRANTS REVOKE REFUSED:` line per new REVOKE and tag, each naming the container or definition that holds the tag |
-| 2 | Usage, an unreadable file or instance definition, a definition with no valid `image` file, a top-level entry that is not a directory, a failed definition scan, a failed runtime, an image whose tag cannot be read, a tag in use with no `grants.sql`, or a file outside the dialect below |
+| 2 | Usage, an unreadable file or instance definition, a definition with no valid `image` file, a top-level entry that is not a directory, a failed definition scan, a failed runtime, an image whose tag cannot be read, a tag in use with no `grants.sql`, a supplied file whose sha256 differs from the tag's label, a label that is not a sha256, or a file outside the dialect below |
 
 Exit 2 is never a pass. The reader accepts the one dialect riftal-game's
 `lib/resources/sql/grants.sql` is written in, and exits 2 naming the file and
@@ -412,11 +423,12 @@ INSTANCE_IMAGE=registry.example/riftal/pocketmine-mp \
 ```
 
 `grants-revoke-check-selftest.sh` proves each rule in CI against a fake
-container runtime and fixture files, and starts no container.
+container runtime that serves labels, and fixture files, and starts no container.
 
 ## Release image
 
-`release-image.sh <phars directory>` builds an image on top of the pinned core
+`GAME_COMMIT=<sha> GRANTS_SQL=<grants.sql> release-image.sh <phars directory>`
+builds an image on top of the pinned core
 image, `../images/core-image.sha`, which is `ubuntu:24.04` underneath and must
 already be on the daemon, since nothing here builds or pulls it. The image adds
 six production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
@@ -433,6 +445,13 @@ This image does not yet start from `/opt/riftal/plugins`. Core's
 deploy selects a per-instance roster from the image path, so no instance runs
 the image's own phars today. That start command is riftal-infra#1253.
 
+`GAME_COMMIT` is the full lowercase 40-character riftal-game sha the phars and
+`GRANTS_SQL` were built from, and `GRANTS_SQL` is that commit's `grants.sql`.
+The script refuses either when malformed, unset, missing or empty, and records
+them in the labels `org.riftal.game-commit` and `org.riftal.grants-sha256`. It
+is the operator's word that they match the phars, since nothing here builds
+riftal-game. The file itself is not put in the image.
+
 The phars come from riftal-game's build. The recipes are in
 `../images/README.md` (Custody, Accounts, contracts) and in
 `../images/plugins/instance-only/README.md` (Mines, Ranks, Economy). The script
@@ -445,7 +464,8 @@ An existing tag is refused rather than rebuilt, so a tag names one image on the
 daemon that built it, for as long as the tag exists there. Another daemon can
 build the same tag over different phars; riftal-pm#1622 tracks a composite tag.
 The tag carries no riftal-game commit, so the image records what it holds in
-two labels: `org.riftal.core-image` and `org.riftal.phars`, each phar's sha256.
+four labels: `org.riftal.core-image`, `org.riftal.phars` (each phar's sha256),
+`org.riftal.game-commit` and `org.riftal.grants-sha256`.
 Do not record the tag in `../instances/<id>/image` until riftal-infra#1253
 lands: that one-line record is a deploy, and no instance runs the image's
 phars yet.
@@ -455,7 +475,10 @@ the tag, the refusal of each phar when empty, the absence of a `latest` tag and
 the refusal of an existing tag. In the image it checks each phar byte for byte,
 that `/opt/riftal/plugins` holds exactly the six, that they are owned by
 `pocketmine` and mode 444, that `/plugins` holds no phar, the Ubuntu 24.04
-release file, the `pocketmine` user and the pinned core revision label. It needs
+release file, the `pocketmine` user and the pinned core revision label. It
+refuses a malformed `GAME_COMMIT` and an unset, missing or empty `GRANTS_SQL`,
+checks both new labels against the inputs and that the image holds no
+`grants.sql`. It needs
 the pinned core image on the daemon.
 
 ## Environment
