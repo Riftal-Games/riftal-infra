@@ -10,7 +10,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=35
+EXPECTED_ASSERTIONS=38
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -36,10 +36,13 @@ for path in .github/workflows/ci.yml .github/scripts/scan.sh images/compose.yaml
   migrations/001.sql instances/mine-h/image tools/new.sh Makefile compose.yaml .env.example; do
   classify "serving path $path" true "$path"
 done
+for path in images/README.md .github/workflows/x.md deploy/x.md; do
+  classify "nested md under a serving prefix $path" true "$path"
+done
 classify "docs beside images" true docs/a.md images/compose.yaml
 classify "a serving path last" true README.md designer/a.py deploy/x.sh
 classify "a root file named docs" true docs
-classify "a root md under a serving name" true images.md.sh
+classify "a root file that only has .md inside its name" true images.md.sh
 classify "no path" true
 
 out="$(printf '::error::x\0docs/a\nb.md\0' | scope_classify)"
