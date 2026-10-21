@@ -414,6 +414,50 @@ INSTANCE_IMAGE=registry.example/riftal/pocketmine-mp \
 `grants-revoke-check-selftest.sh` proves each rule in CI against a fake
 container runtime and fixture files, and starts no container.
 
+## Release image
+
+`release-image.sh <phars directory>` builds an image on top of the pinned core
+image, `../images/core-image.sha`, which is `ubuntu:24.04` underneath and must
+already be on the daemon, since nothing here builds or pulls it. The image adds
+six production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
+`RiftalAccounts.phar`, `contracts.phar`, `RiftalMines.phar`, `RiftalRanks.phar`
+and `RiftalEconomy.phar`, from `../images/release/Dockerfile`. They are
+read-only and owned by `pocketmine`. They sit outside `/data` and `/plugins`,
+the base's two VOLUMEs, so a mount or a reused volume cannot hide them or keep
+an older tag's copies. `/plugins` in the image holds no phar. The script uses
+only the local Docker daemon and pushes nowhere. A registry is a separate
+decision, because a paid one costs money.
+
+This image does not yet start from `/opt/riftal/plugins`. Core's
+`start-pocketmine` passes `--plugins=/plugins`, and nothing in the image or in a
+deploy selects a per-instance roster from the image path, so no instance runs
+the image's own phars today. That start command is riftal-infra#1253.
+
+The phars come from riftal-game's build. The recipes are in
+`../images/README.md` (Custody, Accounts, contracts) and in
+`../images/plugins/instance-only/README.md` (Mines, Ranks, Economy). The script
+refuses a missing or empty one by name, and carries no dev-only plugin.
+
+The tag is `core-<UTC date>-<first 7 characters of the pinned pmmp-core sha>`,
+for example `core-2026-10-21-971d10b`, under the name `riftal/pocketmine-mp`
+(`RELEASE_IMAGE` overrides it, `RELEASE_DATE` the date). There is no `latest`.
+An existing tag is refused rather than rebuilt, so a tag names one image on the
+daemon that built it, for as long as the tag exists there. Another daemon can
+build the same tag over different phars; riftal-pm#1622 tracks a composite tag.
+The tag carries no riftal-game commit, so the image records what it holds in
+two labels: `org.riftal.core-image` and `org.riftal.phars`, each phar's sha256.
+Do not record the tag in `../instances/<id>/image` until riftal-infra#1253
+lands: that one-line record is a deploy, and no instance runs the image's
+phars yet.
+
+`release-image-selftest.sh` builds one under a `riftal_smoke_` name and checks
+the tag, the refusal of each phar when empty, the absence of a `latest` tag and
+the refusal of an existing tag. In the image it checks each phar byte for byte,
+that `/opt/riftal/plugins` holds exactly the six, that they are owned by
+`pocketmine` and mode 444, that `/plugins` holds no phar, the Ubuntu 24.04
+release file, the `pocketmine` user and the pinned core revision label. It needs
+the pinned core image on the daemon.
+
 ## Environment
 
 | Variable | Required | Default | Meaning |

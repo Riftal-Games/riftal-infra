@@ -149,6 +149,9 @@ jobs:
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
 
+      - name: Release image self-test
+        run: bash deploy/release-image-selftest.sh
+
       - name: Bot proofs pre-container checks and devtools pin self-test
         run: bash .github/scripts/bot-proofs-selftest.sh
 
