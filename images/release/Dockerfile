@@ -10,6 +10,6 @@ FROM ${CORE_REPO}:${CORE_TAG}
 
 # The base declares /plugins a VOLUME and runs as pocketmine (uid 1000). Files
 # copied in are kept in the layer, and a container started without a mount on
-# /plugins gets them copied into its fresh volume. start.sh refuses files not
-# owned by that user.
+# /plugins gets them copied into its fresh volume. start.sh prints a warning at
+# every boot for files not owned by that user and carries on.
 COPY --chown=1000:1000 plugins/ /plugins/

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for release-image.sh (riftal-infra#1251): the tag follows spec 016's
 # naming, every way of not producing a release is refused, and the image it
-# builds is on ubuntu:24.04, carries the phars intact, runs unprivileged and
-# is never tagged latest. Builds on the local daemon under a riftal_smoke_ name
+# builds is on ubuntu:24.04 and the pinned core revision, carries the phars
+# intact and owned by pocketmine, runs unprivileged and is never tagged latest. Builds on the local daemon under a riftal_smoke_ name
 # and removes it. Needs the core image pinned in images/core-image.sha.
 set -euo pipefail
 
@@ -11,7 +11,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=14
+EXPECTED_ASSERTIONS=16
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -97,6 +97,23 @@ else
     pass "the image runs as pocketmine"
   else
     fail "the image runs as '$user'"
+  fi
+  # The revision label is inherited from the base, so it names the core build
+  # the layers came from; the org.riftal.core-image label only records the
+  # argument the script passed.
+  revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image:$tag")"
+  if [ "$revision" = "$sha" ]; then
+    pass "the image is built on the pinned core revision"
+  else
+    fail "the image is built on core revision '$revision', not the pinned $sha"
+  fi
+  # start-pocketmine only warns about files not owned by pocketmine, so a
+  # wrong owner would ship as a warning on every boot.
+  unowned="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /plugins -name "*.phar" ! -user pocketmine')"
+  if [ -z "$unowned" ]; then
+    pass "every phar in /plugins is owned by pocketmine"
+  else
+    fail "phar(s) in /plugins not owned by pocketmine: $unowned"
   fi
 fi
 
