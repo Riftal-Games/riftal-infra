@@ -348,11 +348,11 @@ than `<release-tag>`. The label holds the hash and not the file, and the image
 holds no `grants.sql`, so a labelled tag still needs its `<tag>=<file>`: the
 check cannot derive the file locally, and fetching it from a network or a
 registry is out of scope. What the label adds is that a supplied file whose
-sha256 differs from it exits 2, so a file taken from the wrong commit no longer
-passes by being syntactically valid. A tag whose image has no label, or is not
-on the runtime, is checked against the supplied file alone, as before. A label
-that is not 64 lowercase hex digits exits 2. Reading the file from the image is
-a separate change that needs `grants.sql` baked in.
+sha256 differs from it exits 2, so a file from another commit exits 2 even when
+it is valid. A tag whose image has no label, or cannot be inspected on the
+runtime, is checked against the supplied file alone. A label that is not 64
+lowercase hex digits exits 2. Baking `grants.sql` into the image is tracked in
+riftal-infra#1272.
 
 `instances/<id>/image` records the tag an instance runs: one line,
 `<INSTANCE_IMAGE>:<tag>`, with an optional final LF. The tag matches
@@ -447,9 +447,10 @@ the image's own phars today. That start command is riftal-infra#1253.
 
 `GAME_COMMIT` is the full lowercase 40-character riftal-game sha the phars and
 `GRANTS_SQL` were built from, and `GRANTS_SQL` is that commit's `grants.sql`.
-The script refuses either when malformed, unset, missing or empty, and records
-them in the labels `org.riftal.game-commit` and `org.riftal.grants-sha256`. It
-is the operator's word that they match the phars, since nothing here builds
+The script refuses a `GAME_COMMIT` that is unset or malformed and a `GRANTS_SQL`
+that is unset, missing, a directory or empty, and records them in the labels
+`org.riftal.game-commit` and `org.riftal.grants-sha256`. It is the operator's
+word that they match the phars, since nothing here builds
 riftal-game. The file itself is not put in the image.
 
 The phars come from riftal-game's build. The recipes are in
@@ -476,10 +477,10 @@ the refusal of an existing tag. In the image it checks each phar byte for byte,
 that `/opt/riftal/plugins` holds exactly the six, that they are owned by
 `pocketmine` and mode 444, that `/plugins` holds no phar, the Ubuntu 24.04
 release file, the `pocketmine` user and the pinned core revision label. It
-refuses a malformed `GAME_COMMIT` and an unset, missing or empty `GRANTS_SQL`,
-checks both new labels against the inputs and that the image holds no
-`grants.sql`. It needs
-the pinned core image on the daemon.
+refuses a malformed `GAME_COMMIT` and a `GRANTS_SQL` that is not a non-empty
+file, checks `org.riftal.game-commit` and `org.riftal.grants-sha256` against
+the inputs and that the image holds no `grants.sql`. It needs the pinned core
+image on the daemon.
 
 ## Environment
 

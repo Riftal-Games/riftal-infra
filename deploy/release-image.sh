@@ -73,8 +73,8 @@ main() {
     printf '::error::GAME_COMMIT "%s" is not a full 40-character riftal-game sha\n' "$commit"
     return 1
   fi
-  if [ ! -s "$grants" ]; then
-    printf '::error::GRANTS_SQL "%s" is unset, missing or empty; the image records its sha256\n' "$grants"
+  if [ ! -f "$grants" ] || [ ! -s "$grants" ]; then
+    printf '::error::GRANTS_SQL "%s" is not a non-empty regular file; the image records its sha256\n' "$grants"
     return 1
   fi
   grants_sha="$(sha256sum "$grants" | cut -d' ' -f1)"

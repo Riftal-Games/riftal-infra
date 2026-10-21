@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Self-test for release-image.sh (riftal-infra#1251): the tag follows spec 016's
 # naming. Malformed tag input, each phar when empty, a GAME_COMMIT that is not a
-# full lowercase sha, a GRANTS_SQL that is unset, missing or empty and an
+# full lowercase sha, a GRANTS_SQL that is not a non-empty regular file and an
 # existing tag are refused. The image records GAME_COMMIT and the sha256 of
-# GRANTS_SQL in its labels and holds no grants.sql. The image it builds is on ubuntu:24.04 and the pinned core revision,
-# holds the phars named in REQUIRED_PHARS intact in /opt/riftal/plugins, owned
-# by pocketmine and read-only, holds none in /plugins, runs unprivileged and is
-# never tagged latest. Builds on the local daemon under a riftal_smoke_ name and
+# GRANTS_SQL in its labels and holds no grants.sql. The image it builds is on
+# ubuntu:24.04 and the pinned core revision, holds the phars named in
+# REQUIRED_PHARS intact in /opt/riftal/plugins, owned by pocketmine and
+# read-only, holds none in /plugins, runs unprivileged and is never tagged
+# latest. Builds on the local daemon under a riftal_smoke_ name and
 # removes it. Needs the core image pinned in images/core-image.sha.
 set -euo pipefail
 
@@ -15,7 +16,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=33
+EXPECTED_ASSERTIONS=34
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -79,10 +80,10 @@ for bad in "" 0123456789abcdef 0123456789ABCDEF0123456789ABCDEF01234567 "${GAME_
   fi
 done
 : > "$work/empty.sql"
-for bad in "" "$work/gone.sql" "$work/empty.sql"; do
+for bad in "" "$work/gone.sql" "$work/empty.sql" "$work"; do
   if out="$(GRANTS_SQL=$bad RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
     fail "GRANTS_SQL '$bad' was accepted"
-  elif grep -qF "GRANTS_SQL \"$bad\" is unset, missing or empty" <<<"$out"; then
+  elif grep -qF "GRANTS_SQL \"$bad\" is not a non-empty regular file" <<<"$out"; then
     pass "GRANTS_SQL '$bad' is refused by value"
   else
     fail "GRANTS_SQL '$bad' was refused without naming it: $out"

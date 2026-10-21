@@ -14,11 +14,11 @@
 # `<runtime> image inspect`. The label holds the hash and not the file, so a
 # labelled tag still needs its <tag>=<file>, and a file whose sha256 differs
 # from the label is refused. A tag whose image carries no label, or is not on
-# the runtime, is checked against the supplied file alone. Every tag in use
-# other than <release-tag> is checked against its own file. A tag is in use when
-# a running container, a stopped container, an instance definition's image file
-# or any other file under INSTANCES_DIR names it (ADR 006's balance snapshot
-# "When").
+# the runtime or cannot be inspected, is checked against the supplied file
+# alone. Every tag in use other than <release-tag> is checked against its own
+# file. A tag is in use when a running container, a stopped container, an
+# instance definition's image file or any other file under INSTANCES_DIR names
+# it (ADR 006's balance snapshot "When").
 #
 # An instance's tag is recorded in instances/<id>/image, one line
 # <INSTANCE_IMAGE>:<tag>. Each immediate subdirectory of INSTANCES_DIR is an
@@ -119,7 +119,8 @@ revokes() {
 }
 
 # image_label <tag> prints the grants.sql sha256 label of INSTANCE_IMAGE:<tag>,
-# or nothing when the image is unlabelled or the runtime does not hold it.
+# or nothing when the image is unlabelled, is not on the runtime or cannot be
+# inspected.
 image_label() {
   local out
   out="$("${runtime[@]}" image inspect --format '{{index .Config.Labels "org.riftal.grants-sha256"}}' \
