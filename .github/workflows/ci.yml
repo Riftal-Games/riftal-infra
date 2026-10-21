@@ -13,7 +13,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A cancel would end bot-proofs before it files its exposure.
+  cancel-in-progress: false
 
 env:
   # Pinned. An unpinned linter changes the meaning of a merge gate with no
@@ -320,7 +321,7 @@ jobs:
       contents: read
       issues: read
     outputs:
-      exposure: ${{ steps.harness.outputs.exposure || steps.exposure.outputs.exposure }}
+      exposure: ${{ steps.harness.outputs.exposure || steps.pending.outputs.exposure || steps.exposure.outputs.exposure }}
 
     steps:
       # persist-credentials: false leaves no token in .git/config for any step
@@ -373,8 +374,27 @@ jobs:
           . images/devtools-image.sh
           devtools_extract "$RUNNER_TEMP/riftal-devtools"
 
-      # steps.eth0.outputs.address is what every socket listing is judged
-      # against.
+      # Every step from here may start a bot. A run that ends before the harness
+      # step writes found or none leaves this as the output, and it is filed.
+      - name: Exposure, bots may start
+        id: pending
+        run: printf 'exposure=pending\n' >> "$GITHUB_OUTPUT"
+
+      - name: Pull mysql:8
+        run: bash .github/scripts/pull-mysql.sh
+
+      # The one form the exposure check compares. The script reads the eth0
+      # address itself, since this step carries no env.
+      - name: Harness
+        id: harness
+        run: |
+          status=0
+          env -u GITHUB_OUTPUT bash deploy/bot-proofs.sh || status=$?
+          case "$status" in
+            0) printf 'exposure=none\n' >> "$GITHUB_OUTPUT" ;;
+            3) printf 'exposure=found\n' >> "$GITHUB_OUTPUT" ;;
+          esac
+          exit "$status"
 
       - name: Remove this job's containers
         if: always()

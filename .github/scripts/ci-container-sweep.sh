@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Removes every container, network and named volume this job run created, found
-# by the label ci-docker-label.sh stamps on them. Runs last, whether the job
+# Removes every container, network, named volume and image this job run created,
+# found by the label ci-docker-label.sh stamps on them. Runs last, whether the job
 # passed, failed or was cancelled. Fails if anything carrying the label is still
 # there after the sweep, so a leak shows up as a red step rather than as a full
 # runner.
@@ -58,10 +58,12 @@ for _ in $(seq 1 30); do
       docker volume rm "$vol" >/dev/null 2>&1 || true
     done
   fi
+  query images --format '{{.Repository}}:{{.Tag}}' | xargs -r docker rmi >/dev/null 2>&1
   containers="$(query ps -aq)" || exit 1
   networks="$(query network ls -q)" || exit 1
   volumes="$(query volume ls -q)" || exit 1
-  remaining="$containers$networks$volumes"
+  images="$(query images -q)" || exit 1
+  remaining="$containers$networks$volumes$images"
   [ -z "$remaining" ] && break
   sleep 1
 done
@@ -71,6 +73,7 @@ if [ -n "$remaining" ]; then
   docker ps -a --filter "$filter" --format '{{.Names}} ({{.Status}})'
   docker network ls --filter "$filter" --format '{{.Name}}'
   docker volume ls --filter "$filter" --format '{{.Name}}'
+  docker images --filter "$filter" --format '{{.Repository}}:{{.Tag}}'
   exit 1
 fi
-printf 'no container, network or volume carries %s\n' "$label"
+printf 'no container, network, volume or image carries %s\n' "$label"

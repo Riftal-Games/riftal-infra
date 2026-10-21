@@ -19,7 +19,9 @@ spec.loader.exec_module(order)
 
 WRITE = "printf 'exposure=pending\\n' >> \"$GITHUB_OUTPUT\""
 PENDING = f"      - name: Exposure, bots may start\n        id: pending\n        run: {WRITE}\n\n"
-BOT = "      - name: Harness\n        id: harness\n        run: bash start-first-bot.sh\n"
+RUN = "".join(f"          {line}\n" for line in order.HARNESS_RUN.split("\n"))
+RUN_END = '          exit "$status"\n'
+BOT = "      - name: Harness\n        id: harness\n        run: |\n" + RUN
 EXPR = "${{ steps.harness.outputs.exposure || steps.pending.outputs.exposure || steps.exposure.outputs.exposure }}"
 EXPR_LINE = f"      exposure: {EXPR}\n"
 SHADOWED = "      exposure: ${{ steps.exposure.outputs.exposure || steps.pending.outputs.exposure }}\n"
@@ -27,16 +29,12 @@ PEND_ID = "        id: pending\n"
 NOBOTS_ID = "        id: exposure\n"
 NOBOTS = "      - name: Exposure, no bot has started\n" + NOBOTS_ID + "        run: printf 'exposure=no-bots\\n' >> \"$GITHUB_OUTPUT\"\n"
 RUNNER = "      - name: Runner has /usr/bin/jq and /usr/bin/curl\n"
-ETH0 = "      # steps.eth0.outputs.address is what"
 SWEEP = "      - name: Remove this job's containers\n        if: always()\n        run: bash .github/scripts/ci-container-sweep.sh\n"
 LATE = "      - name: Late write\n        id: late\n        run: printf 'exposure=no-bots\\n' >> \"$GITHUB_OUTPUT\"\n"
 HARNESS_ID = "        id: harness\n"
-FIRST_BOT = "      - name: Start the first bot\n        run: node devtools/bot.js\n\n"
 OUT = '"$GITHUB_OUTPUT"'
-HARNESS_VALUE = "the harness step and writes exposure="
-HARNESS_JOINED = "is joined from lines ending in a backslash"
 HARNESS_KEY = "the harness step and it has the key "
-HARNESS_UNREAD ="names exposure or the step outputs in a form the check does not read"
+HARNESS_FORM = "the harness step and its run is not the one fixed form"
 SHA = "11d5960a326750d5838078e36cf38b85af677262"
 PENDING_BAD = "which is accepted only as a plain false"
 SHADOW_WANT = "outputs.exposure reads step exposure, which completes before the pending step"
@@ -72,8 +70,7 @@ def dq(text):
 
 
 def harness(*lines):
-    body = "".join(f"          {line}\n" for line in lines)
-    return rep("        run: bash start-first-bot.sh\n", "        run: |\n          bash start-first-bot.sh\n" + body)
+    return rep(RUN_END, "".join(f"          {line}\n" for line in lines) + RUN_END)
 
 
 def shadow(id_line):
@@ -113,28 +110,18 @@ cases = [
     ("after-pending-teardown-other-script", add(BOT, "\n" + SWEEP.replace("ci-container-sweep", "start-bots")), SWEEP_WANT),
     ("after-pending-late-writes-earlier-output", rep(EXPR_LINE, EXPR_LINE.replace("${{ ", "${{ steps.late.outputs.exposure || "), BOT, BOT + "\n" + LATE), LATE_WANT),
     ("after-pending-harness-renamed", rep("id: harness", "id: judge", "steps.harness", "steps.judge"), "outputs.exposure reads step judge before the pending step"),
-    ("harness-writes-no-bots", harness(f"printf 'exposure=no-bots\\n' >> {OUT}"), HARNESS_VALUE + "no-bots"),
-    ("harness-writes-pending", harness(f"printf 'exposure=pending\\n' >> {OUT}"), HARNESS_VALUE + "pending"),
-    ("harness-writes-empty", harness(f"printf 'exposure=\\n' >> {OUT}"), HARNESS_VALUE),
-    ("harness-echo-no-bots", harness(f"echo \"exposure=no-bots\" >> {OUT}"), HARNESS_VALUE + "no-bots"),
-    ("harness-echo-single-quoted-no-bots", harness(f"echo 'exposure=no-bots' >> {OUT}"), HARNESS_VALUE + "no-bots"),
-    ("harness-writes-no-bots-after-judging", harness(f"printf 'exposure=none\\n' >> {OUT}", f"printf 'exposure=no-bots\\n' >> {OUT}"), HARNESS_VALUE + "no-bots"),
-    ("harness-write-split-by-continuation", harness(f"printf 'expo\\", f"sure=no-bots\\n' >> {OUT}"), HARNESS_JOINED),
-    ("harness-write-split-inside-single-quotes", harness("printf 'exposure=no\\", f"ne\\n' >> {OUT}"), HARNESS_JOINED),
-    ("harness-write-upper-case-key", harness(f"printf 'Exposure=none\\n' >> {OUT}"), HARNESS_UNREAD),
-    ("harness-write-appended-with-bot", harness(f"node devtools/bot.js; printf 'exposure=none\\n' >> {OUT}"), HARNESS_UNREAD),
-    ("harness-write-to-variable-file", harness("f=$GITHUB_OUTPUT", "printf 'exposure=no-bots\\n' >> \"$f\""), HARNESS_UNREAD),
-    ("harness-write-command-substitution", harness(f"printf 'exposure=%s\\n' \"$(node devtools/bot.js)\" >> {OUT}"), HARNESS_UNREAD),
-    ("harness-write-set-output", harness("echo '::set-output name=exposure::no-bots'"), HARNESS_UNREAD),
+    ("harness-writes-no-bots", harness(f"printf 'exposure=no-bots\\n' >> {OUT}"), HARNESS_FORM),
+    ("harness-write-appended-with-bot", harness(f"node devtools/bot.js; printf 'exposure=none\\n' >> {OUT}"), HARNESS_FORM),
     ("harness-shell-writes-no-bots", add(HARNESS_ID, "        shell: bash -c \"printf 'exposure=no-bots\\n' >> \\\"$GITHUB_OUTPUT\\\"\" {0}\n"), HARNESS_KEY + "shell"),
     ("harness-env-bash-env", add(HARNESS_ID, "        env: {BASH_ENV: devtools/write-no-bots.sh}\n"), HARNESS_KEY + "env"),
-    ("harness-names-only-output-file", harness(f"cat out.txt >> {OUT}"), HARNESS_UNREAD),
-    ("harness-names-only-exposure", harness("node devtools/bot.js --exposure=no-bots"), HARNESS_UNREAD),
-    ("harness-value-with-a-space", harness(f"printf 'exposure=none \\n' >> {OUT}"), HARNESS_UNREAD),
-    ("harness-uses-action", rep("        run: bash start-first-bot.sh\n", f"        uses: some/action@{SHA}\n"), "the harness step and uses an action"),
-    ("harness-writes-found", harness(f"printf 'exposure=found\\n' >> {OUT}"), PASS),
-    ("harness-echo-none", harness(f"echo \"exposure=none\" >> {OUT}"), PASS),
-    ("harness-writes-nothing", harness("bash start-first-bot.sh"), PASS),
+    ("harness-uses-action", rep("        run: |\n" + RUN, f"        uses: some/action@{SHA}\n"), "the harness step and uses an action"),
+    ("harness-found-then-none", harness(f"printf 'exposure=found\\n' >> {OUT}", f"printf 'exposure=none\\n' >> {OUT}"), HARNESS_FORM),
+    ("harness-none-before-the-script", rep("          status=0\n", f"          printf 'exposure=none\\n' >> {OUT}\n          status=0\n"), HARNESS_FORM),
+    ("harness-keeps-github-output", rep("env -u GITHUB_OUTPUT ", ""), HARNESS_FORM),
+    ("harness-other-form", rep("        run: |\n" + RUN, "        run: bash start-first-bot.sh\n"), HARNESS_FORM),
+    ("cancel-in-progress-true", rep("jobs:", "concurrency:\n  group: g\n  cancel-in-progress: true\n\njobs:"), "concurrency.cancel-in-progress is not a plain false"),
+    ("cancel-in-progress-quoted-false", rep("jobs:", "concurrency:\n  group: g\n  cancel-in-progress: 'false'\n\njobs:"), "concurrency.cancel-in-progress is not a plain false"),
+    ("cancel-in-progress-false", rep("jobs:", "concurrency:\n  group: g\n  cancel-in-progress: false\n\njobs:"), PASS),
     ("outputs-continuation", add(EXPR_LINE, "        bots running\n"), CHAIN_WANT),
     ("outputs-folded-continuation", rep(EXPR_LINE, "      exposure: >\n        " + EXPR + "\n        bots running\n"), CHAIN_WANT),
     ("outputs-literal-operand", rep(EXPR_LINE, "      exposure: ${{ 'no-bots' || steps.pending.outputs.exposure }}\n"), CHAIN_WANT),
@@ -182,12 +169,7 @@ cases = [
     ("no-job", rep("  bot-proofs:", "  other:"), "no job bot-proofs"),
     ("crlf", lambda text: text.replace("\n", "\r\n"), PASS),
     ("good-fixture", None, PASS),
-    ("ci.yml", None, "=none can start a bot and no exposure=pending write is needed yet"),
-    (
-        "ci.yml-pending-then-bot-step",
-        rep(ETH0, PENDING + FIRST_BOT.replace("bot\n", "bot\n        id: harness\n", 1) + ETH0, "harness.outputs.exposure || steps.exposure", "harness.outputs.exposure || steps.pending.outputs.exposure || steps.exposure"),
-        "=8 step(s) ahead of step 9 (id pending) writing exposure=pending, all on the allowlist",
-    ),
+    ("ci.yml", None, "=8 step(s) ahead of step 9 (id pending) writing exposure=pending, all on the allowlist"),
 ]
 sources = [here.parent / "ci-fixtures/good/exposure-pending/pending-first.yml", here.parent / "workflows/ci.yml"]
 
