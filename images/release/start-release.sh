@@ -11,7 +11,7 @@
 # RIFTAL_DB_HOST and RIFTAL_DB_SCHEMA. The password of each plugin's login
 # comes only from RIFTAL_DB_PASSWORD_<PLUGIN> (ADR 008) and a missing one stops
 # the boot here, because a plugin that fails to enable takes the whole server
-# down. Nothing is written until every check has passed.
+# down. /data is untouched until every check has passed.
 set -euo pipefail
 
 ROOT=/opt/riftal

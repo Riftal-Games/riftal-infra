@@ -121,7 +121,8 @@ fi
 
 # $1 tag, $2 RIFTAL_PLUGINS, $3 log file. Boots on the shared volumes, waits
 # for Done, sends stop on stdin and waits for the container to exit. The
-# container removes itself and its volumes when it stops.
+# container removes itself when it stops; --rm removes only anonymous volumes,
+# so the named /data and /plugins volumes survive for the next boot.
 boot() {
   local ref="$image:$1" log="$3" fifo="$work/stdin" i pid
   rm -f "$fifo"

@@ -431,8 +431,8 @@ decision, because a paid one costs money.
 
 The image's command is `/opt/riftal/start-release.sh` (`../images/release/`),
 not core's `start-pocketmine`, which passes `--plugins=/plugins`. It builds the
-roster from `/opt/riftal/plugins` and passes PocketMine that directory alone,
-so a mount or a reused volume on `/plugins` is never read. RiftalCustody,
+roster from `/opt/riftal/plugins` into a `mktemp -d` copy and passes PocketMine that
+copy alone, so a mount or a reused volume on `/plugins` is never read. RiftalCustody,
 RiftalAccounts and contracts load everywhere. `RIFTAL_PLUGINS` adds
 `RiftalMines`, `RiftalRanks` and `RiftalEconomy`, space or comma separated, and
 a name outside those three stops the boot. The instance sets `RIFTAL_DB_HOST`
@@ -464,7 +464,7 @@ and an instance started from the image runs the image's own phars.
 the tag, the refusal of each phar when empty, the absence of a `latest` tag and
 the refusal of an existing tag. In the image it checks each phar byte for byte,
 that `/opt/riftal/plugins` holds exactly the six, that they are owned by
-`pocketmine` and mode 444, that `/plugins` holds no phar, the Ubuntu 24.04
+`root` and mode 444, that `/plugins` holds no phar, the Ubuntu 24.04
 release file, the `pocketmine` user and the pinned core revision label. It needs
 the pinned core image on the daemon.
 
