@@ -414,6 +414,30 @@ INSTANCE_IMAGE=registry.example/riftal/pocketmine-mp \
 `grants-revoke-check-selftest.sh` proves each rule in CI against a fake
 container runtime and fixture files, and starts no container.
 
+## Release image
+
+`release-image.sh <phars directory>` builds the image every instance runs: the
+core image pinned in `../images/core-image.sha`, which is `ubuntu:24.04`
+underneath, plus `RiftalCustody.phar`, `RiftalAccounts.phar` and
+`contracts.phar` in `/plugins`, from `../images/release/Dockerfile`. It calls
+`docker` and nothing else, builds on the local daemon and pushes nowhere. A
+registry is a separate decision, because a paid one costs money.
+
+The phars come from riftal-game's build (`../images/README.md`, RiftalCustody
+and RiftalAccounts). The script refuses a missing or empty one by name.
+
+The tag is `core-<UTC date>-<first 7 characters of the pinned pmmp-core sha>`,
+for example `core-2026-10-21-971d10b`, under the name `riftal/pocketmine-mp`
+(`RELEASE_IMAGE` overrides it, `RELEASE_DATE` the date). There is no `latest`.
+An existing tag is refused rather than rebuilt, so a tag keeps naming one image.
+The tag carries no riftal-game commit, so the image records what it holds in
+two labels: `org.riftal.core-image` and `org.riftal.phars`, each phar's sha256.
+Record the tag in `../instances/<id>/image` as `riftal/pocketmine-mp:<tag>`.
+
+`release-image-selftest.sh` builds one under a `riftal_smoke_` name and checks
+the tag, the refusals, the phars byte for byte, the Ubuntu 24.04 release file
+and the `pocketmine` user. It needs the pinned core image on the daemon.
+
 ## Environment
 
 | Variable | Required | Default | Meaning |
