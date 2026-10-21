@@ -141,7 +141,7 @@ job_bg() {
   docker run --rm --name "$JOB" -m 1g --cpus 1 --network "$NET" \
     -v "$script:/deploy/backup.sh:ro" -v "$work/tar:/usr/local/bin/tar:ro" -v "$work/gate:/gate" \
     -v "$SETS:/backups" -v "$CAP:/capture" -v "$VOL:/worlds/b:ro" \
-    -e MYSQL_HOST=db -e MYSQL_PASSWORD=riftal_smoke_only -e MYSQL_DATABASE=riftal_smoke_cproofs \
+    -e MYSQL_HOST=db -e MYSQL_USER=root -e MYSQL_PASSWORD=riftal_smoke_only -e MYSQL_DATABASE=riftal_smoke_cproofs \
     -e CAPTURE_TEST_REQUEST_ID="$id" -e GATE="$gate" -e CAPTURE_HOLD_MAX_SECONDS="${HOLD:-30}" "$@" \
     "$IMG" bash /deploy/backup.sh >"$blog" 2>&1 &
   jpid=$!
