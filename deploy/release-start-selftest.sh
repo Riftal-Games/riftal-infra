@@ -120,12 +120,13 @@ else
 fi
 
 # $1 tag, $2 RIFTAL_PLUGINS, $3 log file. Boots on the shared volumes, waits
-# for Done, sends stop on stdin and waits for the container to exit.
+# for Done, sends stop on stdin and waits for the container to exit. The
+# container removes itself and its volumes when it stops.
 boot() {
-  local ref="$image:$1" log="$3" fifo="$work/stdin" i
+  local ref="$image:$1" log="$3" fifo="$work/stdin" i pid
   rm -f "$fifo"
   mkfifo "$fifo"
-  docker run -i --name "$cname" -m 2g --cpus 2 --network none \
+  docker run -i --rm --name "$cname" -m 2g --cpus 2 --network none \
     -v "$data_vol:/data" -v "$plugins_vol:/plugins" \
     -e RIFTAL_DB_HOST=dbhost.test -e RIFTAL_DB_SCHEMA=riftal_test \
     -e RIFTAL_DB_PASSWORD_ACCOUNTS=x -e RIFTAL_DB_PASSWORD_MINES=x \
@@ -133,16 +134,20 @@ boot() {
     -e "RIFTAL_PLUGINS=$2" \
     -e "POCKETMINE_ARGS=--level-name=smoke_level --level-type=flat --xbox-auth=false --auto-report.enabled=0" \
     "$ref" <"$fifo" >"$log" 2>&1 &
+  pid=$!
   exec 3>"$fifo"
   for i in $(seq 1 120); do
     grep -q 'Done (' "$log" && break
-    [ "$(docker inspect --format '{{.State.Running}}' "$cname" 2>/dev/null)" = false ] && break
+    kill -0 "$pid" 2>/dev/null || break
     sleep 1
   done
   { echo stop >&3; } 2>/dev/null || true
   exec 3>&-
-  timeout 90 docker wait "$cname" >/dev/null || true
-  docker rm -v "$cname" >/dev/null
+  for i in $(seq 1 90); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  wait "$pid" || true
 }
 
 # $1 tag, $2 RIFTAL_PLUGINS, $3 version the tag's stub phars carry.
