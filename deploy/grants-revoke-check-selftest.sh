@@ -11,14 +11,21 @@ CHECK="${GRANTS_REVOKE_CHECK:-$SCRIPT_DIR/grants-revoke-check.sh}"
 DIR="$(mktemp -d)"
 trap 'rm -rf "$DIR"' EXIT
 img='registry.example/riftal/pocketmine-mp'
-mkdir -p "$DIR/instances" "$DIR/empty" "$DIR/bin"
-# FAKE_RUNNING and FAKE_ALL are the files `ps` and `ps -a` print.
+mkdir -p "$DIR/instances" "$DIR/empty" "$DIR/bin" "$DIR/labels"
+# FAKE_RUNNING and FAKE_ALL are the files `ps` and `ps -a` print. Image
+# inspection prints the file labels/<tag> when there is one, fails when
+# labels/<tag>.absent exists, and else prints the empty line of an unlabelled image.
 cat >"$DIR/runtime" <<'EOF'
 #!/usr/bin/env bash
 [ -z "${FAKE_FAIL:-}" ] || exit 1
 case "$*" in
   'ps --format'*) cat "$FAKE_RUNNING" ;;
   'ps -a --format'*) cat "$FAKE_ALL" ;;
+  'image inspect --format {{index .Config.Labels "org.riftal.grants-sha256"}} '*)
+    ref="${!#}"
+    tag="${ref##*:}"
+    [ ! -e "$FAKE_LABELS/$tag.absent" ] || exit 1
+    if [ -f "$FAKE_LABELS/$tag" ]; then cat "$FAKE_LABELS/$tag"; else echo; fi ;;
   *) exit 3 ;;
 esac
 EOF
@@ -100,7 +107,7 @@ containers digest a-1 "$img@sha256:0123456789abcdef"
 
 failures=0
 ran=0
-expected=102
+expected=114
 # check <exit> <regex some output line must match> <case> <running> <all> <arg>...
 check() {
   local want="$1" match="$2" case="$3" run="$4" all="$5" out got
@@ -108,7 +115,7 @@ check() {
   ran=$((ran + 1))
   set +e
   out="$(cd "$DIR" && LC_ALL=C.UTF-8 INSTANCE_IMAGE="$img" CONTAINER_RUNTIME="bash $DIR/runtime" \
-    INSTANCES_DIR="${INSTANCES_DIR:-$DIR/empty}" FAKE_RUNNING="$DIR/$run" FAKE_ALL="$DIR/$all" \
+    INSTANCES_DIR="${INSTANCES_DIR:-$DIR/empty}" FAKE_RUNNING="$DIR/$run" FAKE_ALL="$DIR/$all" FAKE_LABELS="$DIR/labels" \
     bash "$CHECK" "$@" 2>&1)"
   got=$?
   set -e
@@ -142,6 +149,29 @@ old 1 'REFUSED: "REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines" i
 check 1 'is new against tag v1 \(stopped container a-1\)$' 'a REVOKE new against a stopped container refuses' none one-old ab.sql v2 v1=a.sql
 old 1 'REFUSED: "REVOKE IF EXISTS UPDATE \(balance_minor_units\) ON balances FROM riftal_role_economy" is new' 'a multi-line REVOKE is one statement and refuses' spaced.sql none.sql
 old 1 '^GRANTS REVOKE REFUSED: "revoke if exists riftal_role_accounts' 'a lowercase revoke is seen and refuses' lower.sql none.sql
+
+# label <tag> <value>: the grants.sql sha256 label of the image the runtime holds for that tag.
+label() { printf '%s\n' "$2" >"$DIR/labels/$1"; }
+sha_of() { sha256sum <"$DIR/$1" | cut -d' ' -f1; }
+label v1 "$(sha_of a.sql)"
+old 0 'in a.sql, 1 older tag' 'a labelled tag with a file of the labelled sha256 passes' a.sql a.sql
+old 1 'REFUSED: "REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines" is new against tag v1' 'a file of the labelled sha256 is still read for REVOKEs' ab.sql a.sql
+old 2 'ab.sql for tag v1 does not match the image.s grants.sql sha256 '"$(sha_of a.sql)" 'a file whose sha256 differs from the label is an error, not a pass' none.sql ab.sql
+old 2 'tag v1 \(running container a-1\) is labelled with grants.sql sha256 '"$(sha_of a.sql)"'.*supply <tag>=<grants.sql>' 'a labelled tag with no file is an error, not a pass' none.sql
+check 0 'in none.sql, 0 older tag' 'a label on the release tag is not read' one-new one-new none.sql v2
+label v1 "$(sha_of a.sql | tr a-f A-F)"
+old 2 'carries org.riftal.grants-sha256 .*, which is not a sha256' 'an uppercase label is an error, not a pass' none.sql a.sql
+label v1 'not-a-sha'
+old 2 "carries org.riftal.grants-sha256 'not-a-sha', which is not a sha256" 'a malformed label is an error, not a pass' none.sql a.sql
+label v1 '<no value>'
+old 0 'in none.sql, 1 older tag' 'a runtime printing no value for the label reads as unlabelled' none.sql a.sql
+rm "$DIR/labels/v1"
+old 0 'in none.sql, 1 older tag' 'an unlabelled tag with a file passes' none.sql a.sql
+old 2 'tag v1 \(running container a-1\) has no <tag>=<grants.sql>' 'an unlabelled tag with no file is an error, not a pass' none.sql
+: >"$DIR/labels/v1.absent"
+old 0 'in none.sql, 1 older tag' 'a tag whose image the runtime lacks is checked against the file alone' none.sql a.sql
+old 2 'tag v1 \(running container a-1\) has no <tag>=<grants.sql>' 'a tag whose image the runtime lacks and with no file is an error' none.sql
+rm "$DIR/labels/v1.absent"
 
 for r in "${rejects[@]}"; do
   f="${r%%:*}"

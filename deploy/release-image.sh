@@ -6,8 +6,16 @@
 #
 #   release-image.sh <directory holding the built phars>
 #
+#   GAME_COMMIT    required, the full riftal-game sha the phars and GRANTS_SQL
+#                  were built from
+#   GRANTS_SQL     required, the grants.sql of that commit
 #   RELEASE_IMAGE  image name without its tag, default riftal/pocketmine-mp
 #   RELEASE_DATE   UTC date in the tag, default today
+#
+# The image records GAME_COMMIT and the sha256 of GRANTS_SQL in the labels
+# org.riftal.game-commit and org.riftal.grants-sha256, which
+# grants-revoke-check.sh reads to verify the file an operator supplies for the
+# tag. The file itself is not in the image.
 #
 # The tag is core-<date>-<first 7 of the pinned pmmp-core sha>. A tag that
 # already exists is refused, never rebuilt, so a tag names one image on the
@@ -52,6 +60,7 @@ main() {
   local image="${RELEASE_IMAGE:-riftal/pocketmine-mp}"
   local date="${RELEASE_DATE:-$(date -u +%F)}"
   local name tag ref ctx sums="" id
+  local commit="${GAME_COMMIT:-}" grants="${GRANTS_SQL:-}" grants_sha
 
   for name in "${REQUIRED_PHARS[@]}"; do
     if [ ! -s "$phars/$name" ]; then
@@ -59,6 +68,16 @@ main() {
       return 1
     fi
   done
+
+  if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+    printf '::error::GAME_COMMIT "%s" is not a full 40-character riftal-game sha\n' "$commit"
+    return 1
+  fi
+  if [ ! -f "$grants" ] || [ ! -s "$grants" ]; then
+    printf '::error::GRANTS_SQL "%s" is not a non-empty regular file; the image records its sha256\n' "$grants"
+    return 1
+  fi
+  grants_sha="$(sha256sum "$grants" | cut -d' ' -f1)"
 
   core_image || return 1
   tag="$(release_tag core "$date" "${CORE_IMAGE#*:}")" || return 1
@@ -84,6 +103,8 @@ main() {
     --build-arg "CORE_TAG=${CORE_IMAGE##*:}" \
     --label "org.riftal.core-image=$CORE_IMAGE" \
     --label "org.riftal.phars=$sums" \
+    --label "org.riftal.game-commit=$commit" \
+    --label "org.riftal.grants-sha256=$grants_sha" \
     -t "$ref" "$ctx" || return 1
 
   id="$(docker image inspect --format '{{.Id}}' "$ref")" || return 1
