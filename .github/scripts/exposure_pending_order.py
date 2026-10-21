@@ -55,6 +55,21 @@ step ahead of the pending step, nor of a step after it other than the one with
 the id harness, which judges the listings and writes found or none; operands
 after the pending one are not judged.
 
+The harness step after the pending step is read further, because outputs.exposure
+trusts it ahead of pending. It must be a run step, never uses, with no key but
+name, id, if and run: shell would replace the interpreter that runs the write,
+and env can set BASH_ENV or ENV, which run a script before the run does, so both
+are refused with the rest. Its run is read line by line. A line formed by joining
+backslash-newline is refused when it mentions exposure, GITHUB_OUTPUT or
+set-output, since bash keeps the backslash-newline inside single quotes and the
+joined text is not what is written. A line that mentions exposure, GITHUB_OUTPUT
+or set-output in any case must be exactly one of HARNESS_WRITES, a printf or echo
+of exposure=<value> appended to "$GITHUB_OUTPUT", and the value must be found or
+none. Anything else on such a line is refused, as is any other value, no-bots
+and pending included. A harness run that writes no exposure value is accepted: outputs.exposure then falls through to pending, which is the value
+ADR 024 item 3 gives to a run that ended before every listing was judged, so
+bots-stopped-file files it.
+
 A step after the pending step may carry an if only when its run, once spaces and
 newlines around it are dropped, is in TEARDOWN_RUNS and it has no key but name,
 if and run. Any other if, always(), !cancelled() and failure() included, may
@@ -75,9 +90,13 @@ calls. A step after the pending step is read as a mapping and its id meets the
 id rules above. Only whether it has an if is read, never the value. Its keys
 are judged only when it has an if, and then its run is read and it may hold
 only name, if and run. Without an if its run, env, with and continue-on-error
-are not read, nor is what it writes to its outputs, so the harness step is
-trusted to write found or none and only which step ids outputs.exposure may
-read ahead of pending are judged (riftal-infra#1240).
+are not read, nor is what it writes to its outputs, except for the harness step
+above. For the harness, the order and count of writes are not judged, so found
+then none, and none before the first bot starts, are accepted; nor is a function
+or alias that redefines printf or echo, which gives the two write forms another
+meaning. What a script the harness calls writes, and a write spelled so that no
+line names exposure, GITHUB_OUTPUT or set-output, are not seen (riftal-infra#1240,
+riftal-infra#1259).
 """
 
 import re
@@ -107,7 +126,14 @@ bash .github/scripts/ci-container-sweep.sh
 )
 TEARDOWN_RUNS = frozenset({"bash .github/scripts/ci-container-sweep.sh"})
 TEARDOWN_KEYS = {"name", "if", "run"}
+HARNESS_MENTION = re.compile(r"exposure|github_output|set-output", re.I)
+HARNESS_WRITES = (
+    re.compile(r"printf 'exposure=(?P<value>[A-Za-z0-9_-]*)\\n' >> \"\$GITHUB_OUTPUT\""),
+    re.compile(r"echo (['\"])exposure=(?P<value>[A-Za-z0-9_-]*)\1 >> \"\$GITHUB_OUTPUT\""),
+)
+HARNESS_VALUES = {"found", "none"}
 HARNESS_ID = "harness"
+HARNESS_KEYS = {"name", "id", "if", "run"}
 WORKFLOW_KEYS = {"name", "on", "permissions", "concurrency", "env", "jobs"}
 JOB_KEYS = {"name", "needs", "if", "runs-on", "timeout-minutes", "permissions", "outputs", "steps"}
 STEP_KEYS = {"name", "id", "uses", "if", "continue-on-error", "run", "env", "with"}
@@ -210,6 +236,40 @@ def after_problem(step):
     return stray(step, TEARDOWN_KEYS)
 
 
+def logical_lines(run):
+    lines, current, joined = [], "", False
+    for physical in run.split("\n"):
+        current += physical
+        if physical.endswith("\\"):
+            current, joined = current[:-1], True
+            continue
+        lines.append((current, joined))
+        current, joined = "", False
+    if joined:
+        lines.append((current, joined))
+    return lines
+
+
+def harness_problem(step):
+    if "uses" in step:
+        return f"it is the {HARNESS_ID} step and uses an action, whose outputs are not read"
+    if why := stray(step, HARNESS_KEYS):
+        return f"it is the {HARNESS_ID} step and {why}"
+    run = scalar(step["run"], "run") if "run" in step else ""
+    for line, joined in logical_lines(run):
+        text = line.strip(" ")
+        if not HARNESS_MENTION.search(text):
+            continue
+        if joined:
+            return f"it is the {HARNESS_ID} step and the run line '{text}' mentions exposure or the step outputs and is joined from lines ending in a backslash"
+        write = next((m for m in (p.fullmatch(text) for p in HARNESS_WRITES) if m), None)
+        if write is None:
+            return f"it is the {HARNESS_ID} step and the run line '{text}' names exposure or the step outputs in a form the check does not read"
+        if write["value"] not in HARNESS_VALUES:
+            return f"it is the {HARNESS_ID} step and writes exposure={write['value']}, where only found or none are allowed"
+    return None
+
+
 def judge(path, job):
     errors = []
     with open(path, encoding="utf-8", newline="") as handle:
@@ -241,7 +301,9 @@ def judge(path, job):
                 raise Refuse(f"step {number} repeats the id {ident}, which GitHub reads without regard to case")
             ids[ident.lower()] = number
         if pending_at:
-            if why := after_problem(step):
+            if "id" in step and ident.lower() == HARNESS_ID and (why := harness_problem(step)):
+                errors.append(f"step {number} is after the exposure=pending write: {why}")
+            elif why := after_problem(step):
                 errors.append(f"step {number} is after the exposure=pending write: {why}")
             continue
         run = scalar(step["run"], "run") if "run" in step else ""
