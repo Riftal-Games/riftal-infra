@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Proves exposure_pending_order.py can fail. Each case is the good fixture, or
 ci.yml for a name starting ci.yml, with edits. It must be refused for its own
-reason, or accepted where YAML reads the edit as the same value (want starting
-with =). Reads files only. Needs an interpreter with PyYAML.
+reason, or accepted where YAML reads the edit as the same value or the edit is
+allowed (want starting with =). Reads files only. Needs an interpreter with
+PyYAML.
 """
 
 import importlib.util
