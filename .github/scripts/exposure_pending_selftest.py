@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Proves exposure_pending_order.py can fail. Each case is the good fixture, or
 ci.yml for a name starting ci.yml, with edits. It must be refused for its own
-reason, or accepted where YAML reads the edit as the same value (want starting
-with =). Reads files only. Needs an interpreter with PyYAML.
+reason, or accepted where YAML reads the edit as the same value or the edit is
+allowed (want starting with =). Reads files only. Needs an interpreter with
+PyYAML.
 """
 
 import importlib.util
@@ -27,6 +28,9 @@ NOBOTS_ID = "        id: exposure\n"
 NOBOTS = "      - name: Exposure, no bot has started\n" + NOBOTS_ID + "        run: printf 'exposure=no-bots\\n' >> \"$GITHUB_OUTPUT\"\n"
 RUNNER = "      - name: Runner has /usr/bin/jq and /usr/bin/curl\n"
 ETH0 = "      # steps.eth0.outputs.address is what"
+SWEEP = "      - name: Remove this job's containers\n        if: always()\n        run: bash .github/scripts/ci-container-sweep.sh\n"
+LATE = "      - name: Late write\n        id: late\n        run: printf 'exposure=no-bots\\n' >> \"$GITHUB_OUTPUT\"\n"
+HARNESS_ID = "        id: harness\n"
 FIRST_BOT = "      - name: Start the first bot\n        run: node devtools/bot.js\n\n"
 SHA = "11d5960a326750d5838078e36cf38b85af677262"
 PENDING_BAD = "which is accepted only as a plain false"
@@ -34,6 +38,9 @@ SHADOW_WANT = "outputs.exposure reads step exposure, which completes before the 
 AHEAD = "is ahead of any exposure=pending write and is not on the allowlist"
 CHAIN_WANT = "outputs.exposure is not exactly a || chain"
 ONE_KEY = "outputs must hold exactly one key spelled exposure"
+AFTER_IF = "step 5 is after the exposure=pending write: it has an if"
+SWEEP_WANT = "step 6 is after the exposure=pending write: it has an if"
+LATE_WANT = "outputs.exposure reads step late before the pending step"
 SHA_WANT = "which is not actions/checkout by commit sha"
 PASS = "=all on the allowlist"
 CREDS = "        with:\n          persist-credentials: false\n"
@@ -84,6 +91,18 @@ cases = [
     ("outputs-shadowed-id-flow-step", rep(EXPR_LINE, SHADOWED, NOBOTS, FLOW_NOBOTS), SHADOW_WANT),
     ("ids-differ-by-case", rep("id: harness", "id: Pending"), "repeats the id Pending, which GitHub reads without regard to case"),
     ("id-with-a-dot", rep("id: harness", "id: harness.x"), "which is not letters, digits, _ and -"),
+    ("after-pending-if-always", add(HARNESS_ID, "        if: always()\n"), AFTER_IF),
+    ("after-pending-if-not-cancelled", add(HARNESS_ID, "        if: ${{ !cancelled() }}\n"), AFTER_IF),
+    ("after-pending-if-failure", add(HARNESS_ID, "        if: failure()\n"), AFTER_IF),
+    ("after-pending-if-quoted-key", add(HARNESS_ID, '        "if" : always()\n'), AFTER_IF),
+    ("after-pending-if-on-uses-step", add(BOT, f"\n      - uses: actions/checkout@{SHA}\n        if: always()\n"), SWEEP_WANT),
+    ("after-pending-teardown-with-if", add(BOT, "\n" + SWEEP), PASS),
+    ("after-pending-teardown-extended", add(BOT, "\n" + SWEEP.replace("sweep.sh", "sweep.sh; node devtools/bot.js")), SWEEP_WANT),
+    ("after-pending-teardown-shell", add(BOT, "\n" + SWEEP.replace("        run:", "        shell: node devtools/bot.js {0}\n        run:")), "step 6 is after the exposure=pending write: it has the key shell"),
+    ("after-pending-teardown-env", add(BOT, "\n" + SWEEP.replace("        run:", "        env: {BASH_ENV: devtools/start-bot.sh}\n        run:")), "step 6 is after the exposure=pending write: it has the key env"),
+    ("after-pending-teardown-other-script", add(BOT, "\n" + SWEEP.replace("ci-container-sweep", "start-bots")), SWEEP_WANT),
+    ("after-pending-late-writes-earlier-output", rep(EXPR_LINE, EXPR_LINE.replace("${{ ", "${{ steps.late.outputs.exposure || "), BOT, BOT + "\n" + LATE), LATE_WANT),
+    ("after-pending-harness-renamed", rep("id: harness", "id: judge", "steps.harness", "steps.judge"), "outputs.exposure reads step judge before the pending step"),
     ("outputs-continuation", add(EXPR_LINE, "        bots running\n"), CHAIN_WANT),
     ("outputs-folded-continuation", rep(EXPR_LINE, "      exposure: >\n        " + EXPR + "\n        bots running\n"), CHAIN_WANT),
     ("outputs-literal-operand", rep(EXPR_LINE, "      exposure: ${{ 'no-bots' || steps.pending.outputs.exposure }}\n"), CHAIN_WANT),
