@@ -132,7 +132,7 @@ else
   fi
   user="$(docker image inspect --format '{{.Config.User}}' "$image:$tag")"
   if [ "$user" = pocketmine ]; then
-    pass "the image runs as pocketmine"
+    pass "the image's configured user is pocketmine"
   else
     fail "the image runs as '$user'"
   fi
@@ -178,7 +178,7 @@ else
   fi
   writable="$(docker run --rm -m 1g --cpus 1 --user pocketmine --entrypoint sh "$image:$tag" -c 'for p in /opt/riftal /opt/riftal/plugins /opt/riftal/plugins/*; do [ -w "$p" ] && echo "$p"; done; true')"
   if [ -z "$writable" ]; then
-    pass "pocketmine can write neither /opt/riftal/plugins nor a phar in it"
+    pass "pocketmine can write none of /opt/riftal, /opt/riftal/plugins or a phar in it"
   else
     fail "pocketmine can write: $writable"
   fi

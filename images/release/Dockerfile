@@ -16,7 +16,7 @@ FROM ${CORE_REPO}:${CORE_TAG}
 # it can neither rewrite nor replace a phar: a replacement would survive a
 # restart in the container's writable layer and the tag would stop deciding
 # which build runs. The phars' mode 0444 is set in the build context by
-# deploy/release-image.sh, and the directory modes are fixed here so the umask
+# deploy/release-image.sh, and the directory modes are set here so the umask
 # of whoever built the image does not decide them.
 COPY --chown=0:0 plugins/ /opt/riftal/plugins/
 USER root
