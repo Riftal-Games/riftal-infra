@@ -118,8 +118,6 @@ else
   else
     fail "the image is built on core revision '$revision', not the pinned $sha"
   fi
-  # start-pocketmine only warns about files not owned by pocketmine, so a
-  # wrong owner would ship as a warning on every boot.
   unowned="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -type f \( ! -user pocketmine -o ! -perm 444 \)')"
   if [ -z "$unowned" ]; then
     pass "every phar in /opt/riftal/plugins is owned by pocketmine and read-only"
