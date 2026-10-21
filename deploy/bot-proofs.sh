@@ -6,7 +6,8 @@
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
 # count ran and teardown's listings were empty; 3 when a listing is exposure, whatever
 # else failed; any other status is a failure with no finding. The step turns that into
-# the exposure output, with GITHUB_OUTPUT unset here.
+# the exposure output, with GITHUB_OUTPUT unset here. finish ignores TERM and INT, so
+# a finding is 3 past the deadline too; a KILL at +120 s ends it with 137, filed pending.
 #
 # Each condition reaches check single-quoted and is expanded by its eval.
 # shellcheck disable=SC2016,SC2034,SC2086,SC1090,SC1091
@@ -22,7 +23,7 @@ for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG"; do
   [[ $name =~ ^riftal_smoke_ci_[0-9]+_[0-9]+_[a-z]+$ && ! $name =~ world|player|backup ]] || { printf '::error::%s is not a name this harness may create\n' "$name"; exit 1; }
 done
 
-# A runner timeout leaves exposure pending, so the harness ends itself first.
+# The deadline lets teardown and the summary line run before the runner kills the step.
 if [ -z "${BOT_PROOFS_INNER:-}" ]; then
   BOT_PROOFS_INNER=1 exec timeout --preserve-status -k 120 600 bash "${BASH_SOURCE[0]}"
 fi
@@ -32,17 +33,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/images/devtools-image.sh"
 . "$ROOT/.github/scripts/bot-proofs-checks.sh"
 core_image && devtools_image || exit 1
-DT="${RUNNER_TEMP:?}/riftal-devtools"
-NODE="$DT/node-runtime/bin/node"
+DT="${RUNNER_TEMP:?}/riftal-devtools" NODE="$DT/node-runtime/bin/node"
 [ -x "$NODE" ] || { printf '::error::%s is not the devtools image'"'"'s node\n' "$NODE"; exit 1; }
 ETH0="$(eth0_address)" || { printf '%s\n' "$ETH0"; exit 1; }
 
-EXPECTED_ASSERTIONS=13
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
-FOUND=0 PASSES=0 FAILURES=0 spid=""
-work="$(mktemp -d)"
-LOG="$work/a.log"
+EXPECTED_ASSERTIONS=13 FOUND=0 PASSES=0 FAILURES=0 spid=""
+work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
 # $1 what is claimed; $2 a condition, evaluated
@@ -94,7 +92,7 @@ teardown() {
 finish() {
   local rc=$? status=0 ran
   set +e
-  trap - EXIT
+  trap '' TERM INT; trap - EXIT
   teardown
   ran=$((PASSES + FAILURES))
   if [ "$FOUND" = 1 ]; then
@@ -108,8 +106,7 @@ finish() {
   printf 'harness status %s after %ss, %s of %s assertions ran, %s passed, %s failed, listings exposure: %s\n' "$status" "$SECONDS" "$ran" "$EXPECTED_ASSERTIONS" "$PASSES" "$FAILURES" "$FOUND"
   exit "$status"
 }
-trap finish EXIT
-trap 'exit 124' TERM INT
+trap finish EXIT; trap 'exit 124' TERM INT
 
 cat >"$work/probe.js" <<'JS'
 const dgram = require('dgram')
@@ -155,16 +152,14 @@ check "the backup image reaches MySQL over the job network and writes both volum
   'docker run --rm -m 1g --cpus 1 --network "$NET" -e MYSQL_PWD="$PW" -v "$SETS:/b" -v "$CAP:/c" "$IMG:head" \
      bash -c "mysql -h db -uroot -e \"SELECT 1\" >/dev/null && touch /b/t /c/t && rm /b/t /c/t"'
 
-mkdir "$work/plugins"
-cp "$ROOT/images/plugins/RiftalCapture.php" "$ROOT/images/plugins/RiftalDevBots.php" "$work/plugins/"
+mkdir "$work/plugins" && cp "$ROOT/images/plugins/RiftalCapture.php" "$ROOT/images/plugins/RiftalDevBots.php" "$work/plugins/"
 chmod -R a+rX "$work"
 mkfifo "$work/in"
 docker run --rm -i --name "$A" -m 2g --cpus 2 --network "$NET" -p 127.0.0.1::19132/udp \
   -v "$VOL:/data" -v "$work/plugins:/plugins:ro" -v "$CAP:/capture:ro" -e RIFTAL_DEV_ENV=1 \
   -e "POCKETMINE_ARGS=--level-type=flat --xbox-auth=false --riftal-dev-bots=on --auto-report.enabled=0" \
   "$CORE_IMAGE" start-pocketmine <"$work/in" >"$LOG" 2>&1 &
-spid=$!
-exec 3>"$work/in"
+spid=$!; exec 3>"$work/in"
 check "A reaches LOADS: Done, RiftalCapture and RiftalDevBots enabled, nothing above WARNING" \
   'timeout 120 bash -c "until grep -qF \"Done (\" $LOG; do sleep 0.2; done" && grep -q "Enabling RiftalCapture" "$LOG" && grep -q "Enabling RiftalDevBots" "$LOG" &&
    ! grep -qE "$SEVERE" "$LOG"'

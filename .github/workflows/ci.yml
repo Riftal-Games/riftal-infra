@@ -307,7 +307,7 @@ jobs:
           . .github/scripts/bot-proofs-scope.sh
           scope_run "$EVENT" "$BASE" "$HEAD" "$GITHUB_OUTPUT"
 
-  # ADR 024. The job holds a read token, starts no bot or server, and every
+  # ADR 024. The job holds a read token, starts one server and no bot, and every
   # check before a container refuses with ::error:: and ends the job.
   bot-proofs:
     name: bot proofs
@@ -338,7 +338,7 @@ jobs:
       # ADR 024 names pending, found and none. no-bots is this job's own
       # starting value, held until a bot starts, and files nothing. The job
       # output takes the exposure written by a step with id harness when
-      # one ran, and this step's value otherwise.
+      # one ran, else the pending step's, else this step's.
       - name: Exposure, no bot has started
         id: exposure
         run: printf 'exposure=no-bots\n' >> "$GITHUB_OUTPUT"
