@@ -27,7 +27,8 @@ valid UTF-8 stops the script with a traceback and exit status 1.
 Keys allowed, any other refused:
   workflow  name, on, permissions, concurrency, env (HADOLINT_VERSION and
             HADOLINT_SHA256 only), jobs.
-  job       name, runs-on, timeout-minutes, permissions, outputs, steps.
+  job       name, needs, if, runs-on, timeout-minutes, permissions, outputs,
+            steps.
   step      name, id, uses, if, continue-on-error, run, env (GITHUB_TOKEN set
             to ${{ github.token }} only), with.
 A step ahead of the pending step is actions/checkout by a 40-hex sha, with
@@ -56,8 +57,8 @@ when every step is on the allowlist; no operand is judged.
 Limits: PyYAML stands in for GitHub's parser and is not compared with it. Not
 read: the contents of other jobs, whose ids are read as keys of jobs; the values
 under workflow name, on, permissions and concurrency and of workflow env
-variables; a job's name, runs-on, timeout-minutes and permissions; the values of
-outputs keys other than exposure; if values on a step ahead of the pending
+variables; a job's name, needs, if, runs-on, timeout-minutes and permissions;
+the values of outputs keys other than exposure; if values on a step ahead of the pending
 step, and its continue-on-error value unless its run is PENDING_WRITE and it
 has an id; a script a step calls. A step after the pending step is read as a
 mapping, so its keys meet the refusals above, and for its id, which meets the id
@@ -90,7 +91,7 @@ bash .github/scripts/ci-container-sweep.sh
 """.split("\n")
 )
 WORKFLOW_KEYS = {"name", "on", "permissions", "concurrency", "env", "jobs"}
-JOB_KEYS = {"name", "runs-on", "timeout-minutes", "permissions", "outputs", "steps"}
+JOB_KEYS = {"name", "needs", "if", "runs-on", "timeout-minutes", "permissions", "outputs", "steps"}
 STEP_KEYS = {"name", "id", "uses", "if", "continue-on-error", "run", "env", "with"}
 PENDING_KEYS = {"name", "id", "run", "continue-on-error"}
 STEP_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
