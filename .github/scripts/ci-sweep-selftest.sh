@@ -48,6 +48,8 @@ net="riftal_smoke_sweep_net_${GITHUB_RUN_ID}_$$"
 holder="riftal_smoke_sweep_holder_${GITHUB_RUN_ID}_$$"
 own_vol="riftal_smoke_sweep_own_vol_${GITHUB_RUN_ID}_$$"
 other_vol="riftal_smoke_sweep_other_vol_${GITHUB_RUN_ID}_$$"
+own_img="riftal_smoke_sweep_own_img_${GITHUB_RUN_ID}_$$"
+other_img="riftal_smoke_sweep_other_img_${GITHUB_RUN_ID}_$$"
 reap_prefix="riftal_smoke_sweep_reaptest_${GITHUB_RUN_ID}_$$_"
 reap_young="${reap_prefix}young"
 reap_old="${reap_prefix}old"
@@ -60,6 +62,7 @@ cleanup() {
   docker network rm "$net" >/dev/null 2>&1 || true
   docker volume rm "$own_vol" "$other_vol" "$reap_young" "$reap_old" "$reap_miss" \
     "$reap_label" >/dev/null 2>&1 || true
+  docker image rm "$own_img" "$other_img" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -144,6 +147,10 @@ check "$([ "$got" = "$want" ] && echo ok)" "shim labels a volume create with rif
 GITHUB_RUN_ID='' docker volume create --label riftal.ci.job=selftest-other-job "$other_vol" \
   >/dev/null || exit 1
 
+# The shim does not stamp docker build, so the label is passed as the harness does.
+printf 'FROM php:8.3-cli-alpine\n' | docker build -q --label "riftal.ci.job=$want" -t "$own_img" - >/dev/null || exit 1
+printf 'FROM php:8.3-cli-alpine\n' | docker build -q --label riftal.ci.job=selftest-other-job -t "$other_img" - >/dev/null || exit 1
+
 out="$(bash "$sweep")"
 rc=$?
 printf '%s\n' "$out" | sed 's/^/  sweep | /'
@@ -160,6 +167,10 @@ gone="$(docker volume ls -q --filter "name=^${own_vol}\$")"
 check "$([ -z "$gone" ] && echo ok)" "sweep removed this job's volume"
 kept="$(docker volume ls -q --filter "name=^${other_vol}\$")"
 check "$([ "$kept" = "$other_vol" ] && echo ok)" "another job's volume survives the sweep (got '$kept')"
+gone="$(docker images -q "$own_img")"
+check "$([ -z "$gone" ] && echo ok)" "sweep removed this job's image"
+kept="$(docker images -q "$other_img")"
+check "$([ -n "$kept" ] && echo ok)" "another job's image survives the sweep"
 
 # A container outside this job's label holds this job's network for its first
 # seconds, so the sweep's first removal of it is refused, the way a --rm
