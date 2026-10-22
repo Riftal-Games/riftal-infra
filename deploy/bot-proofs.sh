@@ -49,17 +49,6 @@ EXPECTED_ASSERTIONS=13 FOUND=0 PASSES=0 FAILURES=0 spid=""
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
-# Every "$NODE" start after this is recorded before node runs. A record that cannot be
-# written refuses the start, so no start goes unrecorded.
-cat >"$work/node" <<SH
-#!/usr/bin/env bash
-. "$ROOT/.github/scripts/bot-proofs-finish.sh"
-record_node_start "$work/probe.js" "$work/runners" "\$@" || exit 125
-exec "$NODE" "\$@"
-SH
-chmod +x "$work/node"
-NODE="$work/node"
-
 # $1 what is claimed; $2 a condition, evaluated
 check() {
   if eval "$2"; then PASSES=$((PASSES + 1)); printf 'ok   %s\n' "$1"
@@ -148,6 +137,17 @@ if (mode === 'ping') {
   ping('127.0.0.1', Number(port), 5000).then(msg => { console.log(`PONG ${pongServerString(msg)}`); process.exit(pongServerString(msg) ? 0 : 1) })
 } else hold()
 JS
+
+# Every "$NODE" start after this is recorded before node runs. A record that cannot be
+# written refuses the start, so no start goes unrecorded.
+cat >"$work/node" <<SH
+#!/usr/bin/env bash
+. "$ROOT/.github/scripts/bot-proofs-finish.sh"
+record_node_start "$work/probe.js" "$work/runners" "\$@" || exit 125
+exec "$NODE" "\$@"
+SH
+chmod +x "$work/node"
+NODE="$work/node"
 
 PRHEAD="$(git -C "$ROOT" cat-file -p HEAD | awk '/^parent /&&++n==2{print $2}' || true)"
 printf 'run %s, pr head %s, checkout %s, runner %s, eth0 %s, expecting %s assertions\n' "$ID" "${PRHEAD:-${GITHUB_SHA:-unknown}}" "${GITHUB_SHA:-unknown}" "${RUNNER_NAME:-unknown}" "$ETH0" "$EXPECTED_ASSERTIONS"
