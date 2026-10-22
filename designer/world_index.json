@@ -2,6 +2,21 @@
   "default_world": "design",
   "locations": [
     {
+      "name": "rankup_npc_a",
+      "pitch": 0,
+      "pos": [
+        1,
+        40,
+        23
+      ],
+      "tags": [
+        "npc",
+        "rankup"
+      ],
+      "world": "mine_a",
+      "yaw": 0
+    },
+    {
       "name": "spawn",
       "pitch": 0,
       "pos": [
@@ -94,7 +109,7 @@
       "world": "mine_c"
     }
   ],
-  "updated": "2026-10-22T04:36:26+00:00",
+  "updated": "2026-10-22T05:45:27+00:00",
   "version": 1,
   "worlds": [
     {

@@ -981,3 +981,15 @@ and the refusal comes before anything reaches the bridge. A missing file counts,
 `undo`. An undo id with no entry and a path outside the snapshots directory refuse the reference,
 not a file, and keep no code. A `TypeError` or `AttributeError` from `load` is a bug and is not
 caught (#626).
+
+## 2026-10-22 The committed index carries `rankup_npc_a`, the entry the mine builder places
+
+RiftalRanks opens a rank-up at a `rankup`-tagged location with a string world and a position of
+three integers, and the dev stack's index had none. The committed entry is the one `build_mine`
+emits for `specs/mine_a.json` (`[1, 40, 23]`, the standing sign on the exit platform's last row),
+added through `WorldIndex.add_location` so the file stays sorted. It is that entry and no other
+because a level build refuses a committed entry it does not reproduce exactly (2026-09-29), and
+`test_the_rankup_location_is_what_the_mine_builder_places_and_ranks_accepts` fails when the two
+drift. The index alone does not put the sign in the dev stack's `mine_a`: that volume holds a
+generated level until the `mine_a` recipe is built into it (ADR 009, riftal-infra#319), so a
+right-click there hits whatever terrain stands at that cell until then (#1078).
