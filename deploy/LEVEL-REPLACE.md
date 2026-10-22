@@ -10,11 +10,10 @@ procedure.
 data. On the dev stack it touches `riftal-world`, which is not a throwaway volume.
 No agent runs the swap, the restore or any step that writes to `riftal-world`,
 `riftal-world-b` or any volume that is not a `riftal_smoke_` one. That ban rests on
-this document and on riftal-pm's `CLAUDE.md` hard stops (anything reaching real
-player data, and the guard). The guard reads command text and does not reliably
-catch the commands printed here: they `cd` into the worlds folder on one line,
-rename and `chown` relative names on the next, and pass the volume in a variable.
-Phrasing around a guard denial is not allowed either. The loop's part is this
+this document and on riftal-pm's `CLAUDE.md` hard stops: anything reaching real
+player data is Nasir's, and so is any command the guard denied. The guard reads
+command text only and is not the control for these steps. Never rephrase a command
+the guard denied. The loop's part is this
 document and, once they exist, the selftests.
 
 ## What exists, and what does not
