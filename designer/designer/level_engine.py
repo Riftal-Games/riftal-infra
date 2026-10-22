@@ -27,7 +27,9 @@ from designer.level import (
 )
 from designer.world_index import WorldIndex
 
+# The output volume's root is the level folder, manifest included; the work volume holds the server's whole /data.
 PREFIX = "riftal_smoke_level_"
+WORK_PREFIX = "riftal_smoke_levelbuild_"
 MANIFEST = "level-manifest.json"
 # 19140 is the designer stack's bridge, 19142 the dev stack's relay and 19143 the designer stack's, so a build runs beside all of them.
 DEFAULT_BRIDGE_PORT = 19144
@@ -100,8 +102,8 @@ class Engine:
         return info[key]
 
 
-def fresh_volume(engine: Engine, volume: str) -> None:
-    """Create ``volume`` empty, refusing with every container that mounts it before anything is removed.
+def check_unmounted(engine: Engine, volume: str) -> bool:
+    """Whether ``volume`` exists, refusing with every container that mounts it.
 
     A failed ``volume inspect`` means the volume is absent only when the engine says so; any other
     failure, a hung or missing engine for one, leaves the volume's state unknown and refuses.
@@ -117,12 +119,18 @@ def fresh_volume(engine: Engine, volume: str) -> None:
                 users.append(str(info.get("Name") or ref).lstrip("/"))
         if users:
             raise LevelError(f"volume {volume} is mounted by {', '.join(users)}; stop and remove them, then rebuild")
+    return probe.returncode == 0
+
+
+def fresh_volume(engine: Engine, volume: str) -> None:
+    """Create ``volume`` empty, refusing with every container that mounts it before anything is removed."""
+    if check_unmounted(engine, volume):
         engine("volume", "remove", volume)
     engine("volume", "create", volume)
 
 
 def run_args(zone: str, generator: str, seed: int, token: str, sources: Sources) -> list[str]:
-    name = PREFIX + zone
+    name = WORK_PREFIX + zone
     flags = f"--level-name={zone} --level-type={generator} --level-seed={seed} --xbox-auth=false --auto-report.enabled=0"
     return [
         "run", "-d", "-i", "--name", name, "-p", f"127.0.0.1:{sources.bridge_port}:19140/tcp",
@@ -195,19 +203,38 @@ def commit(runner: Runner, path: Path) -> str:
     return head.stdout.decode().strip() + ("-dirty" if status.stdout.strip() else "")
 
 
+def publish_level(engine: Engine, zone: str, work: str, output: str, tree: str) -> None:
+    """Copy the level folder from ``work`` to the root of a fresh ``output`` and fail unless its tree hash is ``tree``.
+
+    ``output`` mounts at ``/data`` because the image declares that path owned by uid 1000, and a
+    mountpoint the image lacks is created root-owned. The copy runs as that uid, so every file is
+    its own and readable by it.
+    """
+    fresh_volume(engine, output)
+    engine("run", "--rm", "-v", f"{work}:/work:ro", "-v", f"{output}:/data", stack.IMAGE, "cp", "-R", f"/work/worlds/{zone}/.", "/data/", timeout=BOOT_TIMEOUT)
+    tar = engine("run", "--rm", "-v", f"{output}:/data:ro", stack.IMAGE, "tar", "-C", "/data", "-cf", "-", ".", timeout=BOOT_TIMEOUT)
+    if (found := read_tree(tar.stdout)[0]) != tree:
+        raise LevelError(f"the tree hash of {output} is {found}, not the manifest's {tree}; a file other than the level is at its root")
+
+
 def build(
     zone: str, runtime: str, sources: Sources, *, root: Path = PROJECT_ROOT, runner: Runner = run_process,
     connect: Callable[[int, str], Bridge] | None = None, index: WorldIndex | None = None, checks_path: Path | None = None,
     mines_config: Path | None = None,
 ) -> Path:
-    """Build ``zone`` on a fresh volume and return its lock; recipe, name, index and mine gate are refused before any engine call."""
+    """Build ``zone`` on a fresh work volume, publish it to the output volume and return the lock.
+
+    Recipe, name, index and mine gate are refused before any engine call, and a mounted output
+    volume before the server boots.
+    """
     recipe = load_recipe(zone, root)
     index = WorldIndex.load() if index is None else index
     check_index(recipe, index)
     specs = checks_mod.load_checks(checks_path)
     check_mine_gate(recipe, specs, mines_config_path() if mines_config is None else mines_config, root)
     check_reset_states(recipe, root)
-    engine, name, token = Engine(runtime, runner), PREFIX + zone, secrets.token_urlsafe(24)
+    engine, name, token = Engine(runtime, runner), WORK_PREFIX + zone, secrets.token_urlsafe(24)
+    check_unmounted(engine, PREFIX + zone)
     fresh_volume(engine, name)
     engine(*run_args(zone, recipe.generator, recipe.seed, token, sources))
     state: dict[str, Any] = {"stopped": False}
@@ -231,4 +258,5 @@ def build(
     manifest = json.dumps({"content_sha256": lock["content_sha256"], "tree_sha256": state["tree"]}, indent=2, sort_keys=True) + "\n"
     # tee rather than a shell redirect, so no argument is ever parsed by a shell.
     engine("run", "--rm", "-i", "-v", f"{name}:/data", stack.IMAGE, "tee", f"/data/worlds/{zone}/{MANIFEST}", stdin=manifest.encode())
+    publish_level(engine, zone, name, PREFIX + zone, state["tree"])
     return lock_path
