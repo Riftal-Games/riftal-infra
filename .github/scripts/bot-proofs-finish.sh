@@ -4,9 +4,9 @@
 # bot-proofs-finish-selftest.sh, which drives every function here from fixture hold
 # logs and record files.
 #
-# State is read from LISTINGS, LISTINGS_CLEAN, HOLDS, RELEASED, HOLD_FAILURES and RUNNERS,
-# set by read_hold_log and read_records, and from FOUND, PASSES, FAILURES and
-# EXPECTED_ASSERTIONS, set by the harness.
+# State is read from LISTINGS, LISTINGS_CLEAN, HOLDS, RELEASED, HOLD_FAILURES and
+# RUNNERS, set by read_hold_log and read_records, and from FOUND, PASSES, FAILURES
+# and EXPECTED_ASSERTIONS, set by the harness.
 
 # $1 the probe script's path, $2 the record file, the rest the argument list of one
 # "$NODE" start. A start is recorded, one line, unless its first argument is exactly

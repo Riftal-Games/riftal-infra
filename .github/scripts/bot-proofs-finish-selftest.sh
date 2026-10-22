@@ -97,8 +97,8 @@ fi
 
 src="$(cat "$FINISH")"
 FAILURES=0 PASSES=0
-# $1 id, $2 text of bot-proofs-finish.sh to replace, $3 its replacement, $4 the ids of the
-# cases that must fail, in order, and no others
+# $1 id, $2 text of bot-proofs-finish.sh to replace, $3 its replacement, $4 the ids
+# of the cases that must fail, in order, and no others
 mutant() {
   local file="$work/mutant.$1.sh" mutated="${src/"$2"/"$3"}" got
   if [ "$mutated" = "$src" ]; then

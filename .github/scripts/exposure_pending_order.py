@@ -83,18 +83,18 @@ passes when every step is on the allowlist; no operand is judged.
 Limits: PyYAML stands in for GitHub's parser and is not compared with it. Not
 read: the contents of other jobs, whose ids are read as keys of jobs; the values
 under workflow name, on, permissions and concurrency, bar cancel-in-progress,
-and of workflow env variables; a job's name, needs, if, runs-on, timeout-minutes and permissions;
-the values of outputs keys other than exposure; if values on any step, ahead
-of the pending step or after it, and the continue-on-error value of a step
-ahead of it unless its run is PENDING_WRITE and it has an id; a script a step
-calls. A step after the pending step is read as a mapping and its id meets the
-id rules above. Only whether it has an if is read, never the value. Its keys
-are judged only when it has an if, and then its run is read and it may hold
-only name, if and run. Without an if its run, env, with and continue-on-error
-are not read, nor is what it writes to its outputs, except for the harness step
-above. What deploy/bot-proofs.sh does is not read, and the form above only
-withholds GITHUB_OUTPUT from it (riftal-infra#1240, riftal-infra#1259,
-riftal-infra#1262).
+and of workflow env variables; a job's name, needs, if, runs-on, timeout-minutes
+and permissions; the values of outputs keys other than exposure; if values on
+any step, ahead of the pending step or after it, and the continue-on-error value
+of a step ahead of it unless its run is PENDING_WRITE and it has an id; a script
+a step calls. A step after the pending step is read as a mapping and its id
+meets the id rules above. Only whether it has an if is read, never the value.
+Its keys are judged only when it has an if, and then its run is read and it may
+hold only name, if and run. Without an if its run, env, with and
+continue-on-error are not read, nor is what it writes to its outputs, except for
+the harness step above. What deploy/bot-proofs.sh does is not read, and the form
+above only withholds GITHUB_OUTPUT from it (riftal-infra#1240,
+riftal-infra#1259, riftal-infra#1262).
 """
 
 import re
