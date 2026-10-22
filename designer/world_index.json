@@ -35,9 +35,66 @@
         "safe_zone"
       ],
       "world": "lumber"
+    },
+    {
+      "max": [
+        15,
+        50,
+        15
+      ],
+      "meta": {},
+      "min": [
+        -16,
+        40,
+        -16
+      ],
+      "name": "mine_a_safe_zone",
+      "tags": [
+        "mine",
+        "safe_zone"
+      ],
+      "world": "mine_a"
+    },
+    {
+      "max": [
+        15,
+        50,
+        15
+      ],
+      "meta": {},
+      "min": [
+        -16,
+        40,
+        -16
+      ],
+      "name": "mine_b_safe_zone",
+      "tags": [
+        "mine",
+        "safe_zone"
+      ],
+      "world": "mine_b"
+    },
+    {
+      "max": [
+        15,
+        50,
+        15
+      ],
+      "meta": {},
+      "min": [
+        -16,
+        40,
+        -16
+      ],
+      "name": "mine_c_safe_zone",
+      "tags": [
+        "mine",
+        "safe_zone"
+      ],
+      "world": "mine_c"
     }
   ],
-  "updated": "2026-09-28T12:57:10+00:00",
+  "updated": "2026-10-22T04:36:26+00:00",
   "version": 1,
   "worlds": [
     {

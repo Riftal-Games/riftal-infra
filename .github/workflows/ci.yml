@@ -266,6 +266,15 @@ jobs:
       - name: bot-proofs writes exposure=pending before any step that may start a bot
         run: uv run --frozen --project designer python .github/scripts/exposure_pending_order.py
 
+      # Riots treats a world as safe once any region in it carries safe_zone, so
+      # a ranked mine without one is open PvP and a contested world with one is
+      # not contested. Standard library only; uv run supplies the interpreter.
+      - name: Self-test, prove the safe_zone region check can fail
+        run: uv run --frozen --project designer python -I .github/scripts/safe_zones_selftest.py
+
+      - name: Every ranked world has a safe_zone region and contested has none
+        run: uv run --frozen --project designer python -I .github/scripts/safe_zones.py
+
       # always() rather than failure(): a cancelled run is the case that leaks,
       # because the runner kills a self-test before its EXIT trap fires.
       - name: Remove this job's containers
