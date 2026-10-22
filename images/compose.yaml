@@ -227,6 +227,9 @@ services:
     # this skips mysql:8's own init logic and its MYSQL_ROOT_PASSWORD checks
     # entirely; only the real mysqld in the `mysql` service needs those.
     command: ["bash", "/deploy/backup-loop.sh"]
+    # Same reason as on mysql, above.
+    mem_limit: 1G
+    cpus: 1
     environment:
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"

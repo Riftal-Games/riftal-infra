@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs one scan over the real tree: `dockerfiles`, `compose` or `ports`.
+# Runs one scan over the real tree: `dockerfiles`, `compose`, `ports` or `limits`.
 #
 # The self-test drives this exact script, with no root or prune argument, the
 # same way ci.yml calls it below, so discovery, dispatch, every check_
@@ -7,7 +7,7 @@
 # copy of them.
 set -euo pipefail
 
-kind="${1:?usage: scan.sh <dockerfiles|compose|ports> [root] [prune-path]}"
+kind="${1:?usage: scan.sh <dockerfiles|compose|ports|limits> [root] [prune-path]}"
 root="${2:-.}"
 prune="${3:-$root/.github/ci-fixtures}"
 scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,6 +20,13 @@ check_compose() { docker compose -f "$1" config --quiet; }
 check_ports() {
   docker compose --profile '*' -f "$1" config --format json |
     python3 "$scripts/check_port_policy.py" "$1"
+}
+
+# Every profile for the same reason: a service behind one runs unbounded the day
+# someone enables it.
+check_limits() {
+  docker compose --profile '*' -f "$1" config --format json |
+    python3 "$scripts/check_resource_limits.py" "$1"
 }
 
 # Command substitution puts discovery's exit status under `set -e`, so a
@@ -41,7 +48,7 @@ case "$kind" in
         -o -iname '*.Dockerfile' -o -iname Containerfile \
         -o -iname 'Containerfile.*' -o -iname '*.Containerfile' \) -print0 |
       LC_ALL=C sort -z | tr '\0' '\n')" ;;
-  compose|ports) label='compose file(s)'
+  compose|ports|limits) label='compose file(s)'
     found="$(bash "${LISTER:-$scripts/list_compose.sh}" "$root" "$prune")" ;;
   *) printf 'unknown scan: %s\n' "$kind" >&2; exit 2 ;;
 esac
