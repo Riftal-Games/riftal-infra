@@ -15,11 +15,12 @@ beside it, so the rest of this folder never reaches its roster.
 it assembles its plugin roster in the container's own disposable filesystem
 and renders the config onto the volume as uid 1000. Both instances run it, and
 it otherwise does what `start-pocketmine` does: the ownership warning,
-every plugin a loader takes from the top of `./plugins`, `POCKETMINE_PLUGINS`
-from Poggit (into the roster, never `./plugins`) and `POCKETMINE_ANSI`. That
-includes a source folder holding `plugin.yml` and `src/`, which only a
+every plugin a loader takes from the top of `./plugins` and `POCKETMINE_ANSI`.
+That includes a source folder holding `plugin.yml` and `src/`, which only a
 `DevTools.phar` loads (`../../../designer/stack/README.md`); without one, it
-is copied and ignored on both instances alike. `start-pocketmine`
+is copied and ignored on both instances alike. It does not fetch from Poggit:
+a non-empty `POCKETMINE_PLUGINS` stops the boot before PocketMine starts,
+because plugins come only from the image or `./plugins`. `start-pocketmine`
 hard-codes `--plugins=/plugins`, so it cannot be reused. `selftest.sh` pins
 this script's copy of that behaviour. `check-start-sh.sh` hashes the image's
 `start-pocketmine` (core's `docker/start.sh`) and fails CI when it is not

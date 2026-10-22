@@ -17,6 +17,13 @@
 set -euo pipefail
 shopt -s nullglob
 
+# A set variable is never ignored silently: the roster comes from the image
+# and ./plugins alone, and nothing is fetched at boot.
+if [ -n "${POCKETMINE_PLUGINS:-}" ]; then
+	echo "start-instance.sh: POCKETMINE_PLUGINS is set; plugins come only from the image or ./plugins, so unset it" >&2
+	exit 1
+fi
+
 mapfile -t unowned < <(find /data /plugins ! -user pocketmine)
 if [ "${#unowned[@]}" -gt 0 ]; then
 	echo "=== WARNING ==="
@@ -42,20 +49,6 @@ fi
 for dir in /plugins/*/; do
 	if [ -e "${dir}plugin.yml" ] && [ -d "${dir}src" ]; then
 		cp -RL "${dir%/}" "$roster/"
-	fi
-done
-
-# POCKETMINE_PLUGINS is "Name[:version] ...", fetched from Poggit when not
-# already in /plugins. The download lands in the roster, not /plugins, so
-# this instance never writes into the directory instance-b loads from.
-# Split on every whitespace, newlines included, as core's unquoted expansion
-# does; read -d '' reports failure at end of input, which is expected.
-read -ra poggit -d '' <<<"${POCKETMINE_PLUGINS:-}" || true
-for plugin in "${poggit[@]}"; do
-	IFS=: read -r name version _ <<<"$plugin"
-	if [ ! -f "$roster/$name.phar" ]; then
-		echo "Installing $name:$version from Poggit"
-		wget -O "$roster/$name.phar" "https://poggit.pmmp.io/get/$name/$version"
 	fi
 done
 
