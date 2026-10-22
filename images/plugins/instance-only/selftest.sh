@@ -187,9 +187,11 @@ printf '%s\n' "\$3" >> "$root/fetched"
 : > "\$2"
 EOF
   chmod +x "$root/bin/php" "$root/bin/wget"
+  local rc=0
   env -i HOME="$work" PATH="$root/bin:$PATH" TMPDIR="$root" "$@" \
-    bash "$root/start-instance.sh" > "$root/out" 2>&1 < /dev/null \
-    && [ -s "$root/args" ]
+    bash "$root/start-instance.sh" > "$root/out" 2>&1 < /dev/null || rc=$?
+  printf '%s\n' "$rc" > "$root/status"
+  [ "$rc" -eq 0 ] && [ -s "$root/args" ]
 }
 me="$(id -u)"
 b="$work/boot"
@@ -198,9 +200,10 @@ check "POCKETMINE_ANSI=1 passes --enable-ansi" \
 check "POCKETMINE_ANSI=0, and auto off a TTY, leave ANSI off" \
   'boot "$me" POCKETMINE_ANSI=0 && ! grep -q ansi "$b/args" && boot "$me" && ! grep -q ansi "$b/args"'
 # The boot helper rewrites every /plugins in the script, the message's included,
-# so the match stops before it.
+# so the match stops before it. boot fails on any exit that leaves no php args,
+# so the refusal is pinned to the script's own status of exactly 1.
 check "a non-empty POCKETMINE_PLUGINS stops the boot before php, fetching nothing and saying where plugins come from" \
-  '! boot "$me" POCKETMINE_PLUGINS="Foo:1.2 Bar" && [ ! -e "$b/args" ] && [ ! -e "$b/fetched" ] &&
+  '! boot "$me" POCKETMINE_PLUGINS="Foo:1.2 Bar" && [ "$(cat "$b/status")" = 1 ] && [ ! -e "$b/args" ] && [ ! -e "$b/fetched" ] &&
     grep -q "POCKETMINE_PLUGINS is set; plugins come only from the image or " "$b/out"'
 check "an unset or empty POCKETMINE_PLUGINS boots, fetching nothing" \
   'boot "$me" && [ ! -e "$b/fetched" ] && boot "$me" POCKETMINE_PLUGINS= && [ ! -e "$b/fetched" ] &&
