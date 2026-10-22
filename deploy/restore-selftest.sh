@@ -79,14 +79,16 @@ exec_sql() {
 # or wrong-volume restore reads as an obviously wrong value below.
 exec_sql 'CREATE TABLE riftal_selftest.accounts (id INT PRIMARY KEY, balance INT);
           INSERT INTO riftal_selftest.accounts VALUES (1, 500);'
-# restore.sh drops the database, and its procedures and triggers with it, so
-# these exist after the restore only if backup.sh dumped them, which the
-# backup login can do only through SHOW_ROUTINE and TRIGGER.
+# restore.sh drops the database, and its procedures, triggers and views with
+# it, so these exist after the restore only if backup.sh dumped them, which the
+# backup login can do only through SHOW_ROUTINE, TRIGGER and SHOW VIEW.
 exec_sql 'CREATE PROCEDURE riftal_selftest.balance_of_1()
           SELECT balance FROM riftal_selftest.accounts WHERE id = 1'
 exec_sql 'CREATE TRIGGER riftal_selftest.accounts_no_negative BEFORE INSERT
           ON riftal_selftest.accounts FOR EACH ROW
           SET NEW.balance = GREATEST(NEW.balance, 0)'
+exec_sql 'CREATE VIEW riftal_selftest.account_balances AS
+          SELECT id, balance FROM riftal_selftest.accounts'
 docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo 17 > /world/blocks_broken_mine_a.txt' >/dev/null
 docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
@@ -94,7 +96,7 @@ docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=22
+EXPECTED_ASSERTIONS=23
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -186,6 +188,14 @@ if [ "$restored_trigger" = "accounts_no_negative" ]; then
   pass "a trigger survives a backup taken by the backup login"
 else
   fail "expected trigger accounts_no_negative after a restore from the backup login's dump, got '$restored_trigger'"
+fi
+
+restored_view="$(query riftal_selftest 'SELECT balance FROM account_balances WHERE id = 1' 2>"$LOGS"/out-view.log || true)"
+if [ "$restored_view" = "500" ]; then
+  pass "a view survives a backup taken by the backup login and still reads the restored row"
+else
+  fail "expected account_balances to return 500 after a restore from the backup login's dump, got '$restored_view'"
+  cat "$LOGS"/out-view.log
 fi
 
 restored_blocks="$(world_a 'cat /world/blocks_broken_mine_a.txt')"
@@ -323,4 +333,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures and triggers and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS.\n' "$PASSES"

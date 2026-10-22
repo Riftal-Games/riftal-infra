@@ -231,7 +231,8 @@ services:
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
       # See ../deploy/README.md, The dump login. `dump-login` creates this
-      # login from the same variable before this service may start.
+      # login from the same variable before this service may start. It is
+      # read-only apart from trigger DDL.
       MYSQL_USER: backup
       MYSQL_PASSWORD: ${RIFTAL_DB_PASSWORD_BACKUP}
       MYSQL_DATABASE: riftal_dev
