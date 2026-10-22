@@ -10,8 +10,8 @@ procedure.
 data. On the dev stack it touches `riftal-world`, which is not a throwaway volume.
 No agent runs the swap, the restore or any step that writes to `riftal-world`,
 `riftal-world-b` or any volume that is not a `riftal_smoke_` one. The guard denies
-those commands by design (`../CLAUDE.md`, hard rules), and phrasing around it is
-not allowed. The loop's part is this document and, once they exist, the selftests.
+those commands by design (riftal-pm's `CLAUDE.md`, The guard), and phrasing around
+it is not allowed. The loop's part is this document and, once they exist, the selftests.
 
 ## What exists, and what does not
 
@@ -65,7 +65,8 @@ Consequences:
 
 Commands are for the dev stack under `wslc`, with the variables set as in
 `README.md`, Running it locally. Wrap each in `timeout 120`. Under the Docker in
-the WSL distro, run them there with `--exec` (`../CLAUDE.md`).
+the WSL distro, run them there with `--exec` (riftal-pm's `CLAUDE.md`, Known setup
+gaps).
 
 ```sh
 export MSYS_NO_PATHCONV=1
@@ -114,7 +115,8 @@ wslc run --rm --network riftal-dev \
 The backup counts as verified only when all of these hold. Record the set
 directory; it is the rollback.
 
-- The log ends `backup <ts>: complete at <set>`. Any other ending left no set.
+- Success is the log line `backup <ts>: complete at <set>`, as in `ROLLOUT.md`.
+  Retention lines follow it. Without that line no set was left.
 - `<set>/manifest.txt` lists the volume that holds the zone, and `<set>/mysql.sql`
   is non-empty. `restore.sh` rebuilds only the volumes the set holds.
 - Every tar lists cleanly, which is the check `restore.sh` makes before it touches
@@ -183,11 +185,13 @@ hashes:
 ```sh
 wslc run --rm -v "$VOL":/data:ro -v "$SRC":/src:ro -e ZONE="$ZONE" mysql:8 bash -c '
   set -euo pipefail
-  tree() { (cd "$1" && find . -type f -print0 | sort -z | xargs -0 sha256sum); }
-  diff <(tree "/src/worlds/$ZONE") <(tree "/data/worlds/$ZONE") && echo "tree identical"'
+  tree() { (cd "$1" && find . -type f -exec sha256sum {} + | sort -k2); }
+  [ "$(tree "/src/worlds/$ZONE")" = "$(tree "/data/worlds/$ZONE")" ] && echo "tree identical"'
 ```
 
-It must print `tree identical`. This is a plain file comparison. It is not the
+It must print `tree identical`. The step uses only `find`, `sha256sum` and `sort`,
+the tools `wipe-volumes-selftest.sh:72` already runs in `mysql:8`. This is a plain
+file comparison. It is not the
 manifest's own tree hash, whose algorithm riftal-infra#347 defines.
 
 b. **The seeded `content_sha256` equals the committed lock's.** Read both and
@@ -200,8 +204,8 @@ wslc run --rm -v "$VOL":/data:ro -e ZONE="$ZONE" mysql:8 \
 ```
 
 The two 64-hex values must be equal. Different, or the manifest absent, is a
-failure. A volume without a manifest was not fully built
-(`../designer/levels/README.md`).
+failure. A volume without a manifest was not fully built (ADR 009 item 4,
+riftal-infra#347).
 
 The seed step logs the `content_sha256` it seeded (ADR 009 item 5), but only when
 it copies an absent folder. A swap is not a seed, so no boot line carries the value
@@ -283,7 +287,8 @@ and players may have changed it. Choose with Nasir:
   This is hand `tar`. No script on `main` restores one level, and `restore.sh`
   does not.
 - *Whole set.* `restore.sh` with `BACKUP_SET` the step 2 set, exactly as
-  `README.md`, Restore. It drops and recreates the database and clears every
+  `README.md`, Running it locally (`## Restore` describes it and holds no
+  command). It drops and recreates the database and clears every
   world volume before extracting, so it discards everything written to the
   database and every volume since step 2, and it clears the `.replaced-` and
   `.rejected-` folders with the rest. Stop every instance and the `backup` service
