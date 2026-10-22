@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from designer import stack
 
@@ -69,15 +70,72 @@ def test_load_service_expands_overrides_and_rejects_a_missing_service(tmp_path: 
 
 def test_the_real_compose_file_keeps_its_security_and_bot_defaults() -> None:
     default = stack.load_service(env={})
+    assert [p for p in default.ports if p.endswith("/udp")] == ["127.0.0.1:19134:19132/udp"]
     assert [p for p in default.ports if "19140" in p] == ["127.0.0.1:19140:19140/tcp"]
     assert default.volumes[0] == "designer-world:/data"
     assert default.environment["RIFTAL_DEV_ENV"] == "1"
     args = default.environment["POCKETMINE_ARGS"].split()
     assert "--riftal-dev-bots=off" in args and "--xbox-auth=false" in args
+    # PocketMine casts the value with (bool), so "false" enables crash uploads.
+    assert [a for a in args if a.startswith("--auto-report.enabled")] == ["--auto-report.enabled=0"]
 
-    overridden = stack.load_service(env={"DESIGNER_GAME_BIND": "192.168.0.10", "DESIGNER_VOLUME": "riftal_smoke_x"})
-    assert [p for p in overridden.ports if "19140" in p] == ["127.0.0.1:19140:19140/tcp"]
+    overridden = stack.load_service(env={"DESIGNER_VOLUME": "riftal_smoke_x"})
     assert overridden.volumes[0] == "riftal_smoke_x:/data"
+
+
+def assert_only_loopback_is_reachable(compose: Path) -> None:
+    # The server runs with xbox-auth off, so no variable may move a publish off
+    # loopback (ADR 010, riftal-pm#491). Interpolating with a chosen environment
+    # only catches the variable names it sets, so the file is read uninterpolated.
+    raw = yaml.safe_load(compose.read_text(encoding="utf-8"))
+    for name, service in raw["services"].items():
+        # Host networking binds every host interface without a single ports
+        # entry, and a variable here could select it.
+        mode = service.get("network_mode")
+        assert mode is None or (mode != "host" and "$" not in str(mode)), f"service {name!r} sets network_mode {mode!r}"
+    ports = [port for service in raw["services"].values() for port in service.get("ports", [])]
+    assert ports
+    for port in ports:
+        host = port.get("host_ip") if isinstance(port, dict) else str(port).partition(":")[0]
+        assert host == "127.0.0.1", f"publish {port!r} does not bind the literal 127.0.0.1"
+
+
+def test_every_publish_in_the_real_compose_file_names_loopback_literally() -> None:
+    assert_only_loopback_is_reachable(stack.COMPOSE_FILE)
+
+
+LOOPBACK_TEXT = """
+services:
+  designer:
+    image: local-pocketmine-mp
+    ports:
+      - "{publish}:19132/udp"
+  helper:
+    image: local-pocketmine-mp
+{helper}"""
+
+
+@pytest.mark.parametrize(
+    ("publish", "helper", "match"),
+    [
+        ("${DESIGNER_HOST:-127.0.0.1}:19134", "", "does not bind the literal 127.0.0.1"),
+        ("0.0.0.0:19134", "", "does not bind the literal 127.0.0.1"),
+        ("127.0.0.1:19134", "    network_mode: host\n", "network_mode 'host'"),
+        ("127.0.0.1:19134", "    network_mode: ${DESIGNER_NET:-bridge}\n", "network_mode"),
+    ],
+)
+def test_the_loopback_check_refuses_a_movable_host_and_host_networking(tmp_path: Path, publish: str, helper: str, match: str) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text(LOOPBACK_TEXT.format(publish=publish, helper=helper), encoding="utf-8")
+    with pytest.raises(AssertionError, match=match):
+        assert_only_loopback_is_reachable(compose)
+
+
+@pytest.mark.parametrize("helper", ["", "    network_mode: bridge\n", "    network_mode: none\n"])
+def test_the_loopback_check_accepts_a_literal_loopback_publish(tmp_path: Path, helper: str) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text(LOOPBACK_TEXT.format(publish="127.0.0.1:19134", helper=helper), encoding="utf-8")
+    assert_only_loopback_is_reachable(compose)
 
 
 VOLUMES_TEXT = """

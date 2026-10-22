@@ -1,10 +1,14 @@
+import json
 from pathlib import Path
 
 import pytest
 
+from designer.blocks import AIR
 from designer.bridge import Bridge
+from designer.builders.mine_spec import MineSpec
 from designer.checks import CheckSpec, Fetch, RunContext, check_world, load_checks, plan_fetches, run_checks, run_one, write_report
-from designer.region import Bounds
+from designer.config import PROJECT_ROOT
+from designer.region import Bounds, Region
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 from tests.fake_bridge import FakeBridge, FakeWorld
 
@@ -57,6 +61,61 @@ def test_load_keeps_zone_out_of_args_and_the_id(tmp_path: Path) -> None:
         _checks(tmp_path, "version: 1\nchecks:\n  - check: warp_safe\n    zone: Lumber\n    at: void\n")
 
 
+@pytest.mark.parametrize("kind, entry, unknown", [
+    ("no_holes", "region: r\n    floor_y: 65\n    insett: 1", "insett"),
+    ("path_exists", "from: a\n    to: b\n    max_dorp: 2", "max_dorp"),
+    ("no_holes", "region: r\n    floor_y: 65\n    kind: sky", "kind"),
+    ("warp_safe", "at: void\n    margin: 4", "margin"),
+])
+def test_load_refuses_a_key_its_kind_does_not_read(tmp_path: Path, kind: str, entry: str, unknown: str) -> None:
+    with pytest.raises(ValueError, match=rf"check 0 \({kind}\) has unknown keys \['{unknown}'\]; it reads \["):
+        _checks(tmp_path, f"version: 1\nchecks:\n  - check: {kind}\n    {entry}\n")
+
+
+def test_load_refuses_an_unknown_top_level_key(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"has unknown top-level keys \['default'\]; it reads \['version', 'defaults', 'checks'\]"):
+        _checks(tmp_path, "version: 1\ndefault:\n  corridor_margin: 4\nchecks: []\n")
+
+
+def test_load_refuses_a_top_level_that_is_not_a_mapping(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"must be a mapping with keys"):
+        _checks(tmp_path, "- version: 1\n")
+
+
+def test_load_refuses_an_unknown_default(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"defaults has unknown keys \['corridor_margn'\]; checks read "
+                                         r"\['corridor_margin', 'max_seconds', 'walk_speed'\]"):
+        _checks(tmp_path, "version: 1\ndefaults:\n  corridor_margn: 4\nchecks:\n  - check: path_exists\n    from: a\n    to: b\n")
+
+
+def test_load_refuses_defaults_that_are_not_a_mapping(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"defaults must be a mapping"):
+        _checks(tmp_path, "version: 1\ndefaults: [corridor_margin]\nchecks: []\n")
+
+
+def test_load_accepts_every_default_a_check_reads(tmp_path: Path) -> None:
+    (travel,) = _checks(tmp_path, "version: 1\ndefaults:\n  corridor_margin: 2\n  walk_speed: 3\n  max_seconds: 5\n"
+                                  "checks:\n  - check: travel_time\n    from: a\n    to: b\n")
+    assert travel.args == {"from": "a", "to": "b", "margin": 2, "speed": 3, "max_seconds": 5}
+
+
+# Written out by hand, not derived from KINDS, so dropping a key from any kind's list refuses its entry here.
+@pytest.mark.parametrize("kind, args", [
+    ("path_exists", {"from": "a", "to": "b", "margin": 2, "max_drop": 2}),
+    ("travel_time", {"from": "a", "to": "b", "margin": 2, "speed": 3, "max_seconds": 5, "max_drop": 2}),
+    ("warp_safe", {"at": "a"}),
+    ("entity_clear", {"at": "a"}),
+    ("region_inside", {"inner": "r", "outer": "s"}),
+    ("light_ok", {"region": "r", "min_level": 8, "kind": "sky"}),
+    ("no_holes", {"region": "r", "floor_y": 65, "inset": 1}),
+    ("mine_valid", {"region": "r", "spec": "m"}),
+])
+def test_load_accepts_every_key_a_runner_reads(tmp_path: Path, kind: str, args: dict[str, object]) -> None:
+    entry = "".join(f"\n    {k}: {v}" for k, v in args.items())
+    (spec,) = _checks(tmp_path, f"version: 1\nchecks:\n  - check: {kind}{entry}\n")
+    assert spec.args == args
+
+
 def test_plan_unions_a_world_and_separates_another(tmp_path: Path) -> None:
     index = _index(tmp_path)
     plan = plan_fetches([
@@ -97,6 +156,24 @@ def test_missing_mine_spec_file_fails_the_check(tmp_path: Path) -> None:
     spec = CheckSpec("m", "mine_valid", {"region": "box", "spec": "specs/nope.json"})
     result = run_one(RunContext({}), _index(tmp_path), spec)
     assert not result.ok and result.detail.endswith("nope.json does not exist")
+
+
+# The interior is all quartz_ore, a block with no reset state, so only the crafted key could have
+# let mine_valid count it as named.
+def test_a_checks_file_mine_valid_refuses_a_spec_key_spelling_the_not_reset_marker(tmp_path: Path) -> None:
+    raw = json.loads((PROJECT_ROOT / "specs" / "lumber.json").read_text(encoding="utf-8"))
+    crafted = {**raw, "world": "mine_a", "ores": {"minecraft:quartz_ore": 1.0, "minecraft:quartz_ore (not its reset state)": 99.0}}
+    spec_file = tmp_path / "crafted.json"
+    spec_file.write_text(json.dumps(crafted), encoding="utf-8")
+    geo = MineSpec.from_dict({**crafted, "ores": {"minecraft:stone": 1.0}}).geometry()
+    region = Region.empty("mine_a", geo.padding.union(geo.exit_platform))
+    region.fill(geo.outer, "minecraft:stone")
+    region.fill(geo.interior, "minecraft:quartz_ore")
+    region.fill(geo.entrance, AIR)
+    region.fill(geo.exit_platform, "minecraft:stone")
+    (check,) = _checks(tmp_path, f"version: 1\nchecks:\n  - check: mine_valid\n    region: box\n    spec: {json.dumps(str(spec_file))}\n")
+    result = run_one(RunContext({"mine_a": region}), _index(tmp_path), check)
+    assert not result.ok and "which is not a block id" in result.detail, result.detail
 
 
 def test_no_holes_fails_a_fractional_floor_y_instead_of_truncating_it(fake: FakeBridge, bridge: Bridge, tmp_path: Path) -> None:

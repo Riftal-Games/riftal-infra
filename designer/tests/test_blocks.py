@@ -87,7 +87,6 @@ def test_mangrove_roots_are_solid_and_hanging_roots_passable() -> None:
     "minecraft:carrots[growth=0]",
     "minecraft:potatoes[growth=0]",
     "minecraft:beetroot[growth=0]",
-    "minecraft:pitcher_crop[growth=0,upper_block_bit=false]",
     "minecraft:melon_stem[facing_direction=0,growth=0]",
     "minecraft:pumpkin_stem[facing_direction=0,growth=0]",
     "minecraft:nether_wart[age=0]",
@@ -147,7 +146,6 @@ def test_bridge_names_with_collision_are_solid(name: str) -> None:
     ("dead_bush", BlockClass.PASSABLE),
     ("light_block", BlockClass.PASSABLE),
     ("light_block_7", BlockClass.PASSABLE),
-    ("tripwire_hook", BlockClass.PASSABLE),
     ("small_dripleaf", BlockClass.PASSABLE),
     ("crimson_stem", BlockClass.SOLID),
     ("light_blue_wool", BlockClass.SOLID),
@@ -155,6 +153,156 @@ def test_bridge_names_with_collision_are_solid(name: str) -> None:
 ])
 def test_alias_and_prefix_names(name: str, cls: BlockClass) -> None:
     assert classify(name) is cls
+
+
+# Names from pmmp-core's generated BlockTypeNames.php and the flattened ids in
+# VanillaBlockMappings.php, not from a live get_region read. Each has no
+# collision box, in the core (BaseCoral.php:73, CaveVines.php:137,
+# ItemFrame.php via Flowable.php:48, NetherPortal.php:64) or, for the five the
+# core does not implement, in vanilla Bedrock.
+@pytest.mark.parametrize("name", [
+    "minecraft:frame[facing_direction=0,item_frame_map_bit=false,item_frame_photo_bit=false]",
+    "minecraft:glow_frame[facing_direction=0,item_frame_map_bit=false,item_frame_photo_bit=false]",
+    "minecraft:portal[portal_axis=x]",
+    "minecraft:cave_vines[growing_plant_age=0]",
+    "minecraft:cave_vines_body_with_berries[growing_plant_age=0]",
+    "minecraft:cave_vines_head_with_berries[growing_plant_age=0]",
+    "minecraft:tube_coral",
+    "minecraft:dead_brain_coral",
+    "minecraft:fire_coral_fan[coral_fan_direction=0]",
+    "minecraft:dead_horn_coral_fan[coral_fan_direction=0]",
+    "minecraft:bubble_coral_wall_fan[coral_direction=0]",
+    "minecraft:dead_tube_coral_wall_fan[coral_direction=0]",
+    "minecraft:mangrove_propagule",
+    "minecraft:open_eyeblossom",
+    "minecraft:closed_eyeblossom",
+    "minecraft:wildflowers",
+    "minecraft:leaf_litter",
+])
+def test_core_names_without_collision_are_passable(name: str) -> None:
+    assert classify(name) is BlockClass.PASSABLE
+
+
+# A player stands on these but cannot share a cell with them: a flower pot's
+# box is 3/8 tall (FlowerPot.php:86), so as headroom it blocks the hitbox.
+@pytest.mark.parametrize("name", [
+    "minecraft:flower_pot[update_bit=false]",
+    "minecraft:tube_coral_block",
+    "minecraft:dead_fire_coral_block",
+    "minecraft:end_portal_frame[end_portal_eye_bit=false,minecraft:cardinal_direction=north]",
+])
+def test_core_names_with_collision_are_solid(name: str) -> None:
+    assert classify(name) is BlockClass.SOLID
+
+
+# BlockTypeNames.php:572 names it, but the core implements only the frame. In
+# vanilla Bedrock the portal has no collision box and sends whoever enters it
+# to the End at once.
+@pytest.mark.parametrize("name", ["end_portal", "minecraft:end_portal"])
+def test_end_portal_is_danger(name: str) -> None:
+    assert classify(name) is BlockClass.DANGER
+
+
+# ``height`` is layers minus one (VanillaBlockMappings.php:1502) and the box is
+# ``height`` eighths tall (SnowLayer.php:69). A 1.8-tall hitbox in a two-cell
+# space leaves 0.2 of a block, so from height 2 (0.25) the snow is SOLID.
+@pytest.mark.parametrize("name, cls", [
+    ("snow_layer", BlockClass.PASSABLE),
+    ("minecraft:snow_layer[covered_bit=false,height=0]", BlockClass.PASSABLE),
+    ("minecraft:snow_layer[covered_bit=false,height=1]", BlockClass.PASSABLE),
+    ("minecraft:snow_layer[covered_bit=false,height=2]", BlockClass.SOLID),
+    ("minecraft:snow_layer[covered_bit=false,height=3]", BlockClass.SOLID),
+    ("minecraft:snow_layer[covered_bit=false,height=4]", BlockClass.SOLID),
+    ("minecraft:snow_layer[covered_bit=false,height=5]", BlockClass.SOLID),
+    ("minecraft:snow_layer[covered_bit=false,height=7]", BlockClass.SOLID),
+])
+def test_snow_layer_class_follows_its_height(name: str, cls: BlockClass) -> None:
+    assert classify(name) is cls
+
+
+
+# ``growth`` 0-2 is the one-block crop, 3/16 tall at 0 and 5/16 after
+# (PitcherCrop.php:54); from 3 it is the double crop, whose lower half is 5/16
+# (DoublePitcherCrop.php:61) and upper half has no box (:54). 5/16 is past the
+# same 0.2 headroom that makes snow of height 2 SOLID.
+@pytest.mark.parametrize("name, cls", [
+    ("pitcher_crop", BlockClass.PASSABLE),
+    ("minecraft:pitcher_crop[growth=0,upper_block_bit=false]", BlockClass.PASSABLE),
+    ("minecraft:pitcher_crop[growth=1,upper_block_bit=false]", BlockClass.SOLID),
+    ("minecraft:pitcher_crop[growth=2,upper_block_bit=false]", BlockClass.SOLID),
+    ("minecraft:pitcher_crop[growth=4,upper_block_bit=false]", BlockClass.SOLID),
+    ("minecraft:pitcher_crop[growth=4,upper_block_bit=true]", BlockClass.PASSABLE),
+])
+def test_pitcher_crop_class_follows_its_growth_and_half(name: str, cls: BlockClass) -> None:
+    assert classify(name) is cls
+
+
+# An open gate has no box (FenceGate.php:70); a closed one, or one with no
+# states, keeps its 1.5-tall box. Oak's Bedrock id is the bare ``fence_gate``.
+@pytest.mark.parametrize("name, cls", [
+    ("minecraft:fence_gate[direction=0,in_wall_bit=false,open_bit=true]", BlockClass.PASSABLE),
+    ("minecraft:spruce_fence_gate[open_bit=true]", BlockClass.PASSABLE),
+    ("minecraft:fence_gate[direction=0,in_wall_bit=false,open_bit=false]", BlockClass.SOLID),
+    ("minecraft:crimson_fence_gate[open_bit=false]", BlockClass.SOLID),
+    ("fence_gate", BlockClass.SOLID),
+])
+def test_fence_gate_class_follows_open_bit(name: str, cls: BlockClass) -> None:
+    assert classify(name) is cls
+
+
+@pytest.mark.parametrize("name", [
+    "minecraft:snow_layer[covered_bit=false,height=abc]",
+    "minecraft:snow_layer[covered_bit=false,height=2.5]",
+    "minecraft:snow_layer[covered_bit=false,height=]",
+    "minecraft:pitcher_crop[growth=x,upper_block_bit=false]",
+])
+def test_a_non_integer_state_classifies_solid(name: str) -> None:
+    assert classify(name) is BlockClass.SOLID
+
+
+def test_a_non_integer_state_does_not_fail_the_region_lut() -> None:
+    lut = class_lut([AIR, "minecraft:snow_layer[height=abc]", "minecraft:snow_layer[height=0]"])
+    assert lut.tolist() == [BlockClass.AIR, BlockClass.SOLID, BlockClass.PASSABLE]
+
+
+@pytest.fixture
+def fresh_warnings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("designer.blocks._WARNED", set())
+
+
+@pytest.mark.usefixtures("fresh_warnings")
+def test_class_lut_warns_once_per_distinct_malformed_entry(caplog: pytest.LogCaptureFixture) -> None:
+    snow = "minecraft:snow_layer[height=abc]"
+    crop = "minecraft:pitcher_crop[growth=x,upper_block_bit=false]"
+    with caplog.at_level("WARNING", logger="designer.blocks"):
+        lut = class_lut([AIR, snow, "minecraft:snow_layer[height=0]", snow, crop])
+    assert lut.tolist() == [BlockClass.AIR, BlockClass.SOLID, BlockClass.PASSABLE, BlockClass.SOLID, BlockClass.SOLID]
+    warned = [r.getMessage() for r in caplog.records if r.name == "designer.blocks"]
+    assert len(warned) == 2
+    assert snow in warned[0] and "height='abc'" in warned[0]
+    assert crop in warned[1] and "growth='x'" in warned[1]
+
+
+@pytest.mark.usefixtures("fresh_warnings")
+def test_class_lut_does_not_warn_again_for_an_entry_a_later_call_repeats(caplog: pytest.LogCaptureFixture) -> None:
+    snow = "minecraft:snow_layer[height=abc]"
+    with caplog.at_level("WARNING", logger="designer.blocks"):
+        class_lut([AIR, snow])
+        class_lut([snow, AIR])
+        class_lut(["minecraft:snow_layer[height=xyz]"])
+    warned = [r.getMessage() for r in caplog.records if r.name == "designer.blocks"]
+    assert len(warned) == 2 and snow in warned[0] and "height=xyz" in warned[1]
+
+
+def test_class_lut_is_silent_on_well_formed_states(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING", logger="designer.blocks"):
+        class_lut([AIR, "minecraft:snow_layer[height=3]", "minecraft:pitcher_crop[growth=4]"])
+    assert not [r for r in caplog.records if r.name == "designer.blocks"]
+
+
+def test_register_rule_front_beats_the_snow_height_rule(rules: list) -> None:
+    register_rule("exact", "snow_layer", BlockClass.DANGER)
+    assert classify("snow_layer[height=7]") is BlockClass.DANGER
 
 
 def test_bridge_liquid_and_danger_names() -> None:

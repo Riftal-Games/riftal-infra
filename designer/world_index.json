@@ -2,12 +2,42 @@
   "default_world": "design",
   "locations": [
     {
+      "name": "rankup_npc_a",
+      "pitch": 0,
+      "pos": [
+        1,
+        40,
+        23
+      ],
+      "tags": [
+        "npc",
+        "rankup"
+      ],
+      "world": "mine_a",
+      "yaw": 0
+    },
+    {
+      "name": "sell_npc_a",
+      "pitch": 0,
+      "pos": [
+        -1,
+        40,
+        23
+      ],
+      "tags": [
+        "npc",
+        "sell"
+      ],
+      "world": "mine_a",
+      "yaw": 0
+    },
+    {
       "name": "spawn",
       "pitch": 0,
       "pos": [
-        0,
-        64,
-        0
+        256,
+        70,
+        256
       ],
       "tags": [
         "spawn"
@@ -35,9 +65,66 @@
         "safe_zone"
       ],
       "world": "lumber"
+    },
+    {
+      "max": [
+        15,
+        50,
+        15
+      ],
+      "meta": {},
+      "min": [
+        -16,
+        40,
+        -16
+      ],
+      "name": "mine_a_safe_zone",
+      "tags": [
+        "mine",
+        "safe_zone"
+      ],
+      "world": "mine_a"
+    },
+    {
+      "max": [
+        15,
+        50,
+        15
+      ],
+      "meta": {},
+      "min": [
+        -16,
+        40,
+        -16
+      ],
+      "name": "mine_b_safe_zone",
+      "tags": [
+        "mine",
+        "safe_zone"
+      ],
+      "world": "mine_b"
+    },
+    {
+      "max": [
+        15,
+        50,
+        15
+      ],
+      "meta": {},
+      "min": [
+        -16,
+        40,
+        -16
+      ],
+      "name": "mine_c_safe_zone",
+      "tags": [
+        "mine",
+        "safe_zone"
+      ],
+      "world": "mine_c"
     }
   ],
-  "updated": "2026-09-28T12:57:10+00:00",
+  "updated": "2026-10-22T06:47:55+00:00",
   "version": 1,
   "worlds": [
     {

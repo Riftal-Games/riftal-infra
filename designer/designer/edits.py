@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import reduce
@@ -15,8 +16,18 @@ from designer.region import MAX_EDGE, Bounds, Region
 
 # The bridge's ``max_set_blocks``; a bigger batch is refused before it is sent.
 MAX_SET_BLOCKS = 65536
+# The bridge's ``max_line_bytes``: a longer request line is answered BAD_REQUEST and its connection closed.
+MAX_LINE_BYTES = 1 << 20
+# What a line holds beyond the op's args: the request id, the op name and the token.
+# 4096 is room for a token of a few kilobytes.
+LINE_BUDGET = MAX_LINE_BYTES - 4096
 DEFAULT_BATCH = 4096
 COALESCE_RUN = 8
+
+
+def _wire_bytes(value: Any) -> int:
+    """Length of ``value`` as ``Bridge`` encodes it on the line."""
+    return len(json.dumps(value, separators=(",", ":")))
 
 
 def _canonical(name: str) -> str:
@@ -142,7 +153,7 @@ class ApplyResult:
     ok: bool
     jobs: list[dict[str, Any]] = field(default_factory=list)
     blocks: int = 0
-    errors: list[BridgeError] = field(default_factory=list)
+    errors: list[Exception] = field(default_factory=list)
     before_result: Any = None
 
 
@@ -199,24 +210,42 @@ class EditList:
     def requests(self, batch: int = DEFAULT_BATCH) -> list[tuple[str, dict[str, Any], int]]:
         """What ``apply`` sends, in order, as ``(op, args, blocks)``.
 
-        ``SetBlock``s pack into ``set_blocks`` of at most ``batch``; a ``Fill``
-        or ``Replace`` is one request per ``MAX_EDGE`` tile; a ``Text`` is one.
+        ``SetBlock``s pack into ``set_blocks`` of at most ``batch`` and at most
+        ``LINE_BUDGET`` bytes of args; a ``Fill`` or ``Replace`` is one request
+        per ``MAX_EDGE`` tile; a ``Text`` is one. A request, or a lone
+        ``SetBlock``, too long for one line is refused here, before ``apply``
+        sends anything.
         """
         if not 1 <= batch <= MAX_SET_BLOCKS:
             raise ValueError(f"batch must be between 1 and {MAX_SET_BLOCKS}, got {batch}")
         out: list[tuple[str, dict[str, Any], int]] = []
         pending: list[list[Any]] = []
+        empty = _wire_bytes({"world": self.world, "blocks": []})
+        size = empty
         for op in self.ops + [None]:
             if isinstance(op, SetBlock):
-                pending.append([op.x, op.y, op.z, op.block])
-            if pending and (len(pending) == batch or not isinstance(op, SetBlock)):
+                entry = [op.x, op.y, op.z, op.block]
+                # One more for the comma that separates it from the entry before.
+                cost = _wire_bytes(entry) + 1
+                if empty + cost > LINE_BUDGET:
+                    raise ValueError(f"a set_blocks entry of {cost} bytes does not fit max_line_bytes ({MAX_LINE_BYTES})")
+                if pending and (len(pending) == batch or size + cost > LINE_BUDGET):
+                    out.append(("set_blocks", {"world": self.world, "blocks": pending}, len(pending)))
+                    pending, size = [], empty
+                pending.append(entry)
+                size += cost
+                continue
+            if pending:
                 out.append(("set_blocks", {"world": self.world, "blocks": pending}, len(pending)))
-                pending = []
-            for piece in [] if op is None or isinstance(op, SetBlock) else _tiled(op):
+                pending, size = [], empty
+            for piece in [] if op is None else _tiled(op):
                 # The JSON form of a fill, replace or text op is its wire args, minus an unset text id.
                 args = {"world": self.world, **piece.to_json()}
                 kind = args.pop("op")
-                out.append(("set_text" if kind == "text" else kind, {k: v for k, v in args.items() if v is not None}, piece.blocks))
+                args = {k: v for k, v in args.items() if v is not None}
+                if (length := _wire_bytes(args)) > LINE_BUDGET:
+                    raise ValueError(f"a {kind} op of {length} bytes does not fit max_line_bytes ({MAX_LINE_BYTES})")
+                out.append(("set_text" if kind == "text" else kind, args, piece.blocks))
         return out
 
     def apply(

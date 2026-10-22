@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -6,10 +7,15 @@ import pytest
 from PIL import Image
 
 from designer import stack as stack_mod
+from designer.bridge import Bridge
+from designer.builders import BUILDERS
 from designer.cli import main
+from designer.edits import EditList
 from designer.render import LEGEND_LINE
+from designer.snapshot import UndoStack
+from designer.verify import Check
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
-from tests.conftest import REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
+from tests.conftest import ARENA, REFUSED_BUILDS, SMALL_MINE_NAMES, SMALL_MINE_SPEC, SMALL_ROAD_SPEC, STONE_PALETTES
 from tests.fake_bridge import FakeBridge
 
 
@@ -19,6 +25,14 @@ def _checks_index(tmp_path: Path) -> Path:
     index.add_location(Location("b", "design", (20, 64, 20)))
     index.add_location(Location("void", "design", (-40, 64, -40)))
     return index.save(tmp_path / "index.json")
+
+
+@pytest.fixture
+def origin_spawn(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # FakeWorld's terrain starts at the origin, so a spawn there straddles its edge.
+    index = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")])
+    index.add_location(Location("spawn", "design", (0, 64, 0), tags=["spawn"]))
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index.save(tmp_path / "index.json"))
 
 
 def test_version_prints_name_and_version(capsys: pytest.CaptureFixture[str]) -> None:
@@ -46,14 +60,45 @@ def test_ping_and_info_use_the_configured_bridge(
     assert json.loads(capsys.readouterr().out)["designer"] is True
 
 
+# Distinctive enough that no error text contains it unless the CLI leaks the token.
+SENTINEL_TOKEN = "sentinel-token-7f3a"
+
+
+@pytest.mark.parametrize(("env", "error"), [
+    ({}, "designer: DESIGNER_TOKEN is not set."),
+    (
+        {"DESIGNER_TOKEN": SENTINEL_TOKEN, "DESIGNER_PORT": "port"},
+        "designer: DESIGNER_PORT must be an integer, got 'port'.",
+    ),
+    ({"DESIGNER_TOKEN": SENTINEL_TOKEN}, "designer: ping failed with AUTH: bad token"),
+], ids=["missing-token", "bad-port", "bridge-refuses-token"])
+def test_a_config_or_bridge_error_prints_one_line_and_exits_one(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path,
+    env: dict[str, str], error: str,
+) -> None:
+    monkeypatch.setattr("designer.config.ENV_FILE", tmp_path / ".env")
+    monkeypatch.delenv("DESIGNER_TOKEN", raising=False)
+    monkeypatch.setenv("DESIGNER_HOST", "127.0.0.1")
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    assert main(["ping"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(error)
+    assert captured.err.count("\n") == 1
+    assert SENTINEL_TOKEN not in captured.err
+
+
 def test_index_commands_need_no_bridge(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["index", "list"]) == 0
     listing = json.loads(capsys.readouterr().out)
     assert set(listing) == {"worlds", "locations", "regions"} and len(listing["worlds"]) == 9
     assert main(["index", "list", "--tag", "spawn"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"locations": listing["locations"], "regions": []}
+    assert json.loads(capsys.readouterr().out) == {"locations": [l for l in listing["locations"] if "spawn" in l["tags"]], "regions": []}
     assert main(["index", "resolve", "spawn"]) == 0
-    assert json.loads(capsys.readouterr().out)["pos"] == [0, 64, 0]
+    assert json.loads(capsys.readouterr().out)["pos"] == [256, 70, 256]
     assert main(["index", "resolve", "spwan"]) == 1 and "did you mean 'spawn'" in capsys.readouterr().err
 
 
@@ -95,6 +140,7 @@ def test_every_command_reports_a_missing_index_in_one_line(
     assert fake.requests == []
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_heightmap_prints_the_map_with_header_and_legend(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -127,6 +173,7 @@ def test_heightmap_spawn_falls_back_to_the_tag_and_bad_refs_exit_one(
     assert capsys.readouterr().err.startswith("designer: no such name 'spawn'")
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_render_topdown_writes_the_png_and_prints_its_path_and_summary(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
@@ -140,6 +187,7 @@ def test_render_topdown_writes_the_png_and_prints_its_path_and_summary(
     assert lines[1] == "size=32x32 columns=256 min=63 max=63 mean=63.0 water=0.0 flat=1.0"
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_render_isometric_writes_the_png_and_prints_its_path_and_summary(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
@@ -154,6 +202,7 @@ def test_render_isometric_writes_the_png_and_prints_its_path_and_summary(
     assert lines[1] == "size=8x8 columns=16 min=63 max=63 mean=63.0 water=0.0 flat=1.0"
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_render_slice_writes_the_png_and_prints_its_path_and_block_counts(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
@@ -167,6 +216,7 @@ def test_render_slice_writes_the_png_and_prints_its_path_and_block_counts(
     assert fake.requests[-1]["args"]["bounds"] == {"min": [-2, 63, -2], "max": [1, 64, 1]}
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_terrain_analyze_prints_stats_for_the_flat_area(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -182,6 +232,7 @@ def test_terrain_analyze_prints_stats_for_the_flat_area(
     }
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_terrain_find_site_ranks_by_the_near_flag(fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
@@ -194,6 +245,7 @@ def test_terrain_find_site_ranks_by_the_near_flag(fake: FakeBridge, monkeypatch:
     assert len(sites) == 1 and sites[0]["height"] == 63 and sites[0]["score"] == 0.0
 
 
+@pytest.mark.usefixtures("origin_spawn")
 def test_terrain_terraform_defaults_to_a_dry_run_and_apply_sends_it(
     fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -210,6 +262,55 @@ def test_terrain_terraform_defaults_to_a_dry_run_and_apply_sends_it(
     assert Path(applied["snapshot"]).is_file() and "fill" in [r["op"] for r in fake.requests]
 
 
+@pytest.mark.usefixtures("origin_spawn")
+def test_terrain_terraform_apply_pushes_an_undo_entry_that_restores_the_ground(
+    fake: FakeBridge, bridge: Bridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    args = ["terrain", "terraform", "--at", "spawn", "--size", "4", "--mode", "flatten", "--level", "70", "--apply"]
+
+    assert main(args) == 0
+    report = json.loads(capsys.readouterr().out)
+    [entry] = UndoStack().entries()
+    assert report["undo_id"] == 1 and (entry["id"], entry["op"], entry["path"]) == (1, "terraform", report["snapshot"])
+    assert re.fullmatch(r"cli-\d{8}T\d{6}Z", entry["session"]), entry["session"]
+
+    assert [r.ok for r in UndoStack().undo(bridge)] == [True]
+    assert [(e["op"], e["restored"]) for e in UndoStack().entries()] == [("terraform", True), ("undo", False)]
+
+
+def test_terrain_terraform_apply_refuses_an_empty_edit_list_and_sends_nothing(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+
+    assert main(["terrain", "terraform", "--at", "300,300", "--size", "4", "--mode", "flatten", "--level", "70", "--apply"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "designer: nothing to do: the edit list is empty\n"
+    assert [r["op"] for r in fake.requests] == ["get_heightmap"] and UndoStack().entries() == []
+    assert not (tmp_path / "snapshots").exists()
+
+
+@pytest.mark.usefixtures("origin_spawn")
+def test_terrain_terraform_apply_exits_one_when_the_bridge_refuses_an_edit(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+
+    args = ["terrain", "terraform", "--at", "spawn", "--size", "4", "--mode", "flatten", "--level", "70", "--block", "minecraft:bogus"]
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)["apply"] is False
+
+    assert main([*args, "--apply"]) == 1
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["ok"] is False and "unknown block 'minecraft:bogus'" in report["error"] and Path(report["snapshot"]).is_file()
+    assert captured.err == f"designer: apply failed: {report['error']}\n"
+
+
 def test_terrain_terraform_rejects_an_unknown_mode(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["terrain", "terraform", "--at", "spawn", "--size", "4", "--mode", "dig"])
@@ -222,6 +323,8 @@ def test_build_dry_run_reports_index_entries_and_mine_valid_without_touching_the
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     spec_path = tmp_path / "spec.json"
     spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
 
@@ -288,7 +391,7 @@ def test_build_refuses_an_index_entry_before_any_edit_reaches_the_bridge(
 ) -> None:
     monkeypatch.setenv("DESIGNER_TOKEN", refusable.token)
     monkeypatch.setenv("DESIGNER_PORT", str(refusable.port))
-    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design"), ARENA]).save(tmp_path / "index.json")
     monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     before = index_path.read_bytes()
     spec_path = tmp_path / "spec.json"
@@ -342,6 +445,76 @@ def test_build_no_verify_and_no_index_skip_their_steps(
     assert applied["ok"] is True and WorldIndex.load(index_path).locations == []
 
 
+def test_build_apply_exits_one_and_registers_nothing_when_the_bridge_refuses_an_edit(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    bogus = {"colors": {}, "palettes": {"test_stone": dict.fromkeys(STONE_PALETTES["palettes"]["test_stone"], "minecraft:bogus")}}
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: bogus)
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+    args = ["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--no-verify"]
+
+    assert main(args) == 0
+    capsys.readouterr()
+    assert main([*args, "--apply"]) == 1
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["ok"] is False and "unknown block 'minecraft:bogus'" in report["error"]
+    assert captured.err == f"designer: apply failed: {report['error']}\n"
+    assert WorldIndex.load(index_path).locations == [] and WorldIndex.load(index_path).regions == []
+
+
+@pytest.mark.parametrize("apply", [[], ["--apply"]], ids=["dry-run", "apply"])
+def test_build_exits_one_when_mine_valid_fails(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path, apply: list[str]
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    monkeypatch.setattr("designer.cli.mine_valid", lambda region, spec: Check(False, "interior open to the padding"))
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+
+    before = index_path.read_bytes()
+
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", *apply]) == 1
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["mine_valid"] == {"ok": False, "detail": "interior open to the padding"}
+    refused = "; nothing sent, --no-verify sends it anyway" if apply else ""
+    assert captured.err == f"designer: mine_valid failed: interior open to the padding{refused}\n"
+    assert "snapshot" not in report and "ok" not in report and report["extras_report"] is None
+    assert [r["op"] for r in fake.requests if r["op"] in ("set_blocks", "fill", "replace")] == []
+    assert not (tmp_path / "snapshots").exists() and not (tmp_path / "reports").exists()
+    assert index_path.read_bytes() == before
+
+
+def test_build_apply_with_no_verify_sends_and_registers_a_mine_mine_valid_would_fail(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    monkeypatch.setattr("designer.cli.mine_valid", lambda region, spec: Check(False, "interior open to the padding"))
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(SMALL_MINE_SPEC), encoding="utf-8")
+
+    assert main(["build", "mine", "--spec", str(spec_path), "--palette", "test_stone", "--apply", "--no-verify"]) == 0
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert captured.err == "" and report["ok"] is True and Path(report["snapshot"]).is_file()
+    assert [r for r in fake.requests if r["op"] in ("set_blocks", "fill", "replace")] != []
+    assert {e.name for e in (*WorldIndex.load(index_path).locations, *WorldIndex.load(index_path).regions)} == SMALL_MINE_NAMES
+
+
 def test_build_rejects_an_unknown_kind(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["build", "bogus", "--spec", "x", "--palette", "mine_stone"])
@@ -355,6 +528,8 @@ def test_build_road_dry_run_fetches_the_heightmap_and_reports_no_apply(
     monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
     monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
     spec_path = tmp_path / "spec.json"
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
     spec_path.write_text(json.dumps(SMALL_ROAD_SPEC), encoding="utf-8")
 
     assert main(["build", "road", "--spec", str(spec_path), "--palette", "mine_stone"]) == 0
@@ -379,6 +554,47 @@ def test_build_road_apply_sends_the_edits_and_registers_the_region(
     report = json.loads(capsys.readouterr().out)
     assert report["ok"] is True and Path(report["snapshot"]).is_file()
     assert {e.name for e in WorldIndex.load(index_path).regions} == {"test_road"}
+    entries = UndoStack().entries()
+    assert report["undo_id"] == 1 and [(e["id"], e["op"], e["path"]) for e in entries] == [(1, "build_road", report["snapshot"])]
+
+
+def test_build_apply_of_signage_sends_its_text_and_an_undo_removes_it(
+    fake: FakeBridge, bridge: Bridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    index_path = WorldIndex(worlds=[WorldEntry("design", "normal", 0, "design")]).save(tmp_path / "index.json")
+    monkeypatch.setattr("designer.world_index.DEFAULT_PATH", index_path)
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps({"world": "design", "signs": [{"name": "t_sign", "pos": [0, 64, 0], "text": "hi"}]}), encoding="utf-8")
+
+    assert main(["build", "signage", "--spec", str(spec_path), "--palette", "mine_stone", "--apply"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is True and report["bounds"] is None and report["snapshot"] is None and report["undo_id"] == 1
+    assert fake.texts == {"t_sign": {"world": "design", "pos": [0, 64, 0], "text": "hi"}}
+    assert {e.name for e in WorldIndex.load(index_path).locations} == {"t_sign"}
+    assert Path(report["extras_report"]).is_file()
+    [entry] = UndoStack().entries()
+    assert (entry["id"], entry["op"], entry["path"], entry["texts"]) == (1, "build_signage", None, ["t_sign"])
+
+    assert [r.ok for r in UndoStack().undo(bridge)] == [True]
+    assert fake.texts == {} and [e["restored"] for e in UndoStack().entries()] == [True]
+
+
+def test_build_apply_refuses_an_empty_edit_list_and_sends_nothing(
+    fake: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DESIGNER_TOKEN", fake.token)
+    monkeypatch.setenv("DESIGNER_PORT", str(fake.port))
+    monkeypatch.setitem(BUILDERS, "empty", lambda spec, palette, fetch: EditList("design", []))
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text("{}", encoding="utf-8")
+
+    assert main(["build", "empty", "--spec", str(spec_path), "--palette", "mine_stone", "--no-index", "--apply"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "designer: nothing to do: the edit list is empty\n"
+    assert fake.requests == [] and UndoStack().entries() == []
+    assert not (tmp_path / "snapshots").exists() and not (tmp_path / "reports").exists()
 
 
 def test_checks_run_prints_the_table_and_exits_zero_when_all_pass(

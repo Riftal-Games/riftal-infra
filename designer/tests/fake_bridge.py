@@ -8,6 +8,7 @@ settles, ``fail_next_job`` is the error text it settles with, ``slow_op`` takes
 ``steps`` and ``total`` and reports progress. Every ``cancel_job`` seen is kept
 in ``cancelled``. ``stale_chunks`` names the chunks ``get_light`` reports stale.
 ``scan_items`` walks the chunks ``pregen`` generated and reports ``scan_findings``.
+A line over ``MAX_LINE_BYTES`` is answered ``BAD_REQUEST`` and the connection closed.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from typing import Any
 import numpy as np
 
 from designer.blocks import encode_rle, format_name, parse_name
-from designer.edits import MAX_SET_BLOCKS
+from designer.edits import MAX_LINE_BYTES, MAX_SET_BLOCKS
 from designer.region import MAX_EDGE, Bounds, Bounds2D
 
 ALLOWED_BLOCKS = frozenset({
@@ -154,6 +155,9 @@ class FakeBridge:
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             while line := await reader.readline():
+                if len(line.rstrip(b"\n")) > MAX_LINE_BYTES:
+                    await self._reply(writer, {"id": None, "ok": False, "error": "line exceeds max_line_bytes", "code": "BAD_REQUEST"})
+                    break
                 request = json.loads(line)
                 self.requests.append(request)
                 request_id = request.get("id")

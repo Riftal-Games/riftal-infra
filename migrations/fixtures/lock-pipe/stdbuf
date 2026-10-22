@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Stands in for the stdbuf that starts the runner's lock session, which no
+# other call goes through. The session closes its stdin and stays alive, so
+# the runner's next write meets a pipe with no reader and a coprocess not yet
+# reaped, the state a real session that has just exited holds only for a
+# moment no self-test can time. SELFTEST_LOCK_PIPE=at-start closes it before
+# GET_LOCK; after-lock first answers GET_LOCK with 1, so the write that meets
+# it is the RELEASE_LOCK on the way out.
+if [ "${SELFTEST_LOCK_PIPE-}" = after-lock ]; then
+  IFS= read -r line
+  case "$line" in
+    "SELECT GET_LOCK('$MIGRATIONS_LOCK_NAME', "*)
+      printf '1\n'
+      ;;
+    *)
+      printf 'ERROR 1064 (42000): lock-pipe stand-in did not expect: %s\n' "$line" >&2
+      exit 1
+      ;;
+  esac
+fi
+exec 0<&-
+# Outlasts a whole run against the empty/ fixtures, so the runner's last
+# write still finds this session alive with its stdin closed.
+exec sleep 10
