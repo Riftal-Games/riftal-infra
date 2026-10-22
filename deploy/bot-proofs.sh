@@ -6,8 +6,9 @@
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
 # count ran and teardown's listings were empty; 3 when a listing is exposure, whatever
 # else failed; 4 when assertions failed but the script ran to its end, took at least one
-# listing, judged every listing clean, saw every hold released and every runner it
-# started print a SCENARIO line not reading "timed out"; any other status is a failure
+# listing, judged every listing clean, saw every hold released open with no HOLD
+# FAILURE line and every runner it started print a SCENARIO line not reading "timed
+# out"; any other status is a failure
 # with no finding. The step turns that into the exposure output, none for 0 and 4, with
 # GITHUB_OUTPUT unset here. A TERM, an INT or the deadline ends the script with 124, and
 # a failure before the first listing leaves none judged, so neither is 4. finish ignores
@@ -45,12 +46,24 @@ ETH0="$(eth0_address)" || { printf '%s\n' "$ETH0"; exit 1; }
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
 EXPECTED_ASSERTIONS=13 FOUND=0 PASSES=0 FAILURES=0 spid=""
-# Counted from each listing's own output, since teardown removes it. RUNNERS counts
-# the run-scenario.js processes started and RUNNERS_CLEAN those whose SCENARIO line
-# does not read "timed out".
-LISTINGS=0 LISTINGS_CLEAN=0 HOLDS=0 RELEASED=0 RUNNERS=0 RUNNERS_CLEAN=0
+# The listing counts come from the hold's own output, since teardown removes it.
+# tally_runners sets RUNNERS and RUNNERS_CLEAN from $work/runners before teardown.
+LISTINGS=0 LISTINGS_CLEAN=0 HOLDS=0 RELEASED=0 HOLD_FAILURES=0 RUNNERS=0 RUNNERS_CLEAN=0
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+
+# Every later "$NODE" goes through this wrapper. A start of run-scenario.js appends the
+# file its stdout goes to, so a runner that is started is counted whatever its caller
+# names its log, and one killed before it printed anything still has no SCENARIO line.
+cat >"$work/node" <<SH
+#!/bin/sh
+case "\$1" in
+  */run-scenario.js) log=\$(readlink -f /proc/\$\$/fd/1); printf '%s\n' "\$log" >>"$work/runners" ;;
+esac
+exec "$NODE" "\$@"
+SH
+chmod +x "$work/node"
+NODE="$work/node"
 
 # $1 what is claimed; $2 a condition, evaluated
 check() {
@@ -98,15 +111,28 @@ teardown() {
   rm -rf "$work"
 }
 
+tally_runners() {
+  local log
+  RUNNERS=0 RUNNERS_CLEAN=0
+  [ -s "$work/runners" ] || return 0
+  while IFS= read -r log; do
+    RUNNERS=$((RUNNERS + 1))
+    if [ -f "$log" ] && grep -q '^SCENARIO ' "$log" && ! grep -qE '^SCENARIO .*timed out' "$log"; then
+      RUNNERS_CLEAN=$((RUNNERS_CLEAN + 1))
+    fi
+  done <"$work/runners"
+}
+
 clean_finish() {
   [ "$FOUND" = 0 ] && [ "$LISTINGS" -ge 1 ] && [ "$LISTINGS" = "$LISTINGS_CLEAN" ] &&
-    [ "$HOLDS" = "$RELEASED" ] && [ "$RUNNERS" = "$RUNNERS_CLEAN" ]
+    [ "$HOLDS" = "$RELEASED" ] && [ "$HOLD_FAILURES" = 0 ] && [ "$RUNNERS" = "$RUNNERS_CLEAN" ]
 }
 
 finish() {
   local rc=$? status=0 ran
   set +e
   trap '' TERM INT; trap - EXIT
+  tally_runners
   teardown
   ran=$((PASSES + FAILURES))
   if [ "$FOUND" = 1 ]; then
@@ -206,7 +232,7 @@ sed 's/^/  | /' "$work/hold.log"
 [ "$rc" -ne 3 ] || FOUND=1
 count() { grep -cE "$1" "$work/hold.log" || true; }
 LISTINGS="$(count '^ROOT LISTING [0-9]+ ')" LISTINGS_CLEAN="$(count '^ROOT LISTING [0-9]+ clean \|')"
-HOLDS="$(count '^probed [0-9]+$')" RELEASED="$(count '^PROBE RELEASED [0-9]+ ')"
+HOLDS="$(count '^probed [0-9]+$')" RELEASED="$(count '^PROBE RELEASED [0-9]+ [0-9]+ open$')" HOLD_FAILURES="$(count '^HOLD FAILURE ')"
 read -r RPID RPORT < <(sed -n 's/^RUNNER pid=\([0-9]*\) port=\([0-9]*\)$/\1 \2/p' "$work/hold.log") || true
 printf 'sockets in the root listing with no owning process on :323, which decide nothing here:\n'
 { grep -E '[:]323 ' "$work/hold.log" | grep -v 'users:' || true; } | sed 's/^/  /'
