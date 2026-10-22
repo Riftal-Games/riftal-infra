@@ -67,7 +67,9 @@ Consequences:
 ## Steps
 
 Commands are for the dev stack under `wslc`, with the variables set as in
-`README.md`, Running it locally. Wrap each in `timeout 120`. Under the Docker in
+`README.md`, Running it locally. Wrap each in `timeout 120` except the step 2
+backup run and the step 3 `cp -a`, which can outlast it on a real level, and
+which leave a `.partial`, a `.lock` or a half-copied folder if killed. Under the Docker in
 the WSL distro, run them there with `--exec` (riftal-pm's `CLAUDE.md`, Known setup
 gaps).
 
@@ -87,16 +89,22 @@ a level mid-write. PocketMine traps SIGTERM into the same `shutdown()` as `stop`
 (`../.claude/skills/dev-stack/SKILL.md`, Tear down):
 
 ```sh
+wslc list
 wslc stop -t 60 riftal-instance
 wslc logs riftal-instance
 wslc inspect riftal-instance
 ```
 
-Read `Unloading world` and `Stopping other threads` in the log, and exit code 0
-in `inspect`, for each instance. Stop the `backup` service too and keep it
-stopped until step 6, for the reasons in `WIPE.md` step 2: a scheduled run
+`riftal-instance` is the name `/dev-stack` gives the first instance. Find every
+other instance, and the `backup` service, in the `wslc list` output and run the
+same three commands on each. Read `Unloading world` and `Stopping other threads`
+in each log, and exit code 0 in `inspect`. Stop the `backup` service too and keep
+it stopped until step 6, for the reasons in `WIPE.md` step 2: a scheduled run
 between steps 2 and 6 takes a retention slot and can fail on a left-behind
-lock. `restore.sh` also refuses while any session is connected to the database,
+lock. Stop it between runs, when its log's last run has reached `applying
+retention` and no `dumping database` line follows, and wait a few seconds after
+the last line. A run stopped part way leaves a `.lock` that makes step 2's
+`backup.sh` fail until it is `LOCK_MAX_AGE_MINUTES` old. `restore.sh` also refuses while any session is connected to the database,
 so the instances have to be down for the rollback anyway.
 
 ### 2. Take a backup, and verify it
@@ -129,7 +137,7 @@ directory; it is the rollback.
   wslc run --rm -v riftal-backups:/backups:ro mysql:8 bash -c '
     set -e
     for t in /backups/<ts>/worlds/*.tar.gz; do tar -tzf "$t" >/dev/null && echo "ok $t"; done
-    tar -tzf /backups/<ts>/worlds/riftal-world.tar.gz | grep -c "^./worlds/'"$ZONE"'/level.dat$"'
+    tar -tzf /backups/<ts>/worlds/'"$VOL"'.tar.gz | grep -c "^./worlds/'"$ZONE"'/level.dat$"'
   ```
 
   Each tar prints `ok`, and the last line prints `1`: the tar holds this zone's
@@ -246,12 +254,14 @@ swap is taken then.
 
 ### 7. Settle the old folder
 
-`.replaced-<zone>-<stamp>` stays on the volume until Nasir removes it. While it
-exists it is in every backup tar, `wipe-volumes.sh` and `wipe-check.sh` both
-list it as a level, since each sets `dotglob` before reading `worlds/`, and
-`wipe-check.sh` fails on it. Nothing in the loop
-deletes it. The set from step 2 is the durable record whether or not the folder
-is kept.
+`.replaced-<zone>-<stamp>` stays on the volume until Nasir removes it. So does
+`.rejected-<zone>-<stamp>` after a rollback, and so does a leftover
+`.incoming-<zone>` from a step 3 that died after its `cp`, which also makes a
+re-run of step 3 refuse. While any of them exists it is in every backup tar,
+`wipe-volumes.sh` and `wipe-check.sh` both list it as a level, since each sets
+`dotglob` before reading `worlds/`, and `wipe-check.sh` fails on it. Nothing in
+the loop deletes them. The set from step 2 is the durable record whether or not
+the folders are kept.
 
 ## Rollback
 
@@ -274,6 +284,7 @@ If step 3 died between its two renames there may be no `$ZONE` folder at all, an
 the first `mv` fails. Inspect the volume and rename `.replaced-...` back by hand.
 Never start an instance with `$ZONE` absent: for a zone that is the default level,
 core generates plain terrain there and every later boot keeps it (ADR 009 item 5).
+Once the old folder is back, go to step 5, then step 6.
 
 **After an instance started on the new level.** The new level has been written to
 and players may have changed it. Choose with Nasir:
@@ -289,11 +300,11 @@ and players may have changed it. Choose with Nasir:
   this zone from the step 2 set:
 
   ```sh
-  wslc run --rm -v "$VOL":/data -v riftal-backups:/backups:ro -e ZONE="$ZONE" mysql:8 bash -c '
+  wslc run --rm -v "$VOL":/data -v riftal-backups:/backups:ro -e ZONE="$ZONE" -e VOL="$VOL" mysql:8 bash -c '
     set -euo pipefail
     cd /data/worlds
     [ ! -e "$ZONE" ] || { echo "$ZONE still exists: rename it aside first"; exit 1; }
-    tar -xzf /backups/<ts>/worlds/riftal-world.tar.gz -C /data "./worlds/$ZONE"
+    tar -xzf "/backups/<ts>/worlds/$VOL.tar.gz" -C /data "./worlds/$ZONE"
     chown -R 1000:1000 "$ZONE"'
   ```
 
@@ -310,7 +321,8 @@ and players may have changed it. Choose with Nasir:
   says. A restore on a live window is Nasir's call (`ROLLOUT.md`).
 
 After either, repeat step 4b against the restored folder only if it is a built
-level, then step 5.
+level, then step 5, then step 6. A run that stops in steps 3 or 4 still has the
+`backup` service stopped from step 1, so it ends the same way.
 
 ## Production
 
@@ -327,7 +339,7 @@ nothing in the loop does it, rehearses it on that host or reads its volumes.
   `main` carries levels yet (riftal-infra#338). Until it does there is no
   production source and this procedure has nothing to copy from.
 - Add to step 4: read `content_sha256` from the image's copy of the manifest, run
-  from the new tag, and require it equal to the lock's before the swap, not only to
+  from the new tag, and require it equal to the lock's before step 3, not only to
   the volume's after. A tag whose layer disagrees with the lock is not deployed.
 - Rolling an image tag back never rolls a level back (ADR 009 item 7). After a
   swap, going back to the previous tag leaves the new level in place. A level goes
