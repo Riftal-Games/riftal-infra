@@ -9,8 +9,9 @@
 # least one listing taken and every one judged clean, every hold released open, no HOLD
 # FAILURE line and no start of "$NODE" recorded (bot-proofs-finish.sh); any other status
 # is a failure with no finding. The step turns 0 and 4 into the exposure output none and
-# 3 into found, with GITHUB_OUTPUT unset here. A TERM, an INT, the deadline and a
-# `timeout` that expires outside a check end the script with 124, which is never 4.
+# 3 into found, with GITHUB_OUTPUT unset here. A TERM, an INT, the deadline and the
+# MySQL wait's `timeout 90` end the script with 124, which is never 4. A `timeout`
+# inside a check fails that check, and the `timeout 10` on iptables ends in `|| true`.
 # finish ignores TERM and INT, so a finding is 3 past the deadline too; a KILL at
 # +120 s ends it with 137, filed pending.
 #
@@ -138,8 +139,9 @@ if (mode === 'ping') {
 } else hold()
 JS
 
-# Every "$NODE" start after this is recorded before node runs. A record that cannot be
-# written refuses the start, so no start goes unrecorded.
+# Every "$NODE" start after this is recorded before node runs, except a start whose
+# first argument is exactly "$work/probe.js" and a start whose whole argument list is
+# exactly --version. A record that cannot be written refuses the start.
 cat >"$work/node" <<SH
 #!/usr/bin/env bash
 . "$ROOT/.github/scripts/bot-proofs-finish.sh"

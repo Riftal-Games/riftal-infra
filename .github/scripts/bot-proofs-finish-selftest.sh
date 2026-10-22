@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Proves bot-proofs-finish.sh can fail (riftal-infra#1316). Fixture hold logs and
 # record files drive its functions, then each mutant of it must fail exactly the
-# cases that guard the line it breaks. The harness is not run and no container starts.
+# cases that guard the line it breaks. The harness is not run, no container starts.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FINISH="$DIR/bot-proofs-finish.sh"
-EXPECTED_CASES=31
+EXPECTED_CASES=33
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 # $1 the file to source, $2 a scratch directory of its own. Prints one "  ok" or
-# "FAILCASE" line per case, so a mutant that stops the run early shows as missing cases.
+# "FAILCASE" line per case, so a mutant that stops early shows as missing cases.
 run_cases() { ( . "$1" && cases "$2" ); }
 
 cases() {
@@ -78,6 +78,8 @@ cases() {
   records_is version-extra 1 "$(rec vx --version extra)"
   records_is probe-not-first 1 "$(rec pnf --flag "$probe")"
   records_is no-arguments 1 "$(rec none)"
+  records_is probe-prefix 1 "$(rec pp "$probe.bak" hold)"
+  records_is version-prefix 1 "$(rec vp --versionx)"
   rec two a.js >/dev/null
   records_is two-starts 2 "$(rec two b.js)"
   written=0
@@ -129,6 +131,8 @@ mutant record-ignored '[ "$RUNNERS" = 0 ]' 'true' "record-run-scenario record-un
 mutant probe-start-recorded '[ -n "$probe" ] && [ "$#" -ge 1 ] && [ "$1" = "$probe" ]' 'false' "exempt-starts-only probe-start"
 mutant probe-any-path '[ "$1" = "$probe" ]' '[[ $1 == */probe.js ]]' "record-other-probe"
 mutant probe-any-position '[ "$#" -ge 1 ] && [ "$1" = "$probe" ]' '[[ " $* " == *" $probe "* ]]' "probe-not-first"
+mutant probe-prefix-match '[ "$1" = "$probe" ]' '[[ $1 == "$probe"* ]]' "probe-prefix"
+mutant version-prefix-match '[ "$1" = --version ]' '[[ $1 == --version* ]]' "version-prefix"
 mutant version-start-recorded '[ "$#" -eq 1 ] && [ "$1" = --version ]' 'false' "exempt-starts-only probe-start"
 mutant version-with-arguments '[ "$#" -eq 1 ] && [ "$1" = --version ]' '[ "${1-}" = --version ]' "version-extra"
 mutant write-failure-ignored '>>"$file"' '>>"$file" || true' "write-fails"

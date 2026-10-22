@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # What the bot-proofs harness decides its exit status from (ADR 024 item 3). Sourced
-# by deploy/bot-proofs.sh and by bot-proofs-finish-selftest.sh, which drives every
-# function here from fixture hold logs and record files.
+# by deploy/bot-proofs.sh, by the "$NODE" wrapper it writes, and by
+# bot-proofs-finish-selftest.sh, which drives every function here from fixture hold
+# logs and record files.
 #
 # State is read from LISTINGS, LISTINGS_CLEAN, HOLDS, RELEASED, HOLD_FAILURES and RUNNERS,
 # set by read_hold_log and read_records, and from FOUND, PASSES, FAILURES and
@@ -28,8 +29,8 @@ read_records() {
   [[ $RUNNERS =~ ^[0-9]+$ ]] || RUNNERS=1
 }
 
-# $1 the hold's own output. The counts come from it because teardown removes it;
-# a log that is missing counts nothing, so clean_finish refuses.
+# $1 the hold's own output, read before teardown removes it. A log that is missing
+# counts nothing, so clean_finish refuses.
 read_hold_log() {
   LISTINGS=0 LISTINGS_CLEAN=0 HOLDS=0 RELEASED=0 HOLD_FAILURES=0
   [ -r "$1" ] || return 0
@@ -52,8 +53,8 @@ clean_finish() {
 # 3 when FOUND is 1; else the rc, with 3 and 4 as 1, when it is not 0; else 1 when
 # the assertions that ran differ from EXPECTED_ASSERTIONS or any failed; else 0.
 # A status of 1 becomes 4 only when the rc is 0 or 1 and clean_finish holds. The rc
-# is 124 for a TERM, an INT, the deadline and any `timeout` in the body, 125 to 127
-# for a command that did not run, 128+n for a signal: none of them reaches 4.
+# is 124 for a TERM, an INT, the deadline and the body's bare MySQL-wait `timeout`,
+# 125 to 127 for a command that did not run, 128+n for a signal: none reaches 4.
 finish_status() {
   local rc=$1 ran=$((PASSES + FAILURES)) status=0
   if [ "$FOUND" = 1 ]; then

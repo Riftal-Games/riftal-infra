@@ -82,8 +82,8 @@ passes when every step is on the allowlist; no operand is judged.
 
 Limits: PyYAML stands in for GitHub's parser and is not compared with it. Not
 read: the contents of other jobs, whose ids are read as keys of jobs; the values
-under workflow name, on, permissions and concurrency, bar cancel-in-progress, and of workflow env
-variables; a job's name, needs, if, runs-on, timeout-minutes and permissions;
+under workflow name, on, permissions and concurrency, bar cancel-in-progress,
+and of workflow env variables; a job's name, needs, if, runs-on, timeout-minutes and permissions;
 the values of outputs keys other than exposure; if values on any step, ahead
 of the pending step or after it, and the continue-on-error value of a step
 ahead of it unless its run is PENDING_WRITE and it has an id; a script a step
