@@ -46,6 +46,19 @@ def test_the_rankup_location_is_what_the_mine_builder_places_and_ranks_accepts(i
     assert all(type(c) is int for c in rankup[0].pos) and len(rankup[0].pos) == 3
 
 
+def test_the_sell_location_is_what_the_mine_builder_places_and_economy_accepts(index: WorldIndex) -> None:
+    # RiftalEconomy opens the sell shop at each sell-tagged location with a non-empty string world and a
+    # position of exactly three integers (SellLocations). The sign stands only where the mine builder puts
+    # it, and a level build refuses a committed entry it does not reproduce exactly.
+    sell = index.locations_tagged("sell")
+    assert [l.name for l in sell] == ["sell_npc_a"]
+    assert index.world(sell[0].world).extra["rank"] == "A"
+    spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8")))
+    built = build_mine(spec, Palette.load("mine_stone")).extras["locations"]
+    assert sell[0].to_json() == next(l for l in built if l["name"] == "sell_npc_a")
+    assert sell[0].world != "" and len(sell[0].pos) == 3 and all(type(c) is int for c in sell[0].pos)
+
+
 def test_design_spawn_sits_on_chunks_a_fresh_level_generates(index: WorldIndex) -> None:
     # PocketMine creates a level with its spawn at (256, 70, 256) and generates only a
     # radius of 8 chunks around it (WorldCreationOptions, WorldManager::generateWorld).
@@ -69,7 +82,7 @@ def test_save_is_byte_stable_and_name_ordered(index: WorldIndex, tmp_path: Path)
     assert first == other.save(tmp_path / "b.json", updated=STAMP).read_bytes()
     assert first == WorldIndex.load(tmp_path / "a.json").save(tmp_path / "c.json", updated=STAMP).read_bytes()
     assert b"\r" not in first and first.endswith(b"}\n")
-    assert [l.name for l in WorldIndex.load(tmp_path / "a.json").locations] == ["gate", "rankup_npc_a", "spawn"]
+    assert [l.name for l in WorldIndex.load(tmp_path / "a.json").locations] == ["gate", "rankup_npc_a", "sell_npc_a", "spawn"]
 
     index.save(tmp_path / "now.json")
     assert datetime.fromisoformat(index.updated).tzinfo is not None
@@ -121,7 +134,7 @@ def test_names_are_unique_across_kinds(index: WorldIndex) -> None:
     with pytest.raises(ValueError, match="'gate' is already defined"):
         index.add_location(Location("gate", "design", (0, 0, 0)))
     index.add_region(NamedRegion("gate", "design", (0, 0, 0), (1, 1, 1), ["mine"]), replace=True)
-    assert isinstance(index.resolve("gate"), NamedRegion) and [l.name for l in index.locations_tagged("npc")] == ["rankup_npc_a"]
+    assert isinstance(index.resolve("gate"), NamedRegion) and [l.name for l in index.locations_tagged("npc")] == ["rankup_npc_a", "sell_npc_a"]
     for bad in ("Gate", "mine-a", "", "mine a"):
         with pytest.raises(ValueError, match="must match"):
             index.add_location(Location(bad, "design", (0, 0, 0)))
@@ -235,7 +248,7 @@ def test_tag_queries(index: WorldIndex) -> None:
     index.add_region(NamedRegion("pit", "mine_a", (0, 0, 0), (3, 3, 3), ["mine", "safe_zone"]))
     index.add_location(Location("seller", "mine_a", (1, 1, 1), tags=["npc", "sell"]))
     assert [r.name for r in index.regions_tagged("safe_zone")] == ["lumber_safe_zone", "mine_a_safe_zone", "mine_b_safe_zone", "mine_c_safe_zone", "pit"] and index.regions_tagged("spawn") == []
-    assert [l.name for l in index.locations_tagged("npc")] == ["rankup_npc_a", "seller"] and index.locations_tagged("mine") == []
+    assert [l.name for l in index.locations_tagged("npc")] == ["rankup_npc_a", "sell_npc_a", "seller"] and index.locations_tagged("mine") == []
     assert [l.name for l in index.locations_tagged("spawn")] == ["spawn"]
 
 

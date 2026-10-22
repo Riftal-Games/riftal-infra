@@ -17,6 +17,21 @@
       "yaw": 0
     },
     {
+      "name": "sell_npc_a",
+      "pitch": 0,
+      "pos": [
+        -1,
+        40,
+        23
+      ],
+      "tags": [
+        "npc",
+        "sell"
+      ],
+      "world": "mine_a",
+      "yaw": 0
+    },
+    {
       "name": "spawn",
       "pitch": 0,
       "pos": [
@@ -109,7 +124,7 @@
       "world": "mine_c"
     }
   ],
-  "updated": "2026-10-22T05:45:27+00:00",
+  "updated": "2026-10-22T06:47:55+00:00",
   "version": 1,
   "worlds": [
     {

@@ -100,9 +100,10 @@ def test_a_mine_dug_into_terrain_facing_north_or_west_builds_with_its_exit_lane_
     spec["entrance"]["side"] = side
     spec_path.write_text(json.dumps(spec), encoding="utf-8")
     fake.worlds["mine_a"] = FakeWorld(extent=((-64, -64), (64, 64)))
-    # A mine facing another side puts its rankup sign elsewhere, which the level build refuses against the committed entry.
+    # A mine facing another side puts its rankup and sell signs elsewhere, which the level build refuses against the committed entries.
     index = WorldIndex.load()
     index.remove("rankup_npc_a")
+    index.remove("sell_npc_a")
     assert json.loads(_build(bridge, root, "mine_a", index=index).read_text(encoding="utf-8"))["zone"] == "mine_a"
 
 
