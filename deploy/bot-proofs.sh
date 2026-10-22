@@ -214,9 +214,6 @@ check "the root listing attributes 127.0.0.1:${RPORT:-none} to this runner's pro
 # tick, so a stack dropped and picked up during the stall is in p1a's file once
 # and in p1b's not at all.
 STALL=90
-# The bots read chunks through the server's block palette, which the devtools image
-# does not carry. The script fetches the file at the commit core's lock pins.
-"$NODE" "$DT/fetch-palette.js"
 # $1 a literal string; $2 a file; $3 seconds to wait for the string in it
 await() { timeout "$3" bash -c 'until grep -qF -- "$0" "$1" 2>/dev/null; do sleep 0.2; done' "$1" "$2"; }
 
