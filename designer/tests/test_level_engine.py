@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import shutil
 import subprocess
 import tarfile
 from pathlib import Path
@@ -222,6 +223,8 @@ def test_the_marker_and_text_files_feed_the_content_hash(fake: FakeBridge, root:
     assert hashes[0] == hashes[1] and len(set(hashes)) == 3
 
 
+# The container step's python image carries no git. The host-side pytest step runs this on the runner, which has it.
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs a git binary, absent from the container test image")
 def test_a_changed_lock_does_not_mark_the_toolkit_dirty(tmp_path: Path) -> None:
     def git(*args: str) -> None:
         subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t", *args], check=True, capture_output=True)
