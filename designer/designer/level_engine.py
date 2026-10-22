@@ -18,10 +18,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from designer import checks as checks_mod
 from designer import stack
 from designer.bridge import Bridge
 from designer.config import PROJECT_ROOT
-from designer.level import LevelError, Saved, build_level, check_index, load_recipe
+from designer.level import (
+    LevelError, Saved, build_level, check_index, check_mine_gate, check_reset_states, load_recipe, mines_config_path,
+)
 from designer.world_index import WorldIndex
 
 PREFIX = "riftal_smoke_level_"
@@ -32,6 +35,7 @@ BOOT_TIMEOUT = 300
 READY = ("[DesignBridge] enabled, bridge target", "Done (")
 FAILED = re.compile(r"/(ERROR|CRITICAL|EMERGENCY|ALERT)\]|Exception")
 DOCS = ("design_npcs.json", "design_texts.json")
+VOLUME_ABSENT = re.compile(r"no such volume|volume\b.*\b(not found|does not exist)", re.IGNORECASE)
 
 Runner = Callable[[list[str], "bytes | None", float], "subprocess.CompletedProcess[bytes]"]
 
@@ -97,8 +101,15 @@ class Engine:
 
 
 def fresh_volume(engine: Engine, volume: str) -> None:
-    """Create ``volume`` empty, refusing with every container that mounts it before anything is removed."""
-    if engine("volume", "inspect", volume, check=False).returncode == 0:
+    """Create ``volume`` empty, refusing with every container that mounts it before anything is removed.
+
+    A failed ``volume inspect`` means the volume is absent only when the engine says so; any other
+    failure, a hung or missing engine for one, leaves the volume's state unknown and refuses.
+    """
+    probe = engine("volume", "inspect", volume, check=False)
+    if probe.returncode != 0 and not VOLUME_ABSENT.search((probe.stdout + probe.stderr).decode(errors="replace")):
+        raise LevelError(f"cannot tell whether volume {volume} exists: {(probe.stderr or probe.stdout).decode(errors='replace').strip()}")
+    if probe.returncode == 0:
         users = []
         for ref in engine.text("list", "-a", "-q").split():
             info = engine.inspect(ref)
@@ -189,10 +200,13 @@ def build(
     connect: Callable[[int, str], Bridge] | None = None, index: WorldIndex | None = None, checks_path: Path | None = None,
     mines_config: Path | None = None,
 ) -> Path:
-    """Build ``zone`` on a fresh volume and return its lock; recipe, name and index are refused before any engine call."""
+    """Build ``zone`` on a fresh volume and return its lock; recipe, name, index and mine gate are refused before any engine call."""
     recipe = load_recipe(zone, root)
     index = WorldIndex.load() if index is None else index
     check_index(recipe, index)
+    specs = checks_mod.load_checks(checks_path)
+    check_mine_gate(recipe, specs, mines_config_path() if mines_config is None else mines_config, root)
+    check_reset_states(recipe, root)
     engine, name, token = Engine(runtime, runner), PREFIX + zone, secrets.token_urlsafe(24)
     fresh_volume(engine, name)
     engine(*run_args(zone, recipe.generator, recipe.seed, token, sources))

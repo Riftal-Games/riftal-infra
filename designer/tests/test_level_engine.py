@@ -53,6 +53,8 @@ class FakeEngine:
         self.omit: set[str] = set()
         self.lag: dict[str, int] = {}
         self.level = {"db/CURRENT": b"MANIFEST-1\n", "level.dat": b"\x0a"}
+        self.absent_says = b"Error response from daemon: get volume: no such volume"
+        self.inspect_error: bytes | None = None
         self.stop_log, self.boot_log, self.exit_lag, self.written = stop_log, boot_log, exit_lag, b""
 
     @staticmethod
@@ -73,7 +75,10 @@ class FakeEngine:
             else:
                 out = f"{Path(argv[2]).name}-sha\n".encode()
         elif args[:2] == ["volume", "inspect"]:
-            code = 0 if args[2] in self.volumes else 1
+            if self.inspect_error is not None:
+                code, err = 1, self.inspect_error
+            elif args[2] not in self.volumes:
+                code, err = 1, self.absent_says
         elif args[:2] == ["volume", "create"]:
             self.volumes.add(args[2])
         elif args[:2] == ["volume", "rm"]:
@@ -168,6 +173,34 @@ def test_an_existing_volume_is_recreated_but_one_in_use_is_refused_by_name(fake:
     with pytest.raises(LevelError, match="mounted by instance"):
         _build(engine, fake, root, runtime)
     assert not [a for a in engine.calls[before:] if a[1] in ("run", "rm", "remove") or a[1:3] in (["volume", "rm"], ["volume", "remove"])]
+
+
+@pytest.mark.parametrize("says", [b"Error response from daemon: get riftal_smoke_level_zt: no such volume", b"volume riftal_smoke_level_zt not found", b"Volume does not exist"])
+def test_a_volume_the_engine_names_as_absent_is_created(fake: FakeBridge, root: Path, says: bytes) -> None:
+    engine = FakeEngine()
+    engine.absent_says = says
+    _build(engine, fake, root)
+    assert engine.verbs()[:3] == ["volume inspect", "volume create", "run -d"]
+
+
+@pytest.mark.parametrize("says", [b"", b"Cannot connect to the Docker daemon", b"permission denied", b"error: container service unavailable"])
+@pytest.mark.parametrize("runtime", ["wslc", "docker"])
+def test_a_volume_inspect_that_fails_without_naming_absence_refuses_before_any_change(fake: FakeBridge, root: Path, runtime: str, says: bytes) -> None:
+    engine = FakeEngine()
+    engine.volumes.add("riftal_smoke_level_zt")
+    engine.inspect_error = says
+    with pytest.raises(LevelError, match="cannot tell whether volume riftal_smoke_level_zt exists"):
+        _build(engine, fake, root, runtime)
+    assert engine.verbs() == ["volume inspect"]
+    assert "riftal_smoke_level_zt" in engine.volumes
+
+
+def test_a_mine_gate_refusal_makes_no_engine_call(fake: FakeBridge, root: Path) -> None:
+    (root / "mines.yml").unlink()
+    engine = FakeEngine()
+    with pytest.raises(LevelError, match="cannot read the mines world list"):
+        _build(engine, fake, root)
+    assert engine.calls == []
 
 
 def test_each_build_runs_with_its_own_token(fake: FakeBridge, root: Path) -> None:
