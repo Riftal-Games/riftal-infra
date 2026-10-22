@@ -18,6 +18,8 @@ from tests.test_level import _index
 
 SOURCES = Sources(Path("/src/designbridge"), Path("/src/plugins"), 19190)
 root = test_level.root
+WORK = "riftal_smoke_levelbuild_zt"
+OUTPUT = "riftal_smoke_level_zt"
 BOOTED = "[Server thread/INFO]: [DesignBridge] enabled, bridge target 0.0.0.0:19140\n[Server thread/INFO]: Done (3.2s)!\n"
 # Each runtime's own spelling of the verbs the fake answers in docker's; wslc's is from devtools/rig.js and dev-stack.ps1.
 SPELLINGS = {
@@ -53,6 +55,8 @@ class FakeEngine:
         self.omit: set[str] = set()
         self.lag: dict[str, int] = {}
         self.level = {"db/CURRENT": b"MANIFEST-1\n", "level.dat": b"\x0a"}
+        self.stray: dict[str, bytes] = {}
+        self.copied: dict[str, bytes] = {}
         self.absent_says = b"Error response from daemon: get volume: no such volume"
         self.inspect_error: bytes | None = None
         self.stop_log, self.boot_log, self.exit_lag, self.written = stop_log, boot_log, exit_lag, b""
@@ -99,7 +103,12 @@ class FakeEngine:
             name = args[args.index("--name") + 1]
             self.mounts[name], self.logs[name] = [name], self.boot_log + self.booted
         elif args[:2] == ["run", "--rm"]:
-            out, self.written = (b"", stdin or b"") if "tee" in args else (tar_of(self.level), b"")
+            if "tee" in args:
+                self.written = stdin or b""
+            elif "cp" in args:
+                self.copied = {**self.level, "level-manifest.json": self.written, **self.stray}
+            else:
+                out = tar_of(self.copied if f"{OUTPUT}:/data:ro" in args else self.level)
         elif args[0] == "logs":
             out = self.logs[args[1]].encode()
             # The save lands save_lag reads after the stop, so a stop that reads the log once misses it.
@@ -145,30 +154,64 @@ def test_build_boots_stops_and_writes_the_lock_and_manifest(fake: FakeBridge, ro
     assert run[run.index("-p") + 1] == "127.0.0.1:19190:19140/tcp" and run.count("-p") == 1
     flags = next(a for a in run if a.startswith("POCKETMINE_ARGS=")).split()
     assert {"POCKETMINE_ARGS=--level-name=zt", "--level-type=normal", "--level-seed=7", "--xbox-auth=false", "--auto-report.enabled=0"} <= set(flags)
-    assert "riftal_smoke_level_zt:/data" in run and "/src/designbridge:/plugins/DesignBridge:ro" in run
+    assert "riftal_smoke_levelbuild_zt:/data" in run and "/src/designbridge:/plugins/DesignBridge:ro" in run
     copy_out = next(a for a in engine.calls if a[1:3] == ["run", "--rm"] and "tar" in a)
-    assert copy_out[copy_out.index("-v") + 1] == "riftal_smoke_level_zt:/data:ro"
+    assert copy_out[copy_out.index("-v") + 1] == "riftal_smoke_levelbuild_zt:/data:ro"
     assert f"DESIGNBRIDGE_TOKEN={engine.tokens[0]}" in run
     verbs, remove = engine.verbs(), " ".join(SPELLINGS[runtime]["rm"])
-    assert verbs.index("attach riftal_smoke_level_zt") < verbs.index(f"{remove} riftal_smoke_level_zt") < verbs.index("run --rm")
+    assert verbs.index("attach riftal_smoke_levelbuild_zt") < verbs.index(f"{remove} riftal_smoke_levelbuild_zt") < verbs.index("run --rm")
     assert (lock["core_image"], lock["designbridge_commit"], lock["toolkit_commit"]) == ("sha256:core", "designbridge-sha", f"{root.name}-sha")
     tree, size, _ = read_tree(tar_of(engine.level))
     assert lock["size_bytes"] == size == 12
     assert json.loads(engine.written) == {"content_sha256": lock["content_sha256"], "tree_sha256": tree}
-    assert engine.calls[-1][-1] == "/data/worlds/zt/level-manifest.json"
+    tee = next(a for a in engine.calls if "tee" in a)
+    assert tee[tee.index("-v") + 1] == f"{WORK}:/data" and tee[-1] == "/data/worlds/zt/level-manifest.json"
+    assert read_tree(tar_of(engine.copied))[0] == tree
+
+
+def test_the_level_is_copied_to_a_fresh_output_volume_with_plain_named_mounts(fake: FakeBridge, root: Path) -> None:
+    engine = FakeEngine()
+    engine.volumes.add(OUTPUT)
+    _build(engine, fake, root)
+    verbs = [" ".join(a[1:]) for a in engine.calls if a[0] != "git"]
+    removed, created = f"volume rm {OUTPUT}", f"volume create {OUTPUT}"
+    assert verbs.count(removed) == verbs.count(created) == 1
+    copy = next(a for a in engine.calls if "cp" in a)
+    assert next(i for i, v in enumerate(verbs) if "tee" in v) < verbs.index(removed) < verbs.index(created) < verbs.index(" ".join(copy[1:]))
+    assert copy[1:] == ["run", "--rm", "-v", f"{WORK}:/work:ro", "-v", f"{OUTPUT}:/data", stack.IMAGE, "cp", "-R", "/work/worlds/zt/.", "/data/"]
+    assert {*engine.copied} == {"db/CURRENT", "level.dat", "level-manifest.json"}
+    assert OUTPUT in engine.volumes and WORK in engine.volumes
+
+
+def test_a_rebuild_refuses_while_the_output_volume_is_mounted_before_the_server_boots(fake: FakeBridge, root: Path) -> None:
+    engine = FakeEngine()
+    engine.volumes.add(OUTPUT)
+    engine.mounts["instance"] = [OUTPUT]
+    with pytest.raises(LevelError, match=f"volume {OUTPUT} is mounted by instance"):
+        _build(engine, fake, root)
+    assert not [a for a in engine.calls if a[1] in ("run", "rm", "remove") or a[1:3] in (["volume", "rm"], ["volume", "remove"], ["volume", "create"])]
+    assert engine.tokens == [] and not (root / "levels" / "zt.lock.json").exists()
+
+
+@pytest.mark.parametrize("stray", [{"junk.txt": b"x"}, {"db/extra.ldb": b"x"}, {"level.dat": b"\x0b"}])
+def test_a_file_that_is_not_the_level_at_the_output_root_fails_the_build(fake: FakeBridge, root: Path, stray: dict[str, bytes]) -> None:
+    engine = FakeEngine()
+    engine.stray = stray
+    with pytest.raises(LevelError, match=f"tree hash of {OUTPUT} is .* not the manifest's"):
+        _build(engine, fake, root)
 
 
 @pytest.mark.parametrize(("runtime", "verbs"), [
-    ("wslc", ["volume inspect", "list -a", "volume remove", "volume create", "run -d"]),
-    ("docker", ["volume inspect", "ps -a", "volume rm", "volume create", "run -d"]),
+    ("wslc", ["volume inspect", "volume inspect", "list -a", "volume remove", "volume create", "run -d"]),
+    ("docker", ["volume inspect", "volume inspect", "ps -a", "volume rm", "volume create", "run -d"]),
 ])
 def test_an_existing_volume_is_recreated_but_one_in_use_is_refused_by_name(fake: FakeBridge, root: Path, runtime: str, verbs: list[str]) -> None:
     engine = FakeEngine()
-    engine.volumes.add("riftal_smoke_level_zt")
+    engine.volumes.add(WORK)
     _build(engine, fake, root, runtime)
-    assert engine.verbs()[:5] == verbs
+    assert engine.verbs()[:6] == verbs
 
-    engine.mounts["instance"] = ["riftal_smoke_level_zt"]
+    engine.mounts["instance"] = [WORK]
     before = len(engine.calls)
     with pytest.raises(LevelError, match="mounted by instance"):
         _build(engine, fake, root, runtime)
@@ -180,7 +223,7 @@ def test_a_volume_the_engine_names_as_absent_is_created(fake: FakeBridge, root: 
     engine = FakeEngine()
     engine.absent_says = says
     _build(engine, fake, root)
-    assert engine.verbs()[:3] == ["volume inspect", "volume create", "run -d"]
+    assert engine.verbs()[:4] == ["volume inspect", "volume inspect", "volume create", "run -d"]
 
 
 @pytest.mark.parametrize("says", [b"", b"Cannot connect to the Docker daemon", b"permission denied", b"error: container service unavailable"])
@@ -219,7 +262,7 @@ def test_an_error_in_the_boot_log_stops_before_the_bridge_is_reached(fake: FakeB
     engine = FakeEngine(boot_log=boot_log)
     with pytest.raises(LevelError, match=match):
         _build(engine, fake, root)
-    assert engine.tokens == [] and "rm riftal_smoke_level_zt" in engine.verbs()
+    assert engine.tokens == [] and "rm riftal_smoke_levelbuild_zt" in engine.verbs()
 
 
 @pytest.mark.parametrize("booted", BOOTED.splitlines(keepends=True))
@@ -229,7 +272,7 @@ def test_boot_waits_for_both_ready_lines(fake: FakeBridge, root: Path, monkeypat
     engine.booted = booted
     with pytest.raises(LevelError, match="logged no"):
         _build(engine, fake, root)
-    assert engine.tokens == [] and "rm riftal_smoke_level_zt" in engine.verbs()
+    assert engine.tokens == [] and "rm riftal_smoke_levelbuild_zt" in engine.verbs()
 
 
 # At a lag of 2 the first two inspects report running, and removal needs the status read, not just a wait.
@@ -237,14 +280,14 @@ def test_boot_waits_for_both_ready_lines(fake: FakeBridge, root: Path, monkeypat
 def test_removal_waits_for_the_container_to_exit(fake: FakeBridge, root: Path, exit_lag: int) -> None:
     engine = FakeEngine(exit_lag=exit_lag)
     _build(engine, fake, root)
-    assert "rm riftal_smoke_level_zt" in engine.verbs() and "riftal_smoke_level_zt" not in engine.mounts
+    assert "rm riftal_smoke_levelbuild_zt" in engine.verbs() and "riftal_smoke_levelbuild_zt" not in engine.mounts
 
 
 def test_an_error_logged_with_a_late_shutdown_line_still_refuses_the_build(fake: FakeBridge, root: Path) -> None:
     engine = FakeEngine("[Server thread/ERROR]: Could not save chunk\n", save_lag=1)
     with pytest.raises(LevelError, match="Could not save chunk"):
         _build(engine, fake, root)
-    assert "rm riftal_smoke_level_zt" in engine.verbs() and not (root / "levels" / "zt.lock.json").exists()
+    assert "rm riftal_smoke_levelbuild_zt" in engine.verbs() and not (root / "levels" / "zt.lock.json").exists()
 
 
 def test_the_marker_and_text_files_feed_the_content_hash(fake: FakeBridge, root: Path) -> None:
@@ -287,7 +330,7 @@ def test_an_inspect_without_the_image_key_is_named_and_still_stops(fake: FakeBri
     engine.omit.add("Image")
     with pytest.raises(stack.StackError, match="no 'Image' key"):
         _build(engine, fake, root)
-    assert "rm riftal_smoke_level_zt" in engine.verbs() and not (root / "levels" / "zt.lock.json").exists()
+    assert "rm riftal_smoke_levelbuild_zt" in engine.verbs() and not (root / "levels" / "zt.lock.json").exists()
 
 
 @pytest.mark.parametrize(("stop_log", "findings", "match"), [
@@ -298,7 +341,7 @@ def test_a_refused_build_still_stops_cleanly_and_writes_nothing(fake: FakeBridge
     fake.scan_findings, engine = findings, FakeEngine(stop_log)
     with pytest.raises(LevelError, match=match):
         _build(engine, fake, root)
-    assert "rm riftal_smoke_level_zt" in engine.verbs() and "tee" not in engine.calls[-1]
+    assert "rm riftal_smoke_levelbuild_zt" in engine.verbs() and "tee" not in engine.calls[-1]
     assert not (root / "levels" / "zt.lock.json").exists()
 
 

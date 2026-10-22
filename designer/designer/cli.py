@@ -132,7 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     level = commands.add_parser("level", help="Build zone levels from their committed recipes in levels/.")
     levels = level.add_subparsers(dest="level")
     levels.required = True
-    level_build = levels.add_parser("build", help="Build ZONE on a fresh riftal_smoke_level_<zone> volume and write levels/<zone>.lock.json.")
+    level_build = levels.add_parser("build", help="Build ZONE on a fresh riftal_smoke_levelbuild_<zone> volume, publish it to riftal_smoke_level_<zone> and write levels/<zone>.lock.json.")
     level_build.add_argument("zone")
     default_bridge = stack_mod.STACK_DIR.parent.parent.parent / "riftal-game" / "designbridge"
     level_build.add_argument("--designbridge", type=Path, default=default_bridge, metavar="PATH", help="DesignBridge source folder.")
