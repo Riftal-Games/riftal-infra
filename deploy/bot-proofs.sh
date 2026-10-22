@@ -5,9 +5,14 @@
 #
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
 # count ran and teardown's listings were empty; 3 when a listing is exposure, whatever
-# else failed; any other status is a failure with no finding. The step turns that into
-# the exposure output, with GITHUB_OUTPUT unset here. finish ignores TERM and INT, so
-# a finding is 3 past the deadline too; a KILL at +120 s ends it with 137, filed pending.
+# else failed; 4 when assertions failed but the script ran to its end, took at least one
+# listing, judged every listing clean, saw every hold released and every runner it
+# started print a SCENARIO line not reading "timed out"; any other status is a failure
+# with no finding. The step turns that into the exposure output, none for 0 and 4, with
+# GITHUB_OUTPUT unset here. A TERM, an INT or the deadline ends the script with 124, and
+# a failure before the first listing leaves none judged, so neither is 4. finish ignores
+# TERM and INT, so a finding is 3 past the deadline too; a KILL at +120 s ends it with
+# 137, filed pending.
 #
 # Each condition reaches check single-quoted and is expanded by its eval.
 # shellcheck disable=SC2016,SC2034,SC2086,SC1090,SC1091
@@ -40,6 +45,10 @@ ETH0="$(eth0_address)" || { printf '%s\n' "$ETH0"; exit 1; }
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
 EXPECTED_ASSERTIONS=13 FOUND=0 PASSES=0 FAILURES=0 spid=""
+# Counted from each listing's own output, since teardown removes it. RUNNERS counts
+# the run-scenario.js processes started and RUNNERS_CLEAN those whose SCENARIO line
+# does not read "timed out".
+LISTINGS=0 LISTINGS_CLEAN=0 HOLDS=0 RELEASED=0 RUNNERS=0 RUNNERS_CLEAN=0
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
@@ -89,6 +98,11 @@ teardown() {
   rm -rf "$work"
 }
 
+clean_finish() {
+  [ "$FOUND" = 0 ] && [ "$LISTINGS" -ge 1 ] && [ "$LISTINGS" = "$LISTINGS_CLEAN" ] &&
+    [ "$HOLDS" = "$RELEASED" ] && [ "$RUNNERS" = "$RUNNERS_CLEAN" ]
+}
+
 finish() {
   local rc=$? status=0 ran
   set +e
@@ -98,12 +112,13 @@ finish() {
   if [ "$FOUND" = 1 ]; then
     status=3
   elif [ "$rc" -ne 0 ]; then
-    status=$((rc == 3 ? 1 : rc))
+    status=$((rc == 3 || rc == 4 ? 1 : rc))
   elif [ "$ran" -ne "$EXPECTED_ASSERTIONS" ] || [ "$FAILURES" -ne 0 ]; then
     printf '::error::%s of %s assertions ran and %s failed\n' "$ran" "$EXPECTED_ASSERTIONS" "$FAILURES"
     status=1
   fi
-  printf 'harness status %s after %ss, %s of %s assertions ran, %s passed, %s failed, listings exposure: %s\n' "$status" "$SECONDS" "$ran" "$EXPECTED_ASSERTIONS" "$PASSES" "$FAILURES" "$FOUND"
+  [ "$status" != 1 ] || [ "$rc" -ne 0 ] || ! clean_finish || status=4
+  printf 'harness status %s after %ss, %s of %s assertions ran, %s passed, %s failed, listings exposure: %s, judged clean: %s of %s\n' "$status" "$SECONDS" "$ran" "$EXPECTED_ASSERTIONS" "$PASSES" "$FAILURES" "$FOUND" "$LISTINGS_CLEAN" "$LISTINGS"
   exit "$status"
 }
 trap finish EXIT; trap 'exit 124' TERM INT
@@ -189,6 +204,9 @@ rc=0
 DT="$DT" IMAGE="$DEVTOOLS_IMAGE" PREFIX="$P" ETH0="$ETH0" INSTANCE="$H,$C,$GW" "$NODE" "$work/probe.js" hold >"$work/hold.log" 2>&1 || rc=$?
 sed 's/^/  | /' "$work/hold.log"
 [ "$rc" -ne 3 ] || FOUND=1
+count() { grep -cE "$1" "$work/hold.log" || true; }
+LISTINGS="$(count '^ROOT LISTING [0-9]+ ')" LISTINGS_CLEAN="$(count '^ROOT LISTING [0-9]+ clean \|')"
+HOLDS="$(count '^probed [0-9]+$')" RELEASED="$(count '^PROBE RELEASED [0-9]+ ')"
 read -r RPID RPORT < <(sed -n 's/^RUNNER pid=\([0-9]*\) port=\([0-9]*\)$/\1 \2/p' "$work/hold.log") || true
 printf 'sockets in the root listing with no owning process on :323, which decide nothing here:\n'
 { grep -E '[:]323 ' "$work/hold.log" | grep -v 'users:' || true; } | sed 's/^/  /'
