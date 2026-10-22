@@ -9,9 +9,13 @@ procedure.
 **This is Nasir's, by hand, every time.** On production it touches real player
 data. On the dev stack it touches `riftal-world`, which is not a throwaway volume.
 No agent runs the swap, the restore or any step that writes to `riftal-world`,
-`riftal-world-b` or any volume that is not a `riftal_smoke_` one. The guard denies
-those commands by design (riftal-pm's `CLAUDE.md`, The guard), and phrasing around
-it is not allowed. The loop's part is this document and, once they exist, the selftests.
+`riftal-world-b` or any volume that is not a `riftal_smoke_` one. That ban rests on
+this document and on riftal-pm's `CLAUDE.md` hard stops (anything reaching real
+player data, and the guard). The guard reads command text and does not reliably
+catch the commands printed here: they `cd` into the worlds folder on one line,
+rename and `chown` relative names on the next, and pass the volume in a variable.
+Phrasing around a guard denial is not allowed either. The loop's part is this
+document and, once they exist, the selftests.
 
 ## What exists, and what does not
 
@@ -91,8 +95,8 @@ wslc inspect riftal-instance
 
 Read `Unloading world` and `Stopping other threads` in the log, and exit code 0
 in `inspect`, for each instance. Stop the `backup` service too and keep it
-stopped until step 7, for the reasons in `WIPE.md` step 2: a scheduled run
-between steps 2 and 7 takes a retention slot and can fail on a left-behind
+stopped until step 6, for the reasons in `WIPE.md` step 2: a scheduled run
+between steps 2 and 6 takes a retention slot and can fail on a left-behind
 lock. `restore.sh` also refuses while any session is connected to the database,
 so the instances have to be down for the rollback anyway.
 
@@ -131,9 +135,11 @@ directory; it is the rollback.
 
   Each tar prints `ok`, and the last line prints `1`: the tar holds this zone's
   level (`backup.sh` tars each volume from its root, so entries start with `./`).
-- Retention prunes the set once `BACKUP_RETENTION` later runs complete, 2.5 days at
-  the defaults. A window that could outlast that copies the set out of
-  `BACKUP_ROOT` first, and where to is Nasir's call (`ROLLOUT.md`).
+- With `backup` stopped until step 6, retention prunes the set `BACKUP_RETENTION - 1`
+  intervals after step 6: 9 x 21600 s, 54 hours or about 2.25 days, at the defaults
+  (`WIPE.md` step 3). Any other `backup.sh` run into the same `BACKUP_ROOT` brings
+  that forward. A window that could outlast that copies the set out of
+  `BACKUP_ROOT` before step 6, and where to is Nasir's call (`ROLLOUT.md`).
 
 Nothing stands in for the set: not the build volume, not a copy of the folder
 made in step 3. If the backup is not verified, stop here.
@@ -222,7 +228,9 @@ exit code:
 
 - A line starting `Done (` is present.
 - No line matches `/(EMERGENCY|ALERT|CRITICAL|ERROR)]`. PocketMine exits 0 with
-  these in the log. `../images/loads-check.sh <log>` reads exactly this.
+  these in the log. `../images/loads-check.sh <log>` checks this bullet and the
+  one above, and also fails unless `Enabling RiftalCustody` precedes the first
+  `Preparing world`. It does not check the two bullets below.
 - `Preparing world "<zone>"` appears, off the volume, and no `Generating spawn
   terrain` line for it (`../.claude/skills/dev-stack/SKILL.md`, the replacement
   check).
@@ -272,8 +280,14 @@ core generates plain terrain there and every later boot keeps it (ADR 009 item 5
 and players may have changed it. Choose with Nasir:
 
 - *Level only.* Valid only if the database was not touched by anything that
-  depends on the level, such as a mine reset that has written rows. Rename the
-  new folder aside as above, then extract just this zone from the step 2 set:
+  depends on the level, such as a mine reset that has written rows. Repeat step 1
+  first: stop every instance and the `backup` service and read the shutdown lines,
+  since a live server holds the folder open and a later save writes into whatever
+  is at that path. Then run the "Before any instance started" commands above. The
+  step 3 folder `.replaced-$ZONE-$STAMP` is still on the volume untouched, and
+  renaming it back restores the old level exactly. Only if that folder is gone,
+  rename the new folder aside by the first `mv` of those commands and extract just
+  this zone from the step 2 set:
 
   ```sh
   wslc run --rm -v "$VOL":/data -v riftal-backups:/backups:ro -e ZONE="$ZONE" mysql:8 bash -c '
@@ -284,7 +298,7 @@ and players may have changed it. Choose with Nasir:
     chown -R 1000:1000 "$ZONE"'
   ```
 
-  This is hand `tar`. No script on `main` restores one level, and `restore.sh`
+  The tar is hand `tar`. No script on `main` restores one level, and `restore.sh`
   does not.
 - *Whole set.* `restore.sh` with `BACKUP_SET` the step 2 set, exactly as
   `README.md`, Running it locally (`## Restore` describes it and holds no
