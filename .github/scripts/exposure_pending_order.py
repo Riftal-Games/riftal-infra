@@ -61,11 +61,11 @@ name, id, if and run: shell would replace the interpreter that runs the write,
 and env can set BASH_ENV or ENV, which run a script before the run does, so both
 are refused with the rest. Its whole run, once spaces and newlines around it are
 dropped, must be HARNESS_RUN, the one fixed form: the script runs with
-GITHUB_OUTPUT unset, so it writes no exposure value; exit 0 writes none, exit 3
-writes found, any other status writes nothing, and the step exits with the
-script's status. A run that writes nothing falls through to pending, the value
-ADR 024 item 3 gives to a run that ended before every listing was judged, so
-bots-stopped-file files it.
+GITHUB_OUTPUT unset, so it writes no exposure value; exit 0 and exit 4 write
+none, exit 3 writes found, any other status writes nothing, and the step exits
+with the script's status. A run that writes nothing falls through to pending,
+the value ADR 024 item 3 gives to a run that ended before every listing was
+judged, so bots-stopped-file files it.
 
 The workflow's concurrency.cancel-in-progress, when it has one, must be a plain
 false, and the check ends otherwise: a newer run cancels an older run and every
@@ -127,7 +127,7 @@ TEARDOWN_KEYS = {"name", "if", "run"}
 HARNESS_RUN = r"""status=0
 env -u GITHUB_OUTPUT bash deploy/bot-proofs.sh || status=$?
 case "$status" in
-  0) printf 'exposure=none\n' >> "$GITHUB_OUTPUT" ;;
+  0|4) printf 'exposure=none\n' >> "$GITHUB_OUTPUT" ;;
   3) printf 'exposure=found\n' >> "$GITHUB_OUTPUT" ;;
 esac
 exit "$status"

@@ -5,9 +5,14 @@
 #
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
 # count ran and teardown's listings were empty; 3 when a listing is exposure, whatever
-# else failed; any other status is a failure with no finding. The step turns that into
-# the exposure output, with GITHUB_OUTPUT unset here. finish ignores TERM and INT, so
-# a finding is 3 past the deadline too; a KILL at +120 s ends it with 137, filed pending.
+# else failed; 4 when the body ended 0 or 1 with the status otherwise 1, FOUND 0, at
+# least one listing taken and every one judged clean, every hold released open, no HOLD
+# FAILURE line and no start of "$NODE" recorded (bot-proofs-finish.sh); any other status
+# is a failure with no finding. The step turns 0 and 4 into the exposure output none and
+# 3 into found, with GITHUB_OUTPUT unset here. A TERM, an INT, the deadline and a
+# `timeout` that expires outside a check end the script with 124, which is never 4.
+# finish ignores TERM and INT, so a finding is 3 past the deadline too; a KILL at
+# +120 s ends it with 137, filed pending.
 #
 # Each condition reaches check single-quoted and is expanded by its eval.
 # shellcheck disable=SC2016,SC2034,SC2086,SC1090,SC1091
@@ -32,6 +37,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/images/core-image.sh"
 . "$ROOT/images/devtools-image.sh"
 . "$ROOT/.github/scripts/bot-proofs-checks.sh"
+. "$ROOT/.github/scripts/bot-proofs-finish.sh"
 core_image && devtools_image || exit 1
 DT="${RUNNER_TEMP:?}/riftal-devtools" NODE="$DT/node-runtime/bin/node"
 [ -x "$NODE" ] || { printf '::error::%s is not the devtools image'"'"'s node\n' "$NODE"; exit 1; }
@@ -42,6 +48,17 @@ SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
 EXPECTED_ASSERTIONS=13 FOUND=0 PASSES=0 FAILURES=0 spid=""
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+
+# Every "$NODE" start after this is recorded before node runs. A record that cannot be
+# written refuses the start, so no start goes unrecorded.
+cat >"$work/node" <<SH
+#!/usr/bin/env bash
+. "$ROOT/.github/scripts/bot-proofs-finish.sh"
+record_node_start "$work/probe.js" "$work/runners" "\$@" || exit 125
+exec "$NODE" "\$@"
+SH
+chmod +x "$work/node"
+NODE="$work/node"
 
 # $1 what is claimed; $2 a condition, evaluated
 check() {
@@ -90,20 +107,15 @@ teardown() {
 }
 
 finish() {
-  local rc=$? status=0 ran
+  local rc=$? status ran
   set +e
   trap '' TERM INT; trap - EXIT
+  read_hold_log "$work/hold.log"
+  read_records "$work/runners"
   teardown
   ran=$((PASSES + FAILURES))
-  if [ "$FOUND" = 1 ]; then
-    status=3
-  elif [ "$rc" -ne 0 ]; then
-    status=$((rc == 3 ? 1 : rc))
-  elif [ "$ran" -ne "$EXPECTED_ASSERTIONS" ] || [ "$FAILURES" -ne 0 ]; then
-    printf '::error::%s of %s assertions ran and %s failed\n' "$ran" "$EXPECTED_ASSERTIONS" "$FAILURES"
-    status=1
-  fi
-  printf 'harness status %s after %ss, %s of %s assertions ran, %s passed, %s failed, listings exposure: %s\n' "$status" "$SECONDS" "$ran" "$EXPECTED_ASSERTIONS" "$PASSES" "$FAILURES" "$FOUND"
+  status="$(finish_status "$rc")" || status=1
+  printf 'harness status %s after %ss, %s of %s assertions ran, %s passed, %s failed, listings exposure: %s, judged clean: %s of %s, starts recorded: %s\n' "$status" "$SECONDS" "$ran" "$EXPECTED_ASSERTIONS" "$PASSES" "$FAILURES" "$FOUND" "$LISTINGS_CLEAN" "$LISTINGS" "$RUNNERS"
   exit "$status"
 }
 trap finish EXIT; trap 'exit 124' TERM INT
