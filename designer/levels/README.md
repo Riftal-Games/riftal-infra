@@ -61,3 +61,13 @@ covers only `bounds`, so neither the spawn area nor the margin changes it.
 
 A lock is written only when every stage passed. A scan finding, a failed check or a
 failed step leaves the previous lock untouched.
+
+## Build, `designer level build <zone>`
+
+Runs under `DESIGNER_RUNTIME` (`wslc` or `docker`). It recreates `riftal_smoke_level_<zone>`,
+refusing with any container that mounts it, and boots one container of that name that
+publishes only the bridge, on `127.0.0.1:19144`; under the docker fallback, run it inside
+the distro. After the lock it writes `worlds/<zone>/level-manifest.json`, the lock's
+`content_sha256` and a `tree_sha256` that is, in the level folder, the sha256 of
+`find . -type f ! -path ./level-manifest.json -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum`.
+A volume without a manifest was not fully built.
