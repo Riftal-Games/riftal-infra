@@ -5,10 +5,10 @@
 #
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
 # count ran and teardown's listings were empty; 3 when a listing is exposure, whatever
-# else failed; 4 when assertions failed but the script ran to its end, took at least one
+# else failed; 4 when the body ended 0 or 1 with assertions failed, took at least one
 # listing, judged every listing clean, saw every hold released open with no HOLD
-# FAILURE line and every runner it started print a SCENARIO line not reading "timed
-# out"; any other status is a failure
+# FAILURE line, and every runner it started has exited and shows only clean listings
+# in its own output lines (runner_clean); any other status is a failure
 # with no finding. The step turns that into the exposure output, none for 0 and 4, with
 # GITHUB_OUTPUT unset here. A TERM, an INT or the deadline ends the script with 124, and
 # a failure before the first listing leaves none judged, so neither is 4. finish ignores
@@ -52,13 +52,19 @@ LISTINGS=0 LISTINGS_CLEAN=0 HOLDS=0 RELEASED=0 HOLD_FAILURES=0 RUNNERS=0 RUNNERS
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
-# Every later "$NODE" goes through this wrapper. A start of run-scenario.js appends the
-# file its stdout goes to, so a runner that is started is counted whatever its caller
-# names its log, and one killed before it printed anything still has no SCENARIO line.
+# Every later "$NODE" goes through this wrapper. A start of run-scenario.js appends its
+# pid and the file its stdout goes to, or - when stdout and stderr are not one regular
+# file, since the runner's SOCKET LISTING heads are on stderr. A runner that is started
+# is counted whatever its caller names its log, and one killed before it printed
+# anything still has no SCENARIO line.
 cat >"$work/node" <<SH
 #!/bin/sh
 case "\$1" in
-  */run-scenario.js) log=\$(readlink -f /proc/\$\$/fd/1); printf '%s\n' "\$log" >>"$work/runners" ;;
+  */run-scenario.js)
+    out=\$(readlink -f /proc/\$\$/fd/1)
+    err=\$(readlink -f /proc/\$\$/fd/2)
+    if [ -f "\$out" ] && [ "\$out" = "\$err" ]; then log=\$out; else log=-; fi
+    printf '%s %s\n' "\$\$" "\$log" >>"$work/runners" ;;
 esac
 exec "$NODE" "\$@"
 SH
@@ -111,15 +117,42 @@ teardown() {
   rm -rf "$work"
 }
 
+nlines() { grep -cE -- "$1" "$2" || true; }
+
+# $1 a runner's pid; $2 its output file. Clean means ADR 024 item 3's "bots ran and
+# every listing was judged clean", read from the runner's own structured lines. The
+# reason after "SCENARIO <verdict> <name> |" holds the scenario's free-form error
+# beside the hold verdicts, so it is never read.
+runner_clean() {
+  local pid=$1 log=$2 holds ports clean=" " kind n p
+  [[ $pid =~ ^[0-9]+$ && $log == /* && -f $log ]] || return 1
+  ! grep -qs '^State:[[:space:]]*[^Z[:space:]]' "/proc/$pid/status" || return 1
+  [ "$(nlines '^SCENARIO (PASS|FAIL|INCONCLUSIVE) ' "$log")" = 1 ] || return 1
+  ! grep -qE '^SCENARIO .*timed out' "$log" || return 1
+  [ "$(nlines '^PROBE DONE ' "$log")" = 1 ] || return 1
+  read -r holds ports < <(sed -nE 's/^PROBE DONE [{]"holds":([0-9]+),"ports":\[([0-9,]*)\][}]$/\1 \2/p' "$log")
+  [ -n "$holds" ] || return 1
+  for kind in 'PROBE HOLD' 'ROOT LISTING' 'PROBE RELEASED'; do
+    [ "$(nlines "^$kind [0-9]+ " "$log")" -eq "$holds" ] || return 1
+  done
+  for ((n = 1; n <= holds; n++)); do
+    [ "$(nlines "^ROOT LISTING $n " "$log")" = 1 ] && [ "$(nlines "^PROBE RELEASED $n " "$log")" = 1 ] || return 1
+    p="$(sed -nE "s/^ROOT LISTING $n clean [|] held port ([0-9]+) [|].*/\1/p" "$log")"
+    [ -n "$p" ] && grep -qxF "PROBE RELEASED $n $p open" "$log" || return 1
+    clean+="$p "
+  done
+  for p in ${ports//,/ }; do [[ $clean == *" $p "* ]] || return 1; done
+  [ "$(nlines '^SOCKET LISTING ' "$log")" -eq "$(nlines '^SOCKET LISTING [^|]*[|] pid [0-9]+ [|] live bots [0-9]+ [|] clean [|]' "$log")" ] || return 1
+  [ "$holds" -gt 0 ] || [ "$(nlines '^SOCKET LISTING ' "$log")" -eq 0 ]
+}
+
 tally_runners() {
-  local log
+  local pid log
   RUNNERS=0 RUNNERS_CLEAN=0
   [ -s "$work/runners" ] || return 0
-  while IFS= read -r log; do
+  while read -r pid log; do
     RUNNERS=$((RUNNERS + 1))
-    if [ -f "$log" ] && grep -q '^SCENARIO ' "$log" && ! grep -qE '^SCENARIO .*timed out' "$log"; then
-      RUNNERS_CLEAN=$((RUNNERS_CLEAN + 1))
-    fi
+    ! runner_clean "$pid" "$log" || RUNNERS_CLEAN=$((RUNNERS_CLEAN + 1))
   done <"$work/runners"
 }
 
@@ -143,7 +176,7 @@ finish() {
     printf '::error::%s of %s assertions ran and %s failed\n' "$ran" "$EXPECTED_ASSERTIONS" "$FAILURES"
     status=1
   fi
-  [ "$status" != 1 ] || [ "$rc" -ne 0 ] || ! clean_finish || status=4
+  [ "$status" != 1 ] || [ "$rc" -gt 1 ] || ! clean_finish || status=4
   printf 'harness status %s after %ss, %s of %s assertions ran, %s passed, %s failed, listings exposure: %s, judged clean: %s of %s\n' "$status" "$SECONDS" "$ran" "$EXPECTED_ASSERTIONS" "$PASSES" "$FAILURES" "$FOUND" "$LISTINGS_CLEAN" "$LISTINGS"
   exit "$status"
 }
