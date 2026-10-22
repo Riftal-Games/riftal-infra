@@ -96,7 +96,7 @@ def test_index_commands_need_no_bridge(capsys: pytest.CaptureFixture[str]) -> No
     listing = json.loads(capsys.readouterr().out)
     assert set(listing) == {"worlds", "locations", "regions"} and len(listing["worlds"]) == 9
     assert main(["index", "list", "--tag", "spawn"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"locations": listing["locations"], "regions": []}
+    assert json.loads(capsys.readouterr().out) == {"locations": [l for l in listing["locations"] if "spawn" in l["tags"]], "regions": []}
     assert main(["index", "resolve", "spawn"]) == 0
     assert json.loads(capsys.readouterr().out)["pos"] == [256, 70, 256]
     assert main(["index", "resolve", "spwan"]) == 1 and "did you mean 'spawn'" in capsys.readouterr().err
