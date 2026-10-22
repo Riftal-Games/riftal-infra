@@ -127,7 +127,7 @@ def _build(engine: FakeEngine, fake: FakeBridge, root: Path, runtime: str = "doc
         engine.tokens.append(token)
         return Bridge("127.0.0.1", fake.port, fake.token, timeout=2.0, max_retries=1)
 
-    return level_engine.build("zt", runtime, SOURCES, root=root, runner=engine, connect=connect, index=_index(), checks_path=root / "checks.yaml")
+    return level_engine.build("zt", runtime, SOURCES, root=root, runner=engine, connect=connect, index=_index(), checks_path=root / "checks.yaml", mines_config=root / "mines.yml")
 
 
 @pytest.mark.parametrize("runtime", ["wslc", "docker"])

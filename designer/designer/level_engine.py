@@ -187,6 +187,7 @@ def commit(runner: Runner, path: Path) -> str:
 def build(
     zone: str, runtime: str, sources: Sources, *, root: Path = PROJECT_ROOT, runner: Runner = run_process,
     connect: Callable[[int, str], Bridge] | None = None, index: WorldIndex | None = None, checks_path: Path | None = None,
+    mines_config: Path | None = None,
 ) -> Path:
     """Build ``zone`` on a fresh volume and return its lock; recipe, name and index are refused before any engine call."""
     recipe = load_recipe(zone, root)
@@ -208,7 +209,7 @@ def build(
     try:
         _until(lambda: all(map(_clean(name, engine.text("logs", name)).__contains__, READY)), BOOT_TIMEOUT, f"{name} logged no {READY}")
         with (connect or (lambda port, key: Bridge("127.0.0.1", port, key)))(sources.bridge_port, token) as bridge:
-            lock_path = build_level(bridge, zone, after_stop, root=root, index=index, checks_path=checks_path)
+            lock_path = build_level(bridge, zone, after_stop, root=root, index=index, checks_path=checks_path, mines_config=mines_config)
     finally:
         if not state["stopped"]:
             stop(engine, name)
