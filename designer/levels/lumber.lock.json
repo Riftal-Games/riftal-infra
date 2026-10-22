@@ -1,0 +1,28 @@
+{
+  "bounds": {
+    "max": [
+      10,
+      52,
+      10
+    ],
+    "min": [
+      -10,
+      38,
+      -10
+    ]
+  },
+  "chunks": 328,
+  "content_sha256": "db2cab3f1b26af36aa5a05d2eb07527907c87a4cc115f72ffad268339e16c3de",
+  "core_image": "sha256:c36060a5231fd77bb10899da36d7c528a72a8ebbb356e695f89c533e00efa033",
+  "designbridge_commit": "0f0b523c8f8536f676ee8de9c0c6d007f626afe8",
+  "generator": "normal",
+  "inputs": {
+    "levels/lumber.json": "d5dfe9f4d84ba8dd40aa1c4323b69b542022195695eada33e789f1105477d0d1",
+    "palette:mine_stone": "30c68b82e89822017f0173446c4f3fbd81ad3d470c9d57c8645cdfb292e33979",
+    "specs/lumber.json": "d9ebc6f32e02d00c5b6391a32922985dfc0e6f922233418521a3cda6192f9b41"
+  },
+  "seed": 20260907,
+  "size_bytes": 1148802,
+  "toolkit_commit": "ece9f9931b98a2269014c787a5399bca23b59d73",
+  "zone": "lumber"
+}
