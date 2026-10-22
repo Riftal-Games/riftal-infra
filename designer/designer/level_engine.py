@@ -26,7 +26,7 @@ from designer.world_index import WorldIndex
 
 PREFIX = "riftal_smoke_level_"
 MANIFEST = "level-manifest.json"
-# 19140 is the designer stack's bridge and 19142 and 19143 its relays, so a build runs beside all of them.
+# 19140 is the designer stack's bridge, 19142 the dev stack's relay and 19143 the designer stack's, so a build runs beside all of them.
 DEFAULT_BRIDGE_PORT = 19144
 BOOT_TIMEOUT = 300
 READY = ("[DesignBridge] enabled, bridge target", "Done (")
@@ -45,6 +45,16 @@ def run_process(argv: list[str], stdin: bytes | None, timeout: float) -> subproc
         raise LevelError(f"{argv[0]} not found; is it on PATH?") from exc
 
 
+DOCKER_VERBS = {("volume", "remove"): ("volume", "rm"), ("list",): ("ps",), ("remove",): ("rm",)}
+
+
+def docker_spelling(args: tuple[str, ...]) -> tuple[str, ...]:
+    for verb, spelled in DOCKER_VERBS.items():
+        if args[:len(verb)] == verb:
+            return (*spelled, *args[len(verb):])
+    return args
+
+
 @dataclass(frozen=True)
 class Sources:
     designbridge: Path
@@ -54,13 +64,17 @@ class Sources:
 
 @dataclass(frozen=True)
 class Engine:
-    """Every verb sent through it is spelled the same under ``wslc`` and ``docker``."""
+    """Verbs are given in ``wslc``'s spelling and translated for ``docker``, as ``devtools/rig.js`` does.
+
+    ``wslc`` spells ``list``, ``remove`` and ``volume remove`` what ``docker`` spells ``ps``, ``rm``
+    and ``volume rm``. No wslc transcript has yet shown its ``volume inspect``, which is sent unchanged.
+    """
 
     runtime: str
     runner: Runner = run_process
 
     def __call__(self, *args: str, stdin: bytes | None = None, timeout: float = stack.DEFAULT_TIMEOUT, check: bool = True) -> subprocess.CompletedProcess[bytes]:
-        argv = ["docker" if self.runtime == "docker" else "wslc", *args]
+        argv = ["docker", *docker_spelling(args)] if self.runtime == "docker" else ["wslc", *args]
         done = self.runner(argv, stdin, timeout)
         if check and done.returncode != 0:
             # Only the verb, since a run's arguments carry the bridge token.
@@ -86,13 +100,13 @@ def fresh_volume(engine: Engine, volume: str) -> None:
     """Create ``volume`` empty, refusing with every container that mounts it before anything is removed."""
     if engine("volume", "inspect", volume, check=False).returncode == 0:
         users = []
-        for ref in engine.text("ps", "-a", "-q").split():
+        for ref in engine.text("list", "-a", "-q").split():
             info = engine.inspect(ref)
             if any(volume in (m.get("Name"), m.get("Source")) for m in info.get("Mounts") or []):
                 users.append(str(info.get("Name") or ref).lstrip("/"))
         if users:
             raise LevelError(f"volume {volume} is mounted by {', '.join(users)}; stop and remove them, then rebuild")
-        engine("volume", "rm", volume)
+        engine("volume", "remove", volume)
     engine("volume", "create", volume)
 
 
@@ -139,7 +153,7 @@ def stop(engine: Engine, name: str) -> str:
 
     log = _until(saved, stack.STOP_TIMEOUT, f"{name} logged no shutdown line")
     _until(exited, stack.STOP_TIMEOUT, f"{name} logged its shutdown line and is left in place, since it has not exited")
-    engine("rm", name)
+    engine("remove", name)
     return log
 
 

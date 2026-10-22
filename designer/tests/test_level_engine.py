@@ -18,6 +18,11 @@ from tests.test_level import _index
 SOURCES = Sources(Path("/src/designbridge"), Path("/src/plugins"), 19190)
 root = test_level.root
 BOOTED = "[Server thread/INFO]: [DesignBridge] enabled, bridge target 0.0.0.0:19140\n[Server thread/INFO]: Done (3.2s)!\n"
+# Each runtime's own spelling of the verbs the fake answers in docker's; wslc's is from devtools/rig.js and dev-stack.ps1.
+SPELLINGS = {
+    "wslc": {"ps": ["list"], "rm": ["remove"], "volume rm": ["volume", "remove"]},
+    "docker": {"ps": ["ps"], "rm": ["rm"], "volume rm": ["volume", "rm"]},
+}
 
 
 def tar_of(files: dict[str, bytes]) -> bytes:
@@ -56,6 +61,11 @@ class FakeEngine:
     def __call__(self, argv: list[str], stdin: bytes | None, timeout: float) -> subprocess.CompletedProcess[bytes]:
         self.calls.append(argv)
         args, out, err, code = argv[1:], b"", b"", 0
+        if argv[0] != "git":
+            spoken, other = SPELLINGS[argv[0]], SPELLINGS["docker" if argv[0] == "wslc" else "wslc"]
+            if any(args[:len(v)] == v for v in other.values() if v not in spoken.values()):
+                return subprocess.CompletedProcess(argv, 1, stdout=b"", stderr=f"{argv[0]}: unknown verb {' '.join(args[:2])}".encode())
+            args = next(([*k.split(), *args[len(v):]] for k, v in spoken.items() if args[:len(v)] == v), args)
         if argv[0] == "git":
             if "status" in argv:
                 out = b" M plugin.yml\n" if Path(argv[2]).name in self.dirty else b""
@@ -133,8 +143,8 @@ def test_build_boots_stops_and_writes_the_lock_and_manifest(fake: FakeBridge, ro
     copy_out = next(a for a in engine.calls if a[1:3] == ["run", "--rm"] and "tar" in a)
     assert copy_out[copy_out.index("-v") + 1] == "riftal_smoke_level_zt:/data:ro"
     assert f"DESIGNBRIDGE_TOKEN={engine.tokens[0]}" in run
-    verbs = engine.verbs()
-    assert verbs.index("attach riftal_smoke_level_zt") < verbs.index("rm riftal_smoke_level_zt") < verbs.index("run --rm")
+    verbs, remove = engine.verbs(), " ".join(SPELLINGS[runtime]["rm"])
+    assert verbs.index("attach riftal_smoke_level_zt") < verbs.index(f"{remove} riftal_smoke_level_zt") < verbs.index("run --rm")
     assert (lock["core_image"], lock["designbridge_commit"], lock["toolkit_commit"]) == ("sha256:core", "designbridge-sha", f"{root.name}-sha")
     tree, size, _ = read_tree(tar_of(engine.level))
     assert lock["size_bytes"] == size == 12
@@ -142,17 +152,21 @@ def test_build_boots_stops_and_writes_the_lock_and_manifest(fake: FakeBridge, ro
     assert engine.calls[-1][-1] == "/data/worlds/zt/level-manifest.json"
 
 
-def test_an_existing_volume_is_recreated_but_one_in_use_is_refused_by_name(fake: FakeBridge, root: Path) -> None:
+@pytest.mark.parametrize(("runtime", "verbs"), [
+    ("wslc", ["volume inspect", "list -a", "volume remove", "volume create", "run -d"]),
+    ("docker", ["volume inspect", "ps -a", "volume rm", "volume create", "run -d"]),
+])
+def test_an_existing_volume_is_recreated_but_one_in_use_is_refused_by_name(fake: FakeBridge, root: Path, runtime: str, verbs: list[str]) -> None:
     engine = FakeEngine()
     engine.volumes.add("riftal_smoke_level_zt")
-    _build(engine, fake, root)
-    assert engine.verbs()[:4] == ["volume inspect", "ps -a", "volume rm", "volume create"]
+    _build(engine, fake, root, runtime)
+    assert engine.verbs()[:5] == verbs
 
     engine.mounts["instance"] = ["riftal_smoke_level_zt"]
     before = len(engine.calls)
     with pytest.raises(LevelError, match="mounted by instance"):
-        _build(engine, fake, root)
-    assert not [a for a in engine.calls[before:] if a[1] in ("run", "rm") or a[1:3] == ["volume", "rm"]]
+        _build(engine, fake, root, runtime)
+    assert not [a for a in engine.calls[before:] if a[1] in ("run", "rm", "remove") or a[1:3] in (["volume", "rm"], ["volume", "remove"])]
 
 
 def test_each_build_runs_with_its_own_token(fake: FakeBridge, root: Path) -> None:
