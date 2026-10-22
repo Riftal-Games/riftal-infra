@@ -8,7 +8,8 @@
 # is absent; a folder that exists is never touched. Otherwise the source's file
 # tree is checked against the manifest, copied into a temporary directory under
 # /data/worlds, checked again, and renamed into place, so the zone's folder is
-# either absent or complete.
+# either absent or complete. A temporary directory a killed run left behind is
+# removed, and logged, on the next boot.
 #
 # A source that is missing, has no readable manifest, holds anything but regular
 # files and directories, or fails the check stops the boot here. A server
@@ -57,6 +58,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# A killed run leaves its .seed-<zone>.XXXXXX behind. A zone name cannot start
+# with a dot, so no zone folder can match the pattern; only a directory that
+# does is removed.
+clear_leftovers() {
+	local dir
+	[ -d "$worlds" ] || return 0
+	while IFS= read -r -d '' dir; do
+		if [[ "${dir##*/}" =~ ^\.seed-[A-Za-z0-9_-]+\.[A-Za-z0-9]{6}$ ]]; then
+			chmod -R u+rwX -- "$dir"
+			rm -rf -- "$dir"
+			say "removed leftover temporary directory $dir"
+		fi
+	done < <(find "$worlds" -mindepth 1 -maxdepth 1 -type d -name '.seed-*' -print0)
+}
+
 seed_zone() {
 	local zone="$1" source="$levels/$1" dest="$worlds/$1" want content odd
 
@@ -102,6 +118,7 @@ read -ra zones <<<"${RIFTAL_LEVEL_ZONES:-}"
 if [ "$(id -u)" -eq 0 ] && [ "${#zones[@]}" -gt 0 ]; then
 	refuse "running as root; the seeded folder would not be owned by the server's user"
 fi
+clear_leftovers
 if [ "${#zones[@]}" -eq 0 ]; then
 	say "no zones listed; nothing seeded"
 fi

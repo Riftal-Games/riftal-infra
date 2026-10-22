@@ -25,7 +25,7 @@ RUN="riftal_smoke_seedlv_$$"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=13
+EXPECTED_ASSERTIONS=17
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1: $(tail -n 12 <<<"${LOG:-}")"; fi; }
@@ -243,6 +243,56 @@ refused "a source holding a symlink" "$(new_volume linked)" "/escape is neither 
 
 run_seed "$(new_volume traversal)" "../etc" seed "${SRC[@]}"
 check "a zone name that is not a plain name is refused" '[ "$RC" -ne 0 ] && grep -q "not a plain name" <<<"$LOG"'
+
+printf '\n== crash leftovers\n'
+v6="$(new_volume leftover)"
+plant() {
+  inspect_rw "$v6" sh -c "mkdir -p /data/worlds/.seed-lumber.$1/db /data/worlds/plots /data/worlds/.seed-keep &&
+    printf x > /data/worlds/.seed-lumber.$1/db/000001.ldb && chmod 555 /data/worlds/.seed-lumber.$1/db &&
+    printf x > /data/worlds/.seed-lumber.FILE01 && printf x > /data/worlds/plots/level.dat &&
+    printf x > /data/worlds/.seed-keep/note"
+}
+sorted_listing() { listing "$1" | LC_ALL=C sort | tr '\n' ' '; }
+plant CRASH1
+bystanders() { printf '%s %s %s' "$(snapshot "$v6" plots)" "$(snapshot "$v6" .seed-keep)" "$(snapshot "$v6" .seed-lumber.FILE01)"; }
+kept="$(bystanders)"
+run_seed "$v6" lumber seed "${SRC[@]}"
+check "a seeding boot removes a crash leftover, logs it, and touches no zone or other name beside it" \
+  '[ "$RC" -eq 0 ] && grep -qF "seed-levels: removed leftover temporary directory /data/worlds/.seed-lumber.CRASH1" <<<"$LOG" &&
+   grep -q "lumber seeded at" <<<"$LOG" && [ "$(sorted_listing "$v6")" = ".seed-keep .seed-lumber.FILE01 lumber plots " ] &&
+   [ "$(bystanders)" = "$kept" ] && [ "$(tree_of "$v6" lumber)" = "$TREE" ]'
+plant CRASH2
+kept="$(bystanders)"
+before="$(snapshot "$v6" lumber)"
+run_seed "$v6" lumber seed "${SRC[@]}"
+check "a boot that finds lumber present removes a crash leftover too and leaves lumber byte for byte" \
+  '[ "$RC" -eq 0 ] && grep -qF "seed-levels: removed leftover temporary directory /data/worlds/.seed-lumber.CRASH2" <<<"$LOG" &&
+   grep -q "lumber present" <<<"$LOG" && [ "$(sorted_listing "$v6")" = ".seed-keep .seed-lumber.FILE01 lumber plots " ] &&
+   [ "$(bystanders)" = "$kept" ] && [ "$(snapshot "$v6" lumber)" = "$before" ]'
+
+# Stands in for cp ahead of it on PATH: the real copy, then the fault $SHIM names.
+mkdir -m 0755 "$work/shim"
+cat > "$work/shim/cp" <<'SH'
+#!/bin/sh
+/bin/cp "$@" || exit
+for last; do :; done
+case "$SHIM" in
+corrupt) printf x >> "${last}level.dat" ;;
+race) mkdir -p /data/worlds/lumber && printf held > /data/worlds/lumber/level.dat ;;
+esac
+SH
+chmod 755 "$work/shim/cp"
+SHIMMED=(-v "$work/shim:/shim:ro" -e PATH=/shim:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin)
+
+v8="$(new_volume corrupt)"
+run_seed "$v8" lumber seed "${SRC[@]}" "${SHIMMED[@]}" -e SHIM=corrupt
+check "a copy that does not hash to the manifest stops the boot and leaves no lumber and no temporary directory" \
+  '[ "$RC" -ne 0 ] && grep -qF "the copy of /etc/riftal/levels/lumber does not hash to" <<<"$LOG" && [ -z "$(listing "$v8")" ]'
+v7="$(new_volume race)"
+run_seed "$v7" lumber seed "${SRC[@]}" "${SHIMMED[@]}" -e SHIM=race
+check "a lumber that appears while the copy is made is kept and the boot stops" \
+  '[ "$RC" -ne 0 ] && grep -qF "appeared while the copy was made" <<<"$LOG" && [ "$(sorted_listing "$v7")" = "lumber " ] &&
+   [ "$(inspect "$v7" cat /data/worlds/lumber/level.dat)" = held ]'
 
 printf '\n'
 ran=$((PASSES + FAILURES))
