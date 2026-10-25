@@ -31,7 +31,7 @@ jobs:
     # ci-sweep-selftest.sh removes its other-job volumes once they are older
     # than its reap_after, as left by a run that has ended, and fails unless
     # every job here times out sooner.
-    timeout-minutes: 15
+    timeout-minutes: 19
 
     steps:
       # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
@@ -67,6 +67,13 @@ jobs:
 
       - name: Grants REVOKE check self-test
         run: bash deploy/grants-revoke-check-selftest.sh
+
+      # Reads instances/, designer/levels/ and /usr/bin/jq only, so it also
+      # runs before any container step.
+      - name: Instance definitions list only built zones
+        run: |
+          bash deploy/instance-levels-check-selftest.sh
+          bash deploy/instance-levels-check.sh
 
       # Synthetic timings and fixture configs only, so it also runs before any
       # container step.
@@ -171,7 +178,7 @@ jobs:
         run: bash images/plugins/join-order/selftest.sh
 
       # A healthy run takes under half a minute. The bound keeps one wedged
-      # boot from spending the rest of the job's 15 minutes.
+      # boot from spending the rest of the job's 19 minutes.
       - name: Dev bots watch camera self-test
         timeout-minutes: 10
         run: bash images/plugins/watch/selftest.sh
@@ -193,6 +200,12 @@ jobs:
 
       - name: Instance boot on the pinned core image self-test
         run: bash images/plugins/instance-only/boot-selftest.sh
+
+      # Boots the pinned core image three times, the first to generate the fixture level.
+      # A healthy run takes under a minute; the bound stops one wedged boot spending the job's 19 minutes.
+      - name: Level seed step on the pinned core image self-test
+        timeout-minutes: 10
+        run: bash images/plugins/seed-levels-selftest.sh
 
       - name: Instance-b start script self-test
         run: bash images/plugins/instance-b/selftest.sh
