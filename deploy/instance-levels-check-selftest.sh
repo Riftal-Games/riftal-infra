@@ -15,7 +15,7 @@ sha="$(printf 'a%.0s' {1..64})"
 
 failures=0
 ran=0
-expected=40
+expected=44
 cases=0
 
 # fresh starts an empty case with an instances dir and a locks dir.
@@ -81,8 +81,16 @@ fresh; lock lumber; inst i lumber '--auto-report.enabled=0'
 refused 'POCKETMINE_ARGS holds no --level-name' 'no --level-name refuses'
 fresh; lock lumber; lock mine_a; inst i 'lumber mine_a' '--level-name=lumber --level-name=mine_a'
 refused 'POCKETMINE_ARGS holds 2 --level-name tokens' 'two --level-name tokens refuse'
-fresh; lock lumber; inst i lumber '--level-name lumber'
+fresh; lock lumber; inst i lumber '--level-name'
 refused "POCKETMINE_ARGS token '--level-name' is not --level-name=<zone>" 'a bare --level-name refuses'
+fresh; lock lumber; inst i lumber '--xbox-auth false --level-name=lumber'
+refused "POCKETMINE_ARGS token 'false' is not a single long option" 'a value token before --level-name refuses, since getopt stops there'
+fresh; lock lumber; inst i lumber '--level-name lumber'
+expect 1 "POCKETMINE_ARGS token 'lumber' is not a single long option" 'a --level-name given its value as a separate token refuses'
+fresh; lock lumber; inst i lumber '--auto-report.enabled=0 -- --level-name=lumber'
+refused "POCKETMINE_ARGS token '--' is not a single long option" 'a -- token before --level-name refuses'
+fresh; lock lumber; inst i lumber '- --level-name=lumber'
+refused "POCKETMINE_ARGS token '-' is not a single long option" 'a lone - token before --level-name refuses'
 fresh; lock lumber; inst i lumber '--level-name=lumber --level-name='
 refused "POCKETMINE_ARGS token '--level-name=' is not --level-name=<zone>" 'an empty --level-name value refuses'
 fresh; lock lumber; inst i lumber '--level-name=lumber --worlds=x'

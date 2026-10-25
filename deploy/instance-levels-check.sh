@@ -16,6 +16,9 @@
 #                       definition lists it.
 #   POCKETMINE_ARGS     split on whitespace as start-instance.sh splits it.
 #                       Exactly one --level-name=<zone>, and no --worlds token.
+#                       Every token is one long option, --name or --name=value,
+#                       because core's getopt stops at the first token that is
+#                       not one, at a lone -, and at --, and reads nothing after.
 #                       Core reads --level-name as an optional-value option, so
 #                       a bare one is no name and boot would generate "world".
 #
@@ -57,6 +60,7 @@ refuse() {
 }
 
 value_re='^[A-Za-z0-9 _.,:=/@+-]+$'
+option_re='^--[A-Za-z0-9][A-Za-z0-9._-]*(=.*)?$'
 declare -A zone_owner=()
 declare -A env_value=()
 definitions=0
@@ -108,6 +112,11 @@ check_args() {
   default_zone=
   read -ra args <<<"${env_value[POCKETMINE_ARGS]}"
   for token in "${args[@]}"; do
+    if ! [[ $token =~ $option_re ]]; then
+      refuse "$id: POCKETMINE_ARGS token '$token' is not a single long option, so core stops reading options there and takes no --level-name after it"
+      odd=1
+      break
+    fi
     case "$token" in
       --level-name=?*) names+=("${token#--level-name=}") ;;
       --level-name*)
@@ -197,5 +206,4 @@ done
 shopt -u nullglob dotglob
 
 [ "$refused" -eq 0 ] || exit 1
-printf 'INSTANCE LEVELS OK: %s instance definition(s) read, %s built zone(s): %s
-'   "$definitions" "${#built[@]}" "${built[*]:-none}"
+printf 'INSTANCE LEVELS OK: %s instance definition(s) read, %s built zone(s): %s\n' "$definitions" "${#built[@]}" "${built[*]:-none}"
