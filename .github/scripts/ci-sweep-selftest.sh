@@ -185,8 +185,9 @@ check "$([ -z "$held" ] && echo ok)" "sweep removed this job's network after its
 
 # A docker client left running by a cancelled step is stood in for by a script
 # named docker, which is all the sweep reads of a process: its name and the job
-# it was started in. The sweep must stop this job's and leave the one started
-# under another run id alone.
+# it was started in. The sweep must stop this job's and leave alone the ones
+# started under another run id, another attempt of this run, and another job
+# of this run.
 stray_dir="$(mktemp -d)" || exit 1
 printf '#!/bin/sh\nwhile :; do sleep 1; done\n' >"$stray_dir/docker"
 chmod 0755 "$stray_dir/docker"
@@ -194,18 +195,26 @@ chmod 0755 "$stray_dir/docker"
 stray_own=$!
 GITHUB_RUN_ID="${GITHUB_RUN_ID}0" "$stray_dir/docker" &
 stray_other=$!
+GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT}0" "$stray_dir/docker" &
+stray_attempt=$!
+GITHUB_JOB="${GITHUB_JOB:-job}0" "$stray_dir/docker" &
+stray_job=$!
 out="$(bash "$sweep")"
 rc=$?
 printf '%s\n' "$out" | sed 's/^/  sweep | /'
 state_of() { ps -o stat= -p "$1" 2>/dev/null | cut -c1 | tr -d ' '; }
 own_state="$(state_of "$stray_own")"
 other_state="$(state_of "$stray_other")"
-kill "$stray_other" "$stray_own" 2>/dev/null
-wait "$stray_own" "$stray_other" 2>/dev/null
+attempt_state="$(state_of "$stray_attempt")"
+job_state="$(state_of "$stray_job")"
+kill "$stray_other" "$stray_attempt" "$stray_job" "$stray_own" 2>/dev/null
+wait "$stray_own" "$stray_other" "$stray_attempt" "$stray_job" 2>/dev/null
 rm -rf "$stray_dir"
 check "$([ "$rc" -eq 0 ] && echo ok)" "sweep exits 0 with a stray docker client to stop (got $rc)"
 check "$([ -z "$own_state" ] || [ "$own_state" = Z ] && echo ok)" "sweep stopped this job's stray docker client (state '$own_state')"
 check "$([ -n "$other_state" ] && [ "$other_state" != Z ] && echo ok)" "sweep left another job's docker client running (state '$other_state')"
+check "$([ -n "$attempt_state" ] && [ "$attempt_state" != Z ] && echo ok)" "sweep left another attempt's docker client running (state '$attempt_state')"
+check "$([ -n "$job_state" ] && [ "$job_state" != Z ] && echo ok)" "sweep left another job's docker client of this run running (state '$job_state')"
 stopped="$(printf '%s\n' "$out" | grep -c '^stopped a docker client left running by an earlier step: pid ')"
 check "$([ "$stopped" -eq 1 ] && echo ok)" "sweep reports stopping exactly one stray client (got $stopped)"
 
