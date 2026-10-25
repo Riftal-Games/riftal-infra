@@ -46,6 +46,7 @@ fi
 
 net="riftal_smoke_sweep_net_${GITHUB_RUN_ID}_$$"
 holder="riftal_smoke_sweep_holder_${GITHUB_RUN_ID}_$$"
+late="riftal_smoke_sweep_late_${GITHUB_RUN_ID}_$$"
 own_vol="riftal_smoke_sweep_own_vol_${GITHUB_RUN_ID}_$$"
 other_vol="riftal_smoke_sweep_other_vol_${GITHUB_RUN_ID}_$$"
 reap_prefix="riftal_smoke_sweep_reaptest_${GITHUB_RUN_ID}_$$_"
@@ -56,7 +57,7 @@ reap_miss="riftal_smoke_sweep_reapmiss_${GITHUB_RUN_ID}_$$"
 sandbox=
 cleanup() {
   [ -z "$sandbox" ] || rm -rf "$sandbox"
-  docker rm -v -f "$own" "$other" "$holder" >/dev/null 2>&1 || true
+  docker rm -v -f "$own" "$other" "$holder" "$late" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
   docker volume rm "$own_vol" "$other_vol" "$reap_young" "$reap_old" "$reap_miss" \
     "$reap_label" >/dev/null 2>&1 || true
@@ -175,13 +176,20 @@ GITHUB_RUN_ID='' start 20 --name "$holder" --network "$net" \
   --label riftal.ci.job=selftest-other-job || exit 1
 (sleep 5; docker stop -t 10 "$holder" >/dev/null 2>&1) &
 releaser=$!
+# The daemon creating a container for a stopped client after the sweep's first
+# listing: it is not in that listing, and the held network keeps the sweep in
+# its wait loop long enough to see it later.
+(sleep 2; docker create -m 1g --cpus 1 --name "$late" php:8.3-cli-alpine true >/dev/null 2>&1) &
+creator=$!
 out="$(bash "$sweep")"
 rc=$?
-wait "$releaser"
+wait "$releaser" "$creator"
 printf '%s\n' "$out" | sed 's/^/  sweep | /'
 check "$([ "$rc" -eq 0 ] && echo ok)" "sweep exits 0 once a held network is released (got $rc)"
 held="$(docker network ls -q --filter "name=^${net}\$")"
 check "$([ -z "$held" ] && echo ok)" "sweep removed this job's network after its first removal was refused"
+gone="$(docker ps -aq --filter "name=^/${late}\$")"
+check "$([ -z "$gone" ] && echo ok)" "sweep removed a container created after its first listing"
 
 # A docker client left running by a cancelled step is stood in for by a script
 # named docker, which is all the sweep reads of a process: its name and the job

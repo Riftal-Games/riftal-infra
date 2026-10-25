@@ -16,10 +16,11 @@ filter="label=$label"
 # first lets the settle wait cover that create. Nothing here has started a
 # docker client of its own yet, so every match is an earlier step's.
 stop_stray_clients() {
-  local proc pid env stopped=0
+  local proc pid env comm stopped=0
   for proc in /proc/[0-9]*; do
     pid="${proc#/proc/}"
-    [ "$(cat "$proc/comm" 2>/dev/null)" = docker ] || continue
+    { read -r comm <"$proc/comm"; } 2>/dev/null || continue
+    [ "$comm" = docker ] || continue
     env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null)" || continue
     grep -qxF "GITHUB_RUN_ID=$GITHUB_RUN_ID" <<<"$env" || continue
     grep -qxF "GITHUB_RUN_ATTEMPT=$GITHUB_RUN_ATTEMPT" <<<"$env" || continue
@@ -66,8 +67,14 @@ fi
 
 # --rm removal finishes asynchronously after the stop returns, and a network or
 # a volume refuses removal while any container still uses it, so every pass
-# retries removing both.
+# retries removing all three. A daemon can still create a container for a
+# stopped client after the listing above, so every pass removes those too.
 for _ in $(seq 1 30); do
+  late_out="$(query ps -aq)" || exit 1
+  if [ -n "$late_out" ]; then
+    mapfile -t late_ids <<<"$late_out"
+    docker rm -f -v "${late_ids[@]}" >/dev/null 2>&1 || true
+  fi
   networks="$(query network ls -q)" || exit 1
   if [ -n "$networks" ]; then
     mapfile -t nets <<<"$networks"

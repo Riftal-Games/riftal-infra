@@ -33,8 +33,9 @@ jobs:
     # every job here times out sooner.
     #
     # A run on an idle daemon takes about 14 minutes. Runners of every repo
-    # share one docker daemon, and a step there runs 1.3 to 2.6 times longer
-    # while another build runs, so 30 covers twice the idle time. A concurrency
+    # share one docker daemon, and a single step there has run 1.3 to 2.6 times
+    # longer while another build runs. The steps do not all slow at once, so 30
+    # covers twice the idle time of the whole job, not 2.6 times. A concurrency
     # group cannot serialise this job: it queues one pending run and cancels
     # the others, and it cannot see another repo's builds.
     timeout-minutes: 30
