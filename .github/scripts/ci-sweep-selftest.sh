@@ -34,7 +34,7 @@ check() {
 # The reap below takes a volume older than reap_after seconds to be left by a
 # run that has ended, which holds only while every job in this workflow times
 # out sooner. A job with no timeout-minutes runs for 6 hours.
-reap_after=1200
+reap_after=2100
 # shellcheck source=job-timeouts.sh
 . "$dir/job-timeouts.sh"
 if verdict="$(job_timeouts_under "${dir%/scripts}/workflows/ci.yml" "$reap_after")"; then
@@ -182,6 +182,32 @@ printf '%s\n' "$out" | sed 's/^/  sweep | /'
 check "$([ "$rc" -eq 0 ] && echo ok)" "sweep exits 0 once a held network is released (got $rc)"
 held="$(docker network ls -q --filter "name=^${net}\$")"
 check "$([ -z "$held" ] && echo ok)" "sweep removed this job's network after its first removal was refused"
+
+# A docker client left running by a cancelled step is stood in for by a script
+# named docker, which is all the sweep reads of a process: its name and the job
+# it was started in. The sweep must stop this job's and leave the one started
+# under another run id alone.
+stray_dir="$(mktemp -d)" || exit 1
+printf '#!/bin/sh\nwhile :; do sleep 1; done\n' >"$stray_dir/docker"
+chmod 0755 "$stray_dir/docker"
+"$stray_dir/docker" &
+stray_own=$!
+GITHUB_RUN_ID="${GITHUB_RUN_ID}0" "$stray_dir/docker" &
+stray_other=$!
+out="$(bash "$sweep")"
+rc=$?
+printf '%s\n' "$out" | sed 's/^/  sweep | /'
+state_of() { ps -o stat= -p "$1" 2>/dev/null | cut -c1 | tr -d ' '; }
+own_state="$(state_of "$stray_own")"
+other_state="$(state_of "$stray_other")"
+kill "$stray_other" "$stray_own" 2>/dev/null
+wait "$stray_own" "$stray_other" 2>/dev/null
+rm -rf "$stray_dir"
+check "$([ "$rc" -eq 0 ] && echo ok)" "sweep exits 0 with a stray docker client to stop (got $rc)"
+check "$([ -z "$own_state" ] || [ "$own_state" = Z ] && echo ok)" "sweep stopped this job's stray docker client (state '$own_state')"
+check "$([ -n "$other_state" ] && [ "$other_state" != Z ] && echo ok)" "sweep left another job's docker client running (state '$other_state')"
+stopped="$(printf '%s\n' "$out" | grep -c '^stopped a docker client left running by an earlier step: pid ')"
+check "$([ "$stopped" -eq 1 ] && echo ok)" "sweep reports stopping exactly one stray client (got $stopped)"
 
 # A label script that wraps its own shim leaves that shim exec'ing itself
 # forever. Run against this job's own shim, it would hang this script's EXIT
