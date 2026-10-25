@@ -179,7 +179,7 @@ releaser=$!
 # The daemon creating a container for a stopped client after the sweep's first
 # listing: it is not in that listing, and the held network keeps the sweep in
 # its wait loop long enough to see it later.
-(sleep 2; docker create -m 1g --cpus 1 --name "$late" php:8.3-cli-alpine true >/dev/null 2>&1) &
+(sleep 2; docker create --rm -m 1g --cpus 1 --name "$late" php:8.3-cli-alpine true >/dev/null 2>&1) &
 creator=$!
 out="$(bash "$sweep")"
 rc=$?
