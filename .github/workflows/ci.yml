@@ -68,6 +68,13 @@ jobs:
       - name: Grants REVOKE check self-test
         run: bash deploy/grants-revoke-check-selftest.sh
 
+      # Reads instances/, designer/levels/ and /usr/bin/jq only, so it also
+      # runs before any container step.
+      - name: Instance definitions list only built zones
+        run: |
+          bash deploy/instance-levels-check-selftest.sh
+          bash deploy/instance-levels-check.sh
+
       # Synthetic timings and fixture configs only, so it also runs before any
       # container step.
       - name: Write latency check self-test
