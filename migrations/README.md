@@ -217,3 +217,11 @@ wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/Users/nasir/riftal-games/riftal
 
 Each run writes its logs to its own `mktemp -d` directory and removes it on
 exit, so concurrent runs on one host do not clobber each other.
+
+A `timeout` or a cancelled job stops it with TERM or INT, and it exits 143 or
+130 with its containers and network removed. It traps both, so teardown waits
+for the foreground `docker` command to return and is not cut short by the
+second TERM that `timeout` sends to the process group. Teardown also removes
+every container on its network, which takes a runner left in Created by a
+`docker run` killed between create and start. `signal-selftest.sh` proves
+both, run the same way, and fails against a `selftest.sh` missing either.
