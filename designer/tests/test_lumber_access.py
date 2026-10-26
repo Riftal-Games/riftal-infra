@@ -14,7 +14,8 @@ from designer.verify import path_exists
 
 STONE = "minecraft:stone"
 # The top block of seed 23's plateau east of the stairs' last tread, read from the built level's heightmap.
-# A tread one lower tops out 1.5 blocks under that grass, more than a jump clears.
+# A last tread at y 63 tops out at 64.0 against the grass top at 65.0, a 1.0-block step that a jump clears.
+# The pin keeps the exit flush so that no jump is needed.
 EXIT_GROUND_Y = 64
 # Stepping up a row leaves the body's edge in the column behind, so that column needs a third cell clear.
 CLEAR_ABOVE = (1, 2, 3)

@@ -1013,7 +1013,7 @@ whatever block stands there (#1087).
 
 ## 2026-10-26 `StairsSpec` takes a `headroom`, the base row is cleared with it, and `path_exists` takes a `world`
 
-A stair's tread is at most half a block high, so a body stepping up a row still overlaps the column
+A stair's near half is half a block high and its back half a full block, so a body stepping up a row still overlaps the column
 behind it. The whole-block path search needs that column's third cell clear as well, and a walked
 staircase wants it. `HEADROOM` stays 2, the figure `plot_grid.clearance` builds on; `StairsSpec.headroom`
 defaults to it, and lumber's two legs set 3. The base row is cleared to the same height, since the first
@@ -1023,5 +1023,6 @@ itself, which would also have raised every plot's clearance. Lumber's stairs lie
 `lumber_spawn_to_surface` walks the built terrain from `lumber_spawn` to a cell on seed 23's plateau.
 Its end is a coordinate, which resolves to the default world unless the check names a `world`, so
 `path_exists` and `travel_time` read an optional `world` that places coordinate ends in it and refuses a
-named end in another. The search treats a stair as a full block, so it passes a last tread half a block
-under the ground that a jump cannot clear; `tests/test_lumber_access.py` pins the exit tread at y 64.
+named end in another. The search treats a stair as a full block and models no jump. A last tread at y 63 would top out at
+64.0 against the grass top at 65.0, a 1.0-block step that a jump clears, so `tests/test_lumber_access.py`
+pins the exit tread at y 64 to keep the exit flush and need no jump.
