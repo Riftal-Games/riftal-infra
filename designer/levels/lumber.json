@@ -1,0 +1,6 @@
+{
+  "generator": "normal",
+  "seed": 20260907,
+  "bounds": {"min": [-10, 38, -10], "max": [10, 52, 10]},
+  "steps": [{"build": "mine", "spec": "specs/lumber.json", "palette": "mine_stone"}]
+}
