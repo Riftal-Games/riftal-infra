@@ -32,7 +32,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=87
+EXPECTED_ASSERTIONS=86
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -187,9 +187,11 @@ printf '%s\n' "\$3" >> "$root/fetched"
 : > "\$2"
 EOF
   chmod +x "$root/bin/php" "$root/bin/wget"
+  local rc=0
   env -i HOME="$work" PATH="$root/bin:$PATH" TMPDIR="$root" "$@" \
-    bash "$root/start-instance.sh" > "$root/out" 2>&1 < /dev/null \
-    && [ -s "$root/args" ]
+    bash "$root/start-instance.sh" > "$root/out" 2>&1 < /dev/null || rc=$?
+  printf '%s\n' "$rc" > "$root/status"
+  [ "$rc" -eq 0 ] && [ -s "$root/args" ]
 }
 me="$(id -u)"
 b="$work/boot"
@@ -197,13 +199,15 @@ check "POCKETMINE_ANSI=1 passes --enable-ansi" \
   'boot "$me" POCKETMINE_ANSI=1 && grep -qx -- --enable-ansi "$b/args"'
 check "POCKETMINE_ANSI=0, and auto off a TTY, leave ANSI off" \
   'boot "$me" POCKETMINE_ANSI=0 && ! grep -q ansi "$b/args" && boot "$me" && ! grep -q ansi "$b/args"'
-check "POCKETMINE_PLUGINS fetches each missing plugin at its version into the roster" \
-  'boot "$me" POCKETMINE_PLUGINS="Foo:1.2 Bar Cached" &&
-    [ "$(cat "$b/fetched")" = "$(printf "%s\n" https://poggit.pmmp.io/get/Foo/1.2 https://poggit.pmmp.io/get/Bar/)" ] &&
-    [ "$(cat "$b/roster")" = "$(printf "%s\n" Bar.phar Cached.phar Foo.phar)" ]'
-check "a POCKETMINE_PLUGINS spread over two lines fetches from both" \
-  'boot "$me" POCKETMINE_PLUGINS="$(printf "Foo\nBar")" &&
-    [ "$(cat "$b/roster")" = "$(printf "%s\n" Bar.phar Cached.phar Foo.phar)" ]'
+# The boot helper rewrites every /plugins in the script, the message's included,
+# so the match stops before it. boot fails on any exit that leaves no php args,
+# so the refusal is pinned to the script's own status of exactly 1.
+check "a non-empty POCKETMINE_PLUGINS stops the boot before php, fetching nothing and saying where plugins come from" \
+  '! boot "$me" POCKETMINE_PLUGINS="Foo:1.2 Bar" && [ "$(cat "$b/status")" = 1 ] && [ ! -e "$b/args" ] && [ ! -e "$b/fetched" ] &&
+    grep -q "POCKETMINE_PLUGINS is set; plugins come only from the image or " "$b/out"'
+check "an unset or empty POCKETMINE_PLUGINS boots, fetching nothing" \
+  'boot "$me" && [ ! -e "$b/fetched" ] && boot "$me" POCKETMINE_PLUGINS= && [ ! -e "$b/fetched" ] &&
+    [ "$(cat "$b/roster")" = Cached.phar ]'
 check "instance's POCKETMINE_ARGS reaches php with auto-report off" \
   'boot "$me" POCKETMINE_ARGS="$(jq -r .services.instance.environment.POCKETMINE_ARGS <<<"$real")" &&
     grep -qx -- --auto-report.enabled=0 "$b/args"'
@@ -216,8 +220,6 @@ check "the roster is made under the scratch root, so no boot leaves one in /tmp"
   'boot "$me" && roster="$(sed -n "s/^--plugins=//p" "$b/args")" && [[ "$roster" == "$b"/* ]]'
 check "an unset POCKETMINE_ARGS boots, as it does under start-pocketmine" \
   'boot "$me" && ! grep -q unbound "$b/out"'
-check "POCKETMINE_PLUGINS writes nothing into the shared /plugins" \
-  'boot "$me" POCKETMINE_PLUGINS="Foo Bar" && [ "$(ls "$b/plugins")" = Cached.phar ]'
 check "a file in /plugins not owned by pocketmine is warned about" \
   'boot "$((me + 1))" && grep -q "=== WARNING ===" "$b/out" && grep -q "Cached.phar" "$b/out"'
 check "no ownership warning when pocketmine owns everything" \
