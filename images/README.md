@@ -122,6 +122,31 @@ changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
 path. A `wslc run` of either instance needs the same `-v` and command.
 
+## The lumber level
+
+`instance` runs `plugins/seed-levels.sh` straight after the delivery above,
+with `RIFTAL_LEVEL_ZONES=lumber`, and mounts the named volume
+`riftal_smoke_level_lumber` read-only at `/etc/riftal/levels/lumber`
+(ADR 009 items 5 and 6). When `/data/worlds/lumber` is absent the step checks
+the mounted level against its `level-manifest.json`, copies it onto
+`riftal-world` as uid 1000 and logs the `content_sha256` it seeded; when the
+folder exists it logs `lumber present` and changes nothing. `instance-b` sets
+no zone list, mounts no level and does not run the step.
+
+`designer level build lumber` fills the volume (`../designer/levels/README.md`),
+and the volume is declared `external: true`, so `docker compose up` never
+creates it empty. A volume that is missing stops `up` naming it. One that is
+empty or was never fully built stops the boot before PocketMine starts, with
+the `seed-levels:` line that names
+`riftal_smoke_level_lumber` and `designer level build lumber`. Stop and remove
+`instance` before a rebuild: the build refuses a volume a container mounts. The
+volume is a cache, and losing it costs one build run. A `riftal-world` that
+already holds `lumber`, generated or built, is never reseeded.
+
+`riftal-pm`'s `devtools/instance-shape.js` mirrors `instance`'s command, mount
+destinations and environment names for the `wslc` bring-up, so a change to any
+of them here is a change there (riftal-pm#1730).
+
 ## Restarts
 
 Both instances run `restart: on-failure` with no retry cap, start through
