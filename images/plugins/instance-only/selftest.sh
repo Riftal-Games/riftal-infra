@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
 # and RiftalAccounts (riftal-infra#465), RiftalRanks (riftal-infra#558) and
-# RiftalEconomy (riftal-infra#887), and for start-instance.sh and
-# require-accounts.sh, the scripts that load them. Also pins crash
+# RiftalEconomy (riftal-infra#887) and RiftalPlots (riftal-infra#345), and for
+# start-instance.sh and require-accounts.sh, the scripts that load them. Also pins crash
 # auto-report off on every PocketMine service, designer/stack's included, and
 # covers deliver-world-index.sh and the index mount both instances boot with
 # (riftal-infra#293), and the memory and CPU limits on mysql and both
@@ -13,7 +13,7 @@
 # stubbed. It also covers link-replaced.sh, which it runs against scratch
 # fixtures in a throwaway php:8.3-cli-alpine container, so it needs Docker and
 # that image, but neither the dev stack nor a built RiftalMines.phar,
-# RiftalRanks.phar or RiftalEconomy.phar.
+# RiftalRanks.phar, RiftalEconomy.phar or RiftalPlots.phar.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,7 +33,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=91
+EXPECTED_ASSERTIONS=94
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -154,7 +154,7 @@ boot() {
   mkdir -p "$root/plugins" "$root/data" "$root/pm" "$root/bin"
   : > "$root/plugins/Cached.phar"
   cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$DIR/RiftalRanks.config.yml" \
-    "$DIR/RiftalEconomy.config.yml" "$root/"
+    "$DIR/RiftalEconomy.config.yml" "$DIR/RiftalPlots.config.yml" "$root/"
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
     : > "$root/plugins/contracts.phar"
@@ -286,17 +286,22 @@ check "without RiftalEconomy.phar, no economy config lands and no economy passwo
   'boot "$me" && [ ! -e "$economy_on_volume" ] && ! grep -q RiftalEconomy "$b/roster"'
 
 printf '\n== RiftalPlots connects as the plots login, its password only in the environment (riftal-infra#345)\n'
-plots_on_volume="$b/data/plugin_data/RiftalPlots"
+PLOTS_CONFIG="$DIR/RiftalPlots.config.yml"
+plots_on_volume="$b/data/plugin_data/RiftalPlots/config.yml"
+check "the plots config names the compose mysql, its schema and the plots login, with no password" \
+  '[ "$(db host "$PLOTS_CONFIG")" = mysql ] && [ "$(db username "$PLOTS_CONFIG")" = plots ] &&
+    [ "$(db schema "$PLOTS_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
+    grep -qx "  password: \"\"" "$PLOTS_CONFIG"'
 check "instance and instance-b get RIFTAL_DB_PASSWORD_PLOTS from images/.env" \
   'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_PLOTS == \"$PLOTS_PW\"
     and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_PLOTS == \"$PLOTS_PW\"" <<<"$real" >/dev/null'
-check "with RiftalPlots.phar built, the phar joins the roster and no config or password lands on the volume" \
+check "with RiftalPlots.phar built, the tracked config lands on the volume with no password and the phar joins the roster" \
   'PLOTS=1 boot "$me" RIFTAL_DB_PASSWORD_PLOTS="$PLOTS_PW" && grep -qx RiftalPlots.phar "$b/roster" &&
-    [ ! -e "$plots_on_volume" ] && ! grep -rqF "$PLOTS_PW" "$b/data"'
+    cmp -s "$PLOTS_CONFIG" "$plots_on_volume" && ! grep -rqF "$PLOTS_PW" "$b/data"'
 check "with RiftalPlots.phar built, an unset RIFTAL_DB_PASSWORD_PLOTS stops the boot before php, naming it" \
   '! PLOTS=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_PLOTS is not set" "$b/out"'
-check "without RiftalPlots.phar, the roster holds no plots plugin and no plots password is needed" \
-  'boot "$me" && ! grep -q RiftalPlots "$b/roster"'
+check "without RiftalPlots.phar, no plots config lands and no plots password is needed" \
+  'boot "$me" && [ ! -e "$plots_on_volume" ] && ! grep -q RiftalPlots "$b/roster"'
 
 printf '\n== RiftalAccounts loads on every instance as the accounts login (riftal-infra#465)\n'
 ACCOUNTS_CONFIG="$DIR/../RiftalAccounts.config.yml"
@@ -457,8 +462,8 @@ printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#26
 # join_teleport as off, so the template has to carry them. CI checks out this
 # repository alone and holds no token for the private riftal-game, so there
 # the comparison is reported as skipped rather than passed.
-# Sets SHIPPED, RANKS_SHIPPED, ACCOUNTS_SHIPPED and ECONOMY_SHIPPED to
-# riftal-game's shipped configs under RIFTAL_GAME_DIR, or under the default
+# Sets SHIPPED, RANKS_SHIPPED, ACCOUNTS_SHIPPED, ECONOMY_SHIPPED and
+# PLOTS_SHIPPED to riftal-game's shipped configs under RIFTAL_GAME_DIR, or under the default
 # sibling checkout when it is unset or empty.
 shipped_configs() {
   local game="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}"
@@ -466,6 +471,7 @@ shipped_configs() {
   RANKS_SHIPPED="$game/ranks/resources/config.yml"
   ACCOUNTS_SHIPPED="$game/accounts/resources/config.yml"
   ECONOMY_SHIPPED="$game/economy/resources/config.yml"
+  PLOTS_SHIPPED="$game/plots/resources/config.yml"
 }
 shipped_configs
 SKIPPED=0
@@ -559,9 +565,15 @@ drift "every line in riftal-game's economy config.yml but the schema matches the
 drift "a shipped sell shop price the economy config does not carry is caught" \
   'sed "s/^    \"minecraft:coal\": .*/    \"minecraft:coal\": 6/" "$ECONOMY_SHIPPED" > "$mutated" &&
     [ "$(settings "$mutated")" != "$(settings "$ECONOMY_CONFIG")" ]' "$ECONOMY_SHIPPED"
+drift "every line in riftal-game's plots config.yml but the schema matches the plots config" \
+  '[ -n "$(settings "$PLOTS_SHIPPED")" ] && [ "$(settings "$PLOTS_SHIPPED")" = "$(settings "$PLOTS_CONFIG")" ]' \
+  "$PLOTS_SHIPPED"
+drift "a shipped plots-world the plots config does not carry is caught" \
+  'sed "s/^plots-world:.*/plots-world: \"elsewhere\"/" "$PLOTS_SHIPPED" > "$mutated" &&
+    [ "$(settings "$mutated")" != "$(settings "$PLOTS_CONFIG")" ]' "$PLOTS_SHIPPED"
 if [ "$SKIPPED" -ne 0 ]; then
-  printf '::warning::%s assertions skipped: no riftal-game config at %s, %s, %s or %s; set RIFTAL_GAME_DIR\n' \
-    "$SKIPPED" "$SHIPPED" "$RANKS_SHIPPED" "$ACCOUNTS_SHIPPED" "$ECONOMY_SHIPPED"
+  printf '::warning::%s assertions skipped: no riftal-game config at %s, %s, %s, %s or %s; set RIFTAL_GAME_DIR\n' \
+    "$SKIPPED" "$SHIPPED" "$RANKS_SHIPPED" "$ACCOUNTS_SHIPPED" "$ECONOMY_SHIPPED" "$PLOTS_SHIPPED"
 fi
 
 printf '\n'

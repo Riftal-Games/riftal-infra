@@ -1,0 +1,20 @@
+# start-instance.sh copies this to /data/plugin_data/RiftalPlots/config.yml on
+# every boot, so this file stays authoritative; PluginBase::saveDefaultConfig()
+# never overwrites a file that already exists there.
+#
+# Everything below except the schema is the plugin's own shipped default
+# (riftal-game/plots/resources/config.yml). selftest.sh compares every line to
+# that file but comments, blanks and the schema, which it checks against the
+# one compose creates, riftal_dev. The password stays empty:
+# RiftalGames\Lib\Database\DatabaseSettings reads the plots login's password
+# from RIFTAL_DB_PASSWORD_PLOTS in the instance's environment, and throws if
+# this file holds one too (ADR 008 item 5).
+plots-world: "plots"
+
+database:
+  host: "mysql"
+  schema: "riftal_dev"
+  username: "plots"
+  password: ""
+  port: 3306
+  worker-limit: 1

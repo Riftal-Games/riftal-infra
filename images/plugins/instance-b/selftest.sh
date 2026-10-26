@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Self-test for start.sh, instance-b's start script (riftal-infra#348, #345). Runs
-# it with /plugins, /data and /opt/pocketmine moved under a scratch root and
-# php stubbed to record its arguments and the roster it was handed, so
+# Self-test for start.sh, instance-b's start script (riftal-infra#348, #345).
+# Runs it with /plugins, /data and /opt/pocketmine moved under a scratch root
+# and php stubbed to record its arguments and the roster it was handed, so
 # nothing boots. Needs neither Docker nor a built phar.
 set -euo pipefail
 
@@ -34,7 +34,7 @@ boot() {
     mkdir -p "$root/plugins/$source_folder/src"
     : > "$root/plugins/$source_folder/plugin.yml"
   fi
-  cp "$ONLY/RiftalRanks.config.yml" "$ONLY/RiftalEconomy.config.yml" \
+  cp "$ONLY/RiftalRanks.config.yml" "$ONLY/RiftalEconomy.config.yml" "$ONLY/RiftalPlots.config.yml" \
     "$ONLY/render-config.sh" "$ONLY/RiftalMines.config.yml.template" "$root/plugins/instance-only/"
   for phar in $phars; do : > "$root/plugins/instance-only/$phar"; done
   local rewrite=(-e "s#/plugins#$root/plugins#g; s#/data#$root/data#g"
@@ -56,16 +56,17 @@ economy_on_volume="$root/data/plugin_data/RiftalEconomy/config.yml"
 # The logins instance-b is given.
 logins=(RIFTAL_DB_PASSWORD_ECONOMY=pw RIFTAL_DB_PASSWORD_PLOTS=pw)
 # Holds when the last boot handed php contracts.phar, RiftalEconomy.phar and
-# RiftalPlots.phar alone, with the tracked economy config on the volume and no
-# other plugin's.
+# RiftalPlots.phar alone, with the tracked economy and plots configs on the
+# volume and no other plugin's.
 economy_and_plots_only() {
   [ "$(cat "$root/roster")" = "$(printf '%s\n' RiftalEconomy.phar RiftalPlots.phar contracts.phar)" ] &&
     cmp -s "$ONLY/RiftalEconomy.config.yml" "$economy_on_volume" &&
-    [ "$(ls "$root/data/plugin_data")" = RiftalEconomy ]
+    cmp -s "$ONLY/RiftalPlots.config.yml" "$root/data/plugin_data/RiftalPlots/config.yml" &&
+    [ "$(ls "$root/data/plugin_data")" = "$(printf '%s\n' RiftalEconomy RiftalPlots)" ]
 }
 
 printf '\n== instance-b loads RiftalEconomy and RiftalPlots beside the shared plugins and nothing else from instance-only\n'
-check "with every instance-only phar built, the roster is the shared plugins, RiftalEconomy and RiftalPlots, the economy config on the volume" \
+check "with every instance-only phar built, the roster is the shared plugins, RiftalEconomy and RiftalPlots, their configs on the volume" \
   'boot "$DIR/start.sh" "$all" "${logins[@]}" && economy_and_plots_only'
 sed 's#cp "\$only/start-instance.sh" #cp "$only"/* #' "$DIR/start.sh" > "$work/leaky.sh"
 check "a start script that stages all of instance-only is caught" \

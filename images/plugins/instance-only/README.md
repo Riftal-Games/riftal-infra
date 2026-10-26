@@ -36,10 +36,10 @@ fails on either.
 
 `*.phar` is gitignored by the repo root's `.gitignore`, and
 `RiftalMines.config.yml` by this folder's own, so a copy edited by hand to
-hold a database password is never committed. Three config files are tracked:
-`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml` and
-`RiftalEconomy.config.yml`, which hold no password because each login's
-comes from the environment (see below).
+hold a database password is never committed. Four config files are tracked:
+`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml`,
+`RiftalEconomy.config.yml` and `RiftalPlots.config.yml`, which hold no
+password because each login's comes from the environment (see below).
 
 ## Build `RiftalMines.phar` and `contracts.phar`
 
@@ -146,8 +146,9 @@ cp ../contracts.phar RiftalContracts.phar
 cp ../RiftalAccounts.phar RiftalAccounts.phar
 ```
 
-`start-instance.sh` copies only `RiftalMines.phar`, `RiftalRanks.phar` and
-`RiftalEconomy.phar` into the roster, so `instance` still loads
+`start-instance.sh` copies only `RiftalMines.phar`, `RiftalRanks.phar`,
+`RiftalEconomy.phar` and `RiftalPlots.phar` into the roster, so `instance`
+still loads
 `RiftalContracts` and `RiftalAccounts` once each, from the top of
 `plugins/`.
 
@@ -246,18 +247,22 @@ level, so it holds no plot grid and a claim there teleports nobody. Build it
 with the recipe above, `plots` in place of `mines` in the copy loop and
 `plots:instance-only/RiftalPlots` in place of the `mines` pair. Like `mines`,
 it pins `axolotl-pm/pocketmine-mp`, so `link-replaced.sh` is what gets it past
-pharynx. It depends on nothing, so `contracts.phar` is not needed to load it,
-though `contracts/` is still copied for its Composer path repository.
+pharynx. It declares `depend: [RiftalContracts]`, met by the `contracts.phar`
+at the top of `plugins/`, and `contracts/` is also copied for its Composer
+path repository.
 
-`start-instance.sh` copies `RiftalPlots.phar` into the roster and stops the
-boot naming `RIFTAL_DB_PASSWORD_PLOTS` when it is unset. It stages no config:
-the plugin's shipped config names no database, so there is nothing to
-override. The migration runner provisions `plots` with `riftal_role_plots`,
-which `grants.sql` creates with SELECT on `plots` and `plot_chunks` and
-EXECUTE on `plots_claim`. Run the runner with `-e RIFTAL_DB_PASSWORD_PLOTS`
-exported before the next boot. It exits non-zero for a login whose role the
-`grants.sql` it was given does not create, which is the case for a checkout
-of riftal-game older than riftal-game#1650.
+`start-instance.sh` copies `RiftalPlots.phar` into the roster, copies the
+tracked `RiftalPlots.config.yml` to `/data/plugin_data/RiftalPlots/config.yml`
+on every boot, and stops the boot naming `RIFTAL_DB_PASSWORD_PLOTS` when it is
+unset. The plugin opens its database on enable and the shipped config names
+the schema `riftal`, which this stack does not have, so the override sets
+`riftal_dev` as it does for `RiftalEconomy`. The password comes only from the
+environment. The migration runner provisions `plots` with
+`riftal_role_plots`, which `grants.sql` must create, with SELECT on `plots`
+and `plot_chunks` and EXECUTE on `plots_claim`. Run the runner with
+`-e RIFTAL_DB_PASSWORD_PLOTS` exported before the next boot. It exits
+non-zero for a login whose role the `grants.sql` it was given does not
+create.
 
 ## Why an override is required, not optional
 

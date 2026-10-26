@@ -23,6 +23,6 @@ if [ -f "$only/RiftalEconomy.phar" ]; then
 	cp "$only/RiftalEconomy.phar" "$only/RiftalEconomy.config.yml" "$staged/"
 fi
 if [ -f "$only/RiftalPlots.phar" ]; then
-	cp "$only/RiftalPlots.phar" "$staged/"
+	cp "$only/RiftalPlots.phar" "$only/RiftalPlots.config.yml" "$staged/"
 fi
 exec bash "$staged/start-instance.sh"
