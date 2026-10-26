@@ -8,9 +8,10 @@
 # byte. RiftalCapture empties .capture/ itself when it enables.
 #
 # Every check runs on every volume before anything is cleared, so a refusal
-# leaves every volume as it was. The one failure that can come after the clear
-# is the seed step failing to copy or write, and it is reported as a failure,
-# not a refusal: the database is intact and the volumes are cleared.
+# leaves every volume as it was. A failure after the first clear is not a
+# refusal: the seed step failing to copy or write is one, and a clear that
+# stops part way is another. The database is intact and some or all volumes
+# are cleared, so any non-zero exit with no "refused:" line is a rollback.
 #
 # The one argument is the dev verdict wipe.sh computes once per run: "dev", or
 # the reason the stack is not dev (riftal-pm#1314). A level with no ADR 009

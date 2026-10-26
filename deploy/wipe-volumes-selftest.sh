@@ -317,7 +317,6 @@ check_fails regrown "level mine_a on riftal_smoke_a $NOBUILD" "plugin_data/ on r
 CHECK=("${W[@]}" "${B[@]}")
 check_fails regrown-built "level mine_a on riftal_smoke_a has a file tree that is not the one its level-manifest.json names"
 
-printf '\n'
 printf '\n== a seed step that fails after the clear fails the wipe and leaves the database alone\n'
 q "CREATE TABLE riftal_dev.sentinel (id INT PRIMARY KEY)"
 sh_in 'printf x > /worlds/riftal_smoke_b/plugin_data/RiftalMines/sub/state.json'
