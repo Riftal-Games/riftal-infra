@@ -61,3 +61,29 @@ covers only `bounds`, so neither the spawn area nor the margin changes it.
 
 A lock is written only when every stage passed. A scan finding, a failed check or a
 failed step leaves the previous lock untouched.
+
+## Build, `designer level build <zone>`
+
+Runs under `DESIGNER_RUNTIME` (`wslc` or `docker`). Two volumes, both caches:
+
+- `riftal_smoke_levelbuild_<zone>` is the work volume. It holds the server's whole `/data`
+  tree and is recreated by every build. One container of that name boots on it and
+  publishes only the bridge, on `127.0.0.1:19144`; under the docker fallback, run it
+  inside the distro.
+- `riftal_smoke_level_<zone>` is the output volume. Its root is the level folder itself
+  with `level-manifest.json` at that root, which is what an instance mounts read-only at
+  `/etc/riftal/levels/<zone>`.
+
+Either volume is refused, naming every container that mounts it, before anything is
+removed. The output volume is checked before the server boots, so a mounted one costs no
+build.
+
+After the lock the build writes `worlds/<zone>/level-manifest.json` on the work volume:
+the lock's `content_sha256` and a `tree_sha256` that is, in the level folder, the sha256 of
+`find . -type f ! -path ./level-manifest.json -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum`.
+It then creates the output volume fresh and copies the contents of the work volume's
+`worlds/<zone>/` into its root, in the core image with plain named-volume mounts. The
+copy runs as uid 1000, so every file is readable by it. Last it tars the output volume,
+recomputes the tree hash and fails unless it equals the manifest's, so a stray file at the
+root fails the build and not a later instance boot. An output volume without a manifest
+was not fully built.

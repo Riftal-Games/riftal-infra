@@ -13,6 +13,7 @@ from designer.checks import DEFAULT_PATH as CHECKS
 from designer.config import PROJECT_ROOT, SIBLING_GAME_DIR
 from designer.edits import EditList, SetBlock
 from designer.level import MINES_CONFIG, LevelError, Saved, build_level, mines_config_path
+from designer.world_index import WorldIndex
 from tests.conftest import STONE_PALETTES
 from tests.fake_bridge import ALLOWED_BLOCKS, FakeBridge, FakeWorld
 
@@ -67,9 +68,9 @@ def _recipe(root: Path, zone: str, *poke: dict) -> None:
     (root / "levels" / f"{zone}.json").write_text(json.dumps(recipe), encoding="utf-8")
 
 
-def _build(bridge: Bridge, root: Path, zone: str, checks: Path = CHECKS, mines: Path | None = None) -> Path:
+def _build(bridge: Bridge, root: Path, zone: str, checks: Path = CHECKS, mines: Path | None = None, index: WorldIndex | None = None) -> Path:
     saved = Saved("sha256:image", "bridge-commit", "toolkit-commit", 4096)
-    return build_level(bridge, zone, lambda: saved, root=root, checks_path=checks, mines_config=mines or root / "mines.yml")
+    return build_level(bridge, zone, lambda: saved, root=root, checks_path=checks, mines_config=mines or root / "mines.yml", index=index)
 
 
 def _refused(bridge: Bridge, root: Path, zone: str, match: str, **kwargs: Path) -> None:
@@ -99,7 +100,11 @@ def test_a_mine_dug_into_terrain_facing_north_or_west_builds_with_its_exit_lane_
     spec["entrance"]["side"] = side
     spec_path.write_text(json.dumps(spec), encoding="utf-8")
     fake.worlds["mine_a"] = FakeWorld(extent=((-64, -64), (64, 64)))
-    assert json.loads(_build(bridge, root, "mine_a").read_text(encoding="utf-8"))["zone"] == "mine_a"
+    # A mine facing another side puts its rankup and sell signs elsewhere, which the level build refuses against the committed entries.
+    index = WorldIndex.load()
+    index.remove("rankup_npc_a")
+    index.remove("sell_npc_a")
+    assert json.loads(_build(bridge, root, "mine_a", index=index).read_text(encoding="utf-8"))["zone"] == "mine_a"
 
 
 def test_a_torch_in_the_interior_refuses_naming_the_entry_and_cell(bridge: Bridge, root: Path) -> None:

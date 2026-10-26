@@ -31,7 +31,7 @@ jobs:
     # ci-sweep-selftest.sh removes its other-job volumes once they are older
     # than its reap_after, as left by a run that has ended, and fails unless
     # every job here times out sooner.
-    timeout-minutes: 15
+    timeout-minutes: 19
 
     steps:
       # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
@@ -42,6 +42,9 @@ jobs:
       # container and no engine fault can mask it.
       - name: Self-test, prove the job timeout check can fail
         run: bash .github/scripts/job-timeouts-selftest.sh
+
+      - name: Self-test, prove the bot-proofs scope check can fail
+        run: bash .github/scripts/bot-proofs-scope-selftest.sh
 
       # Reads files only, for the same reason as the step above.
       - name: Self-test, prove the mysql:8 pull order check can fail
@@ -64,6 +67,13 @@ jobs:
 
       - name: Grants REVOKE check self-test
         run: bash deploy/grants-revoke-check-selftest.sh
+
+      # Reads instances/, designer/levels/ and /usr/bin/jq only, so it also
+      # runs before any container step.
+      - name: Instance definitions list only built zones
+        run: |
+          bash deploy/instance-levels-check-selftest.sh
+          bash deploy/instance-levels-check.sh
 
       # Synthetic timings and fixture configs only, so it also runs before any
       # container step.
@@ -146,6 +156,12 @@ jobs:
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
 
+      - name: Release image self-test
+        run: bash deploy/release-image-selftest.sh
+
+      - name: Bot proofs pre-container checks and devtools pin self-test
+        run: bash .github/scripts/bot-proofs-selftest.sh
+
       - name: Capture plugin self-test
         run: bash images/plugins/capture-selftest.sh
 
@@ -162,7 +178,7 @@ jobs:
         run: bash images/plugins/join-order/selftest.sh
 
       # A healthy run takes under half a minute. The bound keeps one wedged
-      # boot from spending the rest of the job's 15 minutes.
+      # boot from spending the rest of the job's 19 minutes.
       - name: Dev bots watch camera self-test
         timeout-minutes: 10
         run: bash images/plugins/watch/selftest.sh
@@ -184,6 +200,12 @@ jobs:
 
       - name: Instance boot on the pinned core image self-test
         run: bash images/plugins/instance-only/boot-selftest.sh
+
+      # Boots the pinned core image three times, the first to generate the fixture level.
+      # A healthy run takes under a minute; the bound stops one wedged boot spending the job's 19 minutes.
+      - name: Level seed step on the pinned core image self-test
+        timeout-minutes: 10
+        run: bash images/plugins/seed-levels-selftest.sh
 
       - name: Instance-b start script self-test
         run: bash images/plugins/instance-b/selftest.sh
@@ -250,8 +272,157 @@ jobs:
         working-directory: designer
         run: uv run --frozen python -m designer.tools_doc --check
 
+      # Both need the PyYAML that designer/uv.lock pins, so they follow the sync.
+      - name: Self-test, prove the exposure=pending order check can fail
+        run: uv run --frozen --project designer python .github/scripts/exposure_pending_selftest.py
+
+      - name: bot-proofs writes exposure=pending before any step that may start a bot
+        run: uv run --frozen --project designer python .github/scripts/exposure_pending_order.py
+
+      # Riots treats a world as safe once any region in it carries safe_zone, so
+      # a ranked mine without one is open PvP and a contested world with one is
+      # not contested. Standard library only; uv run supplies the interpreter.
+      - name: Self-test, prove the safe_zone region check can fail
+        run: uv run --frozen --project designer python -I .github/scripts/safe_zones_selftest.py
+
+      - name: Every ranked world has a safe_zone region and contested has none
+        run: uv run --frozen --project designer python -I .github/scripts/safe_zones.py
+
       # always() rather than failure(): a cancelled run is the case that leaks,
       # because the runner kills a self-test before its EXIT trap fires.
       - name: Remove this job's containers
         if: always()
         run: bash .github/scripts/ci-container-sweep.sh
+
+  # Decides whether bot-proofs has a bot to stop. It starts nothing, and a
+  # failure or an empty output leaves bot-proofs running.
+  bot-proofs-scope:
+    name: bot proofs scope
+    runs-on: [self-hosted, linux, riftal]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      serves: ${{ steps.scope.outputs.serves }}
+
+    steps:
+      # The full history, because the diff needs the merge base.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Changed paths and whether they serve bot-proofs
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          . .github/scripts/bot-proofs-scope.sh
+          scope_run "$EVENT" "$BASE" "$HEAD" "$GITHUB_OUTPUT"
+
+  # ADR 024. The job holds a read token, starts no bot or server, and every
+  # check before a container refuses with ::error:: and ends the job.
+  bot-proofs:
+    name: bot proofs
+    needs: bot-proofs-scope
+    # always() so a scope job that failed or wrote nothing still runs this one.
+    if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
+    runs-on: [self-hosted, linux, riftal]
+    # Under ci-sweep-selftest.sh's reap_after, like every job here.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      exposure: ${{ steps.harness.outputs.exposure || steps.exposure.outputs.exposure }}
+
+    steps:
+      # persist-credentials: false leaves no token in .git/config for any step
+      # that runs code from the PR head.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Runner has /usr/bin/jq and /usr/bin/curl
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          runner_tools_present
+
+      # ADR 024 names pending, found and none. no-bots is this job's own
+      # starting value, held until a bot starts, and files nothing. The job
+      # output takes the exposure written by a step with id harness when
+      # one ran, and this step's value otherwise.
+      - name: Exposure, no bot has started
+        id: exposure
+        run: printf 'exposure=no-bots\n' >> "$GITHUB_OUTPUT"
+
+      - name: networkingMode=bridged in .wslconfig
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          wslconfig_bridged
+
+      - name: No open bots-stopped issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          bots_stopped_clear
+
+      - name: Record the eth0 address
+        id: eth0
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          if ! address="$(eth0_address)"; then
+            printf '%s\n' "$address"
+            exit 1
+          fi
+          printf 'eth0 address %s\n' "$address"
+          printf 'address=%s\n' "$address" >> "$GITHUB_OUTPUT"
+
+      - name: Label this job's containers
+        run: bash .github/scripts/ci-docker-label.sh
+
+      - name: Extract the pinned devtools image
+        run: |
+          . images/devtools-image.sh
+          devtools_extract "$RUNNER_TEMP/riftal-devtools"
+
+      # steps.eth0.outputs.address is what every socket listing is judged
+      # against.
+
+      - name: Remove this job's containers
+        if: always()
+        run: bash .github/scripts/ci-container-sweep.sh
+
+  # The only job with issues: write. It has no checkout, so no step in it
+  # runs a script from the PR's tree; the run: block below is in the workflow
+  # file, which review covers.
+  bots-stopped-file:
+    name: file bots-stopped
+    needs: bot-proofs
+    if: always() && (needs.bot-proofs.outputs.exposure == 'found' || needs.bot-proofs.outputs.exposure == 'pending')
+    runs-on: [self-hosted, linux, riftal]
+    timeout-minutes: 5
+    permissions:
+      issues: write
+
+    steps:
+      - name: Open a bots-stopped issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPOSURE: ${{ needs.bot-proofs.outputs.exposure }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          title="bots-stopped: exposure $EXPOSURE in run ${GITHUB_RUN_ID}"
+          body="The bot-proofs job ended with exposure \`$EXPOSURE\` at $HEAD_SHA: $RUN_URL. found means a listing showed a socket that is exposure; pending means bots ran and the run ended before every listing was judged. A run started after this is not evidence. Only the steward or Nasir closes this (ADR 024 item 3)."
+          /usr/bin/jq -n --arg title "$title" --arg body "$body" \
+            '{title: $title, body: $body, labels: ["bots-stopped"]}' |
+            /usr/bin/curl -fsS -X POST \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -d @- "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/issues" >/dev/null
+          printf 'opened a bots-stopped issue for run %s\n' "$GITHUB_RUN_ID"
