@@ -95,7 +95,7 @@ kept >"$LOGS/kept.before"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=76
+EXPECTED_ASSERTIONS=89
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # wipe <database> <set> [docker exec -e flags]
@@ -193,6 +193,28 @@ sh_in 'chown 0:0 /worlds/riftal_smoke_a/worlds'
 refused built-worlds-root-owned "/worlds/riftal_smoke_a/worlds is owned by root, so core could not write the re-seeded level mine_a" \
   riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/builds "${DEV[@]}"
 sh_in 'chown 1000:1000 /worlds/riftal_smoke_a/worlds'
+# Fixtures for the refusals that must come before anything is cleared. built2
+# locks both mine_a and mine_b, so the refusal for mine_b comes on the second
+# volume, after mine_a on the first has passed every check.
+sh_in 'set -e; mkdir -p /tmp/emptybuilds /tmp/nodigest /tmp/dupdigest /tmp/built2 /tmp/notree
+  zeros=$(printf "%064d" 0); ones=$(printf "%064d" 1)
+  printf "{}\n" > /tmp/nodigest/mine_a.lock.json
+  printf "{\n  \"content_sha256\": \"%s\",\n  \"content_sha256\": \"%s\"\n}\n" "$zeros" "$ones" > /tmp/dupdigest/mine_a.lock.json
+  cp /tmp/built/mine_a.lock.json /tmp/built2/mine_a.lock.json
+  printf "{\n  \"content_sha256\": \"%s\",\n  \"zone\": \"mine_b\"\n}\n" "$ones" > /tmp/built2/mine_b.lock.json
+  cp -r /tmp/builds /tmp/notree/; sed -i "/tree_sha256/d; s/\"content_sha256\": \"\\([0-9a-f]*\\)\",/\"content_sha256\": \"\\1\"/" /tmp/notree/builds/mine_a/level-manifest.json'
+refused built-zone-folder-missing "level mine_a on riftal_smoke_a has an ADR 009 build to re-seed from, and LEVEL_BUILDS_DIR must hold its output folder mine_a" \
+  riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/emptybuilds "${DEV[@]}"
+refused built-lock-no-digest "/tmp/builds/mine_a/level-manifest.json does not carry content_sha256 , the one in /tmp/nodigest/mine_a.lock.json" \
+  riftal_dev /tmp/set "${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/nodigest -e LEVEL_BUILDS_DIR=/tmp/builds "${DEV[@]}"
+refused built-lock-two-digests "/tmp/builds/mine_a/level-manifest.json does not carry content_sha256 , the one in /tmp/dupdigest/mine_a.lock.json" \
+  riftal_dev /tmp/set "${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/dupdigest -e LEVEL_BUILDS_DIR=/tmp/builds "${DEV[@]}"
+refused built-manifest-no-tree-hash "the file tree of /tmp/notree/builds/mine_a is not the one its level-manifest.json names" \
+  riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/notree/builds "${DEV[@]}"
+refused built-seed-script-absent "/tmp/no-seed.sh is not there; mount images/plugins beside deploy/" \
+  riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/builds -e SEED_LEVELS_SCRIPT=/tmp/no-seed.sh "${DEV[@]}"
+refused built-second-volume "level mine_b on riftal_smoke_b has an ADR 009 build to re-seed from, and LEVEL_BUILDS_DIR must hold its output folder mine_b" \
+  riftal_dev /tmp/set "${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/built2 -e LEVEL_BUILDS_DIR=/tmp/builds "${DEV[@]}"
 refused no-worlds-dir "WORLDS_DIR is required" riftal_dev /tmp/set "${L[@]}" "${DEV[@]}"
 refused no-locks-dir "LEVEL_LOCKS_DIR must name a directory" riftal_dev /tmp/set "${W[@]}" "${DEV[@]}"
 refused absent-locks-dir "LEVEL_LOCKS_DIR must name a directory" \
@@ -265,6 +287,8 @@ for v in a b; do
 done
 CHECK=("${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/otherlock)
 check_fails other-lock "level mine_a on riftal_smoke_a $BUILT 0000000000000000000000000000000000000000000000000000000000000000"
+CHECK=("${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/nodigest)
+check_fails lock-no-digest "level mine_a on riftal_smoke_a has an ADR 009 build, and /tmp/nodigest/mine_a.lock.json holds no single content_sha256"
 sh_in 'set -e; mkdir -p /worlds/riftal_smoke_a/worlds/mine_a /worlds/riftal_smoke_b/plugin_data/RiftalMines/sub
   printf x > /worlds/riftal_smoke_a/worlds/mine_a/level.dat
   printf x > /worlds/riftal_smoke_b/plugin_data/RiftalMines/sub/state.json'
