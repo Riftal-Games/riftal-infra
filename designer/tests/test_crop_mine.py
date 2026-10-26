@@ -100,3 +100,25 @@ def test_an_ore_mine_over_dirt_is_not_held_to_the_farmland_rule() -> None:
     region.fill(Bounds((interior.min[0], spec.floor_y - 1, interior.min[2]), (interior.max[0], spec.floor_y - 1, interior.max[2])), "minecraft:dirt")
     found = mine_valid(region, spec)
     assert found.ok and found.data["crop_floor_dry"] == 0
+
+
+# The six blocks core builds as a Crops subclass: Wheat, Carrot, Potato, Beetroot, MelonStem, PumpkinStem.
+@pytest.mark.parametrize("crop", ["wheat", "carrots", "potatoes", "beetroot", "melon_stem", "pumpkin_stem"])
+def test_every_crop_block_makes_a_crop_mine(crop: str) -> None:
+    spec = _crop_spec(ores={f"minecraft:{crop}": 1.0})
+    fragment = build_mine(spec, Palette.load("mine_stone")).extras["mine_reset"]
+    assert spec.has_crop and fragment["floor_y"] == spec.floor_y - 1
+
+
+def test_a_crop_named_only_in_an_ore_layer_still_refuses_layers() -> None:
+    layers = [{"y_from": 40, "y_to": 40, "ores": {"minecraft:wheat": 1}}]
+    with pytest.raises(ValueError, match="ore_layers"):
+        _crop_spec(ores={"minecraft:stone": 1.0}, ore_layers=layers)
+
+
+def test_the_wetness_state_on_a_block_that_is_not_farmland_fails_the_build() -> None:
+    spec = _crop_spec(fill="hollow")
+    region, interior = _built(spec)
+    region.set(interior.min[0], spec.floor_y - 1, interior.min[2], "minecraft:dirt[moisturized_amount=7]")
+    found = mine_valid(region, spec)
+    assert not found.ok and found.data["crop_floor_dry"] == 1
