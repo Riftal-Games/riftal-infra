@@ -156,6 +156,9 @@ jobs:
       - name: Bot proofs pre-container checks and devtools pin self-test
         run: bash .github/scripts/bot-proofs-selftest.sh
 
+      - name: Self-test, prove the bot-proofs finish decision can fail
+        run: bash .github/scripts/bot-proofs-finish-selftest.sh
+
       - name: Capture plugin self-test
         run: bash images/plugins/capture-selftest.sh
 
@@ -391,7 +394,7 @@ jobs:
           status=0
           env -u GITHUB_OUTPUT bash deploy/bot-proofs.sh || status=$?
           case "$status" in
-            0) printf 'exposure=none\n' >> "$GITHUB_OUTPUT" ;;
+            0|4) printf 'exposure=none\n' >> "$GITHUB_OUTPUT" ;;
             3) printf 'exposure=found\n' >> "$GITHUB_OUTPUT" ;;
           esac
           exit "$status"
