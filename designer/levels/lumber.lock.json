@@ -17,12 +17,14 @@
   "designbridge_commit": "0f0b523c8f8536f676ee8de9c0c6d007f626afe8",
   "generator": "normal",
   "inputs": {
-    "levels/lumber.json": "d5dfe9f4d84ba8dd40aa1c4323b69b542022195695eada33e789f1105477d0d1",
+    "levels/lumber.json": "e8eacf957c9dad85628e82f4d5c1c7f37727ca4e888fd12f9f3f2f786a7a0a9c",
     "palette:mine_stone": "30c68b82e89822017f0173446c4f3fbd81ad3d470c9d57c8645cdfb292e33979",
-    "specs/lumber.json": "d9ebc6f32e02d00c5b6391a32922985dfc0e6f922233418521a3cda6192f9b41"
+    "specs/lumber.json": "d9ebc6f32e02d00c5b6391a32922985dfc0e6f922233418521a3cda6192f9b41",
+    "specs/lumber_access_east.json": "fafb3566c80a1b65d0a310719c5f21c35ad75627a6eeed65ce6ac0f2471620fc",
+    "specs/lumber_access_south.json": "a186737fb59807b4223cd986fcd710ccc397bec8df0d1c8b8c19f7ba9edbeacd"
   },
-  "seed": 20260907,
-  "size_bytes": 1161807,
-  "toolkit_commit": "6dfa002d282bb125c5aee5148342956894ed1a9e",
+  "seed": 23,
+  "size_bytes": 478255,
+  "toolkit_commit": "0d644bd6f1101088346ab87d1e6baa0eb35db3d3",
   "zone": "lumber"
 }
