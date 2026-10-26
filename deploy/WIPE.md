@@ -20,7 +20,7 @@ instance's `/data`), the paths below, and nothing else:
 | Path | Cleared | Ruling |
 |---|---|---|
 | The shared MySQL database | dropped, recreated and migrated | riftal-pm#696 |
-| `worlds/<level>/`, each level | the whole folder | riftal-pm#696, #1309, #1312, #1314; see Levels, below |
+| `worlds/<level>/`, each level | the whole folder, then a level with a build is re-seeded | riftal-pm#696, #1309, #1312, #1314; see Levels, below |
 | `players/` | its contents, the folder stays | riftal-pm#696 |
 | `plugin_data/` | its contents, the folder stays | riftal-pm#1352 |
 
@@ -59,9 +59,18 @@ step 3 set (see Rollback).
 
 A level whose zone has an ADR 009 build, a `<zone>.lock.json` in
 `designer/levels/`, is to be re-seeded from that build for the release being
-entered. Re-seeding is riftal-infra#1126. Until it lands, `wipe.sh` refuses
-on any volume holding a built level, and `wipe-check.sh` fails on one rather
-than checking it against its lock's `content_sha256`.
+entered (riftal-infra#1126). `wipe.sh` clears it and runs
+`../images/plugins/seed-levels.sh` for it on that volume, from the build's
+output folder `LEVEL_BUILDS_DIR/<zone>`, with the seeded files owned by the
+uid and gid of the volume's `worlds/`. Before anything is cleared it refuses
+unless that folder's `level-manifest.json` carries the lock's `content_sha256`,
+its file tree hashes to the manifest's `tree_sha256`, `seed-levels.sh` is
+mounted beside `deploy/`, and `worlds/` is not owned by root. The seed step's
+own checks run after the clear; one that fails there leaves that volume
+cleared, and the step 3 set rolls it back. This needs no dev keys.
+`wipe-check.sh` passes a built level only when its `level-manifest.json`
+carries the lock's `content_sha256` and its file tree hashes to the
+manifest's `tree_sha256`.
 
 A level with no build is cleared only on the shared dev stack, which takes two
 keys, each matched exactly: `RIFTAL_DEV_ENV=1` in the wipe's own environment,
@@ -72,9 +81,8 @@ each instance's default level fresh on its next boot. A non-default level is
 left absent, and the ruling expects the first boot to log exactly one
 `MineWorldLoader` WARNING per such level and no ERROR (riftal-pm#1312).
 
-So today only the dev wipe completes. An alpha wipe refuses while any volume
-holds a level, until each level an alpha instance loads has a build
-(riftal-infra#1113) and re-seeding lands.
+An alpha wipe completes only when every level on every volume has a build
+(riftal-infra#1113); any other level refuses it.
 
 ## Why the schema is dropped, not emptied table by table
 
@@ -141,8 +149,11 @@ survive; the migration run reapplies their grants anyway.
    the same names: it checks only the volumes under `WORLDS_DIR` and passes
    on those, so a volume left unmounted goes unchecked with nothing printed
    about it. Each clean volume prints `wipe-check <database>: volume <name>:
-   ok, no level, and players/ and plugin_data/ hold no file`. It fails on
-   any level still present (`FAIL level <zone> on <name> ...`), on any file
+   ok, no level, and players/ and plugin_data/ hold no file`, or `ok,
+   level(s) <zone> match their lock's content_sha256, and ...` for a
+   re-seeded level. It fails on any level with no build still present, and
+   on a built one that does not match its lock (`FAIL level <zone> on <name>
+   ...`), on any file
    in `players/` or `plugin_data/` (`FAIL <dir>/ on <name> holds <n>
    file(s)`), when `schema_migrations` records no migration, when the table
    list cannot be read (`FAIL could not list the tables in <database>`) or
@@ -154,7 +165,7 @@ survive; the migration run reapplies their grants anyway.
    capture_fence should hold only migration 0027's row, id 1 and lowered; it
    holds <n> row(s), <n> of them that row`. It passes with `wipe-check
    <database>: ok, <n> migration(s) applied, <n> table(s) empty but for <n>
-   seeded row(s)`. A built level fails it until riftal-infra#1126 lands.
+   seeded row(s)`.
 7. **Start the instances**, one at a time, per `../CLAUDE.md`'s rollout order,
    then start the `backup` service. `backup-loop.sh` runs `backup.sh` at once
    on start, so the first set after the wipe is taken then.
@@ -199,6 +210,7 @@ directly or through a default role. Both scripts require:
 |---|---|
 | `WORLDS_DIR` | The directory every instance volume is mounted under, one subdirectory each, as for `backup.sh`. There is no default here. Read-write for `wipe.sh`; `wipe-check.sh` only reads |
 | `LEVEL_LOCKS_DIR` | A directory holding each ADR 009 build's `<zone>.lock.json`: `designer/levels/`, mounted in |
+| `LEVEL_BUILDS_DIR` | `wipe.sh` only, and only when a volume holds a level with a build: a directory holding each such zone's output folder `<zone>/`, the folder an instance mounts at `/etc/riftal/levels/<zone>` |
 
 `wipe.sh` also requires:
 
@@ -223,8 +235,8 @@ volumes as the `backup` service does:
 
 ```sh
 wslc run --rm --network riftal-dev \
-  -v "$INFRA/deploy:/deploy:ro" -v riftal-backups:/backups:ro \
-  -v "$INFRA/designer/levels:/levels:ro" \
+  -v "$INFRA/deploy:/deploy:ro" -v "$INFRA/images/plugins:/images/plugins:ro" \
+  -v riftal-backups:/backups:ro -v "$INFRA/designer/levels:/levels:ro" \
   -v riftal-world:/worlds/riftal-world -v riftal-world-b:/worlds/riftal-world-b \
   -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
   -e MYSQL_DATABASE=riftal_dev -e WIPE_CONFIRM=riftal_dev -e RIFTAL_DEV_ENV=1 \
@@ -244,8 +256,9 @@ wslc run --rm --network riftal-dev \
 ```
 
 Any other stack drops `RIFTAL_DEV_ENV`, names its own database twice, and
-mounts every one of its instance volumes in both commands. Wrap each in
-`timeout 120` when running unattended.
+mounts every one of its instance volumes in both commands. Where a level has a
+build, the wipe also mounts the directory of output folders and sets
+`LEVEL_BUILDS_DIR` to it. Wrap each in `timeout 120` when running unattended.
 
 ## Testing
 

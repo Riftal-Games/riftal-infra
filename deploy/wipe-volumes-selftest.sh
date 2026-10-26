@@ -12,8 +12,13 @@
 #
 # wipe-check.sh must fail on the seeded volumes, naming each level and folder
 # the wipe clears, and pass after the wipe with every kept file still there. A
-# level or a file that reappears after the wipe must fail it again, and a level
-# with an ADR 009 build must fail it naming riftal-infra#1126.
+# level or a file that reappears after the wipe must fail it again.
+#
+# One level, mine_a on the first volume, has an ADR 009 build: a lock, and an
+# output folder with a level-manifest.json. The wipe re-seeds it from that
+# folder, owned by the uid of the volume's worlds/, and refuses a folder that
+# does not match its lock or its own manifest. wipe-check must pass on the
+# re-seeded level and fail on one that differs from the lock.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +41,7 @@ trap cleanup EXIT
 
 for v in "${VOLUMES[@]}"; do docker volume create "$v" >/dev/null; done
 docker run -d --rm --name "$C" -m 1g --cpus 1 -v "$SCRIPT_DIR:/deploy:ro" \
-  -v "${VOLUMES[0]}:/worlds/riftal_smoke_a" -v "${VOLUMES[1]}:/worlds/riftal_smoke_b" \
+  -v "$SCRIPT_DIR/../images/plugins:/images/plugins:ro" -v "${VOLUMES[0]}:/worlds/riftal_smoke_a" -v "${VOLUMES[1]}:/worlds/riftal_smoke_b" \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_dev mysql:8 >/dev/null
 for _ in $(seq 1 90); do
   docker exec "$C" mysql -uroot -pselftest -h 127.0.0.1 -e 'SELECT 1' >/dev/null 2>&1 && break
@@ -56,7 +61,21 @@ sh_in "set -e; for v in a b; do d=/worlds/riftal_smoke_\$v
     head -c 256 /dev/urandom > \$d/\$f
   done
 done
-mkdir -p /tmp/locks /tmp/built && printf '{}' > /tmp/built/mine_a.lock.json"
+mkdir -p /tmp/locks"
+sh_in 'set -e; mkdir -p /tmp/built /tmp/otherlock /tmp/builds/mine_a/db
+  head -c 256 /dev/urandom > /tmp/builds/mine_a/level.dat
+  head -c 256 /dev/urandom > /tmp/builds/mine_a/db/000.ldb
+  content=$(printf built | sha256sum | cut -d" " -f1)
+  zeros=$(printf "%064d" 0)
+  tree=$(cd /tmp/builds/mine_a && find . -type f ! -path ./level-manifest.json -printf "%P\0" | LC_ALL=C sort -z \
+    | xargs -0 -r sha256sum -- | sha256sum | cut -d" " -f1)
+  printf "{\n  \"content_sha256\": \"%s\",\n  \"tree_sha256\": \"%s\"\n}\n" "$content" "$tree" > /tmp/builds/mine_a/level-manifest.json
+  printf "{\n  \"content_sha256\": \"%s\",\n  \"zone\": \"mine_a\"\n}\n" "$content" > /tmp/built/mine_a.lock.json
+  printf "{\n  \"content_sha256\": \"%s\",\n  \"zone\": \"mine_a\"\n}\n" "$zeros" > /tmp/otherlock/mine_a.lock.json
+  cp -r /tmp/builds /tmp/badcontent; cp -r /tmp/builds /tmp/badtree
+  sed -i "s/\"content_sha256\": \"[0-9a-f]*\"/\"content_sha256\": \"$zeros\"/" /tmp/badcontent/mine_a/level-manifest.json
+  printf y >> /tmp/badtree/mine_a/level.dat
+  chown 1000:1000 /worlds/riftal_smoke_a/worlds'
 q "CREATE TABLE riftal_dev.sentinel (id INT PRIMARY KEY); CREATE DATABASE riftal_smoke_other; CREATE DATABASE riftal"
 
 docker exec -e MYSQL_HOST=127.0.0.1 -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest -e MYSQL_DATABASE=riftal_dev \
@@ -76,7 +95,7 @@ kept >"$LOGS/kept.before"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=66
+EXPECTED_ASSERTIONS=76
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # wipe <database> <set> [docker exec -e flags]
@@ -128,7 +147,7 @@ check_fails() {
   fi
 }
 NOBUILD="has no ADR 009 build and should be absent after a wipe"
-BUILT="has an ADR 009 build, and checking it against its lock's content_sha256 is riftal-infra#1126"
+BUILT="does not carry content_sha256"
 
 printf '\n== wipe-check fails on the seeded volumes\n'
 CHECK=("${W[@]}" "${L[@]}")
@@ -163,8 +182,17 @@ refused dev-rig-db "only on the dev stack: RIFTAL_DEV_ENV is 1 against database 
   riftal /tmp/rig "${W[@]}" "${L[@]}" "${DEV[@]}"
 
 printf '\n== on dev, every other refusal\n'
-refused built-level "level mine_a on riftal_smoke_a has an ADR 009 build to re-seed from, and re-seed is riftal-infra#1126" \
-  riftal_dev /tmp/set "${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/built "${DEV[@]}"
+B=(-e LEVEL_LOCKS_DIR=/tmp/built)
+refused built-no-builds-dir "level mine_a on riftal_smoke_a has an ADR 009 build to re-seed from, and LEVEL_BUILDS_DIR must hold its output folder mine_a" \
+  riftal_dev /tmp/set "${W[@]}" "${B[@]}" "${DEV[@]}"
+refused built-content-differs "/tmp/badcontent/mine_a/level-manifest.json does not carry content_sha256" \
+  riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/badcontent "${DEV[@]}"
+refused built-tree-differs "the file tree of /tmp/badtree/mine_a is not the one its level-manifest.json names" \
+  riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/badtree "${DEV[@]}"
+sh_in 'chown 0:0 /worlds/riftal_smoke_a/worlds'
+refused built-worlds-root-owned "/worlds/riftal_smoke_a/worlds is owned by root, so core could not write the re-seeded level mine_a" \
+  riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/builds "${DEV[@]}"
+sh_in 'chown 1000:1000 /worlds/riftal_smoke_a/worlds'
 refused no-worlds-dir "WORLDS_DIR is required" riftal_dev /tmp/set "${L[@]}" "${DEV[@]}"
 refused no-locks-dir "LEVEL_LOCKS_DIR must name a directory" riftal_dev /tmp/set "${W[@]}" "${DEV[@]}"
 refused absent-locks-dir "LEVEL_LOCKS_DIR must name a directory" \
@@ -183,7 +211,7 @@ RUN=(/deploy/wipe.sh)
   && pass "every refusal left riftal_dev in place" || fail "a refused wipe changed riftal_dev"
 
 printf '\n== RIFTAL_DEV_ENV=1 on riftal_dev clears the ruled paths and keeps the rest\n'
-if wipe riftal_dev /tmp/set "${W[@]}" "${L[@]}" "${DEV[@]}" >"$LOGS/wipe.log" 2>&1; then
+if wipe riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/builds "${DEV[@]}" >"$LOGS/wipe.log" 2>&1; then
   pass "the dev wipe exits 0"
 else
   fail "the dev wipe should exit 0"; cat "$LOGS/wipe.log"
@@ -192,13 +220,21 @@ for v in a b; do
   grep -qx "wipe riftal_dev: volume riftal_smoke_$v: cleared 2 level(s) and the contents of players/ and plugin_data/" \
     "$LOGS/wipe.log" && pass "riftal_smoke_$v: the wipe reports 2 levels cleared" \
     || fail "riftal_smoke_$v: the wipe does not report 2 levels cleared"
-  [ "$(sh_in "ls -A /worlds/riftal_smoke_$v/worlds | wc -l")" = "0" ] \
-    && pass "riftal_smoke_$v: no level folder is left, dotted ones included" || fail "riftal_smoke_$v: a level folder survived"
+  [ "$(sh_in "ls -A /worlds/riftal_smoke_$v/worlds")" = "$([ "$v" = a ] && echo mine_a)" ] \
+    && pass "riftal_smoke_$v: no level folder is left but the re-seeded one, dotted ones included" \
+    || fail "riftal_smoke_$v: a level folder survived or the re-seeded one is missing"
   for dir in players plugin_data; do
     [ "$(sh_in "[ -d /worlds/riftal_smoke_$v/$dir ] && ls -A /worlds/riftal_smoke_$v/$dir | wc -l")" = "0" ] \
       && pass "riftal_smoke_$v: $dir/ is there and empty" || fail "riftal_smoke_$v: $dir/ is missing or not empty"
   done
 done
+grep -qx "wipe riftal_dev: volume riftal_smoke_a: re-seeded level mine_a from /tmp/builds/mine_a" "$LOGS/wipe.log" \
+  && pass "the wipe reports mine_a re-seeded from its build" || fail "the wipe does not report mine_a re-seeded"
+sums() { sh_in "cd $1 && find . -type f -exec sha256sum {} + | sort"; }
+[ "$(sums /tmp/builds/mine_a)" = "$(sums /worlds/riftal_smoke_a/worlds/mine_a)" ] \
+  && pass "the re-seeded mine_a is the build, file for file" || fail "the re-seeded mine_a differs from its build"
+[ "$(sh_in 'find /worlds/riftal_smoke_a/worlds/mine_a ! -user 1000 | wc -l')" = "0" ] \
+  && pass "everything in the re-seeded mine_a is owned by the uid of worlds/" || fail "the re-seeded mine_a holds a file not owned by 1000"
 kept >"$LOGS/kept.after"
 while read -r sum path; do
   grep -qxF "$sum  $path" "$LOGS/kept.after" && pass "kept byte for byte: $path" || fail "changed or gone: $path"
@@ -213,23 +249,29 @@ printf '\n== after the wipe, wipe-check passes with every kept file still there\
 # that lists none.
 q "CREATE TABLE riftal_dev.schema_migrations (version INT PRIMARY KEY); INSERT INTO riftal_dev.schema_migrations VALUES (1)
   ; CREATE TABLE riftal_dev.migrated (id INT PRIMARY KEY)"
-CHECK=("${W[@]}" "${L[@]}")
+CHECK=("${W[@]}" "${B[@]}")
 if check >"$LOGS/check-wiped.log" 2>&1; then
   pass "wipe-check passes on the wiped volumes"
 else
   fail "wipe-check should pass on the wiped volumes"; cat "$LOGS/check-wiped.log"
 fi
+HELD_A="level(s) mine_a match their lock's content_sha256"
 for v in a b; do
-  grep -qx "wipe-check riftal_dev: volume riftal_smoke_$v: ok, no level, and players/ and plugin_data/ hold no file" \
+  held="no level"
+  [ "$v" = a ] && held="$HELD_A"
+  grep -qx "wipe-check riftal_dev: volume riftal_smoke_$v: ok, $held, and players/ and plugin_data/ hold no file" \
     "$LOGS/check-wiped.log" && pass "riftal_smoke_$v: wipe-check reports the volume ok" \
     || fail "riftal_smoke_$v: wipe-check does not report the volume ok"
 done
+CHECK=("${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/otherlock)
+check_fails other-lock "level mine_a on riftal_smoke_a $BUILT 0000000000000000000000000000000000000000000000000000000000000000"
 sh_in 'set -e; mkdir -p /worlds/riftal_smoke_a/worlds/mine_a /worlds/riftal_smoke_b/plugin_data/RiftalMines/sub
   printf x > /worlds/riftal_smoke_a/worlds/mine_a/level.dat
   printf x > /worlds/riftal_smoke_b/plugin_data/RiftalMines/sub/state.json'
+CHECK=("${W[@]}" "${L[@]}")
 check_fails regrown "level mine_a on riftal_smoke_a $NOBUILD" "plugin_data/ on riftal_smoke_b holds 1 file(s)"
-CHECK=("${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/built)
-check_fails regrown-built "level mine_a on riftal_smoke_a $BUILT"
+CHECK=("${W[@]}" "${B[@]}")
+check_fails regrown-built "level mine_a on riftal_smoke_a has a file tree that is not the one its level-manifest.json names"
 
 printf '\n'
 ran=$((PASSES + FAILURES))
