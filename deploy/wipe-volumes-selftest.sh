@@ -95,7 +95,7 @@ kept >"$LOGS/kept.before"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=89
+EXPECTED_ASSERTIONS=97
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # wipe <database> <set> [docker exec -e flags]
@@ -202,7 +202,10 @@ sh_in 'set -e; mkdir -p /tmp/emptybuilds /tmp/nodigest /tmp/dupdigest /tmp/built
   printf "{\n  \"content_sha256\": \"%s\",\n  \"content_sha256\": \"%s\"\n}\n" "$zeros" "$ones" > /tmp/dupdigest/mine_a.lock.json
   cp /tmp/built/mine_a.lock.json /tmp/built2/mine_a.lock.json
   printf "{\n  \"content_sha256\": \"%s\",\n  \"zone\": \"mine_b\"\n}\n" "$ones" > /tmp/built2/mine_b.lock.json
-  cp -r /tmp/builds /tmp/notree/; sed -i "/tree_sha256/d; s/\"content_sha256\": \"\\([0-9a-f]*\\)\",/\"content_sha256\": \"\\1\"/" /tmp/notree/builds/mine_a/level-manifest.json'
+  cp -r /tmp/builds /tmp/notree/; sed -i "/tree_sha256/d; s/\"content_sha256\": \"\\([0-9a-f]*\\)\",/\"content_sha256\": \"\\1\"/" /tmp/notree/builds/mine_a/level-manifest.json
+  cp -r /tmp/builds /tmp/symbuild; ln -s level.dat /tmp/symbuild/mine_a/link
+  mkdir -p /tmp/badname; printf "{}\n" > /tmp/badname/bad.zone.lock.json
+  printf "#!/bin/bash\necho \"seed-levels: no space left\" >&2\nexit 1\n" > /tmp/failseed.sh'
 refused built-zone-folder-missing "level mine_a on riftal_smoke_a has an ADR 009 build to re-seed from, and LEVEL_BUILDS_DIR must hold its output folder mine_a" \
   riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/emptybuilds "${DEV[@]}"
 refused built-lock-no-digest "/tmp/builds/mine_a/level-manifest.json does not carry content_sha256 , the one in /tmp/nodigest/mine_a.lock.json" \
@@ -211,6 +214,14 @@ refused built-lock-two-digests "/tmp/builds/mine_a/level-manifest.json does not 
   riftal_dev /tmp/set "${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/dupdigest -e LEVEL_BUILDS_DIR=/tmp/builds "${DEV[@]}"
 refused built-manifest-no-tree-hash "the file tree of /tmp/notree/builds/mine_a is not the one its level-manifest.json names" \
   riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/notree/builds "${DEV[@]}"
+refused built-symlink "/tmp/symbuild/mine_a/link is neither a regular file nor a directory" \
+  riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/symbuild "${DEV[@]}"
+sh_in 'mkdir /worlds/riftal_smoke_b/worlds/bad.zone'
+state >"$LOGS/state.before"
+refused built-zone-name "level bad.zone on riftal_smoke_b has an ADR 009 build, and the seed step takes only letters, digits, _ and - in a zone name" \
+  riftal_dev /tmp/set "${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/badname -e LEVEL_BUILDS_DIR=/tmp/builds "${DEV[@]}"
+sh_in 'rmdir /worlds/riftal_smoke_b/worlds/bad.zone'
+state >"$LOGS/state.before"
 refused built-seed-script-absent "/tmp/no-seed.sh is not there; mount images/plugins beside deploy/" \
   riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/builds -e SEED_LEVELS_SCRIPT=/tmp/no-seed.sh "${DEV[@]}"
 refused built-second-volume "level mine_b on riftal_smoke_b has an ADR 009 build to re-seed from, and LEVEL_BUILDS_DIR must hold its output folder mine_b" \
@@ -298,6 +309,27 @@ CHECK=("${W[@]}" "${B[@]}")
 check_fails regrown-built "level mine_a on riftal_smoke_a has a file tree that is not the one its level-manifest.json names"
 
 printf '\n'
+printf '\n== a seed step that fails after the clear fails the wipe and leaves the database alone\n'
+q "CREATE TABLE riftal_dev.sentinel (id INT PRIMARY KEY)"
+sh_in 'printf x > /worlds/riftal_smoke_b/plugin_data/RiftalMines/sub/state.json'
+if wipe riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/builds -e SEED_LEVELS_SCRIPT=/tmp/failseed.sh "${DEV[@]}" \
+  >"$LOGS/seed-fails.log" 2>&1; then
+  fail "a wipe whose seed step fails should exit non-zero"; cat "$LOGS/seed-fails.log"
+else
+  pass "a wipe whose seed step fails exits non-zero"
+fi
+if grep -qF "wipe riftal_dev: FAILED, not refused: the seed step stopped on level mine_a after every volume was cleared" "$LOGS/seed-fails.log" \
+  && ! grep -qF "wipe riftal_dev: refused: " "$LOGS/seed-fails.log"; then
+  pass "the failure is reported as FAILED, not as a refusal"
+else
+  fail "the failure is not reported as FAILED"; cat "$LOGS/seed-fails.log"
+fi
+[ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'riftal_dev' AND TABLE_NAME = 'sentinel'")" = "1" ] \
+  && pass "riftal_dev still holds sentinel" || fail "riftal_dev lost sentinel"
+[ "$(sh_in 'ls -A /worlds/riftal_smoke_b/plugin_data | wc -l')" = "0" ] \
+  && pass "the second volume was cleared before the first volume's re-seed failed" \
+  || fail "the second volume still holds plugin_data after the seed step failed"
+
 ran=$((PASSES + FAILURES))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
   printf '%s of %s assertions ran, so one did not run and cannot have passed\n' "$ran" "$EXPECTED_ASSERTIONS"

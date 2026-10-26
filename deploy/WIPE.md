@@ -65,9 +65,12 @@ output folder `LEVEL_BUILDS_DIR/<zone>`, with the seeded files owned by the
 uid and gid of the volume's `worlds/`. Before anything is cleared it refuses
 unless that folder's `level-manifest.json` carries the lock's `content_sha256`,
 its file tree hashes to the manifest's `tree_sha256`, `seed-levels.sh` is
-mounted beside `deploy/`, and `worlds/` is not owned by root. The seed step's
-own checks run after the clear; one that fails there leaves that volume
-cleared, and the step 3 set rolls it back. This needs no dev keys.
+mounted beside `deploy/`, `worlds/` is not owned by root, the zone name is
+letters, digits, `_` and `-`, and the build holds nothing but regular files and
+directories (a symlink refuses). Every volume is then cleared before any level
+is re-seeded. What can still fail is the seed step's copy or write, for example
+a full disk, and it fails the wipe after the clear (see Rollback). This needs
+no dev keys.
 `wipe-check.sh` passes a built level only when its `level-manifest.json`
 carries the lock's `content_sha256` and its file tree hashes to the
 manifest's `tree_sha256`.
@@ -136,7 +139,9 @@ survive; the migration run reapplies their grants anyway.
    step 3, and every instance volume mounted read-write under `WORLDS_DIR`
    by the same names the `backup` service mounts them by. Every check, on
    the database and on every volume, runs before anything is cleared, so a
-   refusal leaves the database and every volume as they were. On success it
+   refusal leaves the database and every volume as they were. One failure is
+   not a refusal: the seed step failing to copy or write a built level, after
+   the volumes are cleared (see Rollback). On success it
    prints, for each volume,
    `wipe <database>: volume <name>: cleared <n> level(s) and the contents of players/ and plugin_data/`,
    then drops the database and ends with
@@ -170,7 +175,12 @@ survive; the migration run reapplies their grants anyway.
    then start the `backup` service. `backup-loop.sh` runs `backup.sh` at once
    on start, so the first set after the wipe is taken then.
 
-**Rollback**, once step 4 has dropped the database: repeat step 2 first if any
+**Rollback**, once step 4 has dropped the database, or has failed with `wipe
+<database>: FAILED, not refused: the seed step stopped on level <zone> ...`,
+which follows a `seed-levels: ...` line and a non-zero exit. In that case the
+database is intact but every volume is cleared and some may be re-seeded, so
+do not go to step 7: that starts instances on cleared levels against a database
+that still holds the old items. Repeat step 2 first if any
 instance or the `backup` service is running, since `restore.sh` refuses while
 any other session is connected, before it drops the database or clears a world
 volume. Then `restore.sh` with the step 3 set, then step 5, then step 7. It
@@ -178,8 +188,9 @@ rebuilds every world volume from that set, which is the state they were stopped
 in at step 2, so a rollback after step 7 also discards every block changed and
 every row written since the instances came back.
 
-**A run that stops before step 4**, for example because `wipe.sh` refused,
-has dropped and cleared nothing and needs no rollback. Every instance and the `backup`
+**A run that stops before step 4**, for example because `wipe.sh` refused
+(`wipe <database>: refused: ...`), has dropped and cleared nothing and needs no
+rollback. Every instance and the `backup`
 service are still stopped from step 2, so go straight to step 7.
 
 The binary log holds every change written in the last 30 days, the wiped
@@ -225,7 +236,8 @@ directly or through a default role. Both scripts require:
 that does not exist, no volume under `WORLDS_DIR`, a tar in the set with no
 volume of its name under `WORLDS_DIR`, and a volume with no tar of its name
 in the set. Every refusal happens before the drop and before any volume is
-cleared, and leaves both as they were.
+cleared, and leaves both as they were. A seed step failure after the clear is
+the exception, and is reported as `FAILED`, not `refused`.
 
 ## Running it
 
