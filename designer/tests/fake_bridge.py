@@ -7,6 +7,8 @@ Jobs: ``queue_next`` is how many ``get_job`` polls the next job needs before it
 settles, ``fail_next_job`` is the error text it settles with, ``slow_op`` takes
 ``steps`` and ``total`` and reports progress. Every ``cancel_job`` seen is kept
 in ``cancelled``. ``stale_chunks`` names the chunks ``get_light`` reports stale.
+``scan_items`` walks the chunks ``pregen`` generated and reports ``scan_findings``.
+A line over ``MAX_LINE_BYTES`` is answered ``BAD_REQUEST`` and the connection closed.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from typing import Any
 import numpy as np
 
 from designer.blocks import encode_rle, format_name, parse_name
-from designer.edits import MAX_SET_BLOCKS
+from designer.edits import MAX_LINE_BYTES, MAX_SET_BLOCKS
 from designer.region import MAX_EDGE, Bounds, Bounds2D
 
 ALLOWED_BLOCKS = frozenset({
@@ -108,6 +110,8 @@ class FakeBridge:
         self.fail_next_job: str | None = None
         self.omit_top = False
         self.stale_chunks: list[tuple[int, int]] = []
+        self.pregenerated: dict[str, set[tuple[int, int]]] = {}
+        self.scan_findings: list[dict[str, Any]] = []
         self.worlds: dict[str, FakeWorld] = {"design": FakeWorld()}
         self.texts: dict[str, dict[str, Any]] = {}
         self.entities: dict[str, dict[str, Any]] = {}
@@ -151,6 +155,9 @@ class FakeBridge:
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             while line := await reader.readline():
+                if len(line.rstrip(b"\n")) > MAX_LINE_BYTES:
+                    await self._reply(writer, {"id": None, "ok": False, "error": "line exceeds max_line_bytes", "code": "BAD_REQUEST"})
+                    break
                 request = json.loads(line)
                 self.requests.append(request)
                 request_id = request.get("id")
@@ -372,7 +379,13 @@ class FakeBridge:
         box = self._bounds(args, Bounds2D)
         (x0, z0), (x1, z1) = box.min, box.max
         chunks = ((x1 >> 4) - (x0 >> 4) + 1) * ((z1 >> 4) - (z0 >> 4) + 1)
+        self.pregenerated.setdefault(args["world"], set()).update(product(range(x0 >> 4, (x1 >> 4) + 1), range(z0 >> 4, (z1 >> 4) + 1)))
         return self._job("pregen", {"chunks": chunks}, total=chunks)
+
+    def op_scan_items(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._world(args["world"])
+        chunks = len(self.pregenerated.get(args["world"], ()))
+        return self._job("scan_items", {"chunks": chunks, "findings": list(self.scan_findings)}, total=chunks)
 
     def op_run_command(self, args: dict[str, Any]) -> dict[str, Any]:
         return {"success": True, "output": [f"ran {args['cmd']}"]}

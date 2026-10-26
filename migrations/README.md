@@ -10,13 +10,31 @@ under containers, not less (CLAUDE.md hard rule 5).
 1. Acquires `GET_LOCK('riftal_schema_migrations', <timeout>)` over a
    connection it holds for the whole run, and releases it on the way out,
    success or failure.
-2. Reads `*.sql` files from `MIGRATIONS_DIR`, sorted by filename, and applies
-   the ones not already recorded in a `schema_migrations` bookkeeping table.
+2. Refuses, before writing anything, a server whose `VERSION()` is below
+   MySQL 8.0.30, the floor ADR 008 sets because `grants.sql` may use
+   `REVOKE IF EXISTS`. The `mysql:8` tag floats, so the server is asked.
+3. Reads `*.sql` files from `MIGRATIONS_DIR`, sorted by filename under
+   `LC_ALL=C`, and applies the ones not already recorded in a
+   `schema_migrations` bookkeeping table. The order is bytewise whatever
+   locale the container carries, so `0001_B` sorts before `0001_a` on every
+   image.
    A missing or empty directory is nothing pending, not a fault: there is no
    table to migrate until `riftal-game` ships one.
-3. Stops on the first migration that errors, with a nonzero exit and that
+   It refuses the whole run, with a nonzero exit and nothing applied, when
+   any pending file sorts below the highest already recorded one, naming
+   both. That database would otherwise run the file after the higher one
+   while a fresh database runs it before, and the two could end with
+   different schemas. A lower number that lands late is renumbered above the
+   highest applied, never forced in.
+4. Stops on the first migration that errors, with a nonzero exit and that
    file left unrecorded. A later run retries it and everything after it.
-4. Is a no-op success when nothing is pending, so running it twice is safe.
+   Before exiting it still applies `GRANTS_FILE`, past any statement that
+   errors, because a file before the failed one may have dropped and
+   recreated a procedure, and that drops every role's `EXECUTE` on it.
+5. Is a no-op success when nothing is pending, so running it twice is safe.
+6. Provisions the per-plugin MySQL logins of ADR 008 (riftal-pm
+   `docs/decisions/008-per-plugin-mysql-users.md`) on every run, still under
+   the same lock. See Provisioning logins below.
 
 Migration files themselves are authored in
 `riftal-game/lib/resources/sql/migrations/` (riftal-game#21). This repo only
@@ -32,14 +50,84 @@ runs them; it never authors gameplay migrations.
 | `MYSQL_PASSWORD` | yes | | Read via `MYSQL_PWD` internally so it never appears in `ps` output |
 | `MYSQL_DATABASE` | yes | | `riftal_dev` in the local stack |
 | `MIGRATIONS_DIR` | no | sibling checkout's `riftal-game/lib/resources/sql/migrations` | Mount the real directory in explicitly rather than relying on the fallback |
-| `MIGRATIONS_LOCK_NAME` | no | `riftal_schema_migrations` | Override only for running more than one independent test in parallel |
-| `MIGRATIONS_LOCK_TIMEOUT` | no | `60` (seconds) | |
+| `MIGRATIONS_LOCK_NAME` | no | `riftal_schema_migrations` | Override only for running more than one independent test in parallel. 1 to 64 characters from `A-Z a-z 0-9 _ -`; anything else fails the run before it connects. Empty means the default |
+| `MIGRATIONS_LOCK_TIMEOUT` | no | `60` (seconds) | A whole number of seconds; anything else fails the run before it connects. Empty means the default |
+| `GRANTS_FILE` | no | sibling checkout's `riftal-game/lib/resources/sql/grants.sql` | Mount the real file in explicitly, as with `MIGRATIONS_DIR` |
+| `RIFTAL_DB_PASSWORD_<NAME>` | no | | One per plugin login to provision, e.g. `RIFTAL_DB_PASSWORD_MINES` for `mines`, and `RIFTAL_DB_PASSWORD_BACKUP` for the dump login. At least 24 characters, `[A-Za-z0-9]` only |
+
+## Provisioning logins
+
+After the migrations, every run:
+
+1. Applies `GRANTS_FILE`, which creates the `riftal_role_*` roles and their
+   privileges. A missing file is skipped only when neither `GRANTS_FILE` nor
+   any `RIFTAL_DB_PASSWORD_*` other than `RIFTAL_DB_PASSWORD_BACKUP` is set,
+   and fails the run otherwise, before anything connects. Grants are never
+   recorded as applied: a dump restored onto a fresh server carries
+   `schema_migrations` but no roles, so they are rebuilt every run.
+   It then creates `riftal_role_backup` itself, the role for
+   `../deploy/backup.sh`, since that role follows the whole schema and no
+   plugin owns it (`../deploy/README.md`, The dump login).
+2. For each `RIFTAL_DB_PASSWORD_<NAME>`, runs `CREATE USER IF NOT EXISTS` and
+   then `ALTER USER` for `'<name>'@'%'`, so the environment always decides the
+   password. Rotating one is changing the variable and running this again.
+3. Grants `riftal_role_<name>` to the login and sets it as the default role.
+
+It fails loudly, before touching anything, on a password under 24 characters
+or with a character outside `[A-Za-z0-9]`, and, before creating any login, on
+a login whose `riftal_role_<name>` does not exist as a role. No password is ever
+printed. It is not a `/docker-entrypoint-initdb.d` script: it runs wherever
+migrations run, including after every `../deploy/restore.sh`.
+
+## Stored procedures and their definer
+
+A migration that creates a procedure, such as riftal-game's
+`gangs_ledger_contribute` (`0009_create_gang_ledger.sql`, redefined in
+`0010_add_gang_founded_marker.sql`), leaves MySQL's default
+`SQL SECURITY DEFINER` in place, per ADR 008. Its definer is the account this
+runner connected as: `MYSQL_USER`, which defaults to `root`, reached over the
+container network, so `root`@`%`. Three things follow. `selftest.sh` proves
+each against a fixture procedure, and `../deploy/restore-selftest.sh` proves
+the third through the real backup and restore scripts.
+
+**A login needs only `EXECUTE`.** The procedure body runs with the definer's
+privileges, so a plugin role holds `EXECUTE` on the procedure and nothing on
+the columns it writes. A direct `UPDATE` by the same login is refused.
+riftal-game's `grants.sql` (riftal-game#259) must carry `GRANT EXECUTE ON
+PROCEDURE gangs_ledger_contribute TO riftal_role_gangs` (ADR 008, item 2).
+Until it does, no provisioned login can call the procedure. Grants are
+reapplied on every run, so a restore rebuilds this one too.
+
+**The definer account is never dropped or renamed.** MySQL resolves the
+definer on every call. Once `root`@`%` is gone, every call fails with
+`ERROR 1449 ... The user specified as a definer ('root'@'%') does not exist`,
+on every instance at once. `root`@`localhost` is a separate account and does
+not stand in for it. Running migrations as a different account later does not
+move an existing procedure: it keeps its definer until a new migration drops
+and recreates it, so the old account stays until then.
+
+**Backups keep routines.** `mysqldump` leaves procedures out unless it is
+given `--routines`. Without them, a restore carries `schema_migrations` saying
+`0009` and `0010` ran and no procedure, and this runner never recreates it.
+`../deploy/backup.sh` passes `--routines --triggers`. The dump writes each
+procedure as ``CREATE DEFINER=`root`@`%` PROCEDURE``, so the server restored
+into must have that account before the first call. `../deploy/restore.sh`
+loads the dump as `MYSQL_USER`, default `root`, which must be `root` or another
+account allowed to create a routine under any definer.
 
 ## Running it locally, via `wslc`
 
 Same `mysql:8` image the dev stack already runs, so nothing new to pull.
 Run this after `riftal-mysql` is up and **before** the instance, per the
 rollout order in `../CLAUDE.md`: migrations, then instances, then the proxy.
+A migration whose effect needs a matching plugin build cannot follow that
+order one instance at a time. `../deploy/ROLLOUT.md` records what each one
+needs: `0010_add_gang_founded_marker.sql`,
+`0014_add_player_ranks_claim.sql` and
+`0015_raise_gang_level_with_contribution.sql`. Its Audited migrations section
+covers every migration through `0020_create_gang_vault_slots.sql` and gives
+the reason each other one is not coupled; a later migration is unaudited until
+it is listed there.
 
 ```sh
 export MSYS_NO_PATHCONV=1
@@ -50,24 +138,82 @@ set -a; . "$INFRA/images/.env"; set +a
 wslc run --rm --network riftal-dev \
   -v "$INFRA/migrations/run-migrations.sh:/run-migrations.sh:ro" \
   -v "$GAME/lib/resources/sql/migrations:/migrations:ro" \
+  -v "$GAME/lib/resources/sql/grants.sql:/grants.sql:ro" \
   -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
-  -e MYSQL_DATABASE=riftal_dev -e MIGRATIONS_DIR=/migrations \
+  -e MYSQL_DATABASE=riftal_dev -e MIGRATIONS_DIR=/migrations -e GRANTS_FILE=/grants.sql \
   mysql:8 bash /run-migrations.sh
 ```
+
+To provision logins in the same run, add one name-only `-e RIFTAL_DB_PASSWORD_<NAME>` per login, exported in the
+shell first, so the password stays off the host's command line. Until
+`riftal-game` ships `grants.sql` (riftal-game#259), the bind mount creates an
+empty directory in its place, and the runner refuses it: any run that sets
+`GRANTS_FILE` or a plugin's `RIFTAL_DB_PASSWORD_*` exits nonzero unless the
+grants file is a readable regular file. Only a run setting neither skips
+grants, so the backup login alone needs no grants file and no mount.
 
 Wrap the `wslc run` above in `timeout 120` when running it unattended: if the
 lock cannot be acquired, this hangs for `MIGRATIONS_LOCK_TIMEOUT` seconds
 before failing loudly, and a hung `wslc` call otherwise gives no signal.
+The failure names the holder: its connection id from `IS_USED_LOCK`, and the
+user and host from that connection's row in `performance_schema.processlist`,
+which needs no grant but shows a login without `PROCESS` only its own
+sessions. An empty row is reported as could not be read, since a hidden row
+and a holder that disconnected between the two reads look the same. Only a
+`GET_LOCK` answer of `0` is reported as a timeout; `NULL` is an error.
 
 ## Testing
 
 `selftest.sh` proves the runner against a real, throwaway `mysql:8`
-container using the fixtures in `fixtures/`: no-op on an empty directory,
-ordered apply with both files recorded, a no-op second run, a broken
-migration halting the run without being recorded, and two invocations racing
-the same lock name applying a pending migration exactly once. It calls
-`docker` directly,
-the same way `.github/workflows/ci.yml`'s PHP lint step already does, so it
-runs in CI and is **not runnable on Nasir's Windows machine**, which has no
-docker, only `wslc`. The `wslc` command above is how this runner is actually
-exercised locally.
+container using the fixtures in `fixtures/`. Its sections, in the order it
+runs them, are:
+
+- empty migrations directory is a no-op success
+- applies pending migrations in order and records them
+- second run with nothing new is a no-op success
+- a broken migration halts loudly and is not recorded
+- two invocations racing the same lock name do not double-apply
+- a lock connection that dies early fails cleanly
+- a lock session that stops reading before GET_LOCK fails cleanly
+- a run whose lock session dies mid-run fails
+- a lock session that stops reading before RELEASE_LOCK fails
+- a lock held elsewhere times out naming its holder
+- a lock failure says which read of its holder came back unusable
+- a lock timeout that is not a whole number is refused before connecting
+- a lock name outside the safe character set is refused before connecting
+- a server below MySQL 8.0.30 is refused before anything is applied
+- a pending file sorting below the highest applied one is refused
+- filename order is bytewise whatever locale the container carries
+- provisioning on an existing schema creates the login with its role
+- a second provisioning run is idempotent
+- a changed password in the environment rotates the login
+- provisioning refuses bad input loudly and changes nothing
+- a restore onto a fresh server, then the step, rebuilds the login
+- a DEFINER procedure runs on its definer's privileges and survives a restore
+- a migration failing after one that recreates a procedure still applies grants
+- an empty or missing migrations directory still provisions
+- a run needing grants fails when the grants file is not a file
+- a plain login named like a role does not pass as the role
+- each half of the role check refuses on its own
+- the backup login needs no grants file, reads widgets, and is denied INSERT, UPDATE, DELETE, CREATE/ALTER/DROP TABLE, LOCK TABLES, CREATE EVENT, CREATE USER and GRANT
+- no provisioning run ever prints a password
+
+The provisioning sections run against `fixtures/grants/`. The role check's
+decoys are two logins, one locked with a password and one open with none,
+each failing exactly one half of the check, so removing either half admits
+one of them. The backup-login section also checks that, with the binlog on,
+`backup`'s `CREATE TRIGGER` is refused and its `DROP TRIGGER` accepted, and
+that its `CREATE TRIGGER` is accepted once `log_bin_trust_function_creators`
+is set. The self-test refuses to start unless these bullets match its
+`section` titles exactly and in order. On success, its closing lines list
+every section title. It calls
+`docker` directly, the same way `.github/workflows/ci.yml`'s PHP lint step
+does, so it runs in CI and, on Nasir's Windows machine, under the Docker
+inside the WSL distro that hosts the CI runners:
+
+```sh
+wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/Users/nasir/riftal-games/riftal-infra/migrations/selftest.sh
+```
+
+Each run writes its logs to its own `mktemp -d` directory and removes it on
+exit, so concurrent runs on one host do not clobber each other.

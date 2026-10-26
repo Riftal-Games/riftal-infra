@@ -5,11 +5,6 @@ import pytest
 from designer import config, persist
 
 
-@pytest.fixture(autouse=True)
-def _reports_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
-
-
 def test_load_with_no_file_is_empty() -> None:
     assert persist.load() == {}
 

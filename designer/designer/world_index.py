@@ -31,6 +31,11 @@ def _parts(ref: str) -> list[int]:
     except ValueError:
         raise ValueError(f"a position is integers, got {ref!r}") from None
 
+def _tags(data: Mapping[str, Any]) -> Any:
+    tags = data.get("tags", [])
+    # Anything but a list is kept as given for _admissible to refuse: list() would split "safe_zone" into letters.
+    return list(tags) if isinstance(tags, list) else tags
+
 @dataclass
 class Location:
     """A named point. ``pos`` is the feet block in integer block coordinates; ``yaw`` and ``pitch`` are degrees."""
@@ -47,7 +52,7 @@ class Location:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Location:
-        return cls(data["name"], data["world"], data["pos"], data.get("yaw", 0), data.get("pitch", 0), list(data.get("tags", [])))
+        return cls(data["name"], data["world"], data["pos"], data.get("yaw", 0), data.get("pitch", 0), _tags(data))
 
     def to_json(self) -> dict[str, Any]:
         return {"name": self.name, "world": self.world, "pos": list(self.pos), "yaw": self.yaw, "pitch": self.pitch, "tags": list(self.tags)}
@@ -71,7 +76,7 @@ class NamedRegion:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> NamedRegion:
-        return cls(data["name"], data["world"], data["min"], data["max"], list(data.get("tags", [])), dict(data.get("meta", {})))
+        return cls(data["name"], data["world"], data["min"], data["max"], _tags(data), dict(data.get("meta", {})))
 
     def to_json(self) -> dict[str, Any]:
         return {"name": self.name, "world": self.world, **self.bounds.to_json(), "tags": list(self.tags), "meta": dict(self.meta)}
@@ -97,6 +102,11 @@ def _missing(kind: str, name: str, known: Sequence[str]) -> KeyError:
     hint = f", did you mean {near[0]!r}?" if near else ""
     return KeyError(f"no such {kind} {name!r}{hint}")
 
+
+class IndexFileError(ValueError):
+    """The index file could not be read; a ``ValueError`` so every caller that reports a bad index reports this one too."""
+
+
 @dataclass
 class WorldIndex:
     version: int = VERSION
@@ -109,7 +119,11 @@ class WorldIndex:
     @classmethod
     def load(cls, path: Path | None = None) -> WorldIndex:
         path = DEFAULT_PATH if path is None else Path(path)
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise IndexFileError(f"cannot read the world index {path}: {exc.strerror or exc}") from None
+        data = json.loads(text)
         if data.get("version") != VERSION:
             raise ValueError(f"{path} is version {data.get('version')!r}; this toolkit reads version {VERSION}")
         lists = {kind: [t.from_json(e) for e in data.get(kind, [])] for kind, t in zip(KINDS, (WorldEntry, Location, NamedRegion))}
@@ -124,10 +138,10 @@ class WorldIndex:
         seen: dict[str, str] = {}
         for entry in (*self.locations, *self.regions):
             what = f"{type(entry).__name__} {entry.name!r}"
-            if not NAME_RE.fullmatch(entry.name):
-                raise ValueError(f"{what} must match {NAME_RE.pattern}")
-            if entry.world not in worlds:
-                raise ValueError(f"{what} is in unlisted world {entry.world!r}")
+            try:
+                self._admissible(entry, what)
+            except KeyError as missing:
+                raise ValueError(f"{what}: {missing.args[0] if missing.args else 'not admissible'}") from None
             if entry.name in seen:
                 raise ValueError(f"{what} duplicates {seen[entry.name]}")
             seen[entry.name] = what
@@ -200,10 +214,27 @@ class WorldIndex:
     def regions_tagged(self, tag: str) -> list[NamedRegion]:
         return [r for r in self.regions if tag in r.tags]
 
-    def _admissible(self, entry: Location | NamedRegion) -> None:
+    def _admissible(self, entry: Location | NamedRegion, what: str | None = None) -> None:
+        """The one rule for an entry's name and world; ``validate`` reports its ``KeyError`` as a ``ValueError``.
+
+        Riots makes a whole world safe once any region in it carries ``safe_zone``, and design plan 7.2 keeps
+        the contested mine always PvP, so no region in a ``contested`` world may carry the tag.
+        """
         if not NAME_RE.fullmatch(entry.name):
-            raise ValueError(f"name {entry.name!r} must match {NAME_RE.pattern}")
-        self.world(entry.world)
+            raise ValueError(f"{what or f'name {entry.name!r}'} must match {NAME_RE.pattern}")
+        label = what or f"{type(entry).__name__} {entry.name!r}"
+        # The plugins match tags with a strict in_array over a list, so a bare string or an int tag would
+        # silently drop safe_zone or sell.
+        if not isinstance(entry.tags, list):
+            raise ValueError(f"{label} has tags that are not a list: {entry.tags!r}")
+        if bad := [t for t in entry.tags if not isinstance(t, str)]:
+            raise ValueError(f"{label} has a tag that is not a string: {bad[0]!r}")
+        world = self.world(entry.world)
+        if isinstance(entry, NamedRegion) and world.role == "contested" and "safe_zone" in entry.tags:
+            raise ValueError(
+                f"{what or f'region {entry.name!r}'} carries safe_zone in {world.name!r}, a contested world that is always PvP;"
+                " a contested mine's spec sets safe_zone: false"
+            )
 
     def _add(self, entry: Any, into: list[Any], replace: bool) -> Any:
         self._admissible(entry)
@@ -219,6 +250,13 @@ class WorldIndex:
 
     def add_region(self, region: NamedRegion, *, replace: bool = False) -> NamedRegion:
         return self._add(region, self.regions, replace)
+
+    def register(self, locations: Iterable[Mapping[str, Any]], regions: Iterable[Mapping[str, Any]], *, replace: bool = False) -> None:
+        """Add a builder's ``locations`` and ``regions`` JSON, locations first; a taken name raises unless ``replace``, which overwrites it."""
+        for loc in locations:
+            self.add_location(Location.from_json(dict(loc)), replace=replace)
+        for reg in regions:
+            self.add_region(NamedRegion.from_json(dict(reg)), replace=replace)
 
     def remove(self, name: str) -> Location | NamedRegion:
         entry = self.resolve(name)

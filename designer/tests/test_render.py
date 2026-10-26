@@ -6,7 +6,6 @@ import pytest
 from PIL import Image
 
 from designer.blocks import AIR
-from designer.config import REPORTS_DIR
 from designer.palettes import ROLES, load_palettes
 from designer.region import EMPTY_Y, Bounds, Bounds2D, Heightmap, Region
 from designer.render import (
@@ -85,7 +84,7 @@ def test_summary_counts_water_and_flat_columns() -> None:
     assert summary(Heightmap(WORLD, Bounds2D((0, 0), (0, 0)), np.full((1, 1), EMPTY_Y, dtype=np.int16)))["min"] is None
 
 
-def test_markers_from_index_and_report_path() -> None:
+def test_markers_from_index_and_report_path(tmp_path: Path) -> None:
     index = WorldIndex(
         worlds=[WorldEntry(WORLD, "normal", 0, "design"), WorldEntry("farm", "normal", 0, "farm")],
         locations=[Location("spawn", WORLD, (0, 64, 0)), Location("far", WORLD, (99, 64, 0)), Location("barn", "farm", (0, 64, 0))],
@@ -94,7 +93,7 @@ def test_markers_from_index_and_report_path() -> None:
     markers = markers_from_index(index, WORLD, Bounds2D((-8, -8), (7, 7)))
     assert markers == [Marker("spawn", 0, 0, 64), Marker("yard", -4, -4, 60, "corner")]
     path = report_path("heightmap", WORLD, Bounds2D((-8, -8), (7, 7)), "txt", datetime(2026, 9, 7, 13, 5, 9))
-    assert path == REPORTS_DIR / "heightmap-design--8_-8-16x16-20260907-130509.txt"
+    assert path == tmp_path / "reports" / "heightmap-design--8_-8-16x16-20260907-130509.txt"
     assert len(RAMP) == 10
 
 
@@ -128,8 +127,7 @@ def test_unknown_block_gets_a_stable_hashed_colour_and_a_legend_row(tmp_path: Pa
     assert tuple(_pixels(first)[4 + LEGEND_LINE + 5, 5]) == fallback_color("mystery")
 
 
-def test_topdown_marker_pixel_and_default_report_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+def test_topdown_marker_pixel_and_default_report_path(tmp_path: Path) -> None:
     hm = _heightmap(Bounds2D((1, 1), (8, 8)), np.full((8, 8), 64))
     path = topdown_png(hm, COLORS, [Marker("home", 3, 5, 64), Marker("far", 40, 40, 1)])
     assert path.parent == tmp_path / "reports" and path.name.startswith("topdown-design-1_1-8x8-") and path.suffix == ".png"
@@ -155,8 +153,7 @@ def test_timelapse_png_refuses_no_frames_and_a_bad_scale() -> None:
         timelapse_png([("t0", hm)], COLORS, scale=0)
 
 
-def test_timelapse_png_default_report_path_names_the_first_frames_world_and_bounds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+def test_timelapse_png_default_report_path_names_the_first_frames_world_and_bounds(tmp_path: Path) -> None:
     hm = _heightmap(Bounds2D((0, 0), (1, 1)), np.full((2, 2), 64))
     path = timelapse_png([("t0", hm)], COLORS)
     assert path.parent == tmp_path / "reports" and path.name.startswith("timelapse-design-0_0-2x2-")
@@ -249,8 +246,7 @@ def test_slice_png_refuses_a_y_outside_the_region_and_a_bad_scale() -> None:
         slice_png(region, 9, COLORS)
 
 
-def test_slice_png_marker_pixel_and_default_report_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+def test_slice_png_marker_pixel_and_default_report_path(tmp_path: Path) -> None:
     region = _floor_region()
     path = slice_png(region, 0, COLORS, [Marker("home", 2, 1, 0), Marker("far", 40, 40, 0)])
     assert path.parent == tmp_path / "reports" and path.name.startswith("slice-plane-1_1-4x2-") and path.suffix == ".png"
@@ -305,8 +301,7 @@ def test_side_by_side_width_is_both_widths_plus_the_gap_and_height_adds_the_labe
     assert tuple(combo[LEGEND_LINE, 6 + SIDE_BY_SIDE_GAP + 2]) == (40, 50, 60)
 
 
-def test_side_by_side_default_report_path_and_custom_labels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("designer.render.REPORTS_DIR", tmp_path / "reports")
+def test_side_by_side_default_report_path_and_custom_labels(tmp_path: Path) -> None:
     tiny = tmp_path / "tiny.png"
     Image.new("RGB", (2, 2)).save(tiny)
     path = side_by_side(tiny, tiny, labels=("was", "now"))

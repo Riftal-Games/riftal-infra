@@ -45,6 +45,35 @@ for tar_file in "${world_tars[@]}"; do
   tar -tzf "$tar_file" >/dev/null || fail "world tar for $name ($tar_file) failed integrity check, aborting before clearing anything"
 done
 
+sql() {
+  MYSQL_PWD="$MYSQL_PASSWORD" mysql --host="$MYSQL_HOST" --port="$MYSQL_PORT" \
+    --user="$MYSQL_USER" -N -B -e "$1"
+}
+
+# A connected instance would keep writing through the drop and the volume
+# clearing, into tables and files the restore is about to replace. This reads
+# the moment of the check only: stopping every instance first is the operator's
+# step, and this catches one that was missed.
+#
+# Without PROCESS the processlist shows only this account's own threads, so the
+# count below would read 0 whatever is connected. SHOW GRANTS with no FOR lists
+# the session's privileges with its active roles expanded, so it is read in the
+# same session as the count, and a granted role that is not active refuses.
+#
+# The processlist is empty when the server runs with performance_schema off,
+# and could be blind for a reason not foreseen here, so its count is trusted
+# only once it shows this connection's own thread.
+#
+# Every session counts whatever its default database, because any of them can
+# write here by qualified name.
+probe="$(sql "SHOW GRANTS; SELECT 'counts', COALESCE(SUM(ID = CONNECTION_ID()), 0), COALESCE(SUM(COMMAND <> 'Daemon'
+  AND ID <> CONNECTION_ID()), 0) FROM performance_schema.processlist")"
+grep -Eq '^GRANT ([^,]+, )*(PROCESS|ALL PRIVILEGES)(, [^,]+)* ON \*\.\* TO ' <<<"$probe" \
+  || fail "refused: $MYSQL_USER lacks PROCESS, directly or through an active role, so it cannot see every session"
+read -r _ own sessions < <(grep '^counts' <<<"$probe") || true
+[ "$own" = "1" ] || fail "refused: the processlist does not show this session, so it cannot see the others; is performance_schema off?"
+[ "$sessions" = "0" ] || fail "refused: $sessions other session(s) are connected to $MYSQL_HOST:$MYSQL_PORT; close every other connection, instances first"
+
 echo "restore $BACKUP_SET: rebuilding database $MYSQL_DATABASE at $MYSQL_HOST:$MYSQL_PORT"
 # Dropped and recreated rather than loaded on top of whatever is already
 # there. A dump made without --add-drop-table cannot overwrite a stale row

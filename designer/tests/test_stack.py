@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from designer import stack
 
@@ -69,15 +70,158 @@ def test_load_service_expands_overrides_and_rejects_a_missing_service(tmp_path: 
 
 def test_the_real_compose_file_keeps_its_security_and_bot_defaults() -> None:
     default = stack.load_service(env={})
+    assert [p for p in default.ports if p.endswith("/udp")] == ["127.0.0.1:19134:19132/udp"]
     assert [p for p in default.ports if "19140" in p] == ["127.0.0.1:19140:19140/tcp"]
     assert default.volumes[0] == "designer-world:/data"
     assert default.environment["RIFTAL_DEV_ENV"] == "1"
     args = default.environment["POCKETMINE_ARGS"].split()
     assert "--riftal-dev-bots=off" in args and "--xbox-auth=false" in args
+    # PocketMine casts the value with (bool), so "false" enables crash uploads.
+    assert [a for a in args if a.startswith("--auto-report.enabled")] == ["--auto-report.enabled=0"]
 
-    overridden = stack.load_service(env={"DESIGNER_GAME_BIND": "192.168.0.10", "DESIGNER_VOLUME": "riftal_smoke_x"})
-    assert [p for p in overridden.ports if "19140" in p] == ["127.0.0.1:19140:19140/tcp"]
+    overridden = stack.load_service(env={"DESIGNER_VOLUME": "riftal_smoke_x"})
     assert overridden.volumes[0] == "riftal_smoke_x:/data"
+
+
+def assert_only_loopback_is_reachable(compose: Path) -> None:
+    # The server runs with xbox-auth off, so no variable may move a publish off
+    # loopback (ADR 010, riftal-pm#491). Interpolating with a chosen environment
+    # only catches the variable names it sets, so the file is read uninterpolated.
+    raw = yaml.safe_load(compose.read_text(encoding="utf-8"))
+    for name, service in raw["services"].items():
+        # Host networking binds every host interface without a single ports
+        # entry, and a variable here could select it.
+        mode = service.get("network_mode")
+        assert mode is None or (mode != "host" and "$" not in str(mode)), f"service {name!r} sets network_mode {mode!r}"
+    ports = [port for service in raw["services"].values() for port in service.get("ports", [])]
+    assert ports
+    for port in ports:
+        host = port.get("host_ip") if isinstance(port, dict) else str(port).partition(":")[0]
+        assert host == "127.0.0.1", f"publish {port!r} does not bind the literal 127.0.0.1"
+
+
+def test_every_publish_in_the_real_compose_file_names_loopback_literally() -> None:
+    assert_only_loopback_is_reachable(stack.COMPOSE_FILE)
+
+
+LOOPBACK_TEXT = """
+services:
+  designer:
+    image: local-pocketmine-mp
+    ports:
+      - "{publish}:19132/udp"
+  helper:
+    image: local-pocketmine-mp
+{helper}"""
+
+
+@pytest.mark.parametrize(
+    ("publish", "helper", "match"),
+    [
+        ("${DESIGNER_HOST:-127.0.0.1}:19134", "", "does not bind the literal 127.0.0.1"),
+        ("0.0.0.0:19134", "", "does not bind the literal 127.0.0.1"),
+        ("127.0.0.1:19134", "    network_mode: host\n", "network_mode 'host'"),
+        ("127.0.0.1:19134", "    network_mode: ${DESIGNER_NET:-bridge}\n", "network_mode"),
+    ],
+)
+def test_the_loopback_check_refuses_a_movable_host_and_host_networking(tmp_path: Path, publish: str, helper: str, match: str) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text(LOOPBACK_TEXT.format(publish=publish, helper=helper), encoding="utf-8")
+    with pytest.raises(AssertionError, match=match):
+        assert_only_loopback_is_reachable(compose)
+
+
+@pytest.mark.parametrize("helper", ["", "    network_mode: bridge\n", "    network_mode: none\n"])
+def test_the_loopback_check_accepts_a_literal_loopback_publish(tmp_path: Path, helper: str) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text(LOOPBACK_TEXT.format(publish="127.0.0.1:19134", helper=helper), encoding="utf-8")
+    assert_only_loopback_is_reachable(compose)
+
+
+VOLUMES_TEXT = """
+{top}services:
+  designer:
+    image: local-pocketmine-mp
+    volumes:
+      - unnamed:/a
+      - external:/b
+      - pinned:/c
+volumes:
+  unnamed:
+  external:
+    external: true
+  pinned:
+    name: ${{PINNED:-pinned-default}}
+"""
+
+
+def write_volumes_compose(tmp_path: Path, directory: str = "My_Stack.Dir", top: str = "") -> Path:
+    path = tmp_path / directory / "compose.yaml"
+    path.parent.mkdir()
+    path.write_text(VOLUMES_TEXT.format(top=top), encoding="utf-8")
+    return path
+
+
+def test_volume_names_follow_compose_project_prefixing(tmp_path: Path) -> None:
+    by_directory = stack.load_service(write_volumes_compose(tmp_path), env={})
+    assert by_directory.volumes == ("my_stackdir_unnamed:/a", "external:/b", "pinned-default:/c")
+
+    by_top_level = stack.load_service(write_volumes_compose(tmp_path, "other", "name: Top_Name\n"), env={})
+    assert by_top_level.volumes[0] == "top_name_unnamed:/a"
+
+    by_env = stack.load_service(write_volumes_compose(tmp_path, "third", "name: Top_Name\n"), env={"COMPOSE_PROJECT_NAME": "from-env"})
+    assert by_env.volumes == ("from-env_unnamed:/a", "external:/b", "pinned-default:/c")
+
+
+@pytest.mark.parametrize("explicit", ["Upper", "_x", "a!"])
+def test_a_compose_project_name_compose_refuses_is_refused(tmp_path: Path, explicit: str) -> None:
+    with pytest.raises(stack.StackError, match="COMPOSE_PROJECT_NAME"):
+        stack.load_service(write_volumes_compose(tmp_path), env={"COMPOSE_PROJECT_NAME": explicit})
+
+
+@pytest.mark.parametrize(("top", "expected"), [("name: Top_Name\n", "top_name"), ("", "my_stackdir")])
+def test_an_empty_compose_project_name_falls_through(tmp_path: Path, top: str, expected: str) -> None:
+    service = stack.load_service(write_volumes_compose(tmp_path, top=top), env={"COMPOSE_PROJECT_NAME": ""})
+    assert service.volumes[0] == f"{expected}_unnamed:/a"
+
+
+@pytest.mark.parametrize(
+    ("directory", "top", "env", "expected"),
+    [
+        ("-Lead-Dir", "", {}, "lead-dir"),
+        ("_x", "name: '__Top-Name'\n", {}, "top-name"),
+        ("literal", "name: ''\n", {}, "literal"),
+        ("dflt", "name: '${TOPV:-Via_Default}'\n", {}, "via_default"),
+        ("set", "name: '${TOPV}'\n", {"TOPV": "Set_Me"}, "set_me"),
+    ],
+)
+def test_project_name_normalizes_and_interpolates_like_compose(tmp_path: Path, directory: str, top: str, env: dict[str, str], expected: str) -> None:
+    service = stack.load_service(write_volumes_compose(tmp_path, directory, top), env=env)
+    assert service.volumes[0] == f"{expected}_unnamed:/a"
+
+
+@pytest.mark.parametrize(
+    ("top", "env", "match"),
+    [
+        ("name: '!!!'\n", {}, "cannot derive a compose project name"),
+        ("name: '__'\n", {}, "cannot derive a compose project name"),
+        ("name: '${TOPV}'\n", {}, "cannot derive a compose project name"),
+        ("name: '${TOPV}'\n", {"TOPV": ""}, "cannot derive a compose project name"),
+        ("name:\n", {}, "not a string"),
+        ("name: 123\n", {}, "not a string"),
+    ],
+)
+def test_a_top_level_name_compose_refuses_is_refused(tmp_path: Path, top: str, env: dict[str, str], match: str) -> None:
+    with pytest.raises(stack.StackError, match=match):
+        stack.load_service(write_volumes_compose(tmp_path, "fallback", top), env=env)
+
+
+@pytest.mark.parametrize("name", ["${PINNED}", '""', ""])
+def test_a_volume_name_that_resolves_empty_is_refused(tmp_path: Path, name: str) -> None:
+    compose = write_volumes_compose(tmp_path)
+    compose.write_text(compose.read_text(encoding="utf-8").replace("${PINNED:-pinned-default}", name), encoding="utf-8")
+    with pytest.raises(stack.StackError, match="'pinned'.*empty"):
+        stack.load_service(compose, env={})
 
 
 def test_wslc_run_argv_carries_ports_volumes_env_and_image() -> None:

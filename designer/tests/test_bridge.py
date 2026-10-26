@@ -60,6 +60,13 @@ def test_dropped_response_on_idempotent_op_is_retried(fake: FakeBridge, bridge: 
     assert [request["id"] for request in fake.requests] == [1, 2]
 
 
+def test_dropped_response_on_scan_items_is_resent(fake: FakeBridge, bridge: Bridge) -> None:
+    """Spec 001 lists ``scan_items`` among the ops whose repeat changes nothing further, though each send starts a job."""
+    fake.drop_next_response = True
+    assert bridge.call("scan_items", world="design")["state"] == "done"
+    assert _ops(fake) == ["scan_items", "scan_items"]
+
+
 def test_dropped_response_on_mutating_op_is_not_retried(fake: FakeBridge, bridge: Bridge) -> None:
     fake.drop_next_response = True
     with pytest.raises(BridgeConnectionError) as excinfo:

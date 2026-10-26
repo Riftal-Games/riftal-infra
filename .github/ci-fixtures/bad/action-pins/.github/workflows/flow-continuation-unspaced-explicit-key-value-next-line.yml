@@ -1,0 +1,11 @@
+# Must fail action-pins.sh at line 10 and nowhere else: the same unspaced `?`
+# uses key on a continuation line of a flow mapping, with its value on the next
+# line, after a comment line.
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps: [{name: a, # a step
+  # its action
+?uses
+: actions/checkout@11d5960a326750d5838078e36cf38b85af677262}]

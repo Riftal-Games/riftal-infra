@@ -5,6 +5,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import tokenize
+import zipfile
+import zlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -14,7 +18,7 @@ import numpy as np
 
 from designer import __version__, config
 from designer.blocks import RLE_ORDER
-from designer.bridge import Bridge
+from designer.bridge import Bridge, BridgeError
 from designer.edits import DEFAULT_BATCH, ApplyResult, EditList, Fill, Op, SetBlock
 from designer.region import Bounds, Region, fetch_region
 
@@ -56,13 +60,49 @@ def save(region: Region, label: str, *, ts: datetime | None = None) -> Path:
     return path
 
 
+class SnapshotLoadError(Exception):
+    """A snapshot file that ``undo`` or ``restore`` needs is missing, unreadable, or not one ``load`` accepts."""
+
+    code = "snapshot_unreadable"
+
+
+def _corner(path: Path, name: str, value: Any) -> tuple[int, int, int]:
+    if not (isinstance(value, list) and len(value) == 3 and all(type(c) is int for c in value)):
+        raise ValueError(f"{path} {name} is {value!r}, expected three integers")
+    return tuple(value)
+
+
 def load(path: Path) -> Snapshot:
-    with np.load(path) as data:
-        meta = json.loads(data["meta"].item())
+    """Read a snapshot ``save`` wrote; any member of the wrong shape or type is a ``ValueError``."""
+    data = np.load(path)
+    # np.load picks its reader from the file's first bytes, so a plain .npy file here returns an ndarray.
+    if not isinstance(data, np.lib.npyio.NpzFile):
+        raise ValueError(f"{path} is not an npz archive")
+    with data:
+        raw = data["meta"].item()
+        meta = json.loads(raw) if isinstance(raw, str) else None
+        if not isinstance(meta, dict):
+            raise ValueError(f"{path} meta is not a JSON object")
         if meta.get("order") != "".join(RLE_ORDER):
             raise ValueError(f"{path} was written in order {meta.get('order')!r}, expected {''.join(RLE_ORDER)!r}")
-        bounds = Bounds(tuple(data["bmin"].tolist()), tuple(data["bmax"].tolist()))
-        region = Region(meta["world"], bounds, np.ascontiguousarray(data["blocks"], dtype=np.int16), data["palette"].tolist())
+        for key in ("world", "label", "timestamp"):
+            if not isinstance(meta.get(key), str):
+                raise ValueError(f"{path} meta {key} is {meta.get(key)!r}, expected a string")
+        for key in ("world", "label"):
+            if not LABEL_RE.fullmatch(meta[key]):
+                raise ValueError(f"{path} meta {key} must match {LABEL_RE.pattern!r}, got {meta[key]!r}")
+        bounds = Bounds(_corner(path, "bmin", data["bmin"].tolist()), _corner(path, "bmax", data["bmax"].tolist()))
+        palette = data["palette"].tolist()
+        if not (isinstance(palette, list) and palette and all(isinstance(name, str) for name in palette)):
+            raise ValueError(f"{path} palette is {palette!r}, expected a non-empty list of strings")
+        blocks = data["blocks"]
+        # save writes int16; a cast from anything else would truncate floats or wrap large indices.
+        if blocks.dtype != np.int16:
+            raise ValueError(f"{path} blocks are {blocks.dtype}, expected int16")
+        # restore indexes the palette with each value and reads a negative one as a cell to leave alone.
+        if blocks.size and (blocks.min() < 0 or blocks.max() >= len(palette)):
+            raise ValueError(f"{path} blocks span {blocks.min()}..{blocks.max()}, expected 0..{len(palette) - 1}")
+        region = Region(meta["world"], bounds, np.ascontiguousarray(blocks), palette)
     return Snapshot(Path(path), meta["world"], bounds, meta["label"], meta["timestamp"], region)
 
 
@@ -150,6 +190,57 @@ def restore(
     return edits.apply(bridge, dry_run=dry_run, batch=batch, before=lambda world, bounds: take(bridge, world, bounds, "restore"))
 
 
+def remove_texts(bridge: Bridge, ids: list[str], *, dry_run: bool = False) -> ApplyResult:
+    """Remove each floating text in ``ids``, stopping at the first failure.
+
+    A text the bridge no longer has counts as removed, so an undo that stopped
+    partway, or one whose text was removed by hand, can still be completed.
+    """
+    result = ApplyResult(True)
+    for text_id in [] if dry_run else ids:
+        try:
+            status = {"op": "remove_text", "state": "done", "result": bridge.call("remove_text", id=text_id)}
+        except BridgeError as exc:
+            if getattr(exc, "code", None) != "ENTITY_NOT_FOUND":
+                result.ok = False
+                result.errors.append(exc)
+                return result
+            status = {"op": "remove_text", "state": "done", "result": None}
+        result.jobs.append(status)
+    return result
+
+
+# A damaged file fails differently depending on where the damage lands: the zip structure raises
+# zipfile.BadZipFile, or RuntimeError for a flag claiming encryption and its subclass NotImplementedError
+# for an unknown method or version; the deflate stream raises zlib.error; the npy header raises
+# tokenize.TokenError, ValueError or EOFError; a missing member KeyError; a missing file OSError.
+# Each is the same refusal. A TypeError or AttributeError is a bug in load and keeps its identity.
+UNREADABLE = (OSError, ValueError, EOFError, KeyError, RuntimeError, zipfile.BadZipFile, zlib.error, tokenize.TokenError)
+
+
+def _load_entry(entry: dict[str, Any]) -> Snapshot:
+    """The entry's snapshot, refused unless it names the level and bounds the entry recorded.
+
+    ``restore`` writes into the level and bounds the file names, so a snapshot that names another
+    level, or other bounds in the same level, would paint cells this entry never touched. Every
+    snapshot-backed entry has recorded its bounds since the manifest began, so one without them
+    was not written by ``UndoStack`` and is refused rather than trusted.
+    """
+    try:
+        snap = load(Path(entry["path"]))
+    except UNREADABLE as exc:
+        raise SnapshotLoadError(f"undo entry {entry.get('id')}: cannot load snapshot {entry.get('path')}: {exc}") from exc
+    if snap.world != entry.get("world"):
+        raise SnapshotLoadError(
+            f"undo entry {entry.get('id')}: snapshot {entry.get('path')} is of level {snap.world!r}, the entry recorded {entry.get('world')!r}"
+        )
+    if snap.bounds.to_json() != entry.get("bounds"):
+        raise SnapshotLoadError(
+            f"undo entry {entry.get('id')}: snapshot {entry.get('path')} covers {snap.bounds.to_json()}, the entry recorded {entry.get('bounds')}"
+        )
+    return snap
+
+
 class UndoStack:
     """Undo entries in a JSON manifest, rewritten whole on every change so a crash leaves the old file or the new one.
 
@@ -159,6 +250,9 @@ class UndoStack:
     entry, which ``undo`` skips unless ``include_undo`` is set, so two undos reverse two edits rather than toggling
     one, and undoing an undo is asked for by name. Push is read-modify-write with ids from ``max + 1``, so the
     manifest assumes one writer at a time.
+
+    An entry from ``push_texts`` has no snapshot: its ``path`` and ``bounds`` are ``None`` and its ``texts`` are
+    the floating text ids it set, which its undo removes. That undo overwrites no block, so it pushes no entry.
     """
 
     def __init__(self, manifest: Path | None = None, session: str | None = None) -> None:
@@ -177,13 +271,16 @@ class UndoStack:
         tmp.write_text(json.dumps({"version": 1, "entries": entries}, indent=1), encoding="utf-8", newline="\n")
         os.replace(tmp, self.manifest)
 
-    def _append(self, entries: list[dict[str, Any]], snap: Snapshot, op: str) -> int:
+    def _add(self, entries: list[dict[str, Any]], fields: dict[str, Any]) -> int:
         entry_id = max((e["id"] for e in entries), default=0) + 1
-        entries.append({
-            "id": entry_id, "session": self.session, "op": op, "world": snap.world, "bounds": snap.bounds.to_json(),
-            "label": snap.label, "timestamp": snap.timestamp, "path": str(snap.path), "restored": False,
-        })
+        entries.append({"id": entry_id, "session": self.session, **fields, "restored": False})
         return entry_id
+
+    def _append(self, entries: list[dict[str, Any]], snap: Snapshot, op: str) -> int:
+        return self._add(entries, {
+            "op": op, "world": snap.world, "bounds": snap.bounds.to_json(),
+            "label": snap.label, "timestamp": snap.timestamp, "path": str(snap.path),
+        })
 
     def push(self, snap: Snapshot, op: str) -> int:
         entries = self.entries()
@@ -191,20 +288,42 @@ class UndoStack:
         self._write(entries)
         return entry_id
 
+    def push_texts(self, world: str, ids: list[str], op: str) -> int:
+        entries = self.entries()
+        entry_id = self._add(entries, {
+            "op": op, "world": world, "bounds": None, "label": op,
+            "timestamp": datetime.now(UTC).strftime(TS_FORMAT), "path": None, "texts": list(ids),
+        })
+        self._write(entries)
+        return entry_id
+
     def undo(self, bridge: Bridge, n: int = 1, *, dry_run: bool = False, include_undo: bool = False) -> list[ApplyResult]:
-        """Restore the ``n`` newest entries not yet restored, newest first, stopping at the first failure."""
+        """Restore the ``n`` newest entries not yet restored, newest first, stopping at the first failure.
+
+        A ``BridgeError`` while reading the region to restore, or a ``SnapshotLoadError`` for the entry's snapshot
+        file, is that entry's failed result, not an exception, so the entries already restored in this call are
+        still returned. A restore that fails after taking its snapshot still pushes that snapshot as an ``undo``
+        entry, as ``fill`` and ``restore`` do, and its entry stays unrestored.
+        """
         entries, results = self.entries(), []
         pending = [e for e in reversed(entries) if not e["restored"] and (include_undo or e["op"] != "undo")]
         for entry in pending[:n]:
-            result = restore(bridge, load(Path(entry["path"])), dry_run=dry_run)
+            try:
+                if entry["path"] is None:
+                    result = remove_texts(bridge, entry["texts"], dry_run=dry_run)
+                else:
+                    result = restore(bridge, _load_entry(entry), dry_run=dry_run)
+            except (BridgeError, SnapshotLoadError) as exc:
+                result = ApplyResult(False, errors=[exc])
             results.append(result)
-            if not result.ok:
-                break
             if not dry_run:
-                entry["restored"] = True
+                entry["restored"] = entry["restored"] or result.ok
+                # A failed restore may have overwritten some cells, so its snapshot is the only record of them.
                 if result.before_result is not None:
                     self._append(entries, result.before_result, "undo")
                 self._write(entries)
+            if not result.ok:
+                break
         return results
 
     def prune(self, keep_days: int = 14, *, dry_run: bool = True) -> list[Path]:
@@ -218,15 +337,52 @@ class UndoStack:
         cutoff = datetime.now(UTC) - timedelta(days=keep_days)
         entries = self.entries()
         old = [e for e in entries if datetime.strptime(e["timestamp"], TS_FORMAT).replace(tzinfo=UTC) < cutoff]
+        paths = [e["path"] for e in old if e["path"] is not None]
         if old and not dry_run:
             root = config.SNAPSHOTS_DIR.resolve()
             resolved = []
-            for entry in old:
-                path = Path(entry["path"]).resolve()
+            for name in paths:
+                path = Path(name).resolve()
                 if not path.is_relative_to(root):
-                    raise ValueError(f"{entry['path']!r} resolves outside the snapshots directory {root}")
+                    raise ValueError(f"{name!r} resolves outside the snapshots directory {root}")
                 resolved.append(path)
             for path in resolved:
                 path.unlink(missing_ok=True)
             self._write([e for e in entries if e not in old])
-        return [Path(e["path"]) for e in old]
+        return [Path(name) for name in paths]
+
+
+@dataclass
+class Undoable:
+    """What ``apply_undoable`` sent, with the snapshot path and undo id that reverse it, either ``None`` when nothing was pushed."""
+
+    result: ApplyResult
+    snapshot: str | None = None
+    undo_id: int | None = None
+
+
+def apply_undoable(
+    bridge: Bridge, edits: EditList, op: str, session: str, *, dry_run: bool = False,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> Undoable:
+    """Send ``edits`` with an undo entry labelled ``op``, refusing an empty list.
+
+    When a block is touched, the snapshot is taken and its undo entry pushed inside ``before``, ahead of the
+    first request. Floating text alone leaves nothing to snapshot, so its entry is pushed once the texts are
+    set, naming the ids the bridge answered, even when a later text failed.
+    """
+    if not edits.ops:
+        raise ValueError("nothing to do: the edit list is empty")
+    stack = UndoStack(session=session)
+    done = Undoable(ApplyResult(True))
+
+    def before(world: str, bounds: Bounds) -> Snapshot:
+        snap = take(bridge, world, bounds, op)
+        done.snapshot, done.undo_id = str(snap.path), stack.push(snap, op)
+        return snap
+
+    done.result = edits.apply(bridge, dry_run=dry_run, on_progress=on_progress, before=before)
+    texts = [job["result"]["id"] for job in done.result.jobs if job["op"] == "set_text"]
+    if edits.bounds is None and texts:
+        done.undo_id = stack.push_texts(edits.world, texts, op)
+    return done

@@ -40,7 +40,7 @@ from designer.region import (
     WORLD_MAX_Y, WORLD_MIN_Y, Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region, heightmap_from_region,
 )
 from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, summary, timelapse_png, topdown_png
-from designer.snapshot import Snapshot, UndoStack
+from designer.snapshot import UndoStack
 from designer.verify import mine_valid
 from designer.world_index import Location, NamedRegion, WorldIndex, resolve_at
 
@@ -210,15 +210,20 @@ def _timelapse(region: str, out: str | None) -> dict[str, Any]:
     if not isinstance(entry, NamedRegion):
         raise ValueError(f"{region!r} is a location; timelapse needs a region name")
     folder = config.SNAPSHOTS_DIR / entry.world
-    frames = []
+    frames, skipped = [], []
     for path in sorted(folder.glob("*.npz")) if folder.is_dir() else []:
-        snap = snapshots.load(path)
+        try:
+            snap = snapshots.load(path)
+        except snapshots.UNREADABLE as exc:
+            skipped.append({"path": str(path), "error": str(exc), "code": snapshots.SnapshotLoadError.code})
+            continue
         if snap.bounds == entry.bounds:
             frames.append((snap.timestamp, heightmap_from_region(snap.region)))
     if not frames:
-        raise ValueError(f"no snapshot of {region!r} taken at its exact bounds; call snapshot(target={region!r}, ...) first")
+        unread = f"; {len(skipped)} unreadable snapshot file(s) in {folder} skipped" if skipped else ""
+        raise ValueError(f"no snapshot of {region!r} taken at its exact bounds{unread}; call snapshot(target={region!r}, ...) first")
     path = timelapse_png(frames, load_palettes()["colors"], out=out)
-    return {"region": region, "world": entry.world, "frames": len(frames), "path": str(path)}
+    return {"region": region, "world": entry.world, "frames": len(frames), "path": str(path), "skipped": skipped}
 
 @tool
 async def timelapse(region: str, out: str | None = None) -> dict[str, Any]:
@@ -227,8 +232,10 @@ async def timelapse(region: str, out: str | None = None) -> dict[str, Any]:
     A frame is either an explicit ``snapshot`` call naming ``region`` or the automatic
     before-mutation snapshot a mutating tool takes when its own ``target`` was ``region``;
     a snapshot over any other box, such as a builder's own extras, is not one of its frames.
+    A file in the world's folder that cannot be read is left out and listed in ``skipped``
+    with code ``snapshot_unreadable``, so one damaged file costs one frame, not the strip.
 
-    RETURNS: region, world, frames, path.
+    RETURNS: region, world, frames, path, skipped as [{path, error, code}].
     """
     return await _run(_timelapse, region, out)
 
@@ -326,7 +333,7 @@ async def check_entity_clear(at: str) -> dict[str, Any]:
 
 @tool
 async def check_mine(region: str, spec: str) -> dict[str, Any]:
-    """Whether the named ``region`` matches the mine ``spec`` (a path under ``specs/``): enclosure, entrances, ore mix, floor.
+    """Whether the named ``region`` matches the mine ``spec`` (a path under ``specs/``): enclosure, entrances, ore mix, floor, and an interior of only air and ``ores``.
 
     RETURNS: passed, detail, coords, seconds.
     """
@@ -505,41 +512,43 @@ def _progress(ctx: Context | None) -> Callable[[int, int], None] | None:
     return lambda done, total: anyio.from_thread.run(ctx.report_progress, done, total)
 
 def _finish(out: dict[str, Any], result: ApplyResult) -> dict[str, Any]:
-    """The first ``BridgeError`` folded into the answer when the run stopped early, so the undo entry is still reported."""
+    """The first error folded into the answer when the run stopped early, so the undo entry is still reported."""
     out["jobs"] = result.jobs
     return out if result.ok else {**out, **_error(result.errors[0])}
 
 def _apply(edits: EditList, op: str, dry_run: bool, ctx: Context | None) -> dict[str, Any]:
-    """Send ``edits``; the snapshot is taken and its undo entry pushed inside ``before``, ahead of the first request."""
-    if edits.bounds is None:
-        raise ValueError("nothing to do: no block is touched")
+    """Send ``edits`` through ``snapshots.apply_undoable`` and answer with its undo id."""
+    box = edits.bounds
     out: dict[str, Any] = {
-        "world": edits.world, "bounds": edits.bounds.to_json(), "dry_run": dry_run,
-        "blocks": edits.count_blocks(), "requests": len(edits.requests()), "snapshot": None, "undo_id": None,
+        "world": edits.world, "bounds": None if box is None else box.to_json(), "dry_run": dry_run,
+        "blocks": edits.count_blocks(), "requests": len(edits.requests()),
     }
-
-    def before(world: str, bounds: Bounds) -> Snapshot:
-        snap = snapshots.take(bridge(), world, bounds, op)
-        out["snapshot"], out["undo_id"] = str(snap.path), UndoStack(session=SESSION).push(snap, op)
-        return snap
-
-    result = edits.apply(bridge(), dry_run=dry_run, on_progress=_progress(ctx), before=before)
+    done = snapshots.apply_undoable(bridge(), edits, op, SESSION, dry_run=dry_run, on_progress=_progress(ctx))
+    out["snapshot"], out["undo_id"] = done.snapshot, done.undo_id
     if not dry_run:
-        out["blocks"] = result.blocks
-    return _finish(out, result)
+        out["blocks"] = done.result.blocks
+    return _finish(out, done.result)
 
-def _snapshot_path(ref: str | int) -> Path:
-    """A manifest id, or a path that must resolve under ``SNAPSHOTS_DIR``; a relative path is rooted there, not at the cwd."""
+def _load_snapshot(ref: str | int) -> snapshots.Snapshot:
+    """A manifest id, held to the level and bounds its entry recorded, or a path that must resolve under ``SNAPSHOTS_DIR``.
+
+    A relative path is rooted at ``SNAPSHOTS_DIR``, not at the cwd.
+    """
     if isinstance(ref, int) or ref.isdigit():
         for entry in UndoStack().entries():
+            if entry["id"] == int(ref) and entry["path"] is None:
+                raise ValueError(f"undo entry {ref} is floating text with no snapshot; undo removes it")
             if entry["id"] == int(ref):
-                return Path(entry["path"])
+                return snapshots._load_entry(entry)
         raise KeyError(f"no undo entry with id {ref}")
     root = config.SNAPSHOTS_DIR.resolve()
     path = (root / ref).resolve()
     if not path.is_relative_to(root):
         raise ValueError(f"{ref!r} resolves outside the snapshots directory {root}")
-    return path
+    try:
+        return snapshots.load(path)
+    except snapshots.UNREADABLE as exc:
+        raise snapshots.SnapshotLoadError(f"cannot load snapshot {path}: {exc}") from exc
 
 def _entry_id(path: Path) -> int | None:
     ids = [e["id"] for e in UndoStack().entries() if e["path"] == str(path)]
@@ -687,11 +696,18 @@ def build(
 
     Checks every location and region it will register before the snapshot, the undo entry and the
     first edit, then answers with the undo id like every mutating tool. Registers the builder's
-    locations and regions in the index unless ``register_index`` is false or ``dry_run``, refusing a
-    name that breaks the index's naming rules, names an unlisted world or appears twice in the build,
-    and a name already taken unless ``replace_index``; runs ``mine_valid`` when ``kind`` is
-    ``mine`` unless ``verify`` is false; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
+    locations and regions in the index unless ``register_index`` is false or ``dry_run``. Unless
+    ``register_index`` is false, refuses a name that breaks the index's naming rules, names an
+    unlisted world or appears twice in the build, and a name already taken unless ``replace_index``,
+    a dry run included, so a dry run answers every refusal the build would; runs ``mine_valid`` when ``kind`` is
+    ``mine`` unless ``verify`` is false, and refuses a build that fails it before the snapshot, a dry run
+    reporting the failure instead; writes the edit list's extras to ``reports/<kind>-<name>-extras.json`` unless ``dry_run``,
     falling back to ``kind`` itself when the spec carries no ``name`` (``stairs`` and ``signage``, deliberately).
+
+    A build of floating text alone, ``signage``, touches no block, so it answers ``bounds`` and ``snapshot`` as null
+    and takes no snapshot, and is undoable all the same: its undo entry is pushed once the texts are set, and
+    ``undo`` removes every text it set with ``remove_text``. An id that already carried text before the build is
+    removed too, not put back as it was.
 
     RETURNS: world, bounds, dry_run, blocks, requests, snapshot, undo_id, jobs, locations, regions, mine_valid, extras_report.
     """
@@ -705,18 +721,18 @@ def build(
     edits = BUILDERS[kind](spec_dict, Palette.load(palette), fetch)
     locations, regions = edits.extras.get("locations", []), edits.extras.get("regions", [])
     register = not dry_run and register_index
-    taken = index().preflight(locations, regions) if register else []
+    taken = index().preflight(locations, regions) if register_index else []
     if taken and not replace_index:
         raise ValueError(f"{taken} already defined; pass replace_index=True to overwrite")
+    found = _mine_valid(edits) if verify and kind == "mine" else None
+    if found is not None and not found["ok"] and not dry_run:
+        raise ValueError(f"mine_valid failed: {found['detail']}; nothing sent, pass verify=False to send it anyway")
     out = _apply(edits, f"build_{kind}", dry_run, ctx)
     out["locations"], out["regions"] = locations, regions
-    out["mine_valid"] = _mine_valid(edits) if verify and kind == "mine" else None
+    out["mine_valid"] = found
     if register and out.get("ok") is not False:
         idx = index()
-        for loc in locations:
-            idx.add_location(Location.from_json(loc), replace=replace_index)
-        for reg in regions:
-            idx.add_region(NamedRegion.from_json(reg), replace=replace_index)
+        idx.register(locations, regions, replace=replace_index)
         idx.save()
     out["extras_report"] = None
     if not dry_run:
@@ -740,9 +756,11 @@ def snapshot(target: str | dict[str, Any], label: str, world: str | None = None)
 def restore(snapshot: str | int, dry_run: bool = False) -> dict[str, Any]:
     """Put a snapshot back by path or undo id, sending only the cells that differ; what it overwrites is pushed as a ``restore`` entry.
 
+    A snapshot file that is missing or cannot be read, or an undo id whose snapshot names a level other than the one its entry recorded, fails with code ``snapshot_unreadable`` before anything is sent.
+
     RETURNS: world, bounds, restored, dry_run, blocks, snapshot, undo_id, jobs.
     """
-    snap = snapshots.load(_snapshot_path(snapshot))
+    snap = _load_snapshot(snapshot)
     result = snapshots.restore(bridge(), snap, dry_run=dry_run)
     out: dict[str, Any] = {
         "world": snap.world, "bounds": snap.bounds.to_json(), "restored": str(snap.path), "dry_run": dry_run,
@@ -756,6 +774,10 @@ def restore(snapshot: str | int, dry_run: bool = False) -> dict[str, Any]:
 def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
     """Reverse the ``n`` newest edits not yet undone, from any session; each pushes an ``undo`` entry that plain ``undo`` skips.
 
+    Stops at the first failure with ``ok`` false. ``undone`` still names what was reversed before it, and
+    ``snapshot`` and ``undo_id`` the newest snapshot pushed, the failed restore's own when it took one. An entry whose snapshot file is missing or cannot be read fails with code
+    ``snapshot_unreadable``.
+
     RETURNS: dry_run, count, undone, blocks, snapshot, undo_id, jobs.
     """
     stack = UndoStack(session=SESSION)
@@ -766,7 +788,8 @@ def undo(n: int = 1, dry_run: bool = False) -> dict[str, Any]:
         "dry_run": dry_run, "count": len(results), "undone": sorted(undone, reverse=True), "blocks": sum(r.blocks for r in results),
         "snapshot": None, "undo_id": None, "jobs": [job for r in results for job in r.jobs],
     }
-    last = results[-1].before_result if results else None
+    # A text undo takes no snapshot, so the one to report is the last snapshot any restore pushed, a failed one included.
+    last = next((r.before_result for r in reversed(results) if r.before_result is not None), None)
     if last is not None:
         out["snapshot"], out["undo_id"] = str(last.path), _entry_id(last.path)
     failed = [r for r in results if not r.ok]
@@ -791,7 +814,9 @@ async def list_snapshots(world: str | None = None, limit: int = 20) -> dict[str,
 
 @tool
 async def list_undo(limit: int = 20) -> dict[str, Any]:
-    """Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored.
+    """Undo manifest entries newest first: id, session, op, world, bounds, label, timestamp, path, restored, and texts.
+
+    A floating-text entry has ``texts``, the ids its undo removes, and null ``path`` and ``bounds``.
 
     RETURNS: manifest, total, entries.
     """
