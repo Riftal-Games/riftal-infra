@@ -9,9 +9,13 @@ read and written by `designer/level.py`.
 ```json
 {
   "generator": "normal",
-  "seed": 20260907,
+  "seed": 23,
   "bounds": {"min": [-10, 38, -10], "max": [10, 52, 10]},
-  "steps": [{"build": "mine", "spec": "specs/lumber.json", "palette": "mine_stone"}]
+  "steps": [
+    {"build": "mine", "spec": "specs/lumber.json", "palette": "mine_stone"},
+    {"build": "stairs", "spec": "specs/lumber_access_south.json", "palette": "mine_stone"},
+    {"build": "stairs", "spec": "specs/lumber_access_east.json", "palette": "mine_stone"}
+  ]
 }
 ```
 
@@ -20,6 +24,10 @@ read and written by `designer/level.py`.
 - `generator` and `seed` are authoritative. The zone's `worlds` entry in
   `world_index.json` must exist and agree, or the build fails before any engine call.
 - `bounds` is the box that must exist as chunks, and the box `content_sha256` covers.
+  Terrain the generator populates (grass, ore pockets, dirt) differs between two builds
+  of one seed, so `bounds` holds only cells a step overwrites. A step may write outside
+  it, within the populated chunks `pregen` makes (`pregen_bounds`), and the lock's
+  `inputs` hash names it.
 - `steps` run in order. `build` is a builder in `designer.builders.BUILDERS`, `spec` a
   committed file relative to `designer/`, `palette` a name in `palettes.json`. Every
   step must write the zone's world.
@@ -32,6 +40,9 @@ read and written by `designer/level.py`.
 - A check belongs to a zone when its `checks.yaml` entry carries `zone: <zone>`. The
   build runs only those, and needs at least one. Each must resolve against the built
   index, read the zone's world and pass. A check with no `zone` never gates a build.
+- `content_sha256` does not cover stairs written outside `bounds`, so lumber's
+  `lumber_spawn_to_surface` (`path_exists`, `world: lumber`) walks the built terrain from
+  the spawn to a cell on the exit's ground and fails the build when a leg ends short of it.
 - A zone listed under `worlds:` in riftal-game `mines/resources/config.yml` is built
   only when `checks.yaml` has a `mine_valid` with its `zone` on a spec one of the
   recipe's `mine` steps builds (ADR 014 item 7). The file is read from

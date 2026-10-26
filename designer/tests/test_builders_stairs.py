@@ -66,13 +66,20 @@ def test_support_fills_close_the_gap_down_to_the_base(palette: Palette) -> None:
     assert {op.bounds.max[1] for op in supports} == {spec.base[1] + i - 1 for i in range(1, spec.rise + 1)}
 
 
-def test_headroom_cleared_above_every_row(palette: Palette) -> None:
-    spec = _spec(rise=3)
+@pytest.mark.parametrize("headroom", [HEADROOM, HEADROOM + 1])
+def test_headroom_cleared_above_the_base_and_every_row(palette: Palette, headroom: int) -> None:
+    spec = _spec(rise=3, headroom=headroom)
     edits = build_stairs(spec, palette)
     clears = [op for op in edits.ops if isinstance(op, Fill) and op.block == "minecraft:air"]
-    assert len(clears) == spec.rise
-    for i, op in enumerate(sorted(clears, key=lambda o: o.bounds.min[0]), start=1):
-        assert (op.bounds.min[1], op.bounds.max[1]) == (spec.base[1] + i + 1, spec.base[1] + i + HEADROOM)
+    assert len(clears) == spec.rise + 1
+    for i, op in enumerate(sorted(clears, key=lambda o: o.bounds.min[0])):
+        assert (op.bounds.min[1], op.bounds.max[1]) == (spec.base[1] + i + 1, spec.base[1] + i + headroom)
+
+
+def test_headroom_defaults_to_the_minimum_and_refuses_less() -> None:
+    assert _spec().headroom == HEADROOM
+    with pytest.raises(ValueError, match=f"headroom must be at least {HEADROOM}, got 1"):
+        _spec(headroom=1)
 
 
 def test_width_widens_every_row(palette: Palette) -> None:
