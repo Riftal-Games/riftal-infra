@@ -17,6 +17,12 @@ FILLS = ("solid", "hollow")
 
 Triple = tuple[int, int, int]
 
+# Every block PocketMine builds as a Crops subclass, which RiftalMines' MineRegistry refuses outside a one-layer interior.
+CROPS = frozenset(f"minecraft:{n}" for n in ("wheat", "carrots", "potatoes", "beetroot", "melon_stem", "pumpkin_stem"))
+FARMLAND = "minecraft:farmland"
+WETNESS_STATE = "moisturized_amount"
+FULL_WETNESS = 7
+
 # A key must name a block id, so no key can spell the marker mine_valid gives a block outside its reset state.
 BLOCK_ID = re.compile(r"[a-z0-9_.-]+:[a-z0-9_./-]+")
 
@@ -98,6 +104,23 @@ class MineSpec:
     reset_percent: int = 60
     safe_zone: bool = True
 
+    @property
+    def has_crop(self) -> bool:
+        """An ore, in ``ores`` or a layer, is a crop: its mine stands on farmland and refills one row."""
+        names = [*self.ores, *(name for layer in self.ore_layers for name in layer.ores)]
+        return any(parse_name(name)[0] in CROPS for name in names)
+
+    def reset_interior(self) -> Bounds:
+        """The box the mine reset refills: the interior, or only its bottom row for a crop mine, which has headroom above it."""
+        interior = self.geometry().interior
+        if not self.has_crop:
+            return interior
+        return Bounds(interior.min, (interior.max[0], interior.min[1], interior.max[2]))
+
+    def reset_floor_y(self) -> int:
+        """The ``floor_y`` of the ``mine_reset`` fragment. A crop is refilled one layer above it, on the farmland the build wrote there."""
+        return self.floor_y - 1 if self.has_crop else self.floor_y
+
     def region_tags(self) -> list[str]:
         """Tags for the outer region. Design plan 6.1 makes a regular mine safe by default; 7.2 keeps the contested mine PvP."""
         return ["mine", "safe_zone"] if self.safe_zone else ["mine"]
@@ -156,6 +179,8 @@ class MineSpec:
             raise ValueError(f"exit_path width must be at least 3 to hold both signs beside the walking line, got {self.exit_path.width}")
         if not 1 <= self.reset_percent <= 100:
             raise ValueError(f"reset_percent must be 1..100, got {self.reset_percent}")
+        if self.has_crop and self.ore_layers:
+            raise ValueError("a crop mine refills one row from ores alone, so it takes no ore_layers")
         geo = self.geometry()
         if not geo.outer.min[1] < self.floor_y <= geo.interior.max[1]:
             raise ValueError(f"floor_y {self.floor_y} needs a floor above y {geo.outer.min[1]} and room below the top wall")
