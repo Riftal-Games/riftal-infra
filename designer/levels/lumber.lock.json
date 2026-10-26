@@ -20,11 +20,11 @@
     "levels/lumber.json": "e8eacf957c9dad85628e82f4d5c1c7f37727ca4e888fd12f9f3f2f786a7a0a9c",
     "palette:mine_stone": "30c68b82e89822017f0173446c4f3fbd81ad3d470c9d57c8645cdfb292e33979",
     "specs/lumber.json": "d9ebc6f32e02d00c5b6391a32922985dfc0e6f922233418521a3cda6192f9b41",
-    "specs/lumber_access_east.json": "fafb3566c80a1b65d0a310719c5f21c35ad75627a6eeed65ce6ac0f2471620fc",
-    "specs/lumber_access_south.json": "a186737fb59807b4223cd986fcd710ccc397bec8df0d1c8b8c19f7ba9edbeacd"
+    "specs/lumber_access_east.json": "be8c01b3ad381dd517e8307e86acd3f4957e4aa0778068cc8648fde2091cf86f",
+    "specs/lumber_access_south.json": "7d1307a9ef11cfd6b559a33fbce0e663ecbfb0a508afaf4c53dde176576a27c2"
   },
   "seed": 23,
-  "size_bytes": 478255,
-  "toolkit_commit": "0d644bd6f1101088346ab87d1e6baa0eb35db3d3",
+  "size_bytes": 493668,
+  "toolkit_commit": "0bf43ca14d97d1778a57be6b17fcd27ca22b7ffe",
   "zone": "lumber"
 }
