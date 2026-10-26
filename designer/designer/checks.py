@@ -30,9 +30,9 @@ DEFAULTS = {"max_seconds": 10, "walk_speed": WALK_SPEED, "corridor_margin": 16}
 # Per kind: the parameters a check must name, the optional ones filled from ``defaults``, and the optional ones
 # its runner defaults itself. Any other key is refused, so a misspelling cannot run the check on a default.
 KINDS: dict[str, tuple[tuple[str, ...], dict[str, str], tuple[str, ...]]] = {
-    "path_exists": (("from", "to"), {"margin": "corridor_margin"}, ("max_drop",)),
+    "path_exists": (("from", "to"), {"margin": "corridor_margin"}, ("max_drop", "world")),
     "travel_time": (
-        ("from", "to"), {"margin": "corridor_margin", "speed": "walk_speed", "max_seconds": "max_seconds"}, ("max_drop",),
+        ("from", "to"), {"margin": "corridor_margin", "speed": "walk_speed", "max_seconds": "max_seconds"}, ("max_drop", "world"),
     ),
     "warp_safe": (("at",), {}, ()),
     "entity_clear": (("at",), {}, ()),
@@ -121,11 +121,14 @@ def load_checks(path: Path | None = None) -> list[CheckSpec]:
     return specs
 
 
-def _at(index: WorldIndex, ref: Any) -> tuple[str, Pos]:
-    world, (x, y, z) = resolve_at(index, str(ref))
+def _at(index: WorldIndex, ref: Any, world: str | None = None) -> tuple[str, Pos]:
+    """``ref`` as a world and position; ``world`` places a coordinate ref there and must match a named one's."""
+    found, (x, y, z) = resolve_at(index, str(ref), world if "," in str(ref) else None)
+    if world is not None and found != world:
+        raise ValueError(f"{ref!r} is in {found!r}, not {world!r}")
     if y is None:
         raise ValueError(f"{ref!r} names no y")
-    return world, (x, y, z)
+    return found, (x, y, z)
 
 
 def _region(index: WorldIndex, name: Any) -> NamedRegion:
@@ -136,7 +139,8 @@ def _region(index: WorldIndex, name: Any) -> NamedRegion:
 
 
 def _ends(index: WorldIndex, args: dict[str, Any]) -> tuple[str, Pos, Pos, Bounds]:
-    (world, a), (other, b) = _at(index, args["from"]), _at(index, args["to"])
+    where = args.get("world")
+    (world, a), (other, b) = _at(index, args["from"], where), _at(index, args["to"], where)
     if world != other:
         raise ValueError(f"{args['from']!r} is in {world!r} but {args['to']!r} is in {other!r}")
     return world, a, b, Bounds(a, b).expand(_margin(args), "xz").expand(MARGIN_Y, "y")

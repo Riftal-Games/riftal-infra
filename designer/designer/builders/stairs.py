@@ -16,7 +16,9 @@ Triple = tuple[int, int, int]
 
 # Cells a stair step needs clear above it to stand on: the step itself is the
 # solid floor, so ``Region.stand_mask`` wants only its own cell and the one
-# above passable, the same minimum ``road.py``'s rising tiles rely on.
+# above passable, the same minimum ``road.py``'s rising tiles rely on. A body
+# stepping up a row still overlaps the column behind it, so a staircase meant
+# to be walked sets ``StairsSpec.headroom`` a cell higher.
 HEADROOM = 2
 
 
@@ -29,6 +31,7 @@ class StairsSpec:
     direction: str
     rise: int
     width: int = 1
+    headroom: int = HEADROOM
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> StairsSpec:
@@ -41,6 +44,7 @@ class StairsSpec:
             spec = cls(
                 str(data["world"]), int_coords(data["from"], "from must be three integers"), str(data["direction"]),
                 whole_int(data["rise"], "rise must be an integer"), whole_int(data.get("width", 1), "width must be an integer"),
+                whole_int(data.get("headroom", HEADROOM), "headroom must be an integer"),
             )
         except (TypeError, KeyError, IndexError) as e:
             raise ValueError(f"stairs spec is malformed: {e!r}") from e
@@ -54,6 +58,8 @@ class StairsSpec:
             raise ValueError(f"rise must be at least 1, got {self.rise}")
         if self.width < 1:
             raise ValueError(f"width must be at least 1, got {self.width}")
+        if self.headroom < HEADROOM:
+            raise ValueError(f"headroom must be at least {HEADROOM}, got {self.headroom}")
 
 
 def _row(x: int, z: int, perp: tuple[int, int], width: int, y: int) -> Bounds:
@@ -65,12 +71,18 @@ def _row(x: int, z: int, perp: tuple[int, int], width: int, y: int) -> Bounds:
     return Bounds((min(lo[0], hi[0]), y, min(lo[1], hi[1])), (max(lo[0], hi[0]), y, max(lo[1], hi[1])))
 
 
+def _clear(row: Bounds, y: int, headroom: int) -> Fill:
+    """Air over ``row`` from the cell above its tread at ``y`` up ``headroom`` cells."""
+    return Fill(Bounds((row.min[0], y + 1, row.min[2]), (row.max[0], y + headroom, row.max[2])), AIR)
+
+
 def build_stairs(spec: StairsSpec, palette: Palette) -> EditList:
-    """``spec.rise`` stairs rows climbing from ``spec.base``, propped solid down to it and cleared ``HEADROOM`` above.
+    """``spec.rise`` stairs rows climbing from ``spec.base``, propped solid down to it and cleared ``spec.headroom`` above.
 
     Row ``i`` sits ``i`` blocks above ``base`` and ``i`` blocks along ``direction``, a stairs block from the
     ``stairs`` role facing the ascent. The support fill closes any gap between a row and ``base``'s height so the
-    climb never opens over a void, and the headroom fill keeps it passable whatever stood there before.
+    climb never opens over a void, and the headroom fill keeps it passable whatever stood there before. The
+    base row is cleared to the same height, since the first step up leaves from it.
     """
     dx, dz = DIRS[spec.direction]
     perp = DIRS[perpendicular(spec.direction)[1]]
@@ -78,11 +90,11 @@ def build_stairs(spec: StairsSpec, palette: Palette) -> EditList:
     support = palette.block("wall")
     bx, by, bz = spec.base
 
-    ops: list[Fill] = []
+    ops: list[Fill] = [_clear(_row(bx, bz, perp, spec.width, by), by, spec.headroom)]
     for i in range(1, spec.rise + 1):
         y = by + i
         row = _row(bx + dx * i, bz + dz * i, perp, spec.width, y)
         ops.append(Fill(row, stairs))
         ops.append(Fill(Bounds((row.min[0], by, row.min[2]), (row.max[0], y - 1, row.max[2])), support))
-        ops.append(Fill(Bounds((row.min[0], y + 1, row.min[2]), (row.max[0], y + HEADROOM, row.max[2])), AIR))
+        ops.append(_clear(row, y, spec.headroom))
     return EditList(spec.world, ops, {})

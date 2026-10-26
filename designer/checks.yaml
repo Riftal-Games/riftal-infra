@@ -30,6 +30,12 @@ checks:
     zone: lumber
     region: lumber
     spec: specs/lumber.json
+  - check: path_exists
+    id: lumber_spawn_to_surface
+    zone: lumber
+    world: lumber
+    from: lumber_spawn
+    to: "14,65,30"
   - check: offdisk_clear
     zone: mine_a
     world: mine_a
