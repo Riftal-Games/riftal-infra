@@ -95,7 +95,7 @@ kept >"$LOGS/kept.before"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=97
+EXPECTED_ASSERTIONS=99
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # wipe <database> <set> [docker exec -e flags]
@@ -205,6 +205,8 @@ sh_in 'set -e; mkdir -p /tmp/emptybuilds /tmp/nodigest /tmp/dupdigest /tmp/built
   cp -r /tmp/builds /tmp/notree/; sed -i "/tree_sha256/d; s/\"content_sha256\": \"\\([0-9a-f]*\\)\",/\"content_sha256\": \"\\1\"/" /tmp/notree/builds/mine_a/level-manifest.json
   cp -r /tmp/builds /tmp/symbuild; ln -s level.dat /tmp/symbuild/mine_a/link
   mkdir -p /tmp/badname; printf "{}\n" > /tmp/badname/bad.zone.lock.json
+  mkdir -p /tmp/badname2 /tmp/badbuilds; cp -r /tmp/builds/mine_a /tmp/badbuilds/bad.zone
+  printf "{\n  \"content_sha256\": \"%s\"\n}\n" "$(printf built | sha256sum | cut -d" " -f1)" > /tmp/badname2/bad.zone.lock.json
   printf "#!/bin/bash\necho \"seed-levels: no space left\" >&2\nexit 1\n" > /tmp/failseed.sh'
 refused built-zone-folder-missing "level mine_a on riftal_smoke_a has an ADR 009 build to re-seed from, and LEVEL_BUILDS_DIR must hold its output folder mine_a" \
   riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/emptybuilds "${DEV[@]}"
@@ -221,6 +223,13 @@ state >"$LOGS/state.before"
 refused built-zone-name "level bad.zone on riftal_smoke_b has an ADR 009 build, and the seed step takes only letters, digits, _ and - in a zone name" \
   riftal_dev /tmp/set "${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/badname -e LEVEL_BUILDS_DIR=/tmp/builds "${DEV[@]}"
 sh_in 'rmdir /worlds/riftal_smoke_b/worlds/bad.zone'
+# The zone's build matches its lock and its own manifest, so only the zone-name
+# rule stands between this wipe and a seed step that stops after the clear.
+sh_in 'mkdir /worlds/riftal_smoke_b/worlds/bad.zone; chown 1000:1000 /worlds/riftal_smoke_b/worlds'
+state >"$LOGS/state.before"
+refused built-zone-name-with-matching-build "level bad.zone on riftal_smoke_b has an ADR 009 build, and the seed step takes only letters, digits, _ and - in a zone name" \
+  riftal_dev /tmp/set "${W[@]}" -e LEVEL_LOCKS_DIR=/tmp/badname2 -e LEVEL_BUILDS_DIR=/tmp/badbuilds "${DEV[@]}"
+sh_in 'rmdir /worlds/riftal_smoke_b/worlds/bad.zone; chown 0:0 /worlds/riftal_smoke_b/worlds'
 state >"$LOGS/state.before"
 refused built-seed-script-absent "/tmp/no-seed.sh is not there; mount images/plugins beside deploy/" \
   riftal_dev /tmp/set "${W[@]}" "${B[@]}" -e LEVEL_BUILDS_DIR=/tmp/builds -e SEED_LEVELS_SCRIPT=/tmp/no-seed.sh "${DEV[@]}"
