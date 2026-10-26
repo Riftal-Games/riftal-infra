@@ -1,16 +1,13 @@
 {
   "name": "mine_a",
   "world": "mine_a",
-  "origin": [-16, 40, -16],
-  "size": [32, 12, 32],
+  "origin": [-18, 38, -18],
+  "size": [36, 15, 36],
   "wall_thickness": 2,
-  "floor_y": 42,
+  "floor_y": 40,
   "entrance": {"side": "south", "width": 3, "height": 3},
   "exit_path": {"length": 6, "width": 3},
-  "ores": {"stone": 70, "coal_ore": 20, "iron_ore": 10},
-  "ore_layers": [
-    {"y_from": 42, "y_to": 44, "ores": {"stone": 50, "coal_ore": 30, "iron_ore": 15, "gold_ore": 5}}
-  ],
+  "ores": {"minecraft:stone": 1.0, "minecraft:coal_ore": 0.5},
   "fill": "solid",
   "seed": 20260907,
   "lights_every": 4,

@@ -68,6 +68,7 @@ def test_facing_state_stairs_direction(direction: str, weirdo: int) -> None:
     result = facing_state("minecraft:stone_brick_stairs", direction)
     assert f"weirdo_direction={weirdo}" in result
     assert "upside_down_bit=false" in result
+    assert "minecraft:corner=none" in result
 
 
 def test_facing_state_stairs_upside_down() -> None:

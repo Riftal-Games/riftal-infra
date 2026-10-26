@@ -10,9 +10,10 @@ from typing import Any
 
 import numpy as np
 
-from designer.blocks import BlockClass, format_name, parse_name
-from designer.builders.mine_spec import SIDES, MineSpec
+from designer.blocks import AIR, UNMAPPED, BlockClass, format_name, is_tall_floor, is_unmapped, parse_name
+from designer.builders.mine_spec import FARMLAND, SIDES, WETNESS_STATE, MineSpec
 from designer.region import Bounds, LightRegion, Region
+from designer.reset_states import RESET_STATES
 
 # Bedrock player speeds on level ground, blocks per second.
 WALK_SPEED = 4.317
@@ -27,6 +28,11 @@ MARGIN_Y = 8
 STEP_UP = 0.5
 DROP = 0.25
 
+# The client scales horizontal motion by 0.25 while its hitbox touches a web,
+# so a step into one takes four steps' time. The server has no say in it:
+# pmmp-core's Cobweb.php:36 only resets fall distance.
+WEB_COST = 4.0
+
 # Blocks below the feet within which a warp must find solid ground.
 LANDING = 3
 
@@ -40,6 +46,14 @@ HOLES_REPORTED = 50
 LEAKS_REPORTED = 20
 
 LIGHT_KINDS = ("block", "sky", "max")
+
+# MineSpec refuses an ores key whose base is not a block id, so no key can spell
+# a canonical name with this appended.
+NOT_RESET_STATE = " (not its reset state)"
+
+# Farmland at wetness 0 turns to dirt on its first random tick with no event for a plugin to cancel, and the
+# crop above it pops.
+MIN_WETNESS = 1
 
 Pos = tuple[int, int, int]
 
@@ -122,11 +136,38 @@ def path_exists(
 
     Both ends snap to the nearest standable cell within ``snap_radius``. The
     search covers ``corridor``, or the endpoints' box grown by ``margin`` in x
-    and z, clipped to the region. Costs are 1.0 per horizontal move plus
-    ``STEP_UP`` per block climbed and ``DROP`` per block fallen, and the
-    heuristic charges the same per-block rates so it never overestimates.
+    and z, clipped to the region. Costs are 1.0 per horizontal move, or
+    ``WEB_COST`` onto a cell with a web at the feet or head, plus ``STEP_UP``
+    per block climbed and ``DROP`` per block fallen, so ``length`` is in
+    blocks of open walking. The heuristic charges the open-ground rates, so it
+    never overestimates. A step up onto a fence, wall or closed fence gate
+    (``is_tall_floor``) is open only from another such floor, with the third
+    cell above the feet clear for the head; a step up from one onto ordinary
+    ground is a 0.5 rise and needs only the usual two. A level step or a drop
+    off a tall floor needs that third cell clear in the column it enters, and
+    a level step onto one needs it clear above the origin. No step stands on
+    an unmapped block; when the route exists only over one, the result fails
+    as ``path only over`` it, with ``path`` that route and ``coords`` its
+    unmapped floor cells.
     """
-    mask = stand_mask(region)
+    found = _search(region, stand_mask(region), a, b, max_nodes, corridor, margin, max_drop, snap_radius)
+    if found.ok or not region.unmapped().any():
+        return found
+    over = _search(region, region.stand_mask(unmapped_floor=True), a, b, max_nodes, corridor, margin, max_drop, snap_radius)
+    if not over.ok:
+        return found
+    floors = [(x, y - 1, z) for x, y, z in over.path if is_unmapped(region.get(x, y - 1, z))]
+    return PathResult(
+        False, f"path only over {UNMAPPED_NOTE}", floors, over.data,
+        path=over.path, length=over.length, explored=found.explored + over.explored,
+    )
+
+
+def _search(
+    region: Region, mask: np.ndarray, a: Sequence[float], b: Sequence[float],
+    max_nodes: int, corridor: Bounds | None, margin: int, max_drop: int, snap_radius: int,
+) -> PathResult:
+    """``path_exists`` over the standable cells of ``mask``."""
     start = _snap(mask, region.bounds, a, snap_radius)
     if start is None:
         return PathResult(False, "start not standable", [_block(a)])
@@ -146,6 +187,8 @@ def path_exists(
     plane = nz * nx
     stand = mask[at].ravel().tolist()
     passable = region.passable()[at].ravel().tolist()
+    tall = region.on_tall_floor()[at].ravel().tolist()
+    step = np.where(region.web_mask()[at], WEB_COST, 1.0).ravel().tolist()
     g = np.full(ny * plane, np.inf, dtype=np.float32)
     closed = np.zeros(ny * plane, dtype=bool)
     parent = np.full(ny * plane, -1, dtype=np.int32)
@@ -185,19 +228,34 @@ def path_exists(
             if not (0 <= z2 < nz and 0 <= x2 < nx):
                 continue
             col = z2 * nx + x2
-            steps = [(y, base + 1.0)]
-            if y + 2 < ny and passable[(y + 2) * plane + z * nx + x]:
-                steps.append((y + 1, base + 1.0 + STEP_UP))
+            # On a tall floor the head reaches the third cell above the feet, so a level step or a drop
+            # off one carries it into that cell of the neighbour column, and a level step onto one lifts
+            # it into that cell above the origin while the feet are still there.
+            third = y + 2 < ny
+            off_tall = not tall[cur] or (third and passable[(y + 2) * plane + col])
+            steps = []
+            if off_tall and (not tall[y * plane + col] or (third and passable[(y + 2) * plane + z * nx + x])):
+                steps.append((y, base))
+            # A jump rises about 1.25 blocks (Living.php jumpVelocity 0.42). A 1.5-tall floor one block up
+            # is a 1.5 climb from an ordinary floor, out of reach, but a 1.0 climb from another tall floor,
+            # where the jump lifts the head into the third cell above the feet. Ordinary ground one block
+            # above a tall floor is a 0.5 rise, under the 0.6 walk step (Player.php stepHeight), so no jump.
+            if third:
+                up_tall = tall[(y + 1) * plane + col]
+                head = y + 3 if up_tall else y + 2
+                if head < ny and passable[head * plane + z * nx + x] and (tall[cur] or not up_tall):
+                    steps.append((y + 1, base + STEP_UP))
             # The head enters the neighbour column before the feet leave the ledge.
-            if passable[(y + 1) * plane + col]:
+            if off_tall and passable[(y + 1) * plane + col]:
                 for d in range(1, max_drop + 1):
                     if y - d < 1 or not passable[(y - d + 1) * plane + col]:
                         break
-                    steps.append((y - d, base + 1.0 + DROP * d))
+                    steps.append((y - d, base + DROP * d))
                     if stand[(y - d) * plane + col]:
                         break
             for y2, cost in steps:
                 nb = y2 * plane + col
+                cost += step[nb]
                 if stand[nb] and not closed[nb] and cost < g[nb]:
                     g[nb] = cost
                     parent[nb] = cur
@@ -227,22 +285,39 @@ def travel_time(
     )
 
 
-def _solid_within(classes: np.ndarray, iy: int, iz: int, ix: int, n: int) -> bool:
-    """A solid block among the ``n`` cells from ``(iy, iz, ix)`` downward; cells below the region count as not solid."""
-    return bool((classes[max(iy - n + 1, 0):iy + 1, iz, ix] == BlockClass.SOLID).any())
+def _within(mask: np.ndarray, iy: int, iz: int, ix: int, n: int) -> bool:
+    """A ``mask`` cell among the ``n`` cells from ``(iy, iz, ix)`` downward; cells below the region count as not in it."""
+    return bool(mask[max(iy - n + 1, 0):iy + 1, iz, ix].any())
+
+
+# An unmapped block classes SOLID, so without naming it a designer reads an ordinary wall or
+# floor where the world may hold kelp, water or anything else the core does not know.
+UNMAPPED_NOTE = f"a block the core does not map ({UNMAPPED})"
+
+
+def _obstruction(region: Region, cells: list[Pos]) -> Check:
+    unmapped = [c for c in cells if is_unmapped(region.get(*c))]
+    if unmapped:
+        return Check(False, f"hitbox blocked by {UNMAPPED_NOTE}", unmapped)
+    return Check(False, "hitbox blocked", cells)
 
 
 def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     """A 1x2 hitbox with its feet at ``pos`` is free and whatever it rests on is walkable.
 
-    Feet and head must be passable. The support is the first block below the
-    feet that is neither air nor passable, and it must be solid, because a
-    player over liquid sinks and over danger burns. A column with no support
-    inside the region obstructs nothing here; ``warp_safe`` is the check that
-    demands a landing. ``coords`` names the offending cells. A fractional
-    ``pos`` means the block it falls in, each coordinate floored. ``pos``
-    outside the region is a failed check, not a crash, for a caller that did
-    not fetch around it first.
+    Feet and head must be passable; a danger block there fails as ``hitbox in
+    danger``, else a liquid as ``hitbox in liquid``, any other obstruction as
+    ``hitbox blocked``, or ``hitbox blocked by`` an unmapped block when one is
+    among them. The support is the first block below the feet that is neither
+    air nor passable, and it must be solid and mapped, because a player over
+    liquid sinks and over danger burns. A column with no support inside the
+    region obstructs nothing here; ``warp_safe`` is the check that demands a
+    landing. On a floor taller than one block directly under the feet, the
+    cell two above the feet must be passable too, and passes when it is
+    outside the region, as the head cell does. ``coords`` names the offending
+    cells. A fractional ``pos`` means the block it falls in, each coordinate
+    floored. ``pos`` outside the region is a failed check, not a crash, for a
+    caller that did not fetch around it first.
     """
     at = _block(pos)
     if not region.bounds.contains(at):
@@ -250,15 +325,32 @@ def entity_clear(region: Region, pos: Sequence[float]) -> Check:
     iy, iz, ix = region.bounds.local(at)
     x, y, z = at
     classes, passable = region.classes(), region.passable()
-    blocked = [(x, y + d, z) for d in (0, 1) if iy + d < classes.shape[0] and not passable[iy + d, iz, ix]]
+    blocked = [d for d in (0, 1) if iy + d < classes.shape[0] and not passable[iy + d, iz, ix]]
+    # A berry bush or wither rose in the hitbox hurts rather than obstructs, so
+    # it is named ahead of any solid cell beside it.
+    danger = [d for d in blocked if classes[iy + d, iz, ix] == BlockClass.DANGER]
+    if danger:
+        return Check(False, "hitbox in danger", [(x, y + d, z) for d in danger])
+    # Water lets a player move through it, so a designer reading "blocked"
+    # would look for a wall that is not there.
+    liquid = [d for d in blocked if classes[iy + d, iz, ix] == BlockClass.LIQUID]
+    if liquid:
+        return Check(False, "hitbox in liquid", [(x, y + d, z) for d in liquid])
     if blocked:
-        return Check(False, "hitbox blocked", blocked)
+        return _obstruction(region, [(x, y + d, z) for d in blocked])
     support = np.flatnonzero(~passable[:iy, iz, ix])
     if len(support):
         top = int(support[-1])
         kind = BlockClass(int(classes[top, iz, ix]))
         if kind != BlockClass.SOLID:
             return Check(False, f"floor is {kind.name.lower()}", [(x, y - (iy - top), z)])
+        if is_unmapped(region.get(x, y - (iy - top), z)):
+            return Check(False, f"floor is {UNMAPPED_NOTE}", [(x, y - (iy - top), z)])
+        # Standing on a tall floor (is_tall_floor) puts the head half a block into the cell
+        # two above the feet.
+        if top == iy - 1 and is_tall_floor(region.get(x, y - 1, z)):
+            if iy + 2 < classes.shape[0] and not passable[iy + 2, iz, ix]:
+                return _obstruction(region, [(x, y + 2, z)])
     return Check(True, "clear")
 
 
@@ -269,8 +361,11 @@ def warp_safe(region: Region, pos: Sequence[float]) -> Check:
     the feet, so a warp over a hole or a void column is refused; no liquid or
     danger in the 3x3 at floor, feet or head level, because the first step off
     the warp goes in any direction and a lava floor is the same death as a
-    lava wall; and no cell in the 3x3 at floor level that is a hole deeper
-    than ``LANDING``, so that step cannot be a fall either.
+    lava wall; no unmapped block in those same cells, since it may be either;
+    and no cell in the 3x3 at floor level that is a hole deeper
+    than ``LANDING``, so that step cannot be a fall either. An unmapped
+    block is no landing, and a ring cell whose only landing is one fails
+    last, as ``floor ring lands only on`` it, naming those blocks.
     ``detail`` names the first rule that fails and ``coords`` the cells that
     break it. Cells outside the region are unknown: they never offend, and
     they never count as solid. ``pos`` itself outside the region is a failed
@@ -282,9 +377,10 @@ def warp_safe(region: Region, pos: Sequence[float]) -> Check:
         return clear
     x, y, z = at = _block(pos)
     iy, iz, ix = region.bounds.local(at)
-    classes = region.classes()
+    classes, unmapped_at = region.classes(), region.unmapped()
+    solid = (classes == BlockClass.SOLID) & ~unmapped_at
     ny, nz, nx = classes.shape
-    if not _solid_within(classes, iy - 1, iz, ix, LANDING):
+    if not _within(solid, iy - 1, iz, ix, LANDING):
         return Check(False, f"no solid within {LANDING} below", [(x, y - 1, z)])
     around = [(dz, dx) for dz, dx in RING if 0 <= iz + dz < nz and 0 <= ix + dx < nx]
     hazards = [
@@ -295,13 +391,28 @@ def warp_safe(region: Region, pos: Sequence[float]) -> Check:
     ]
     if hazards:
         return Check(False, "liquid or danger beside the hitbox", hazards)
-    holes = [
-        (x + dx, y - 1, z + dz)
+    unmapped = [
+        (x + dx, y + dy, z + dz)
+        for dy in (-1, 0, 1) if 0 <= iy + dy < ny
         for dz, dx in around
-        if (dz, dx) != (0, 0) and not _solid_within(classes, iy - 1, iz + dz, ix + dx, LANDING + 1)
+        if is_unmapped(region.get(x + dx, y + dy, z + dz))
     ]
+    if unmapped:
+        return Check(False, f"{UNMAPPED_NOTE} beside the hitbox", unmapped)
+    open_ring = [
+        (dz, dx) for dz, dx in around
+        if (dz, dx) != (0, 0) and not _within(solid, iy - 1, iz + dz, ix + dx, LANDING + 1)
+    ]
+    holes = [(x + dx, y - 1, z + dz) for dz, dx in open_ring if not _within(unmapped_at, iy - 1, iz + dz, ix + dx, LANDING + 1)]
     if holes:
         return Check(False, f"hole deeper than {LANDING} in the floor ring", holes)
+    landings = [
+        (x + dx, y - d, z + dz)
+        for dz, dx in open_ring
+        for d in range(2, LANDING + 2) if iy - d >= 0 and unmapped_at[iy - d, iz + dz, ix + dx]
+    ]
+    if landings:
+        return Check(False, f"floor ring lands only on {UNMAPPED_NOTE}", landings)
     return Check(True, "warp safe")
 
 
@@ -343,7 +454,10 @@ def no_holes(region: Region, floor_y: int, walkway_mask: np.ndarray) -> Check:
     ``floor_y`` is not passable, so a missing floor block, a lava or water
     floor, a wall across the walkway and a puddle in it all count. ``coords``
     holds up to ``HOLES_REPORTED`` offending cells, the floor cell for a gap
-    and the walkway cell for an obstruction; ``data`` the total.
+    and the walkway cell for an obstruction; ``data`` the total. With no hole,
+    a floor block the core does not map (``unmapped``) fails as ``walkway floor
+    cells are`` that note, ``coords`` up to ``HOLES_REPORTED`` of them;
+    ``data["unmapped"]`` counts them either way.
     """
     y0, y1 = region.bounds.min[1], region.bounds.max[1]
     if not y0 < floor_y <= y1:
@@ -354,15 +468,20 @@ def no_holes(region: Region, floor_y: int, walkway_mask: np.ndarray) -> Check:
     iy = floor_y - y0
     gap = walkway & (region.classes()[iy - 1] != BlockClass.SOLID)
     blocked = walkway & ~region.passable()[iy]
+    unmapped = walkway & region.unmapped()[iy - 1]
     holes = gap | blocked
     count = int(holes.sum())
-    if not count:
-        return Check(True, "no holes", [], {"holes": 0})
-    coords = [
-        _world(region.bounds, (iy - 1 if gap[iz, ix] else iy, iz, ix))
-        for iz, ix in np.argwhere(holes)[:HOLES_REPORTED]
-    ]
-    return Check(False, f"{count} holes in the walkway", coords, {"holes": count})
+    data = {"holes": count, "unmapped": int(unmapped.sum())}
+    if count:
+        coords = [
+            _world(region.bounds, (iy - 1 if gap[iz, ix] else iy, iz, ix))
+            for iz, ix in np.argwhere(holes)[:HOLES_REPORTED]
+        ]
+        return Check(False, f"{count} holes in the walkway", coords, data)
+    if data["unmapped"]:
+        coords = [_world(region.bounds, (iy - 1, iz, ix)) for iz, ix in np.argwhere(unmapped)[:HOLES_REPORTED]]
+        return Check(False, f"{data['unmapped']} walkway floor cells are {UNMAPPED_NOTE}", coords, data)
+    return Check(True, "no holes", [], data)
 
 
 def _flood(open_: np.ndarray, seed: tuple[Any, ...], stop: np.ndarray) -> np.ndarray:
@@ -392,6 +511,37 @@ def _fractions(blocks: np.ndarray, names: list[str]) -> dict[str, float]:
     return out
 
 
+def _as_ores(palette: list[str], ores: dict[str, float]) -> list[str]:
+    """Each palette name as the ``ores`` key it satisfies, else a name no ``ores`` key equals.
+
+    A block satisfies a key only in exactly the state the reset writes for its base (``RESET_STATES``), and a key
+    names a subset of that state. The engine reads a block back with every state it has,
+    ``minecraft:oak_log[pillar_axis=y]``, while a spec names only what it cares about; any other state of the same
+    base is a block the next reset would change, so it counts as unnamed. A base the table lacks matches nothing.
+    An unnamed block reads as its canonical name, unless a key spells that name, as
+    ``minecraft:oak_log[pillar_axis=x]`` can; then it carries ``NOT_RESET_STATE`` so it cannot pass as that key.
+    """
+    keys = [(key, *parse_name(key)) for key in ores]
+    out = []
+    for name in palette:
+        base, states = parse_name(name)
+        reset = RESET_STATES.get(base)
+        exact = reset is not None and states == reset
+        match = (key for key, kb, ks in keys if exact and kb == base and ks.items() <= states.items())
+        canonical = format_name(base, states)
+        out.append(next(match, canonical + NOT_RESET_STATE if canonical in ores else canonical))
+    return out
+
+
+def _wet_farmland(name: str) -> bool:
+    """``name`` is farmland whose wetness state reads ``MIN_WETNESS`` or more; a missing or malformed state reads as dry."""
+    base, states = parse_name(name)
+    try:
+        return base == FARMLAND and int(states.get(WETNESS_STATE, "0")) >= MIN_WETNESS
+    except ValueError:
+        return False
+
+
 def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> MineResult:
     """The mine in ``region`` is enclosed, opens only where declared, holds the declared ores and stands on a floor.
 
@@ -401,11 +551,22 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     cells outside it. Composition compares each block's share of the non-air interior to the normalised weights,
     per ore layer where given and ``ores`` elsewhere; an unnamed block deviates by its whole share and an empty
     band passes, so does a mined-out mine. The floor is solid under every interior column, and the exit platform
-    is solid under its whole footprint with a clear cell above its walking lane, the centre line a player
+    is solid under its whole footprint with feet and head cells clear above its walking lane, the centre line a player
     actually spawns and exits on, so a hand edit there is caught here rather than as a less specific failure
     from a check that walks out onto it. Furniture such as the lit posts down either side is outside the lane
-    and never trips this rule. ``detail`` names every failing rule; ``coords`` holds leaks, undeclared cells,
-    missing floor cells, missing platform cells, then blocked lane cells, ``LEAKS_REPORTED`` of each.
+    and never trips this rule. A block counts as an ``ores`` key only in exactly the state the reset writes for its
+    base, ``RESET_STATES``, and only when the key names a subset of that state; any other state, or a base the
+    table lacks, counts as unnamed even under a key spelling its whole name. Every interior cell is air or a block named in ``ores``, with no tolerance: a
+    reset refills only from ``ores``, so any other block there would break into an item nobody mined (ADR 014
+    item 7), and a name only in ``ore_layers`` fails for the same reason. ``detail`` names every failing rule
+    and those interior cells. A floor or platform block the core does not map classes solid but fails as ``floor
+    cells are`` or ``exit platform cells are`` that note, since it may be water or kelp in the world. So does
+    any other one in the shell or padding ring, as ``wall cells are`` that note, when it lies on the shell's
+    surface or the enclosure flood would reach it were it open; one sealed off inside the wall cannot leak.
+    A crop mine (``MineSpec.has_crop``) also fails when any floor cell under its interior is not farmland at wetness
+    ``MIN_WETNESS`` or more. ``coords`` holds leaks, undeclared cells, unmapped wall cells, missing floor cells,
+    unmapped floor cells, dry crop floor cells, missing platform cells, unmapped platform cells, blocked lane
+    cells, then those interior cells, ``LEAKS_REPORTED`` of each.
     """
     geo = spec.geometry()
     if region.world != spec.world:
@@ -413,13 +574,26 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     covers = geo.padding.union(geo.exit_platform)
     if region.bounds.intersect(covers) != covers:
         raise ValueError(f"region {region.bounds.min}..{region.bounds.max} does not cover the padding and exit platform {covers.min}..{covers.max}")
-    open_ = region.sub(geo.padding).passable().copy()
+    pad = region.sub(geo.padding)
+    open_ = pad.passable().copy()
     open_[geo.padding.slices(geo.interior)] = True
     open_[geo.padding.slices(geo.entrance)] = False
     ring = np.ones(open_.shape, dtype=bool)
     ring[geo.padding.slices(geo.outer)] = False
     reach = _flood(open_, geo.padding.slices(geo.interior), ring) & ring
     leaks = [_world(geo.padding, at) for at in np.argwhere(reach)[:LEAKS_REPORTED]]
+
+    # Interior, entrance, floor and platform cells already fail under their own rules when unmapped.
+    unknown = pad.unmapped().copy()
+    floor = Bounds((geo.interior.min[0], spec.floor_y - 1, geo.interior.min[2]), (geo.interior.max[0], spec.floor_y - 1, geo.interior.max[2]))
+    for named in (geo.interior, geo.entrance, floor, geo.padding.intersect(geo.exit_platform)):
+        if named is not None:
+            unknown[geo.padding.slices(named)] = False
+    skin = np.zeros(open_.shape, dtype=bool)
+    skin[geo.padding.slices(geo.outer)] = True
+    skin[geo.padding.slices(geo.outer.expand(-1))] = False
+    wall_unknown = unknown & (_flood(open_ | unknown, geo.padding.slices(geo.interior), ring) | skin)
+    wall_odd = [_world(geo.padding, at) for at in np.argwhere(wall_unknown)[:LEAKS_REPORTED]]
 
     shell = region.sub(geo.outer).passable()
     surface, opening = np.zeros(shell.shape, dtype=bool), np.zeros(shell.shape, dtype=bool)
@@ -436,19 +610,30 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
             undeclared.extend(_world(geo.outer, at) for at in np.argwhere(part & ~opening))
 
     inner = region.sub(geo.interior).blocks
-    names = [format_name(*parse_name(name)) for name in region.palette]
+    names = _as_ores(region.palette, spec.ores)
     ys = np.arange(geo.interior.min[1], geo.interior.max[1] + 1)
     bands = [((ys >= l.y_from) & (ys <= l.y_to), l.ores, f"@{l.y_from}..{l.y_to}") for l in spec.ore_layers]
     bands.append((~np.logical_or.reduce([np.zeros(len(ys), dtype=bool), *(rows for rows, _, _ in bands)]), spec.ores, ""))
     deviations: dict[str, float] = {}
     for rows, ores, suffix in bands:
-        observed, total = _fractions(inner[rows], names), sum(ores.values())
+        observed, total = _fractions(inner[rows], _as_ores(region.palette, ores)), sum(ores.values())
         for name in (observed.keys() | ores.keys()) if observed else ():
             deviations[name + suffix] = abs(observed.get(name, 0.0) - ores.get(name, 0.0) / total)
 
+    stray = ~np.array([name == AIR or name in spec.ores for name in names])[inner]
+    strays = [_world(geo.interior, at) for at in np.argwhere(stray)[:LEAKS_REPORTED]]
+
     _, zs, xs = region.bounds.slices(geo.interior)
-    missing = region.classes()[spec.floor_y - 1 - region.bounds.min[1], zs, xs] != BlockClass.SOLID
+    fy = spec.floor_y - 1 - region.bounds.min[1]
+    missing = region.classes()[fy, zs, xs] != BlockClass.SOLID
     gaps = [_world(geo.interior, (-1, iz, ix)) for iz, ix in np.argwhere(missing)[:LEAKS_REPORTED]]
+    unmapped_at = region.unmapped()
+    floor_unmapped = unmapped_at[fy, zs, xs]
+    floor_odd = [_world(geo.interior, (-1, iz, ix)) for iz, ix in np.argwhere(floor_unmapped)[:LEAKS_REPORTED]]
+    dry = np.zeros(missing.shape, dtype=bool)
+    if spec.has_crop:
+        dry = ~np.array([_wet_farmland(name) for name in region.palette], dtype=bool)[region.blocks[fy, zs, xs]]
+    dry_odd = [_world(geo.interior, (-1, iz, ix)) for iz, ix in np.argwhere(dry)[:LEAKS_REPORTED]]
 
     door_axis, _ = SIDES[spec.entrance.side]
     lateral = 2 if door_axis == "x" else 0
@@ -462,27 +647,35 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     _, lzs, lxs = region.bounds.slices(lane)
     classes, passable = region.classes(), region.passable()
     platform_missing = classes[py, pzs, pxs] != BlockClass.SOLID
-    platform_blocked = ~passable[py + 1, lzs, lxs]
+    platform_blocked = ~passable[py + 1:py + 3, lzs, lxs]
     platform_gaps = [_world(geo.exit_platform, (0, iz, ix)) for iz, ix in np.argwhere(platform_missing)[:LEAKS_REPORTED]]
-    platform_obstructed = [_world(lane, (1, iz, ix)) for iz, ix in np.argwhere(platform_blocked)[:LEAKS_REPORTED]]
+    platform_unmapped = unmapped_at[py, pzs, pxs]
+    platform_odd = [_world(geo.exit_platform, (0, iz, ix)) for iz, ix in np.argwhere(platform_unmapped)[:LEAKS_REPORTED]]
+    platform_obstructed = [_world(lane, (1 + iy, iz, ix)) for iy, iz, ix in np.argwhere(platform_blocked)[:LEAKS_REPORTED]]
 
     failing = [
         text for text, bad in (
             (f"{int(reach.sum())} leaks", leaks), ("entrance not open", not entrance_ok),
             (f"{len(undeclared)} undeclared opening cells", undeclared),
+            (f"{int(wall_unknown.sum())} wall cells are {UNMAPPED_NOTE}", wall_odd),
             ("composition off", any(d > tolerance for d in deviations.values())),
+            (f"{int(stray.sum())} interior cells neither air nor in ores {strays}", strays),
             (f"{int(missing.sum())} floor cells missing", gaps),
+            (f"{int(floor_unmapped.sum())} floor cells are {UNMAPPED_NOTE}", floor_odd),
+            (f"{int(dry.sum())} crop floor cells are not farmland at wetness {MIN_WETNESS} or more", dry_odd),
             (f"{int(platform_missing.sum())} exit platform cells missing", platform_gaps),
+            (f"{int(platform_unmapped.sum())} exit platform cells are {UNMAPPED_NOTE}", platform_odd),
             (f"{int(platform_blocked.sum())} exit platform cells blocked above", platform_obstructed),
         ) if bad
     ]
     data = {
-        "undeclared": undeclared[:LEAKS_REPORTED], "floor_missing": int(missing.sum()),
-        "platform_missing": int(platform_missing.sum()), "platform_blocked": int(platform_blocked.sum()),
+        "undeclared": undeclared[:LEAKS_REPORTED], "wall_unmapped": int(wall_unknown.sum()), "floor_missing": int(missing.sum()),
+        "floor_unmapped": int(floor_unmapped.sum()), "crop_floor_dry": int(dry.sum()), "platform_missing": int(platform_missing.sum()),
+        "platform_unmapped": int(platform_unmapped.sum()), "platform_blocked": int(platform_blocked.sum()),
     }
     return MineResult(
         not failing, "; ".join(failing) or "mine valid",
-        leaks + data["undeclared"] + gaps + platform_gaps + platform_obstructed, data,
+        leaks + data["undeclared"] + wall_odd + gaps + floor_odd + dry_odd + platform_gaps + platform_odd + platform_obstructed + strays, data,
         leaks=leaks, entrances_found=components, composition=_fractions(inner, names), deviations=deviations,
     )
 
