@@ -2,6 +2,6 @@
   "world": "lumber",
   "from": [0, 39, 16],
   "direction": "south",
-  "rise": 25,
+  "rise": 14,
   "width": 3
 }

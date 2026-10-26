@@ -30,7 +30,7 @@ def test_committed_file_names_the_spec_worlds(index: WorldIndex) -> None:
     assert index.regions == [NamedRegion("lumber_safe_zone", "lumber", (-32, 40, -32), (31, 63, 31), ["mine", "safe_zone"]), *mines]
     assert {w.name: w.extra["rank"] for w in index.worlds if w.role == "ore_mine"} == {"mine_a": "A", "mine_b": "B", "mine_c": "C"}
     assert {(w.generator, w.seed) for w in index.worlds if w.name != "lumber"} == {("normal", 20260907)}
-    assert (index.world("lumber").generator, index.world("lumber").seed) == ("normal", 8)
+    assert (index.world("lumber").generator, index.world("lumber").seed) == ("normal", 23)
     assert index.resolve_pos("spawn") == (256, 70, 256) and index.locations_tagged("spawn")[0].world == "design"
 
 
