@@ -64,7 +64,7 @@ def _recipe(root: Path, zone: str, *poke: dict) -> None:
     for n, change in enumerate(poke):
         (root / "specs" / f"poke{n}.json").write_text(json.dumps({"world": zone, **change}), encoding="utf-8")
         steps.append({"build": "poke", "spec": f"specs/poke{n}.json", "palette": "test_stone"})
-    recipe = {"generator": "normal", "seed": 20260907, "bounds": BOUNDS, "steps": steps}
+    recipe = {"generator": "normal", "seed": WorldIndex.load().world(zone).seed, "bounds": BOUNDS, "steps": steps}
     (root / "levels" / f"{zone}.json").write_text(json.dumps(recipe), encoding="utf-8")
 
 
