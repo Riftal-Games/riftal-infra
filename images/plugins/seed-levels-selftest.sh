@@ -25,7 +25,7 @@ RUN="riftal_smoke_seedlv_$$"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=17
+EXPECTED_ASSERTIONS=18
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1: $(tail -n 12 <<<"${LOG:-}")"; fi; }
@@ -227,13 +227,15 @@ cp -R "$good" "$work/bad/"
 printf 'tampered' >> "$bad/level.dat"
 refused "a source whose tree fails the manifest" "$(new_volume tampered)" "is not the one level-manifest.json names" -v "$bad:/etc/riftal/levels/lumber:ro"
 
-refused "a missing source" "$(new_volume missing)" "level source /etc/riftal/levels/lumber is not mounted"
+refused "a missing source" "$(new_volume missing)" 'level source /etc/riftal/levels/lumber is not mounted; build volume riftal_smoke_level_lumber with `designer level build lumber`'
 
 nomanifest="$work/nomanifest/lumber"
 mkdir -p "$work/nomanifest"
 cp -R "$good" "$work/nomanifest/"
 rm "$nomanifest/level-manifest.json"
-refused "a source with no manifest" "$(new_volume nomanifest)" "level-manifest.json is missing" -v "$nomanifest:/etc/riftal/levels/lumber:ro"
+refused "a source with no manifest" "$(new_volume nomanifest)" 'level-manifest.json is missing or holds no single tree_sha256 and content_sha256 line; volume riftal_smoke_level_lumber was never fully built, run `designer level build lumber`' -v "$nomanifest:/etc/riftal/levels/lumber:ro"
+
+refused "a named volume mounted empty, as an unbuilt level volume is" "$(new_volume unbuilt)" 'volume riftal_smoke_level_lumber was never fully built, run `designer level build lumber`' -v "$(new_volume emptysrc):/etc/riftal/levels/lumber:ro"
 
 linked="$work/linked/lumber"
 mkdir -p "$work/linked"
