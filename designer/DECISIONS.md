@@ -981,3 +981,49 @@ and the refusal comes before anything reaches the bridge. A missing file counts,
 `undo`. An undo id with no entry and a path outside the snapshots directory refuse the reference,
 not a file, and keep no code. A `TypeError` or `AttributeError` from `load` is a bug and is not
 caught (#626).
+
+## 2026-10-22 The committed index carries `rankup_npc_a`, the entry the mine builder places
+
+RiftalRanks opens a rank-up at a `rankup`-tagged location with a string world and a position of
+three integers, and the committed index had none. The committed entry is the one `build_mine`
+emits for `specs/mine_a.json` (`[1, 40, 23]`, the standing sign on the exit platform's last row);
+`WorldIndex.save` orders entries by name. It is that entry and no other because a level build
+refuses a committed entry it does not reproduce exactly (2026-09-29), and
+`test_the_rankup_location_is_what_the_mine_builder_places_and_ranks_accepts` fails when the two
+drift. A hand-placed position was rejected: any cell the builder does not choose makes the level
+build refuse the recipe, so the sign would have to be moved to match the entry or the entry
+rewritten to match the sign, and the builder's output is the one place both are already derived
+from. The index alone does not put the sign in the dev stack's `mine_a`: that volume holds a
+generated level until the `mine_a` recipe is built into it (ADR 009, riftal-infra#319), so a
+right-click there hits whatever terrain stands at that cell until then (#1078).
+
+## 2026-10-22 The committed index carries `sell_npc_a`, the sell sign the mine builder places
+
+RiftalEconomy opens the sell shop at every `sell`-tagged location with a non-empty string world and
+a position of exactly three integers (`SellLocations`), and the committed index had none. The
+committed entry is the one `build_mine` emits for `specs/mine_a.json` (`[-1, 40, 23]`, the sell
+sign one block to the low side of the exit platform's centre, beside `rankup_npc_a` on the last
+row). It is that entry and no other for the reason `rankup_npc_a` is (2026-10-22 above): a level
+build refuses a committed entry it does not reproduce exactly. A sell location for every ranked
+mine was rejected: only `mine_a` carries a rank-up and the dev stack's first sell step is Mine A's,
+and each further entry is one more cell the level builds must reproduce. The index alone does not
+put the sign in the dev stack's `mine_a`, which holds a generated level until the recipe is built
+into it (ADR 009, riftal-infra#319); until then a right-click at that cell opens the shop on
+whatever block stands there (#1087).
+
+## 2026-10-26 `StairsSpec` takes a `headroom`, the base row is cleared with it, and `path_exists` takes a `world`
+
+A stair's near half is half a block high and its back half a full block, so a body stepping up a row
+still overlaps the column behind it. The whole-block path search needs that column's third cell clear
+as well, and a walked staircase wants it. `HEADROOM` stays 2, the figure `plot_grid.clearance` builds
+on; `StairsSpec.headroom` defaults to it, and lumber's two legs set 3. The base row is cleared to the same height, since the first
+step off the lane's end or the previous leg leaves from it. A rejected alternative was raising `HEADROOM`
+itself, which would also have raised every plot's clearance. Lumber's stairs lie outside the hashed
+`bounds`, so `content_sha256` cannot see a leg that ends under the ground: `checks.yaml`'s
+`lumber_spawn_to_surface` walks the built terrain from `lumber_spawn` to a cell on seed 23's plateau.
+Its end is a coordinate, which resolves to the default world unless the check names a `world`, so
+`path_exists` and `travel_time` read an optional `world` that places coordinate ends in it and refuses a
+named end in another. The search treats a stair as a full block and opens a one-block climb as a move.
+A last tread at y 63 would top out at 64.0 against the grass top at 65.0, a 1.0-block step: over the
+0.6 walk step and under the 1.25-block jump. `tests/test_lumber_access.py` pins the exit tread at y 64,
+so the exit is flush and needs no jump.

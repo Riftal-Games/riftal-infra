@@ -13,6 +13,7 @@ from designer.checks import DEFAULT_PATH as CHECKS
 from designer.config import PROJECT_ROOT, SIBLING_GAME_DIR
 from designer.edits import EditList, SetBlock
 from designer.level import MINES_CONFIG, LevelError, Saved, build_level, mines_config_path
+from designer.world_index import WorldIndex
 from tests.conftest import STONE_PALETTES
 from tests.fake_bridge import ALLOWED_BLOCKS, FakeBridge, FakeWorld
 
@@ -21,6 +22,8 @@ MINES = "worlds:\n  lumber: worlds/lumber.json\n  mine_a: worlds/mine_a.json\n  
 MINE_A_INTERIOR_CELL = [0, 45, 0]
 LOG = "minecraft:oak_log[pillar_axis=y]"
 ZONES = ["mine_a", "mine_b", "mine_c", "lumber"]
+# The committed checks less lumber's path check, which needs the stairs and the ground the mine-only recipes here lack.
+MINE_CHECKS = "mine_checks.yaml"
 # DesignBridge reads a block back by its Bedrock name with its states, whatever alias or states the write named.
 READ_BACK = {"minecraft:oak_log": LOG, "minecraft:lapis_lazuli_ore": "minecraft:lapis_ore"}
 
@@ -48,6 +51,9 @@ def root(tmp_path: Path, fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> P
         fake.worlds[zone] = FakeWorld(extent=((100, 100), (101, 101)))
         _recipe(tmp_path, zone)
     (tmp_path / "mines.yml").write_text(MINES, encoding="utf-8")
+    data = yaml.safe_load(CHECKS.read_text(encoding="utf-8"))
+    data["checks"] = [c for c in data["checks"] if c.get("check") != "path_exists" or c.get("zone") != "lumber"]
+    (tmp_path / MINE_CHECKS).write_text(yaml.safe_dump(data), encoding="utf-8")
     (tmp_path / "worlds").mkdir()
     for zone in ZONES:
         _fragment(tmp_path, zone, json.loads((tmp_path / "specs" / f"{zone}.json").read_text(encoding="utf-8"))["ores"])
@@ -63,13 +69,13 @@ def _recipe(root: Path, zone: str, *poke: dict) -> None:
     for n, change in enumerate(poke):
         (root / "specs" / f"poke{n}.json").write_text(json.dumps({"world": zone, **change}), encoding="utf-8")
         steps.append({"build": "poke", "spec": f"specs/poke{n}.json", "palette": "test_stone"})
-    recipe = {"generator": "normal", "seed": 20260907, "bounds": BOUNDS, "steps": steps}
+    recipe = {"generator": "normal", "seed": WorldIndex.load().world(zone).seed, "bounds": BOUNDS, "steps": steps}
     (root / "levels" / f"{zone}.json").write_text(json.dumps(recipe), encoding="utf-8")
 
 
-def _build(bridge: Bridge, root: Path, zone: str, checks: Path = CHECKS, mines: Path | None = None) -> Path:
+def _build(bridge: Bridge, root: Path, zone: str, checks: Path | None = None, mines: Path | None = None, index: WorldIndex | None = None) -> Path:
     saved = Saved("sha256:image", "bridge-commit", "toolkit-commit", 4096)
-    return build_level(bridge, zone, lambda: saved, root=root, checks_path=checks, mines_config=mines or root / "mines.yml")
+    return build_level(bridge, zone, lambda: saved, root=root, checks_path=checks or root / MINE_CHECKS, mines_config=mines or root / "mines.yml", index=index)
 
 
 def _refused(bridge: Bridge, root: Path, zone: str, match: str, **kwargs: Path) -> None:
@@ -90,6 +96,27 @@ def test_a_mine_dug_into_terrain_builds_with_its_exit_lane_clear(fake: FakeBridg
     assert json.loads(_build(bridge, root, zone).read_text(encoding="utf-8"))["zone"] == zone
 
 
+def _lumber_with_stairs(root: Path, fake: FakeBridge, last_rise: int | None = None) -> None:
+    """Lumber's committed recipe over flat terrain at y 63, its last leg climbing ``last_rise`` rows when given."""
+    fake.worlds["lumber"] = FakeWorld(extent=((-64, -64), (64, 64)))
+    recipe = json.loads((PROJECT_ROOT / "levels" / "lumber.json").read_text(encoding="utf-8"))
+    recipe["steps"] = [{**step, "palette": "test_stone"} for step in recipe["steps"]]
+    (root / "levels" / "lumber.json").write_text(json.dumps(recipe), encoding="utf-8")
+    if last_rise is not None:
+        east = root / "specs" / "lumber_access_east.json"
+        east.write_text(json.dumps({**json.loads(east.read_text(encoding="utf-8")), "rise": last_rise}), encoding="utf-8")
+
+
+def test_lumber_builds_with_its_stairs_when_the_path_check_reaches_the_ground(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    _lumber_with_stairs(root, fake)
+    assert json.loads(_build(bridge, root, "lumber", checks=CHECKS).read_text(encoding="utf-8"))["zone"] == "lumber"
+
+
+def test_a_last_leg_that_ends_under_the_ground_refuses_the_build(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
+    _lumber_with_stairs(root, fake, last_rise=8)
+    _refused(bridge, root, "lumber", r"lumber_spawn_to_surface: ", checks=CHECKS)
+
+
 @pytest.mark.parametrize("side", ["north", "west"])
 def test_a_mine_dug_into_terrain_facing_north_or_west_builds_with_its_exit_lane_clear(
     fake: FakeBridge, bridge: Bridge, root: Path, side: str,
@@ -99,7 +126,11 @@ def test_a_mine_dug_into_terrain_facing_north_or_west_builds_with_its_exit_lane_
     spec["entrance"]["side"] = side
     spec_path.write_text(json.dumps(spec), encoding="utf-8")
     fake.worlds["mine_a"] = FakeWorld(extent=((-64, -64), (64, 64)))
-    assert json.loads(_build(bridge, root, "mine_a").read_text(encoding="utf-8"))["zone"] == "mine_a"
+    # A mine facing another side puts its rankup and sell signs elsewhere, which the level build refuses against the committed entries.
+    index = WorldIndex.load()
+    index.remove("rankup_npc_a")
+    index.remove("sell_npc_a")
+    assert json.loads(_build(bridge, root, "mine_a", index=index).read_text(encoding="utf-8"))["zone"] == "mine_a"
 
 
 def test_a_torch_in_the_interior_refuses_naming_the_entry_and_cell(bridge: Bridge, root: Path) -> None:
