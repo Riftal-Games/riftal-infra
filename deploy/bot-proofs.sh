@@ -4,11 +4,12 @@
 # network, takes item 2's per-start checks, and answers one hold with the root listing.
 #
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
-# count ran and teardown's listings were empty; 3 when a listing is exposure, whatever
-# else failed; 4 when the body ended 0 or 1 with the status otherwise 1, FOUND 0, at
-# least one listing taken and every one judged clean, every hold released open, no HOLD
-# FAILURE line and no start of "$NODE" recorded (bot-proofs-finish.sh); any other status
-# is a failure with no finding. The step turns 0 and 4 into the exposure output none and
+# count ran, teardown's listings were empty and every recorded runner was clean; 3 when
+# a listing is exposure, whatever else failed; 4 when the body ended 0 or 1 with the
+# status otherwise 1, FOUND 0, at least one listing taken and every one judged clean,
+# every hold released open, no HOLD FAILURE line and every recorded start of "$NODE" a
+# clean runner (bot-proofs-finish.sh); any other status is a failure with no finding.
+# The step turns 0 and 4 into the exposure output none and
 # 3 into found, with GITHUB_OUTPUT unset here. A TERM, an INT, the deadline and the
 # MySQL wait's `timeout 90` end the script with 124, which is never 4. A `timeout`
 # inside a check fails that check, and the `timeout 10` on iptables ends in `|| true`.
@@ -101,11 +102,11 @@ finish() {
   set +e
   trap '' TERM INT; trap - EXIT
   read_hold_log "$work/hold.log"
-  read_records "$work/runners"
+  read_records "$work/runners" "$work/hold.log" "$LOG"
   teardown
   ran=$((PASSES + FAILURES))
   status="$(finish_status "$rc")" || status=1
-  printf 'harness status %s after %ss, %s of %s assertions ran, %s passed, %s failed, listings exposure: %s, judged clean: %s of %s, starts recorded: %s\n' "$status" "$SECONDS" "$ran" "$EXPECTED_ASSERTIONS" "$PASSES" "$FAILURES" "$FOUND" "$LISTINGS_CLEAN" "$LISTINGS" "$RUNNERS"
+  printf 'harness status %s after %ss, %s of %s assertions ran, %s passed, %s failed, listings exposure: %s, judged clean: %s of %s, runners clean: %s of %s\n' "$status" "$SECONDS" "$ran" "$EXPECTED_ASSERTIONS" "$PASSES" "$FAILURES" "$FOUND" "$LISTINGS_CLEAN" "$LISTINGS" "$RUNNERS_CLEAN" "$RUNNERS"
   exit "$status"
 }
 trap finish EXIT; trap 'exit 124' TERM INT
