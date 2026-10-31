@@ -310,7 +310,7 @@ jobs:
           . .github/scripts/bot-proofs-scope.sh
           scope_run "$EVENT" "$BASE" "$HEAD" "$GITHUB_OUTPUT"
 
-  # ADR 024. The job holds a read token, starts one server and no bot, and every
+  # ADR 024. The job holds a read token, starts one server and its bots, and every
   # check before a container refuses with ::error:: and ends the job.
   bot-proofs:
     name: bot proofs
