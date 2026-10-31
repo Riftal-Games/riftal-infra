@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # The harness of the bot-proofs job (ADR 024 item 5, riftal-infra#1088), run by that
-# job's harness step alone. It boots instance A beside MySQL on a job network, takes
-# item 2's per-start checks, answers one hold with the root listing, and plays ADR 015
-# proof 1 with bots against the head's backup.sh and again against a mutant of it, then
-# against main's merge-base script through a tar shim while that script has no capture
-# request.
+# job's harness step alone. It boots instances A and B beside MySQL on a job network,
+# takes item 2's per-start checks at every start of either, answers one hold with the
+# root listing, and plays ADR 015 proof 1 with bots against the head's backup.sh and
+# again against a mutant of it, proof 3 the same way, then proof 1 against main's
+# merge-base script through a tar shim while that script has no capture request.
 #
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
 # count ran, teardown's listings were empty and every recorded runner was clean; 3 when
@@ -29,14 +29,14 @@ ID="${GITHUB_RUN_ID:-}_${GITHUB_RUN_ATTEMPT:-}"
 [[ $ID =~ ^[0-9]+_[0-9]+$ ]] || { printf '::error::no run id and attempt\n'; exit 1; }
 P=riftal_smoke_ci_$ID
 NET=${P}_net DB=${P}_db A=${P}_a VOL=${P}_adata CAP=${P}_cap SETS=${P}_sets IMG=${P}_tool
-RDB=${P}_rdb RVOL=${P}_rvol BK=${P}_bk SHIM=${P}_shim
-for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG" "$RDB" "$RVOL" "$BK" "$SHIM"; do
+RDB=${P}_rdb RVOL=${P}_rvol BK=${P}_bk SHIM=${P}_shim B=${P}_b BVOL=${P}_bdata
+for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG" "$RDB" "$RVOL" "$BK" "$SHIM" "$B" "$BVOL"; do
   [[ $name =~ ^riftal_smoke_ci_[0-9]+_[0-9]+_[a-z]+$ && ! $name =~ world|player|backup ]] || { printf '::error::%s is not a name this harness may create\n' "$name"; exit 1; }
 done
 
 # The deadline lets teardown and the summary line run before the runner kills the step.
 if [ -z "${BOT_PROOFS_INNER:-}" ]; then
-  BOT_PROOFS_INNER=1 exec timeout --preserve-status -k 120 600 bash "${BASH_SOURCE[0]}"
+  BOT_PROOFS_INNER=1 exec timeout --preserve-status -k 120 720 bash "${BASH_SOURCE[0]}"
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -57,7 +57,7 @@ grep -qF CAPTURE_DIR "$BASE_SH" || CONTROL=1
 
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
-EXPECTED_ASSERTIONS=$((17 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" under="" RED=""
+EXPECTED_ASSERTIONS=$((46 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" LOGB="" NB=0 under="" RED=""
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
@@ -81,28 +81,32 @@ residue() {
   done
 }
 
+# $1 the variable holding the server's pid, $2 its stdin descriptor, $3 its container, $4 its log.
 halt() {
-  [ -n "$spid" ] || return 0
-  echo stop >&3 || true
-  for _ in $(seq 1 300); do kill -0 "$spid" 2>/dev/null || break; sleep 0.2; done
-  exec 3>&-
+  local -n pid=$1
+  local label=${3##*_} log=$4
+  [ -n "$pid" ] || return 0
+  echo stop >&"$2" || true
+  for _ in $(seq 1 300); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
+  eval "exec $2>&-"
   # SIGTERM is the server's own graceful stop; nothing here kills it.
-  ! kill -0 "$spid" 2>/dev/null || docker stop -t 30 "$A" >/dev/null 2>&1 || true
-  wait "$spid" || true
-  spid=""
-  tail -n 4 "$LOG" | sed 's/^/  A | /'
-  check "A stopped on stdin, logged its shutdown and nothing above WARNING" \
-    'grep -qF "Stopping other threads" "$LOG" && ! grep -qE "$SEVERE" "$LOG"'
+  ! kill -0 "$pid" 2>/dev/null || docker stop -t 30 "$3" >/dev/null 2>&1 || true
+  wait "$pid" || true
+  pid=""
+  tail -n 4 "$log" | sed "s/^/  ${label^^} | /"
+  check "${label^^} stopped on stdin, logged its shutdown and nothing above WARNING" \
+    'grep -qF "Stopping other threads" "$log" && ! grep -qE "$SEVERE" "$log"'
 }
 
 teardown() {
   local left=""
-  halt
+  halt spid 3 "$A" "$LOG"
+  halt bspid 4 "$B" "$LOGB"
   docker stop -t 30 "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
   for _ in $(seq 1 30); do
     docker rm -v "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
     docker network rm "$NET" >/dev/null 2>&1 || true
-    docker volume rm "$VOL" "$CAP" "$SETS" "$RVOL" "$SHIM" >/dev/null 2>&1 || true
+    docker volume rm "$VOL" "$BVOL" "$CAP" "$SETS" "$RVOL" "$SHIM" >/dev/null 2>&1 || true
     docker image rm "$IMG:head" >/dev/null 2>&1 || true
     left="$(residue)" || left="docker could not list"
     [ -n "$left" ] || break
@@ -140,7 +144,7 @@ async function hold () {
   const listing = await takeListing({ platform: 'linux', pid: process.pid, liveBots: 1 })
   console.log(`RUNNER LISTING ${listing.verdict}: ${listing.reason}`)
   const e = process.env
-  const h = rootHold({ image: e.IMAGE, nameFor: n => `${e.PREFIX}_rootlisting_${n}`, eth0: e.ETH0, instances: [parseInstance(e.INSTANCE)], maxHolds: 1, command: args => ({ file: 'docker', args, timeoutMs: 40000 }) })
+  const h = rootHold({ image: e.IMAGE, nameFor: n => `${e.PREFIX}_rootlisting_${n}`, eth0: e.ETH0, instances: e.INSTANCE.split(';').map(parseInstance), maxHolds: 1, command: args => ({ file: 'docker', args, timeoutMs: 40000 }) })
   const answer = await h.answer(1, { port: held }, listing)
   let state = 'open'
   try { sock.address() } catch { state = 'closed' }
@@ -180,7 +184,7 @@ fi
 
 docker build -q --label "riftal.ci.job=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB:-job}" -t "$IMG:head" "$ROOT/images/backup" >/dev/null
 docker network create "$NET" >/dev/null
-for vol in "$VOL" "$CAP" "$SETS" "$SHIM"; do docker volume create "$vol" >/dev/null; done
+for vol in "$VOL" "$BVOL" "$CAP" "$SETS" "$SHIM"; do docker volume create "$vol" >/dev/null; done
 docker run -d --rm --name "$DB" -m 1g --cpus 1 --network "$NET" --network-alias db \
   -e MYSQL_ROOT_PASSWORD="$PW" -e MYSQL_DATABASE=riftal_smoke_ci mysql:8 >/dev/null
 timeout 90 bash -c 'until docker exec "$0" mysqladmin ping -h 127.0.0.1 --silent >/dev/null 2>&1; do sleep 1; done' "$DB"
@@ -190,39 +194,51 @@ check "the backup image reaches MySQL over the job network and writes both volum
 
 mkdir "$work/plugins" && cp "$ROOT/images/plugins/RiftalCapture.php" "$ROOT/images/plugins/RiftalDevBots.php" "$work/plugins/"
 chmod -R a+rX "$work"
-mkfifo "$work/in"
-docker run --rm -i --name "$A" -m 2g --cpus 2 --network "$NET" -p 127.0.0.1::19132/udp \
-  -v "$VOL:/data" -v "$work/plugins:/plugins:ro" -v "$CAP:/capture:ro" -e RIFTAL_DEV_ENV=1 \
-  -e "POCKETMINE_ARGS=--level-type=flat --xbox-auth=false --riftal-dev-bots=on --auto-report.enabled=0 --ticks-per.autosave=200" \
-  "$CORE_IMAGE" start-pocketmine <"$work/in" >"$LOG" 2>&1 &
-spid=$!; exec 3>"$work/in"
-check "A reaches LOADS: Done, RiftalCapture and RiftalDevBots enabled, nothing above WARNING" \
-  'timeout 120 bash -c "until grep -qF \"Done (\" $LOG; do sleep 0.2; done" && grep -q "Enabling RiftalCapture" "$LOG" && grep -q "Enabling RiftalDevBots" "$LOG" &&
-   ! grep -qE "$SEVERE" "$LOG"'
-[ "$FAILURES" -eq 0 ] || { tail -n 40 "$LOG"; exit 1; }
+# $1 a container, $2 its volume, $3 its log, $4 its stdin descriptor, $5 the variable for
+# its pid. Starts it, asserts its LOADS, and takes ADR 024 item 2's checks of this start
+# before any bot connects to it. Sets NH, its host port, and NC, its address on the job network.
+up() {
+  local -n pid=$5
+  local log=$3 fifo="$work/in$4" label=${1##*_} inspect raw port='(index (index .NetworkSettings.Ports "19132/udp") 0)'
+  label=${label^^}
+  [ -p "$fifo" ] || mkfifo "$fifo"
+  docker run --rm -i --name "$1" -m 2g --cpus 2 --network "$NET" -p 127.0.0.1::19132/udp \
+    -v "$2:/data" -v "$work/plugins:/plugins:ro" -v "$CAP:/capture:ro" -e RIFTAL_DEV_ENV=1 \
+    -e "POCKETMINE_ARGS=--level-type=flat --xbox-auth=false --riftal-dev-bots=on --auto-report.enabled=0 --ticks-per.autosave=200" \
+    "$CORE_IMAGE" start-pocketmine <"$fifo" >"$log" 2>&1 &
+  pid=$!
+  eval "exec $4>\"$fifo\""
+  check "$label reaches LOADS: Done, RiftalCapture and RiftalDevBots enabled, nothing above WARNING" \
+    'timeout 120 bash -c "until grep -qF \"Done (\" $log; do sleep 0.2; done" && grep -q "Enabling RiftalCapture" "$log" && grep -q "Enabling RiftalDevBots" "$log" &&
+     ! grep -qE "$SEVERE" "$log"'
+  [ "$FAILURES" -eq 0 ] || { tail -n 40 "$log"; exit 1; }
+  inspect="$(docker inspect -f "HostIp={{$port.HostIp}} HostPort={{$port.HostPort}} Memory={{.HostConfig.Memory}} NanoCpus={{.HostConfig.NanoCpus}} Cmd={{json .Config.Cmd}} Env={{json .Config.Env}}" "$1")"
+  printf '%s: %s\n' "$label" "$inspect"
+  NH="$(sed -E 's/.* HostPort=([0-9]+) .*/\1/' <<<"$inspect")"
+  NC="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$1")"
+  GW="$(docker network inspect -f '{{(index .IPAM.Config 0).Gateway}}' "$NET")"
+  BR="br-$(docker network inspect -f '{{.Id}}' "$NET" | cut -c1-12)"
+  raw="$(timeout 10 sudo -n iptables -t raw -S PREROUTING || true)"
+  printf 'ip_forward=%s, %s at %s behind %s on %s, raw table:\n%s\n' "$(cat /proc/sys/net/ipv4/ip_forward)" "$label" "$NC" "$GW" "$BR" "$raw"
+  check "$label publishes 19132/udp on 127.0.0.1 and a host port Docker chose, under -m 2g --cpus 2" \
+    'grep -qE "^HostIp=127\.0\.0\.1 HostPort=[0-9]+ Memory=2147483648 NanoCpus=2000000000 " <<<"$inspect"'
+  check "$label started with xbox-auth off, dev bots on, crash upload off and RIFTAL_DEV_ENV=1" \
+    'grep -qF -- "--xbox-auth=false --riftal-dev-bots=on --auto-report.enabled=0" <<<"$inspect" && grep -qF "RIFTAL_DEV_ENV=1" <<<"$inspect"'
+  check "$label: route_localnet=0 on eth0 and on $BR" \
+    '[ "$(cat /proc/sys/net/ipv4/conf/{eth0,$BR}/route_localnet | tr -d "\n")" = 00 ]'
+  check "$label: Docker drops traffic to $NC that does not arrive on $BR" 'grep -qxF -- "-A PREROUTING -d $NC/32 ! -i $BR -j DROP" <<<"$raw"'
+  check "$label: a ping of 127.0.0.1:$NH answers" 'DT="$DT" "$NODE" "$work/probe.js" ping "$NH"'
+  [ "$FAILURES" -eq 0 ] || exit 1
+}
 
-# ADR 024 item 2: read at this start of A, after its LOADS and before any bot connects.
-port='(index (index .NetworkSettings.Ports "19132/udp") 0)'
-INSPECT="$(docker inspect -f "HostIp={{$port.HostIp}} HostPort={{$port.HostPort}} Memory={{.HostConfig.Memory}} NanoCpus={{.HostConfig.NanoCpus}} Cmd={{json .Config.Cmd}} Env={{json .Config.Env}}" "$A")"
-printf 'A: %s\n' "$INSPECT"
-H="$(sed -E 's/.* HostPort=([0-9]+) .*/\1/' <<<"$INSPECT")"
-C="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$A")"
-GW="$(docker network inspect -f '{{(index .IPAM.Config 0).Gateway}}' "$NET")"
-BR="br-$(docker network inspect -f '{{.Id}}' "$NET" | cut -c1-12)"
-RAW="$(timeout 10 sudo -n iptables -t raw -S PREROUTING || true)"
-printf 'ip_forward=%s, A at %s behind %s on %s, raw table:\n%s\n' "$(cat /proc/sys/net/ipv4/ip_forward)" "$C" "$GW" "$BR" "$RAW"
-check "A publishes 19132/udp on 127.0.0.1 and a host port Docker chose, under -m 2g --cpus 2" \
-  'grep -qE "^HostIp=127\.0\.0\.1 HostPort=[0-9]+ Memory=2147483648 NanoCpus=2000000000 " <<<"$INSPECT"'
-check "A started with xbox-auth off, dev bots on, crash upload off and RIFTAL_DEV_ENV=1" \
-  'grep -qF -- "--xbox-auth=false --riftal-dev-bots=on --auto-report.enabled=0" <<<"$INSPECT" && grep -qF "RIFTAL_DEV_ENV=1" <<<"$INSPECT"'
-check "route_localnet=0 on eth0 and on $BR" \
-  '[ "$(cat /proc/sys/net/ipv4/conf/{eth0,$BR}/route_localnet | tr -d "\n")" = 00 ]'
-check "Docker drops traffic to $C that does not arrive on $BR" 'grep -qxF -- "-A PREROUTING -d $C/32 ! -i $BR -j DROP" <<<"$RAW"'
-check "a ping of 127.0.0.1:$H answers" 'DT="$DT" "$NODE" "$work/probe.js" ping "$H"'
-[ "$FAILURES" -eq 0 ] || exit 1
+up "$A" "$VOL" "$LOG" 3 spid
+H=$NH C=$NC
+LOGB="$work/b$((++NB)).log"
+up "$B" "$BVOL" "$LOGB" 4 bspid
+HB=$NH CB=$NC
 
 rc=0
-DT="$DT" IMAGE="$DEVTOOLS_IMAGE" PREFIX="$P" ETH0="$ETH0" INSTANCE="$H,$C,$GW" "$NODE" "$work/probe.js" hold >"$work/hold.log" 2>&1 || rc=$?
+DT="$DT" IMAGE="$DEVTOOLS_IMAGE" PREFIX="$P" ETH0="$ETH0" INSTANCE="$H,$C,$GW;$HB,$CB,$GW" "$NODE" "$work/probe.js" hold >"$work/hold.log" 2>&1 || rc=$?
 sed 's/^/  | /' "$work/hold.log"
 [ "$rc" -ne 3 ] || FOUND=1
 read -r RPID RPORT < <(sed -n 's/^RUNNER pid=\([0-9]*\) port=\([0-9]*\)$/\1 \2/p' "$work/hold.log") || true
@@ -233,6 +249,8 @@ check "hold 1 was answered probed and released open on port ${RPORT:-none}" \
   'grep -qx "probed 1" "$work/hold.log" && grep -qx "PROBE RELEASED 1 ${RPORT:-0} open" "$work/hold.log"'
 check "the root listing attributes 127.0.0.1:$H to docker-proxy" \
   'grep -qE "127\.0\.0\.1:$H +[0-9.*:]+ +users:\(\(\"docker-proxy\",pid=" "$work/hold.log"'
+check "the root listing attributes 127.0.0.1:$HB to docker-proxy" \
+  'grep -qE "127\.0\.0\.1:$HB +[0-9.*:]+ +users:\(\(\"docker-proxy\",pid=" "$work/hold.log"'
 check "the root listing attributes 127.0.0.1:${RPORT:-none} to this runner's process, pid ${RPID:-none}" \
   'grep -qE "127\.0\.0\.1:${RPORT:-0} +[0-9.*:]+ +users:\(\(\"[^\"]+\",pid=${RPID:-0}," "$work/hold.log"'
 [ "$FOUND" = 0 ] || exit 3
@@ -244,6 +262,10 @@ check "the root listing attributes 127.0.0.1:${RPORT:-none} to this runner's pro
 STALL=90
 # $1 a literal string; $2 a file; $3 seconds to wait for the string in it
 await() { timeout "$3" bash -c 'until grep -qF -- "$0" "$1" 2>/dev/null; do sleep 0.2; done' "$1" "$2"; }
+
+# An exposure ends the run with exit 3 ahead of any failure, and a failure ends it
+# before another bot connects.
+gate() { [ "$FOUND" = 0 ] || exit 3; [ "$FAILURES" -eq 0 ] || { tail -n 60 "$LOG"; exit 1; }; }
 
 # Counts the minecraft:dirt entries of each named bot's saved inventory on /v.
 cat >"$work/count.js" <<'JS'
@@ -259,21 +281,36 @@ const nbt = require('/devtools/node_modules/prismarine-nbt')
 })()
 JS
 
+# $1 a scenario, $2 its bots' count, $3 an instance's container, $4 its host port, $5 the
+# scenario's log. Both instances stand in its listings. Sets BPID.
+bots() {
+  BOT_PORT="$4" timeout 240 "$NODE" "$DT/run-scenario.js" "$1" --container "$3" --engine docker \
+    --in-distro --max-holds "$2" --hold-budget-sec 60 --listing-image "$DEVTOOLS_IMAGE" --listing-name-prefix "$P" \
+    --eth0 "$ETH0" --instance "$H,$C,$GW" --instance "$HB,$CB,$GW" >"$5" 2>&1 </dev/null &
+  BPID=$!
+}
+
 # $1 the bots' log. Starts proof 1's bots on a fresh pair of saved files and sets BPID.
 p1_bots() {
   docker run --rm -m 1g --cpus 1 -v "$VOL:/d" "$IMG:head" rm -f /d/players/p1a.dat /d/players/p1b.dat
   rm -f "$work/stall" "$work/end"
-  BOT_PORT="$H" CAPTURE_STALL_FILE="$work/stall" CAPTURE_END_FILE="$work/end" \
-    timeout 240 "$NODE" "$DT/run-scenario.js" capture-stall-drop-pickup --container "$A" --engine docker \
-    --in-distro --max-holds 2 --hold-budget-sec 60 --listing-image "$DEVTOOLS_IMAGE" --listing-name-prefix "$P" \
-    --eth0 "$ETH0" --instance "$H,$C,$GW" >"$1" 2>&1 </dev/null &
-  BPID=$!
+  CAPTURE_STALL_FILE="$work/stall" CAPTURE_END_FILE="$work/end" bots capture-stall-drop-pickup 2 "$A" "$H" "$1"
 }
 
-# $1 a volume. Prints each proof 1 bot's count of dirt stacks in its saved file there.
+# $1 a volume, the rest the bots' names. Prints each one's count of dirt stacks in its saved file there.
 stacks() {
   docker run --rm -m 1g --cpus 1 -v "$1:/v:ro" -v "$work/count.js:/count.js:ro" "$DEVTOOLS_IMAGE" \
-    /devtools/node-runtime/bin/node /count.js p1a p1b || true
+    /devtools/node-runtime/bin/node /count.js "${@:2}" || true
+}
+
+# $1 the backup script, $2 its request id, $3 the volume mount it tars, $4 its log. Starts
+# it with the stall and leaves it running.
+backup_run() {
+  docker run --rm --name "$BK" -m 1g --cpus 1 --network "$NET" \
+    -v "$1:/deploy/backup.sh:ro" -v "$SETS:/backups" -v "$CAP:/capture" -v "$3" \
+    -e MYSQL_HOST=db -e MYSQL_USER=root -e MYSQL_PASSWORD="$PW" -e MYSQL_DATABASE=riftal_smoke_ci \
+    -e CAPTURE_TEST_REQUEST_ID="$2" -e CAPTURE_TEST_STALL_SECONDS="$STALL" \
+    "$IMG:head" bash /deploy/backup.sh >"$4" 2>&1 &
 }
 
 # $1 a tag for the run's files; $2 the backup script to run; $3 its request id.
@@ -283,11 +320,7 @@ p1_run() {
   p1_bots "$bots"
   bpid=$BPID
   await "CAPTURE WAIT stall" "$bots" 120 || true
-  docker run --rm --name "$BK" -m 1g --cpus 1 --network "$NET" \
-    -v "$2:/deploy/backup.sh:ro" -v "$SETS:/backups" -v "$CAP:/capture" -v "$VOL:/worlds/a:ro" \
-    -e MYSQL_HOST=db -e MYSQL_USER=root -e MYSQL_PASSWORD="$PW" -e MYSQL_DATABASE=riftal_smoke_ci \
-    -e CAPTURE_TEST_REQUEST_ID="$3" -e CAPTURE_TEST_STALL_SECONDS="$STALL" \
-    "$IMG:head" bash /deploy/backup.sh >"$bk" 2>&1 &
+  backup_run "$2" "$3" "$VOL:/worlds/a:ro" "$bk"
   jpid=$!
   await "capture $3 held" "$LOG" 60 || true
   touch "$work/stall"
@@ -300,17 +333,18 @@ p1_run() {
   sed 's/^/  run | /' "$bk"
 }
 
-# $1 the run's tag. Restores its set onto a fresh volume with the head's
-# restore.sh, then reads the manifest and the restored inventories.
-p1_restore() {
+# $1 the run's tag, $2 the letter of the volume its set holds, the rest the bots' names.
+# Restores the set onto a fresh volume with the head's restore.sh, then reads the
+# manifest and the restored inventories.
+restore_set() {
   local set
   set="$(sed -n 's|.*complete at /backups/||p' "$work/$1-bk.log")"
   docker volume create "$RVOL" >/dev/null
   docker run --rm -m 1g --cpus 1 --network "$NET" -v "$ROOT/deploy/restore.sh:/deploy/restore.sh:ro" \
-    -v "$SETS:/backups:ro" -v "$RVOL:/worlds/a" -e MYSQL_HOST=rdb -e MYSQL_USER=root -e MYSQL_PASSWORD="$PW" \
+    -v "$SETS:/backups:ro" -v "$RVOL:/worlds/$2" -e MYSQL_HOST=rdb -e MYSQL_USER=root -e MYSQL_PASSWORD="$PW" \
     -e MYSQL_DATABASE=riftal_smoke_ci -e BACKUP_SET="/backups/$set" "$IMG:head" bash /deploy/restore.sh 2>&1 | sed 's/^/  restore | /' || true
   MANIFEST="$(docker run --rm -m 1g --cpus 1 -v "$SETS:/b:ro" "$IMG:head" cat "/b/$set/manifest.txt" || true)"
-  STACKS="$(stacks "$RVOL")"
+  STACKS="$(stacks "$RVOL" "${@:3}")"
   docker volume rm "$RVOL" >/dev/null
   printf 'manifest:\n%s\nrestored dirt stacks: %s\n' "$MANIFEST" "$(tr '\n' ' ' <<<"$STACKS")"
 }
@@ -318,7 +352,7 @@ p1_restore() {
 # $1 the run's tag; $2 its request id
 p1_judge() {
   TAG="$1" RID="$2"
-  p1_restore "$TAG"
+  restore_set "$TAG" a p1a p1b
   check "[p1-bots] proof 1's bots passed behind clean holds inside the stall, and the run completed" \
     '[ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-drop-pickup" "$work/$TAG-bots.log" && [ "$EARLY" = 0 ] && [ "$JRC" = 0 ]'
   check "[p1-manifest] 1. the manifest marks A held $RID" 'grep -qxF "capture_mode.a: held $RID" <<<"$MANIFEST"'
@@ -331,8 +365,7 @@ docker run -d --rm --name "$RDB" -m 1g --cpus 1 --network "$NET" --network-alias
 p1_run head "$ROOT/deploy/backup.sh" "p1-$ID"
 timeout 90 bash -c 'until docker exec "$0" mysqladmin ping -h 127.0.0.1 --silent >/dev/null 2>&1; do sleep 1; done' "$RDB"
 p1_judge head "p1-$ID"
-[ "$FOUND" = 0 ] || exit 3
-[ "$FAILURES" -eq 0 ] || { tail -n 60 "$LOG"; exit 1; }
+gate
 
 # The held volume's tar reads the live players/ in place of the stage, so the
 # restored set holds what the bots left: p1b's stack, and none in p1a's file.
@@ -348,6 +381,78 @@ under=""
 printf '%s' "$RED"
 check "mutant stage-ignored turns only [p1-stacks] red, with p1b's file holding the stack" \
   '[ "$(grep -c "^red under" <<<"$RED")" = 1 ] && grep -q "^red under stage-ignored: \[p1-stacks\]" <<<"$RED" && grep -qx "p1b 1" <<<"$STACKS"'
+
+# ADR 015 proof 3. B is down when the run asks for its hold, so the run lists it as
+# stopped. B starts during the stall; the run must see the volume differ, wait on it
+# again under the held request, and tar it as held, with the stage of the held tick,
+# in which p3a still holds the stack.
+gate
+
+# $1 a tag for the run's files; $2 the backup script to run; $3 its request id.
+# B is running when this starts and again when it ends. Sets BRC, JRC and EARLY as p1_run does.
+# Its checks count under a mutant too, since a failure of any of them must stop the bots.
+p3_run() {
+  local seed="$work/$1-seed.log" bots="$work/$1-bots.log" bk="$work/$1-bk.log" jpid keep=$under
+  under=""
+  docker run --rm -m 1g --cpus 1 -v "$BVOL:/d" "$IMG:head" rm -f /d/players/p3a.dat /d/players/p3b.dat
+  bots capture-stall-seed-stack 1 "$B" "$HB" "$seed"
+  SRC=0; wait "$BPID" || SRC=$?
+  [ "$SRC" -ne 4 ] || FOUND=1
+  sed 's/^/  seed | /' "$seed"
+  halt bspid 4 "$B" "$LOGB"
+  check "[p3-seed] p3a mined and quit holding a stack, and B stopped cleanly with its server.lock gone" \
+    '[ "$SRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-seed-stack" "$seed" &&
+     docker run --rm -m 1g --cpus 1 -v "$BVOL:/v:ro" "$IMG:head" test ! -e /v/server.lock'
+  backup_run "$2" "$3" "$BVOL:/worlds/b:ro" "$bk"
+  jpid=$!
+  await "volume b is down" "$bk" 60 || true
+  LOGB="$work/b$((++NB)).log"
+  up "$B" "$BVOL" "$LOGB" 4 bspid
+  HB=$NH CB=$NC
+  await "capture $3 held" "$LOGB" 60 || true
+  gate
+  bots capture-stall-late-start-drop-pickup 2 "$B" "$HB" "$bots"
+  BRC=0; wait "$BPID" || BRC=$?
+  [ "$BRC" -ne 4 ] || FOUND=1
+  EARLY=0; ! grep -qF "snapshotting world volume" "$bk" || EARLY=1
+  JRC=0; wait "$jpid" || JRC=$?
+  sed 's/^/  bots | /' "$bots"
+  sed 's/^/  run | /' "$bk"
+  under=$keep
+}
+
+# $1 the run's tag; $2 its request id
+p3_judge() {
+  local bots="$work/$1-bots.log" bk="$work/$1-bk.log" rid=$2
+  restore_set "$1" b p3a p3b
+  check "[p3-bots] proof 3's bots passed behind clean holds inside the stall, and the run completed" \
+    '[ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-late-start-drop-pickup" "$bots" && [ "$EARLY" = 0 ] && [ "$JRC" = 0 ]'
+  check "[p3-retry] 3. the log shows B's listing differ, then the volume tarred again as held" \
+    'grep -q "volume b after its tar: server.lock " "$bk" && grep -qF "volume b is held for request $rid" "$bk" && grep -q "tar of volume b, held, exited 0" "$bk"'
+  check "[p3-manifest] 3. the manifest marks B held $rid" 'grep -qxF "capture_mode.b: held $rid" <<<"$MANIFEST"'
+  check "[p3-stacks] 3. the restored set holds exactly one stack in p3a's file and none in p3b's" \
+    'grep -qx "p3a 1" <<<"$STACKS" && grep -qx "p3b 0" <<<"$STACKS"'
+}
+
+p3_run h3 "$ROOT/deploy/backup.sh" "p3-$ID"
+p3_judge h3 "p3-$ID"
+gate
+
+# A change to the volume during its tar is ignored, so B is tarred as the stopped
+# volume the first listing saw, and the set holds what the bots left: p3b's stack, none
+# in p3a's file, and a stopped mark in place of a held one.
+sed 's|if \[ "$after" != .* \]; then|if false; then|' "$ROOT/deploy/backup.sh" >"$work/listing-ignored.sh"
+printf '\n== mutant listing-ignored, against proof 3\n'
+diff "$ROOT/deploy/backup.sh" "$work/listing-ignored.sh" || true
+under=listing-ignored
+if ! cmp -s "$ROOT/deploy/backup.sh" "$work/listing-ignored.sh"; then
+  p3_run m3 "$work/listing-ignored.sh" "p3m-$ID"
+  p3_judge m3 "p3m-$ID"
+fi
+under=""
+grep '^red under listing-ignored' <<<"$RED" || true
+check "mutant listing-ignored turns only [p3-retry], [p3-manifest] and [p3-stacks] red, with p3b's file holding the stack" \
+  '[ "$(grep -c "^red under listing-ignored: " <<<"$RED")" = 3 ] && [ "$(grep -c "^red under listing-ignored: \[p3-\(retry\|manifest\|stacks\)\]" <<<"$RED")" = 3 ] && grep -qx "p3b 1" <<<"$STACKS"'
 
 # Proof 1's control. main's merge-base script tars A's volume in one tar call, and the
 # shim splits it: every member but p1b's file, then, once the bots have dropped and
@@ -370,7 +475,7 @@ SH
 chmod +x "$work/tar"
 
 # True once p1a's saved file on A holds the stack.
-saved() { grep -qx "p1a 1" <<<"$(stacks "$VOL")"; }
+saved() { grep -qx "p1a 1" <<<"$(stacks "$VOL" p1a)"; }
 
 # True once both bots' saved files on A are newer than the shim's pass 1 marker.
 rewritten() {
@@ -403,7 +508,7 @@ control() {
   JRC=0; wait "$jpid" || JRC=$?
   sed 's/^/  bots | /' "$bots"
   sed 's/^/  run | /' "$bk"
-  p1_restore ctl
+  restore_set ctl a p1a p1b
   check "[ctl-bots] the control's bots passed behind clean holds" \
     '[ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-drop-pickup" "$bots"'
   check "[ctl-shim] the shim saw one tar call on A, both passes, pass 2 reading p1b's file, and the run completed" \

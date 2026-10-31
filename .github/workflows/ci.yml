@@ -310,7 +310,7 @@ jobs:
           . .github/scripts/bot-proofs-scope.sh
           scope_run "$EVENT" "$BASE" "$HEAD" "$GITHUB_OUTPUT"
 
-  # ADR 024. The job holds a read token, starts one server and its bots, and every
+  # ADR 024. The job holds a read token, starts two servers and their bots, and every
   # check before a container refuses with ::error:: and ends the job.
   bot-proofs:
     name: bot proofs
@@ -319,7 +319,7 @@ jobs:
     if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
     runs-on: [self-hosted, linux, riftal]
     # Under ci-sweep-selftest.sh's reap_after, like every job here.
-    timeout-minutes: 15
+    timeout-minutes: 17
     permissions:
       contents: read
       issues: read
