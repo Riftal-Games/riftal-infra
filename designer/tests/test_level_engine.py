@@ -416,3 +416,38 @@ def test_the_cli_defaults_and_overrides_reach_the_limits() -> None:
     assert (options.memory, options.cpus, options.tool_memory, options.tool_cpus) == ("2g", "2", "1g", "1")
     options = parser.parse_args(["level", "build", "zt", "--memory", "4g", "--cpus", "3", "--tool-memory", "2g", "--tool-cpus", "2"])
     assert (options.memory, options.cpus, options.tool_memory, options.tool_cpus) == ("4g", "3", "2g", "2")
+
+
+def _cli_build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *extra: str) -> tuple[int, list[level_engine.Limits]]:
+    from designer.cli import main
+
+    seen: list[level_engine.Limits] = []
+    lock = tmp_path / "zt.lock.json"
+    lock.write_text(json.dumps({"content_sha256": "c0ffee"}), encoding="utf-8")
+
+    def fake_build(zone: str, runtime: str, sources: Sources, **kwargs: level_engine.Limits) -> Path:
+        seen.append(kwargs["limits"])
+        return lock
+
+    monkeypatch.setattr(level_engine, "build", fake_build)
+    monkeypatch.setattr(stack, "runtime_name", lambda: "docker")
+    (tmp_path / "DevTools.phar").write_bytes(b"x")
+    return main(["level", "build", "zt", "--designbridge", str(tmp_path), "--plugins", str(tmp_path), *extra]), seen
+
+
+def test_the_cli_hands_its_limit_options_to_the_build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    code, seen = _cli_build(monkeypatch, tmp_path, "--memory", "4g", "--cpus", "0", "--tool-memory", "0", "--tool-cpus", "0.5")
+    assert code == 0
+    assert seen == [level_engine.Limits(memory="4g", cpus="0", tool_memory="0", tool_cpus="0.5")]
+
+
+def test_the_cli_builds_under_the_default_limits_when_given_none(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    code, seen = _cli_build(monkeypatch, tmp_path)
+    assert code == 0 and seen == [level_engine.Limits()]
+
+
+@pytest.mark.parametrize("option", ["--memory", "--cpus", "--tool-memory", "--tool-cpus"])
+def test_the_cli_refuses_a_malformed_limit_without_building(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], option: str) -> None:
+    code, seen = _cli_build(monkeypatch, tmp_path, option, "lots")
+    assert code == 1 and seen == []
+    assert option in capsys.readouterr().err
