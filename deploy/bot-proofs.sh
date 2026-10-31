@@ -2,7 +2,9 @@
 # The harness of the bot-proofs job (ADR 024 item 5, riftal-infra#1088), run by that
 # job's harness step alone. It boots instance A beside MySQL on a job network, takes
 # item 2's per-start checks, answers one hold with the root listing, and plays ADR 015
-# proof 1 with bots against the head's backup.sh and again against a mutant of it.
+# proof 1 with bots against the head's backup.sh and again against a mutant of it, then
+# against main's merge-base script through a tar shim while that script has no capture
+# request.
 #
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
 # count ran, teardown's listings were empty and every recorded runner was clean; 3 when
@@ -27,8 +29,8 @@ ID="${GITHUB_RUN_ID:-}_${GITHUB_RUN_ATTEMPT:-}"
 [[ $ID =~ ^[0-9]+_[0-9]+$ ]] || { printf '::error::no run id and attempt\n'; exit 1; }
 P=riftal_smoke_ci_$ID
 NET=${P}_net DB=${P}_db A=${P}_a VOL=${P}_adata CAP=${P}_cap SETS=${P}_sets IMG=${P}_tool
-RDB=${P}_rdb RVOL=${P}_rvol BK=${P}_bk
-for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG" "$RDB" "$RVOL" "$BK"; do
+RDB=${P}_rdb RVOL=${P}_rvol BK=${P}_bk SHIM=${P}_shim
+for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG" "$RDB" "$RVOL" "$BK" "$SHIM"; do
   [[ $name =~ ^riftal_smoke_ci_[0-9]+_[0-9]+_[a-z]+$ && ! $name =~ world|player|backup ]] || { printf '::error::%s is not a name this harness may create\n' "$name"; exit 1; }
 done
 
@@ -47,9 +49,15 @@ DT="${RUNNER_TEMP:?}/riftal-devtools" NODE="$DT/node-runtime/bin/node"
 [ -x "$NODE" ] || { printf '::error::%s is not the devtools image'"'"'s node\n' "$NODE"; exit 1; }
 ETH0="$(eth0_address)" || { printf '%s\n' "$ETH0"; exit 1; }
 
+# The control runs main's merge-base script, which the job fetched ahead of this step,
+# only while that script has no capture request.
+BASE_SH="${RUNNER_TEMP:?}/merge-base/backup.sh" CONTROL=0
+[ -s "$BASE_SH" ] || { printf '::error::no merge-base deploy/backup.sh at %s\n' "$BASE_SH"; exit 1; }
+grep -qF CAPTURE_DIR "$BASE_SH" || CONTROL=1
+
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
-EXPECTED_ASSERTIONS=17 FOUND=0 PASSES=0 FAILURES=0 spid="" under="" RED=""
+EXPECTED_ASSERTIONS=$((17 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" under="" RED=""
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
@@ -94,7 +102,7 @@ teardown() {
   for _ in $(seq 1 30); do
     docker rm -v "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
     docker network rm "$NET" >/dev/null 2>&1 || true
-    docker volume rm "$VOL" "$CAP" "$SETS" "$RVOL" >/dev/null 2>&1 || true
+    docker volume rm "$VOL" "$CAP" "$SETS" "$RVOL" "$SHIM" >/dev/null 2>&1 || true
     docker image rm "$IMG:head" >/dev/null 2>&1 || true
     left="$(residue)" || left="docker could not list"
     [ -n "$left" ] || break
@@ -164,10 +172,15 @@ PRHEAD="$(git -C "$ROOT" cat-file -p HEAD | awk '/^parent /&&++n==2{print $2}' |
 printf 'run %s, pr head %s, checkout %s, runner %s, eth0 %s, expecting %s assertions\n' "$ID" "${PRHEAD:-${GITHUB_SHA:-unknown}}" "${GITHUB_SHA:-unknown}" "${RUNNER_NAME:-unknown}" "$ETH0" "$EXPECTED_ASSERTIONS"
 for image in "$CORE_IMAGE" "$DEVTOOLS_IMAGE"; do printf 'image %s %s\n' "$image" "$(docker image inspect --format '{{.Id}}' "$image")"; done
 printf 'node %s\n' "$("$NODE" --version)"
+if [ "$CONTROL" = 1 ]; then
+  printf 'control runs: merge base %s of main has no capture request\n' "$(cat "${BASE_SH%/*}/sha")"
+else
+  printf 'control skipped: merge base %s of main has the capture request\n' "$(cat "${BASE_SH%/*}/sha")"
+fi
 
 docker build -q --label "riftal.ci.job=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB:-job}" -t "$IMG:head" "$ROOT/images/backup" >/dev/null
 docker network create "$NET" >/dev/null
-for vol in "$VOL" "$CAP" "$SETS"; do docker volume create "$vol" >/dev/null; done
+for vol in "$VOL" "$CAP" "$SETS" "$SHIM"; do docker volume create "$vol" >/dev/null; done
 docker run -d --rm --name "$DB" -m 1g --cpus 1 --network "$NET" --network-alias db \
   -e MYSQL_ROOT_PASSWORD="$PW" -e MYSQL_DATABASE=riftal_smoke_ci mysql:8 >/dev/null
 timeout 90 bash -c 'until docker exec "$0" mysqladmin ping -h 127.0.0.1 --silent >/dev/null 2>&1; do sleep 1; done' "$DB"
@@ -246,17 +259,29 @@ const nbt = require('/devtools/node_modules/prismarine-nbt')
 })()
 JS
 
-# $1 a tag for the run's files; $2 the backup script to run; $3 its request id.
-# Sets BRC, JRC and EARLY, the last being 1 when the tars began before the bots finished.
-p1_run() {
-  local bots="$work/$1-bots.log" bk="$work/$1-bk.log" bpid jpid
+# $1 the bots' log. Starts proof 1's bots on a fresh pair of saved files and sets BPID.
+p1_bots() {
   docker run --rm -m 1g --cpus 1 -v "$VOL:/d" "$IMG:head" rm -f /d/players/p1a.dat /d/players/p1b.dat
   rm -f "$work/stall" "$work/end"
   BOT_PORT="$H" CAPTURE_STALL_FILE="$work/stall" CAPTURE_END_FILE="$work/end" \
     timeout 240 "$NODE" "$DT/run-scenario.js" capture-stall-drop-pickup --container "$A" --engine docker \
     --in-distro --max-holds 2 --hold-budget-sec 60 --listing-image "$DEVTOOLS_IMAGE" --listing-name-prefix "$P" \
-    --eth0 "$ETH0" --instance "$H,$C,$GW" >"$bots" 2>&1 </dev/null &
-  bpid=$!
+    --eth0 "$ETH0" --instance "$H,$C,$GW" >"$1" 2>&1 </dev/null &
+  BPID=$!
+}
+
+# $1 a volume. Prints each proof 1 bot's count of dirt stacks in its saved file there.
+stacks() {
+  docker run --rm -m 1g --cpus 1 -v "$1:/v:ro" -v "$work/count.js:/count.js:ro" "$DEVTOOLS_IMAGE" \
+    /devtools/node-runtime/bin/node /count.js p1a p1b || true
+}
+
+# $1 a tag for the run's files; $2 the backup script to run; $3 its request id.
+# Sets BRC, JRC and EARLY, the last being 1 when the tars began before the bots finished.
+p1_run() {
+  local bots="$work/$1-bots.log" bk="$work/$1-bk.log" bpid jpid
+  p1_bots "$bots"
+  bpid=$BPID
   await "CAPTURE WAIT stall" "$bots" 120 || true
   docker run --rm --name "$BK" -m 1g --cpus 1 --network "$NET" \
     -v "$2:/deploy/backup.sh:ro" -v "$SETS:/backups" -v "$CAP:/capture" -v "$VOL:/worlds/a:ro" \
@@ -285,8 +310,7 @@ p1_restore() {
     -v "$SETS:/backups:ro" -v "$RVOL:/worlds/a" -e MYSQL_HOST=rdb -e MYSQL_USER=root -e MYSQL_PASSWORD="$PW" \
     -e MYSQL_DATABASE=riftal_smoke_ci -e BACKUP_SET="/backups/$set" "$IMG:head" bash /deploy/restore.sh 2>&1 | sed 's/^/  restore | /' || true
   MANIFEST="$(docker run --rm -m 1g --cpus 1 -v "$SETS:/b:ro" "$IMG:head" cat "/b/$set/manifest.txt" || true)"
-  STACKS="$(docker run --rm -m 1g --cpus 1 -v "$RVOL:/v:ro" -v "$work/count.js:/count.js:ro" "$DEVTOOLS_IMAGE" \
-    /devtools/node-runtime/bin/node /count.js p1a p1b || true)"
+  STACKS="$(stacks "$RVOL")"
   docker volume rm "$RVOL" >/dev/null
   printf 'manifest:\n%s\nrestored dirt stacks: %s\n' "$MANIFEST" "$(tr '\n' ' ' <<<"$STACKS")"
 }
@@ -324,3 +348,73 @@ under=""
 printf '%s' "$RED"
 check "mutant stage-ignored turns only [p1-stacks] red, with p1b's file holding the stack" \
   '[ "$(grep -c "^red under" <<<"$RED")" = 1 ] && grep -q "^red under stage-ignored: \[p1-stacks\]" <<<"$RED" && grep -qx "p1b 1" <<<"$STACKS"'
+
+# Proof 1's control. main's merge-base script tars A's volume in one tar call, and the
+# shim splits it: every member but p1b's file, then, once the bots have dropped and
+# picked up the stack, p1b's file appended to the same archive. The read order is fixed,
+# so a restored set with two stacks can come only from A's saved files being read at two
+# different ticks, which is the defect the capture request exists to remove.
+cat >"$work/tar" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "$#" -ne 5 ] || [ "$1" != -C ] || [ "$2" != /worlds/a/ ] || [ "$3" != -czf ]; then exec /usr/bin/tar "$@"; fi
+echo "tar shim: call on $2"
+# Exit 1 is a file changing as tar read it, which a running instance's volume does.
+/usr/bin/tar -C "$2" -cf /tmp/a.tar --exclude=players/p1b.dat "$5" || [ $? -eq 1 ]
+touch /shim/marker
+echo "tar shim: pass 1 read every member but players/p1b.dat"
+timeout 300 bash -c 'until [ -e /shim/release ]; do sleep 0.2; done' || { echo "tar shim: release timed out"; exit 1; }
+/usr/bin/tar -C "$2" -rvf /tmp/a.tar ./players/p1b.dat | sed 's/^/tar shim: pass 2 read /'
+gzip -c /tmp/a.tar >"$4"
+SH
+chmod +x "$work/tar"
+
+# True once p1a's saved file on A holds the stack.
+saved() { grep -qx "p1a 1" <<<"$(stacks "$VOL")"; }
+
+# True once both bots' saved files on A are newer than the shim's pass 1 marker.
+rewritten() {
+  docker run --rm -m 1g --cpus 1 -v "$VOL:/v:ro" -v "$SHIM:/s:ro" "$IMG:head" \
+    bash -c '[ /v/players/p1a.dat -nt /s/marker ] && [ /v/players/p1b.dat -nt /s/marker ]'
+}
+
+# $1 tries, the rest a command, tried every 3 seconds until it holds.
+retry() { local i; for ((i = 0; i < $1; i++)); do "${@:2}" && return 0; sleep 3; done; return 1; }
+
+control() {
+  local bots="$work/ctl-bots.log" bk="$work/ctl-bk.log" jpid
+  printf '\n== control, deploy/backup.sh at merge base %s\n' "$(cat "${BASE_SH%/*}/sha")"
+  p1_bots "$bots"
+  await "CAPTURE WAIT stall" "$bots" 120 || true
+  check "[ctl-pre] p1a's saved file on A holds the stack before the merge base's script runs" 'retry 20 saved'
+  docker run --rm --name "$BK" -m 1g --cpus 1 --network "$NET" \
+    -v "$BASE_SH:/deploy/backup.sh:ro" -v "$work/tar:/usr/local/bin/tar:ro" -v "$SHIM:/shim" \
+    -v "$SETS:/backups" -v "$VOL:/worlds/a:ro" \
+    -e MYSQL_HOST=db -e MYSQL_USER=root -e MYSQL_PASSWORD="$PW" -e MYSQL_DATABASE=riftal_smoke_ci \
+    "$IMG:head" bash /deploy/backup.sh >"$bk" 2>&1 &
+  jpid=$!
+  await "tar shim: pass 1 read" "$bk" 60 || true
+  touch "$work/stall"
+  BRC=0; wait "$BPID" || BRC=$?
+  [ "$BRC" -ne 4 ] || FOUND=1
+  touch "$work/end"
+  check "[ctl-rewrite] both bots' saved files on A were rewritten after pass 1 read A, before pass 2" 'retry 10 rewritten'
+  docker run --rm -m 1g --cpus 1 -v "$SHIM:/s" "$IMG:head" touch /s/release
+  JRC=0; wait "$jpid" || JRC=$?
+  sed 's/^/  bots | /' "$bots"
+  sed 's/^/  run | /' "$bk"
+  p1_restore ctl
+  check "[ctl-bots] the control's bots passed behind clean holds" \
+    '[ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-drop-pickup" "$bots"'
+  check "[ctl-shim] the shim saw one tar call on A, both passes, pass 2 reading p1b's file, and the run completed" \
+    '[ "$(grep -c "^tar shim: call" "$bk")" = 1 ] && grep -qx "tar shim: pass 1 read every member but players/p1b.dat" "$bk" &&
+     grep -qx "tar shim: pass 2 read ./players/p1b.dat" "$bk" && ! grep -q "release timed out" "$bk" && [ "$JRC" = 0 ]'
+  check "[ctl-stacks] the merge base's restored set holds two stacks, one in p1a's file and one in p1b's" \
+    'grep -qx "p1a 1" <<<"$STACKS" && grep -qx "p1b 1" <<<"$STACKS"'
+}
+
+if [ "$CONTROL" = 1 ]; then
+  [ "$FOUND" = 0 ] || exit 3
+  [ "$FAILURES" -eq 0 ] || exit 1
+  control
+fi

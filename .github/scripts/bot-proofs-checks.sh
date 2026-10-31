@@ -97,3 +97,25 @@ bots_stopped_clear() {
   fi
   printf 'no open bots-stopped issue\n'
 }
+
+# $1 the PR head sha, $2 a directory that does not exist yet. Writes main's merge base
+# with that head to $2/sha and its deploy/backup.sh to $2/backup.sh. It reads through
+# the API with the job's own read token, so no git fetch and no credential in
+# .git/config. The base is main's and not the PR's base branch, which carries the
+# capture request the control must not.
+merge_base_script() {
+  local api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:?}" base
+  if ! base="$(timeout 30 curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN:?}" -H 'Accept: application/vnd.github+json' \
+      "$api/compare/main...$1?per_page=1" | jq -er '.merge_base_commit.sha')" || ! [[ $base =~ ^[0-9a-f]{40}$ ]]; then
+    printf '::error::cannot read the merge base of %s with main\n' "$1"
+    return 1
+  fi
+  mkdir "$2" || return 1
+  if ! timeout 30 curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN:?}" -H 'Accept: application/vnd.github.raw+json' \
+      "$api/contents/deploy/backup.sh?ref=$base" -o "$2/backup.sh" || ! [ -s "$2/backup.sh" ]; then
+    printf '::error::cannot read deploy/backup.sh at %s\n' "$base"
+    return 1
+  fi
+  printf '%s\n' "$base" >"$2/sha"
+  printf 'merge base of %s with main is %s, %s bytes of deploy/backup.sh\n' "$1" "$base" "$(wc -c <"$2/backup.sh")"
+}
