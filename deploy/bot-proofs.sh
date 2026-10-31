@@ -648,6 +648,7 @@ fi
 # restores onto a fresh volume that a fresh instance boots, and p10 reads the cells it
 # broke as air from it.
 gate
+printf '\n== proof 10, clean stop, on its own: A stays down for the whole run, so no other proof can share its stall\n'
 p10_stop s "$ROOT/deploy/backup.sh" "p10s-$ID" 1
 p10_stop_judge s "p10s-$ID"
 check "[p10-stop-bots] 7. p10 broke blocks and passed behind clean holds before A was stopped" \
