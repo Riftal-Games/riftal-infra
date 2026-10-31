@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pytest
 
+from designer.blocks import format_name
+from designer.builders import BUILDERS
+from designer.builders.base import Palette
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
 from designer.reset_states import RESET_STATES
@@ -82,6 +85,24 @@ def test_from_dict_refuses_an_ore_layer_key_the_reset_cannot_resolve() -> None:
         MineSpec.from_dict({**data, "ore_layers": [layer]})
 
 
+@pytest.mark.parametrize(("field", "value"), [
+    ("ores", {"minecraft:wheat[growth=0]": 1.0}),
+    ("ore_layers", [{"y_from": 40, "y_to": 40, "ores": {"minecraft:coal_ore[lit=true]": 1.0}}]),
+])
+def test_the_mine_builder_refuses_a_stated_ore_key_instead_of_writing_it_to_mine_reset(field: str, value: object) -> None:
+    data = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="which the mine reset cannot resolve"):
+        BUILDERS["mine"]({**data, field: value}, Palette.load("mine_stone"), lambda *_: None)
+
+
+def test_the_mine_builder_writes_only_bare_ids_to_mine_reset() -> None:
+    data = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    layer = {"y_from": data["floor_y"], "y_to": data["floor_y"], "ores": {"coal_ore": 1.0}}
+    fragment = BUILDERS["mine"]({**data, "ore_layers": [layer]}, Palette.load("mine_stone"), lambda *_: None).extras["mine_reset"]
+    keys = [*fragment["ores"], *(k for l in fragment["ore_layers"] for k in l["ores"])]
+    assert keys and all("[" not in k for k in keys) and "minecraft:coal_ore" in fragment["ore_layers"][0]["ores"]
+
+
 def test_from_dict_accepts_a_bare_id_with_or_without_its_namespace() -> None:
     data = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
     assert MineSpec.from_dict({**data, "ores": {"oak_log": 1.0, "minecraft:stone": 0.5}}).ores == {LOG: 1.0, "minecraft:stone": 0.5}
@@ -92,3 +113,24 @@ def test_from_dict_refuses_an_ores_key_spelling_the_not_reset_marker() -> None:
     ores = {"minecraft:quartz_ore": 1.0, "minecraft:quartz_ore (not its reset state)": 99.0}
     with pytest.raises(ValueError, match="which is not a block id"):
         MineSpec.from_dict({**data, "ores": ores})
+
+
+CROPS = {
+    "minecraft:wheat": "minecraft:wheat[growth=7]",
+    "minecraft:carrots": "minecraft:carrots[growth=7]",
+    "minecraft:potatoes": "minecraft:potatoes[growth=7]",
+    "minecraft:beetroot": "minecraft:beetroot[growth=7]",
+    "minecraft:melon_stem": "minecraft:melon_stem[facing_direction=0,growth=7]",
+    "minecraft:pumpkin_stem": "minecraft:pumpkin_stem[facing_direction=0,growth=7]",
+}
+
+
+@pytest.mark.parametrize(("base", "read_back"), CROPS.items())
+def test_a_crop_reset_state_is_its_live_max_age_read_back(base: str, read_back: str) -> None:
+    assert format_name(base, RESET_STATES[base]) == read_back
+
+
+@pytest.mark.parametrize(("base", "read_back"), CROPS.items())
+def test_a_crop_matches_its_key_only_at_max_age(base: str, read_back: str) -> None:
+    young = read_back.replace("growth=7", "growth=0")
+    assert _as_ores([read_back, young], {base: 1.0}) == [base, young]

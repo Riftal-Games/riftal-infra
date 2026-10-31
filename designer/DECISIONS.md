@@ -1027,3 +1027,16 @@ named end in another. The search treats a stair as a full block and opens a one-
 A last tread at y 63 would top out at 64.0 against the grass top at 65.0, a 1.0-block step: over the
 0.6 walk step and under the 1.25-block jump. `tests/test_lumber_access.py` pins the exit tread at y 64,
 so the exit is flush and needs no jump.
+
+## 2026-10-31 `RESET_STATES` carries the six crops at max age
+
+RiftalMines resolves an `ores` key through `MineBlock::resolve`, which reads it as a Bedrock block id
+before `StringToItemParser`, so `minecraft:wheat` is the crop, and `MineResetListener.php` sets every
+`Crops` block to `getMaxAge()`. A bare crop id reads back at `growth=0`, which `mine_valid` counts as
+a stray, and `FarmFloorListener` cancels growth in mine worlds, so a farm built from bare ids would stay
+at age 0 until its first reset. `RESET_STATES` lists `wheat`, `carrots`, `potatoes` and
+`beetroot` at `growth=7`, and `melon_stem` and `pumpkin_stem` at `growth=7` with `facing_direction=0`.
+The live check on the designer stack, on the core image pinned by `images/core-image.sha`, set each crop
+as the reset does and read it back through `get_region`; the bridge refuses a stem written with
+`growth` alone, `Property "facing_direction" is missing`. The farmland under the row is the
+`build_mine` floor, which matches the farmland `MineRefillTask.php` writes (#1347).

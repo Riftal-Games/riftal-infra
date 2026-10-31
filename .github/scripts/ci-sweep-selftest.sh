@@ -34,7 +34,7 @@ check() {
 # The reap below takes a volume older than reap_after seconds to be left by a
 # run that has ended, which holds only while every job in this workflow times
 # out sooner. A job with no timeout-minutes runs for 6 hours.
-reap_after=2100
+reap_after=5400
 # shellcheck source=job-timeouts.sh
 . "$dir/job-timeouts.sh"
 if verdict="$(job_timeouts_under "${dir%/scripts}/workflows/ci.yml" "$reap_after")"; then

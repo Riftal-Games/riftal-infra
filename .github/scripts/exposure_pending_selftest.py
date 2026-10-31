@@ -174,7 +174,7 @@ cases = [
     ("no-job", rep("  bot-proofs:", "  other:"), "no job bot-proofs"),
     ("crlf", lambda text: text.replace("\n", "\r\n"), PASS),
     ("good-fixture", None, PASS),
-    ("ci.yml", None, "=8 step(s) ahead of step 9 (id pending) writing exposure=pending, all on the allowlist"),
+    ("ci.yml", None, "=10 step(s) ahead of step 11 (id pending) writing exposure=pending, all on the allowlist"),
 ]
 sources = [here.parent / "ci-fixtures/good/exposure-pending/pending-first.yml", here.parent / "workflows/ci.yml"]
 
