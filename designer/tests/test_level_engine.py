@@ -178,7 +178,7 @@ def test_the_level_is_copied_to_a_fresh_output_volume_with_plain_named_mounts(fa
     assert verbs.count(removed) == verbs.count(created) == 1
     copy = next(a for a in engine.calls if "cp" in a)
     assert next(i for i, v in enumerate(verbs) if "tee" in v) < verbs.index(removed) < verbs.index(created) < verbs.index(" ".join(copy[1:]))
-    assert copy[1:] == ["run", "--rm", "-v", f"{WORK}:/work:ro", "-v", f"{OUTPUT}:/data", stack.IMAGE, "cp", "-R", "/work/worlds/zt/.", "/data/"]
+    assert copy[1:] == ["run", "--rm", "--memory", "1G", "--cpus", "1", "-v", f"{WORK}:/work:ro", "-v", f"{OUTPUT}:/data", stack.IMAGE, "cp", "-R", "/work/worlds/zt/.", "/data/"]
     assert {*engine.copied} == {"db/CURRENT", "level.dat", "level-manifest.json"}
     assert OUTPUT in engine.volumes and WORK in engine.volumes
 
@@ -366,3 +366,104 @@ def test_the_cli_refuses_a_missing_devtools_phar(tmp_path: Path, capsys: pytest.
 
     assert main(["level", "build", "zt", "--designbridge", str(tmp_path), "--plugins", str(tmp_path)]) == 1
     assert "DevTools.phar" in capsys.readouterr().err
+
+
+def limit_of(argv: list[str], flag: str) -> str:
+    assert argv.count(flag) == 1, argv
+    return argv[argv.index(flag) + 1]
+
+
+def containers(engine: FakeEngine) -> tuple[list[str], list[list[str]]]:
+    runs = [a for a in engine.calls if a[0] != "git" and a[1] == "run"]
+    return next(a for a in runs if "-d" in a), [a for a in runs if "--rm" in a]
+
+
+@pytest.mark.parametrize("runtime", ["wslc", "docker"])
+def test_the_server_and_every_tool_container_run_under_the_default_limits(fake: FakeBridge, root: Path, runtime: str) -> None:
+    engine = FakeEngine()
+    _build(engine, fake, root, runtime)
+    server, tools = containers(engine)
+    assert (limit_of(server, "--memory"), limit_of(server, "--cpus")) == ("2G", "2")
+    assert len(tools) == 4
+    assert {(limit_of(t, "--memory"), limit_of(t, "--cpus")) for t in tools} == {("1G", "1")}
+
+
+@pytest.mark.parametrize("runtime", ["wslc", "docker"])
+def test_the_limits_are_overridable_per_container_kind(fake: FakeBridge, root: Path, runtime: str) -> None:
+    engine = FakeEngine()
+    limits = level_engine.Limits(memory="3G", cpus="1.5", tool_memory="512M", tool_cpus="0.5")
+    level_engine.build("zt", runtime, SOURCES, root=root, runner=engine, limits=limits, index=_index(), checks_path=root / "checks.yaml",
+                       mines_config=root / "mines.yml", connect=lambda port, token: Bridge("127.0.0.1", fake.port, fake.token, timeout=2.0, max_retries=1))
+    server, tools = containers(engine)
+    assert (limit_of(server, "--memory"), limit_of(server, "--cpus")) == ("3G", "1.5")
+    assert {(limit_of(t, "--memory"), limit_of(t, "--cpus")) for t in tools} == {("512M", "0.5")}
+
+
+@pytest.mark.parametrize("field,value", [("memory", "lots"), ("memory", "2gb "), ("memory", "-1g"), ("memory", "4g"), ("memory", "512m"), ("memory", "10"), ("memory", "512K"), ("memory", "0M"), ("memory", "01G"), ("tool_memory", ""), ("cpus", "two"), ("cpus", "-1"), ("tool_cpus", "1.")])
+def test_a_malformed_limit_is_refused_before_any_engine_call(field: str, value: str) -> None:
+    with pytest.raises(LevelError, match="must be a"):
+        level_engine.Limits(**{field: value})
+
+
+def test_zero_leaves_the_flag_out_of_the_argv() -> None:
+    uncapped = level_engine.Limits(memory="0", cpus="0", tool_memory="0", tool_cpus="0")
+    assert uncapped.server() == [] and uncapped.tool() == []
+    half = level_engine.Limits(memory="0", cpus="0.0", tool_memory="0", tool_cpus="1")
+    assert half.server() == [] and half.tool() == ["--cpus", "1"]
+    assert level_engine.Limits(memory="10M", cpus="2").server() == ["--memory", "10M", "--cpus", "2"]
+
+
+@pytest.mark.parametrize("runtime", ["wslc", "docker"])
+def test_a_zero_limit_reaches_no_container_argv(fake: FakeBridge, root: Path, runtime: str) -> None:
+    engine = FakeEngine()
+    limits = level_engine.Limits(memory="0", cpus="0", tool_memory="0", tool_cpus="0")
+    level_engine.build("zt", runtime, SOURCES, root=root, runner=engine, limits=limits, index=_index(), checks_path=root / "checks.yaml",
+                       mines_config=root / "mines.yml", connect=lambda port, token: Bridge("127.0.0.1", fake.port, fake.token, timeout=2.0, max_retries=1))
+    server, tools = containers(engine)
+    assert len(tools) == 4
+    assert not any(flag in argv for argv in [server, *tools] for flag in ("--memory", "--cpus"))
+
+
+def test_the_cli_defaults_and_overrides_reach_the_limits() -> None:
+    from designer.cli import build_parser
+
+    parser = build_parser()
+    options = parser.parse_args(["level", "build", "zt"])
+    assert (options.memory, options.cpus, options.tool_memory, options.tool_cpus) == ("2G", "2", "1G", "1")
+    options = parser.parse_args(["level", "build", "zt", "--memory", "4G", "--cpus", "3", "--tool-memory", "2G", "--tool-cpus", "2"])
+    assert (options.memory, options.cpus, options.tool_memory, options.tool_cpus) == ("4G", "3", "2G", "2")
+
+
+def _cli_build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *extra: str) -> tuple[int, list[level_engine.Limits]]:
+    from designer.cli import main
+
+    seen: list[level_engine.Limits] = []
+    lock = tmp_path / "zt.lock.json"
+    lock.write_text(json.dumps({"content_sha256": "c0ffee"}), encoding="utf-8")
+
+    def fake_build(zone: str, runtime: str, sources: Sources, **kwargs: level_engine.Limits) -> Path:
+        seen.append(kwargs["limits"])
+        return lock
+
+    monkeypatch.setattr(level_engine, "build", fake_build)
+    monkeypatch.setattr(stack, "runtime_name", lambda: "docker")
+    (tmp_path / "DevTools.phar").write_bytes(b"x")
+    return main(["level", "build", "zt", "--designbridge", str(tmp_path), "--plugins", str(tmp_path), *extra]), seen
+
+
+def test_the_cli_hands_its_limit_options_to_the_build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    code, seen = _cli_build(monkeypatch, tmp_path, "--memory", "4G", "--cpus", "0", "--tool-memory", "0", "--tool-cpus", "0.5")
+    assert code == 0
+    assert seen == [level_engine.Limits(memory="4G", cpus="0", tool_memory="0", tool_cpus="0.5")]
+
+
+def test_the_cli_builds_under_the_default_limits_when_given_none(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    code, seen = _cli_build(monkeypatch, tmp_path)
+    assert code == 0 and seen == [level_engine.Limits()]
+
+
+@pytest.mark.parametrize("option", ["--memory", "--cpus", "--tool-memory", "--tool-cpus"])
+def test_the_cli_refuses_a_malformed_limit_without_building(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], option: str) -> None:
+    code, seen = _cli_build(monkeypatch, tmp_path, option, "lots")
+    assert code == 1 and seen == []
+    assert option in capsys.readouterr().err
