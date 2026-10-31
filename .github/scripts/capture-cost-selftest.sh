@@ -67,17 +67,17 @@ rule "a path that only begins like worlds breaks it" refused "$work/lookalike"
 rule "a run that neither completed nor failed on a listing breaks it" refused "$work/unfinished"
 
 cat >"$work/server.log" <<'EOF'
-[10:00:01.000] [Server thread/INFO]: World "world": 99 loaded chunks, 4 ticking chunks, 0 entities. Time 0.1ms
+Command output | World "world": 99 loaded chunks, 4 ticking chunks, 0 entities. Time 0.1ms
 [10:00:02.000] [Server thread/INFO]: [RiftalCapture] capture other held: 3 player files staged in 5.0ms, lease ends at 1
 [10:00:03.000] [Server thread/INFO]: [RiftalCapture] capture r held: 500 player files staged in 40.5ms, lease ends at 9
-[10:00:03.500] [Server thread/INFO]: Total memory: 100.10 MB.
-[10:00:03.600] [Server thread/INFO]: World "world": 1,289 loaded chunks, 4 ticking chunks, 0 entities. Time 0.1ms
-[10:00:04.000] [Server thread/INFO]: Total memory: 1,234.56 MB.
+Command output | Total memory: 100.10 MB.
+Command output | World "world": 1,289 loaded chunks, 4 ticking chunks, 0 entities. Time 0.1ms
+Command output | Total memory: 1,234.56 MB.
 [10:00:04.250] [Server thread/INFO]: [RiftalCapture] capture r released, autosave on
-[10:00:05.000] [Server thread/INFO]: World "world": 5 loaded chunks, 4 ticking chunks, 0 entities. Time 0.1ms
+Command output | World "world": 5 loaded chunks, 4 ticking chunks, 0 entities. Time 0.1ms
 EOF
 expect "the figures are the last sample inside the hold" "500 40.5 1290.5 1289 1234.56" cost_figures "$work/server.log" r
-sed 's/: World/: \x1b[6mWorld/;s/Total memory: /Total memory: \x1b[31m/' "$work/server.log" >"$work/coloured.log"
+sed 's/| World/| \x1b[6mWorld/;s/Total memory: /Total memory: \x1b[31m/' "$work/server.log" >"$work/coloured.log"
 expect "colour codes in the log are read past" "500 40.5 1290.5 1289 1234.56" cost_figures "$work/coloured.log" r
 grep -v 'Total memory: 100.10' "$work/server.log" >"$work/no-sample.log"
 grep -v '1,289 loaded' "$work/no-sample.log" >"$work/none.log"

@@ -42,8 +42,8 @@ cost_figures() {
       split($0, a, / held: | player files staged in |ms, lease/)
       files = a[2]; tick = a[3]; held = ms($1); chunks = ""; mem = ""
     }
-    held != "" && /: World "[^"]*": [0-9,]+ loaded chunks/ { c = $0; sub(/^.*: World "[^"]*": /, "", c); sub(/ loaded chunks.*/, "", c); gsub(/,/, "", c); chunks = c }
-    held != "" && /: Total memory: [0-9,.]+ MB/ { m = $0; sub(/^.*Total memory: /, "", m); sub(/ MB.*/, "", m); gsub(/,/, "", m); mem = m }
+    held != "" && /World "[^"]*": [0-9,]+ loaded chunks/ { c = $0; sub(/^.*World "[^"]*": /, "", c); sub(/ loaded chunks.*/, "", c); gsub(/,/, "", c); chunks = c }
+    held != "" && /Total memory: [0-9,.]+ MB/ { m = $0; sub(/^.*Total memory: /, "", m); sub(/ MB.*/, "", m); gsub(/,/, "", m); mem = m }
     held != "" && $0 ~ ("capture " id " released") {
       print files, tick, (ms($1) - held + 86400000) % 86400000 + tick, (chunks == "" ? "-" : chunks), (mem == "" ? "-" : mem)
       exit
