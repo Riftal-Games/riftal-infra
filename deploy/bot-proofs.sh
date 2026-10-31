@@ -540,7 +540,8 @@ p10_stop() {
   [ "$4" != 1 ] || p10_bots "$bots"
   backup_run "$2" "$3" "$VOL:/worlds/a:ro" "$bk"
   jpid=$!
-  await "capture $3 held" "$LOG" 60 || true
+  # The run polls once a second, so A is stopped only after the run has seen its ack.
+  await "volume a is held for request $3" "$bk" 60 || true
   if [ "$4" = 1 ]; then
     touch "$work/stall"
     await "CAPTURE WAIT end" "$bots" "$STALL" || true
