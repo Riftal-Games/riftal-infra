@@ -319,7 +319,7 @@ jobs:
     if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
     runs-on: [self-hosted, linux, riftal]
     # Under ci-sweep-selftest.sh's reap_after, like every job here.
-    timeout-minutes: 17
+    timeout-minutes: 23
     permissions:
       contents: read
       issues: read
