@@ -31,6 +31,17 @@ run_follows_listing_rule() {
     { grep -q ': complete at ' "$1" || grep -qF 'changed during its tar twice' "$1"; }
 }
 
+# $1 a server log, $2 a request id, $3 a bot's name. True when the log shows the bot join,
+# then the request held, then the bot leave, the join being the bot's last one before the
+# held line.
+held_inside_session() {
+  sed 's/\x1b\[[0-9;]*m//g' "$1" | awk -v id="$2" -v bot="$3" '
+    $0 ~ (" " bot " joined the game") && !held { joined = NR }
+    $0 ~ ("capture " id " held: ") { held = NR }
+    $0 ~ (" " bot " left the game") && held && !left { left = NR }
+    END { exit !(joined && held && left && joined < held) }'
+}
+
 # $1 a server log, $2 a request id. Prints "<files> <tick ms> <hold ms> <loaded chunks>
 # <total MB>": the player files staged, the held tick's duration, the hold from the
 # start of that tick to the release, and the last `status` sample between the held
@@ -45,7 +56,7 @@ cost_figures() {
     held != "" && /World "[^"]*": [0-9,]+ loaded chunks/ { c = $0; sub(/^.*World "[^"]*": /, "", c); sub(/ loaded chunks.*/, "", c); gsub(/,/, "", c); chunks = c }
     held != "" && /Total memory: [0-9,.]+ MB/ { m = $0; sub(/^.*Total memory: /, "", m); sub(/ MB.*/, "", m); gsub(/,/, "", m); mem = m }
     held != "" && $0 ~ ("capture " id " released") {
-      print files, tick, (ms($1) - held + 86400000) % 86400000 + tick, (chunks == "" ? "-" : chunks), (mem == "" ? "-" : mem)
+      printf "%s %s %.1f %s %s\n", files, tick, (ms($1) - held + 86400000) % 86400000 + tick, (chunks == "" ? "-" : chunks), (mem == "" ? "-" : mem)
       exit
     }'
 }

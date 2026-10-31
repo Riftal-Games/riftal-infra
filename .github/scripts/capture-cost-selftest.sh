@@ -83,8 +83,30 @@ grep -v 'Total memory: 100.10' "$work/server.log" >"$work/no-sample.log"
 grep -v '1,289 loaded' "$work/no-sample.log" >"$work/none.log"
 expect "a sample before the held line is not counted" "500 40.5 1290.5 - 1234.56" cost_figures "$work/none.log" r
 printf '[23:59:59.500] x: capture m held: 1 player files staged in 10ms, lease ends at 1\n[00:00:01.500] x: capture m released, autosave on\n' >"$work/midnight.log"
-expect "a hold across midnight" "1 10 2010 - -" cost_figures "$work/midnight.log" m
+expect "a hold across midnight" "1 10 2010.0 - -" cost_figures "$work/midnight.log" m
 expect "a request never held prints nothing" "" cost_figures "$work/server.log" absent
+
+# $1 case, $2 wanted status (holds or refused), $3 a log.
+session() {
+  local what=$1 want=$2 status=holds
+  held_inside_session "$3" r p3a || status=refused
+  if [ "$status" = "$want" ]; then
+    printf '  ok    %s\n' "$what"
+  else
+    printf '::error::%s: wanted %s, got %s\n' "$what" "$want" "$status"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+held_line='capture r held: 1 player files staged in 1ms, lease'
+printf '[1] p3a joined the game\n[2] %s\n[3] p3a left the game\n' "$held_line" >"$work/inside.log"
+printf '[1] p3a joined the game\n[2] p3a left the game\n[3] %s\n' "$held_line" >"$work/after.log"
+printf '[1] %s\n[2] p3a joined the game\n[3] p3a left the game\n' "$held_line" >"$work/before.log"
+printf '[1] p3a joined the game\n[2] %s\n' "$held_line" >"$work/stays.log"
+session "a hold between the join and the leave is inside the session" holds "$work/inside.log"
+session "a hold after the leave is not" refused "$work/after.log"
+session "a hold before the join is not" refused "$work/before.log"
+session "a bot that never leaves is not counted" refused "$work/stays.log"
 
 [ "$FAILURES" -eq 0 ] || exit 1
 printf 'capture-cost.sh reads every figure and refuses every broken log\n'

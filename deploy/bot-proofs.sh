@@ -647,31 +647,32 @@ if [ "$CONTROL" = 1 ]; then
   control
 fi
 
-# ADR 015 proof 6. Twenty consecutive runs against A with no stall, each started as p3a
-# joins A and mines, so the hold falls inside the mining. A run's log names the entries
-# of every differing listing, and the rule holds for all twenty (capture-cost.sh).
-P6_RUNS=20 P6_RETRIED=0 P6_FAILED=0 P6_OVERLAP=0 P6_BOTS=0 P6_RULE=0
+# ADR 015 proof 6. Twenty consecutive runs against A with no stall, each started once p3a
+# has joined A to mine. A's log must show each hold between p3a's join and its leave.
+# A run's log names the entries of every differing listing, and the rule holds for all
+# twenty (capture-cost.sh).
+P6_RUNS=20 P6_RETRIED=0 P6_FAILED=0 P6_INSIDE=0 P6_BOTS=0 P6_RULE=0
 STALL=0
 
 # $1 the run's number. Sets BRC and JRC, and counts the run in the P6 totals.
 p6_run() {
-  local bots="$work/p6-$1-bots.log" bk="$work/p6-$1-bk.log" seen jpid overlap=0 changes entries outside empty
+  local bots="$work/p6-$1-bots.log" bk="$work/p6-$1-bk.log" seen jpid inside=0 changes entries outside empty
   seen=$(grep -c "p3a joined the game" "$LOG" || true)
   bots capture-stall-seed-stack 1 "$A" "$H" "$bots"
   timeout 60 bash -c 'until [ "$(grep -c "p3a joined the game" "$0")" -gt "$1" ]; do sleep 0.2; done' "$LOG" "$seen" || true
   backup_run "$ROOT/deploy/backup.sh" "p6-$1-$ID" "$VOL:/worlds/a:ro" "$bk"
   jpid=$!
   JRC=0; wait "$jpid" || JRC=$?
-  ! kill -0 "$BPID" 2>/dev/null || overlap=1
   BRC=0; wait "$BPID" || BRC=$?
   [ "$BRC" -ne 4 ] || FOUND=1
+  ! held_inside_session "$LOG" "p6-$1-$ID" p3a || inside=1
   read -r changes entries outside empty < <(listing_audit "$bk" a)
   { grep -E '^(ROOT LISTING|PROBE RELEASED|SCENARIO|HOLD FAILURE)' "$bots" || true; } | sed 's/^/  bots | /'
-  printf 'p6 run %s: run exit %s, %s differing listing(s) with %s entries (%s outside a held volume'"'"'s), mining overlapped: %s\n' "$1" "$JRC" "$changes" "$entries" "$outside" "$overlap"
-  [ "$changes" = 0 ] || grep -E ': volume a (changed|before|after) its tar|: failed' "$bk" | sed 's/^backup [^ ]*: /  /'
+  printf 'p6 run %s: run exit %s, %s differing listing(s) with %s entries (%s outside a held volume'"'"'s), hold between p3a'"'"'s join and leave: %s\n' "$1" "$JRC" "$changes" "$entries" "$outside" "$inside"
+  [ "$changes" = 0 ] || grep -E ': volume a (changed during|before|after) its tar|: failed' "$bk" | sed 's/^backup [^ ]*: /  /'
   [ "$changes" = 0 ] || P6_RETRIED=$((P6_RETRIED + 1))
   [ "$JRC" = 0 ] || P6_FAILED=$((P6_FAILED + 1))
-  P6_OVERLAP=$((P6_OVERLAP + overlap))
+  P6_INSIDE=$((P6_INSIDE + inside))
   { [ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-seed-stack" "$bots"; } && P6_BOTS=$((P6_BOTS + 1)) || true
   ! run_follows_listing_rule "$bk" || P6_RULE=$((P6_RULE + 1))
 }
@@ -681,41 +682,54 @@ for ((n = 1; n <= P6_RUNS; n++)); do p6_run "$n"; gate; done
 printf 'proof 6: %s runs, %s retried on a differing listing, %s failed\n' "$P6_RUNS" "$P6_RETRIED" "$P6_FAILED"
 printf 'backup T: volume a changed during its tar\nbackup T: volume a before its tar: players/p6.dat 9 1.5\nbackup T: complete at /backups/T\n' >"$work/p6-outside.log"
 printf 'backup T: volume a changed during its tar\nbackup T: complete at /backups/T\n' >"$work/p6-empty.log"
-check "[p6-bots] 6. all $P6_RUNS runs began after p3a joined A and ended while its bot was still in its scenario, each passing behind clean holds" \
-  '[ "$P6_BOTS" = "$P6_RUNS" ] && [ "$P6_OVERLAP" = "$P6_RUNS" ]'
+check "[p6-bots] 6. all $P6_RUNS runs began after p3a joined A and held it before p3a left, each passing behind clean holds" \
+  '[ "$P6_BOTS" = "$P6_RUNS" ] && [ "$P6_INSIDE" = "$P6_RUNS" ]'
 check "[p6-rule] 6. every run completed or failed on a differing listing, and every differing listing logged entries under worlds/ or .capture/ or server.lock" \
   '[ "$P6_RULE" = "$P6_RUNS" ]'
 check "[p6-red] 6. the rule refuses an entry under players/ on a held volume and a differing listing with no entry" \
   '! run_follows_listing_rule "$work/p6-outside.log" && ! run_follows_listing_rule "$work/p6-empty.log"'
 
-# ADR 015 proof 8. A holds 500 more player files, p10 roams out of range, and one run
-# with no stall takes the hold. `status` is sent every 0.2 s until the hold is released,
-# so the last sample inside the hold is the loaded chunk count and memory at release.
+# ADR 015 proof 8. A holds 500 more player files. One run with no stall gives the held
+# tick and the length of a hold nothing extends. A second run takes a 120 s test stall
+# and p10 roams out of range inside it, staying online past the release. `status` is
+# sent every 0.5 s from the held line to the release, so the last sample inside the hold
+# is the loaded chunk count and memory at release, and the second run's hold length is
+# the test stall's, not a figure of the hold.
 p8() {
-  local rid=p8-$ID bots="$work/p8-bots.log" bk="$work/p8-bk.log" jpid online_at files="" tick="" hold="" chunks="" mem=""
+  local rid=p8-$ID rrid=p8r-$ID bots="$work/p8-bots.log" bk="$work/p8-bk.log" rbk="$work/p8r-bk.log" jpid qpid nrc online_at roamed=0
+  local files="" tick="" hold="" rfiles="" rtick="" rhold="" chunks="" mem=""
   docker run --rm -m 1g --cpus 1 -v "$VOL:/d" "$IMG:head" \
     bash -c 'for i in $(seq 1 500); do head -c 600 /dev/urandom >"/d/players/fill$i.dat"; done'
-  rm -f "$work/stall" "$work/end"
-  CAPTURE_STALL_FILE="$work/stall" CAPTURE_END_FILE="$work/end" bots capture-stall-chunk-out-of-range 1 "$A" "$H" "$bots"
-  await "CAPTURE WAIT stall" "$bots" 120 || true
-  touch "$work/stall"
-  await "CAPTURE WAIT end" "$bots" 240 || true
+  STALL=0
   backup_run "$ROOT/deploy/backup.sh" "$rid" "$VOL:/worlds/a:ro" "$bk"
   jpid=$!
-  timeout 60 bash -c 'until grep -qF "$0" "$1"; do echo status >&3; sleep 0.2; done' "capture $rid released" "$LOG" || true
-  online_at="$(online "$LOG" "capture $rid released")"
+  JRC=0; wait "$jpid" || JRC=$?
+  nrc=$JRC
+  sed 's/^/  run | /' "$bk"
+  STALL=120
+  p10_bots "$bots"
+  backup_run "$ROOT/deploy/backup.sh" "$rrid" "$VOL:/worlds/a:ro" "$rbk"
+  jpid=$!
+  await "capture $rrid held" "$LOG" 60 || true
+  timeout $((STALL + 60)) bash -c 'until grep -qF "$0" "$1"; do echo status >&3; sleep 0.5; done' "capture $rrid released" "$LOG" &
+  qpid=$!
+  touch "$work/stall"
+  await "CAPTURE WAIT end" "$bots" "$STALL" && roamed=1 || true
+  wait "$qpid" || true
+  online_at="$(online "$LOG" "capture $rrid released")"
   p10_end "$bots"
   JRC=0; wait "$jpid" || JRC=$?
-  sed 's/^/  run | /' "$bk"
-  { grep -F "capture $rid " "$LOG" || true; } | sed 's/^/  A | /'
-  read -r files tick hold chunks mem <<<"$(cost_figures "$LOG" "$rid")" || true
-  printf 'proof 8: %s player files staged in %s ms, hold %s ms, %s loaded chunks and %s MB of memory at release, online at release: %s\n' \
-    "$files" "$tick" "$hold" "$chunks" "$mem" "$online_at"
+  sed 's/^/  run | /' "$rbk"
+  { grep -E "capture p8r?-$ID " "$LOG" || true; } | sed 's/^/  A | /'
+  read -r files tick hold _ _ <<<"$(cost_figures "$LOG" "$rid")" || true
+  read -r rfiles rtick rhold chunks mem <<<"$(cost_figures "$LOG" "$rrid")" || true
+  printf 'proof 8: %s player files staged in %s ms, hold %s ms with no stall; roaming inside a %s s test stall (hold %s ms, tick %s ms, %s files): %s loaded chunks and %s MB of memory at release, online at release: %s\n' \
+    "$files" "$tick" "$hold" "$STALL" "$rhold" "$rtick" "$rfiles" "$chunks" "$mem" "$online_at"
   docker run --rm -m 1g --cpus 1 -v "$VOL:/d" "$IMG:head" bash -c 'rm -f /d/players/fill*.dat'
-  check "[p8-run] 8. p10 roamed out of range behind clean holds, the run completed, and only p10 was online at the release" \
-    '[ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-chunk-out-of-range" "$bots" && [ "$JRC" = 0 ] && [ "$online_at" = p10 ]'
-  check "[p8-files] 8. the held tick staged the 500 files and the saved files already on A" '[ "${files:-0}" -ge 501 ]'
-  check "[p8-cost] 8. the held tick's duration, the hold's length, and the loaded chunks and memory at release were read" \
+  check "[p8-run] 8. both runs completed, and p10 roamed out of range inside the stall behind clean holds and was the only one online at the release" \
+    '[ "$nrc" = 0 ] && [ "$JRC" = 0 ] && [ "$BRC" = 0 ] && [ "$roamed" = 1 ] && grep -q "^SCENARIO PASS capture-stall-chunk-out-of-range" "$bots" && [ "$online_at" = p10 ]'
+  check "[p8-files] 8. each held tick staged the 500 files and the saved files already on A" '[ "${files:-0}" -ge 501 ] && [ "${rfiles:-0}" -ge 501 ]'
+  check "[p8-cost] 8. the held tick's duration, the no-stall hold's length, and the loaded chunks and memory at the release of the roaming hold were read" \
     '[[ $tick =~ ^[0-9.]+$ && $hold =~ ^[0-9.]+$ && $chunks =~ ^[0-9]+$ && $mem =~ ^[0-9.]+$ ]]'
 }
 
