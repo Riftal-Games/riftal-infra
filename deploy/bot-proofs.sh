@@ -3,8 +3,9 @@
 # job's harness step alone. It boots instances A and B beside MySQL on a job network,
 # takes item 2's per-start checks at every start of either, answers one hold with the
 # root listing, and plays ADR 015 proof 1 with bots against the head's backup.sh and
-# again against a mutant of it, proof 3 the same way, then proof 1 against main's
-# merge-base script through a tar shim while that script has no capture request.
+# again against a mutant of it, proof 3 the same way, proof 10's held run, then proof 1
+# against main's merge-base script through a tar shim while that script has no capture
+# request, then proof 10's clean-stop run and its mutant.
 #
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
 # count ran, teardown's listings were empty and every recorded runner was clean; 3 when
@@ -29,14 +30,14 @@ ID="${GITHUB_RUN_ID:-}_${GITHUB_RUN_ATTEMPT:-}"
 [[ $ID =~ ^[0-9]+_[0-9]+$ ]] || { printf '::error::no run id and attempt\n'; exit 1; }
 P=riftal_smoke_ci_$ID
 NET=${P}_net DB=${P}_db A=${P}_a VOL=${P}_adata CAP=${P}_cap SETS=${P}_sets IMG=${P}_tool
-RDB=${P}_rdb RVOL=${P}_rvol BK=${P}_bk SHIM=${P}_shim B=${P}_b BVOL=${P}_bdata
-for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG" "$RDB" "$RVOL" "$BK" "$SHIM" "$B" "$BVOL"; do
+RDB=${P}_rdb RVOL=${P}_rvol BK=${P}_bk SHIM=${P}_shim B=${P}_b BVOL=${P}_bdata R=${P}_r
+for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG" "$RDB" "$RVOL" "$BK" "$SHIM" "$B" "$BVOL" "$R"; do
   [[ $name =~ ^riftal_smoke_ci_[0-9]+_[0-9]+_[a-z]+$ && ! $name =~ world|player|backup ]] || { printf '::error::%s is not a name this harness may create\n' "$name"; exit 1; }
 done
 
 # The deadline lets teardown and the summary line run before the runner kills the step.
 if [ -z "${BOT_PROOFS_INNER:-}" ]; then
-  BOT_PROOFS_INNER=1 exec timeout --preserve-status -k 120 720 bash "${BASH_SOURCE[0]}"
+  BOT_PROOFS_INNER=1 exec timeout --preserve-status -k 120 1100 bash "${BASH_SOURCE[0]}"
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -57,7 +58,7 @@ grep -qF CAPTURE_DIR "$BASE_SH" || CONTROL=1
 
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
-EXPECTED_ASSERTIONS=$((46 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" LOGB="" NB=0 under="" RED=""
+EXPECTED_ASSERTIONS=$((76 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" rspid="" LOGB="" LOGR="" NA=1 NB=0 under="" RED=""
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
@@ -102,6 +103,7 @@ teardown() {
   local left=""
   halt spid 3 "$A" "$LOG"
   halt bspid 4 "$B" "$LOGB"
+  halt rspid 5 "$R" "$LOGR"
   docker stop -t 30 "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
   for _ in $(seq 1 30); do
     docker rm -v "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
@@ -333,19 +335,24 @@ p1_run() {
   sed 's/^/  run | /' "$bk"
 }
 
+# $1 the run's tag. Sets SET to the set the run completed and MANIFEST to its manifest,
+# both empty when the run wrote none.
+manifest_of() {
+  SET="$(sed -n 's|.*complete at /backups/||p' "$work/$1-bk.log")"
+  MANIFEST="$(docker run --rm -m 1g --cpus 1 -v "$SETS:/b:ro" "$IMG:head" cat "/b/$SET/manifest.txt" || true)"
+}
+
 # $1 the run's tag, $2 the letter of the volume its set holds, the rest the bots' names.
 # Restores the set onto a fresh volume with the head's restore.sh, then reads the
-# manifest and the restored inventories.
+# manifest and the restored inventories. The volume stays when KEEP is set.
 restore_set() {
-  local set
-  set="$(sed -n 's|.*complete at /backups/||p' "$work/$1-bk.log")"
+  manifest_of "$1"
   docker volume create "$RVOL" >/dev/null
   docker run --rm -m 1g --cpus 1 --network "$NET" -v "$ROOT/deploy/restore.sh:/deploy/restore.sh:ro" \
     -v "$SETS:/backups:ro" -v "$RVOL:/worlds/$2" -e MYSQL_HOST=rdb -e MYSQL_USER=root -e MYSQL_PASSWORD="$PW" \
-    -e MYSQL_DATABASE=riftal_smoke_ci -e BACKUP_SET="/backups/$set" "$IMG:head" bash /deploy/restore.sh 2>&1 | sed 's/^/  restore | /' || true
-  MANIFEST="$(docker run --rm -m 1g --cpus 1 -v "$SETS:/b:ro" "$IMG:head" cat "/b/$set/manifest.txt" || true)"
+    -e MYSQL_DATABASE=riftal_smoke_ci -e BACKUP_SET="/backups/$SET" "$IMG:head" bash /deploy/restore.sh 2>&1 | sed 's/^/  restore | /' || true
   STACKS="$(stacks "$RVOL" "${@:3}")"
-  docker volume rm "$RVOL" >/dev/null
+  [ -n "${KEEP:-}" ] || docker volume rm "$RVOL" >/dev/null
   printf 'manifest:\n%s\nrestored dirt stacks: %s\n' "$MANIFEST" "$(tr '\n' ' ' <<<"$STACKS")"
 }
 
@@ -454,6 +461,118 @@ grep '^red under listing-ignored' <<<"$RED" || true
 check "mutant listing-ignored turns only [p3-retry], [p3-manifest] and [p3-stacks] red, with p3b's file holding the stack" \
   '[ "$(grep -c "^red under listing-ignored: " <<<"$RED")" = 3 ] && [ "$(grep -c "^red under listing-ignored: \[p3-\(retry\|manifest\|stacks\)\]" <<<"$RED")" = 3 ] && grep -qx "p3b 1" <<<"$STACKS"'
 
+# ADR 015 proof 10. p10 breaks blocks in a chunk core can unload, walks out of its range
+# and stays out past core's 30 s unload delay. Any other player in range would keep the
+# chunk loaded and the proof would pass without testing the hold, so p10 is the only bot
+# on A in that window, which the log shows. B has its own bots and no view of A's chunks.
+STALL=120
+
+# $1 a log, $2 a pattern. Prints the names with more joins than leaves in the log up to
+# its first line matching the pattern.
+online() {
+  sed -n "1,/$2/p" "$1" | grep -oE '[^ ]+ (joined|left) the game' |
+    awk '{n[$1] += ($2 == "joined") ? 1 : -1} END {for (k in n) if (n[k] > 0) print k}' || true
+}
+
+# $1 the bots' log. Starts p10 on A and returns once it waits for the stall.
+p10_bots() {
+  gate
+  docker run --rm -m 1g --cpus 1 -v "$VOL:/d" "$IMG:head" rm -f /d/players/p10.dat
+  rm -f "$work/stall" "$work/end"
+  CAPTURE_STALL_FILE="$work/stall" CAPTURE_END_FILE="$work/end" bots capture-stall-chunk-out-of-range 1 "$A" "$H" "$1"
+  await "CAPTURE WAIT stall" "$1" 120 || true
+}
+
+# $1 the bots' log. Lets p10 quit and sets BRC and BROKEN, the cells it broke.
+p10_end() {
+  touch "$work/end"
+  BRC=0; wait "$BPID" || BRC=$?
+  [ "$BRC" -ne 4 ] || FOUND=1
+  sed 's/^/  bots | /' "$1"
+  BROKEN="$(sed -n 's/^SCENARIO PASS capture-stall-chunk-out-of-range .*CAPTURE_BROKEN=//p' "$1")"
+}
+
+# $1 a container, $2 its port, $3 a log. Joins as p10 and reads the broken cells. Sets AIRRC.
+p10_air() {
+  gate
+  CAPTURE_BROKEN="$BROKEN" bots capture-stall-blocks-are-air 1 "$1" "$2" "$3"
+  AIRRC=0; wait "$BPID" || AIRRC=$?
+  [ "$AIRRC" -ne 4 ] || FOUND=1
+  sed 's/^/  air | /' "$3"
+}
+
+# The hold stands while p10 is out of range. A tool container samples p10's saved file
+# on A every second for the length of the stall, and the samples up to the end of the
+# window must show three mtimes, two autosaves.
+p10_held() {
+  local rid=p10-$ID bots="$work/p10-bots.log" bk="$work/p10-bk.log" mt="$work/p10-mtimes" jpid mpid cut times at_hold at_end
+  p10_bots "$bots"
+  backup_run "$ROOT/deploy/backup.sh" "$rid" "$VOL:/worlds/a:ro" "$bk"
+  jpid=$!
+  await "capture $rid held" "$LOG" 60 || true
+  docker run --rm -m 1g --cpus 1 -e N="$STALL" -v "$VOL:/v:ro" "$IMG:head" \
+    bash -c 'for ((i = 0; i < N; i++)); do echo "$(date +%s) $(stat -c %Y /v/players/p10.dat 2>/dev/null)"; sleep 1; done' >"$mt" &
+  mpid=$!
+  touch "$work/stall"
+  await "CAPTURE WAIT end" "$bots" "$STALL" || true
+  cut=$(date +%s)
+  at_hold="$(online "$LOG" "capture $rid held")" at_end="$(online "$LOG" "capture $rid released")"
+  p10_end "$bots"
+  EARLY=0; ! grep -qF "snapshotting world volume" "$bk" || EARLY=1
+  wait "$mpid" || true
+  JRC=0; wait "$jpid" || JRC=$?
+  sed 's/^/  run | /' "$bk"
+  times="$(awk -v c="$cut" '$1 <= c && NF == 2 {print $2}' "$mt" | sort -u | tr '\n' ' ')"
+  printf 'online on A at the hold: %s; at the end of the window: %s; p10 file mtimes in the window: %s\n' "$at_hold" "$at_end" "$times"
+  check "[p10-alone] 10. only p10 was online on A from the hold to the end of its window, and no one else joined" \
+    '[ "$at_hold" = p10 ] && [ "$at_end" = p10 ] && [ "$(sed "1,/capture $rid held/d" "$LOG" | grep -c " joined the game")" = 0 ]'
+  check "[p10-saves] 10. p10's saved file on A advanced at two autosaves while it was out of range" '[ "$(wc -w <<<"$times")" -ge 3 ]'
+  check "[p10-held] 10. p10 passed behind clean holds inside the stall, and the run tarred A as held after it" \
+    '[ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-chunk-out-of-range" "$bots" && [ "$EARLY" = 0 ] && [ "$JRC" = 0 ] &&
+     grep -qF "snapshotting world volume a, held" "$bk"'
+}
+
+# $1 a tag for the run's files; $2 the backup script to run; $3 its request id; $4 1 to
+# have p10 play. Stops A cleanly inside the stall and leaves it down. Sets BRC, BROKEN and JRC.
+p10_stop() {
+  local bots="$work/$1-bots.log" bk="$work/$1-bk.log" jpid
+  BRC=0 BROKEN=""
+  [ "$4" != 1 ] || p10_bots "$bots"
+  backup_run "$2" "$3" "$VOL:/worlds/a:ro" "$bk"
+  jpid=$!
+  await "capture $3 held" "$LOG" 60 || true
+  if [ "$4" = 1 ]; then
+    touch "$work/stall"
+    await "CAPTURE WAIT end" "$bots" "$STALL" || true
+    p10_end "$bots"
+  fi
+  halt spid 3 "$A" "$LOG"
+  JRC=0; wait "$jpid" || JRC=$?
+  sed 's/^/  run | /' "$bk"
+}
+
+# $1 the run's tag, $2 its request id
+p10_stop_judge() {
+  local bk="$work/$1-bk.log" rid=$2
+  manifest_of "$1"
+  check "[p10-stop-log] 7. the log shows A's ack gone at its tar and the volume called down, and the run completed" \
+    'grep -qF "volume a lost its ack for request $rid before its tar" "$bk" &&
+     grep -qF "volume a is down, it has no server.lock" "$bk" && [ "$JRC" = 0 ]'
+  check "[p10-stop-manifest] 7. the manifest marks A stopped" 'grep -qxF "capture_mode.a: stopped" <<<"$MANIFEST"'
+}
+
+# After the release A stops cleanly and starts again, and p10 reads the cells it broke,
+# which the hold kept loaded, as air.
+p10_held
+gate
+halt spid 3 "$A" "$LOG"
+LOG="$work/a$((++NA)).log"
+up "$A" "$VOL" "$LOG" 3 spid
+H=$NH C=$NC
+p10_air "$A" "$H" "$work/p10-air.log"
+check "[p10-air] 10. after the release and a clean restart of A, p10 reads the broken blocks as air" \
+  '[ -n "$BROKEN" ] && [ "$AIRRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-blocks-are-air" "$work/p10-air.log"'
+
 # Proof 1's control. main's merge-base script tars A's volume in one tar call, and the
 # shim splits it: every member but p1b's file, then, once the bots have dropped and
 # picked up the stack, p1b's file appended to the same archive. The read order is fixed,
@@ -523,3 +642,45 @@ if [ "$CONTROL" = 1 ]; then
   [ "$FAILURES" -eq 0 ] || exit 1
   control
 fi
+
+# Proof 10's clean stop. A is stopped cleanly inside the stall and stays down, so its ack
+# is gone at the tar and the volume goes back to the wait and is called down. The set
+# restores onto a fresh volume that a fresh instance boots, and p10 reads the cells it
+# broke as air from it.
+gate
+p10_stop s "$ROOT/deploy/backup.sh" "p10s-$ID" 1
+p10_stop_judge s "p10s-$ID"
+check "[p10-stop-bots] 7. p10 broke blocks and passed behind clean holds before A was stopped" \
+  '[ "$BRC" = 0 ] && [ -n "$BROKEN" ] && grep -q "^SCENARIO PASS capture-stall-chunk-out-of-range" "$work/s-bots.log"'
+gate
+KEEP=1 restore_set s a
+LOGR="$work/r.log"
+up "$R" "$RVOL" "$LOGR" 5 rspid
+# A is down, so the restored instance takes its place in every scenario's listing.
+H=$NH C=$NC
+p10_air "$R" "$H" "$work/s-air.log"
+check "[p10-stop-air] 7. the restored A boots on a fresh instance and p10 reads run 2's broken blocks as air" \
+  '[ "$AIRRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-blocks-are-air" "$work/s-air.log"'
+halt rspid 5 "$R" "$LOGR"
+docker volume rm "$RVOL" >/dev/null
+
+# The ack a held volume lost is not looked for, so A, stopped inside the stall, is tarred
+# as held from a stage its stop removed: tar cannot enter it and the run fails, with no
+# set, no manifest and no line for the lost ack.
+sed 's|if ! listed "${first.*ack"; then|if false; then|' "$ROOT/deploy/backup.sh" >"$work/ack-ignored.sh"
+printf '\n== mutant ack-ignored, against proof 10\n'
+diff "$ROOT/deploy/backup.sh" "$work/ack-ignored.sh" || true
+if ! cmp -s "$ROOT/deploy/backup.sh" "$work/ack-ignored.sh"; then
+  gate
+  LOG="$work/a$((++NA)).log"
+  up "$A" "$VOL" "$LOG" 3 spid
+  H=$NH C=$NC
+  STALL=30
+  p10_stop m "$work/ack-ignored.sh" "p10m-$ID" 0
+  under=ack-ignored
+  p10_stop_judge m "p10m-$ID"
+  under=""
+fi
+grep '^red under ack-ignored' <<<"$RED" || true
+check "mutant ack-ignored turns only [p10-stop-log] and [p10-stop-manifest] red" \
+  '[ "$(grep -c "^red under ack-ignored: " <<<"$RED")" = 2 ] && [ "$(grep -c "^red under ack-ignored: \[p10-stop-\(log\|manifest\)\]" <<<"$RED")" = 2 ]'
