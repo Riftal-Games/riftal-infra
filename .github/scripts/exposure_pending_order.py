@@ -121,10 +121,13 @@ printf 'address=%s\n' "$address" >> "$GITHUB_OUTPUT"
 bash .github/scripts/ci-docker-label.sh
 . images/devtools-image.sh
 devtools_extract "$RUNNER_TEMP/riftal-devtools"
+bash .github/scripts/rig-lock.sh take
+bash .github/scripts/rig-lock.sh rig-up-check
 bash .github/scripts/ci-container-sweep.sh
+bash .github/scripts/rig-lock.sh release
 """.split("\n")
 )
-TEARDOWN_RUNS = frozenset({"bash .github/scripts/ci-container-sweep.sh"})
+TEARDOWN_RUNS = frozenset({"bash .github/scripts/ci-container-sweep.sh", "bash .github/scripts/rig-lock.sh release"})
 TEARDOWN_KEYS = {"name", "if", "run"}
 HARNESS_MENTION = re.compile(r"exposure|github_output|set-output", re.I)
 HARNESS_WRITES = (
