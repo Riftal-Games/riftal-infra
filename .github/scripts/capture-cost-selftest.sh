@@ -103,10 +103,12 @@ printf '[1] p3a joined the game\n[2] %s\n[3] p3a left the game\n' "$held_line" >
 printf '[1] p3a joined the game\n[2] p3a left the game\n[3] %s\n' "$held_line" >"$work/after.log"
 printf '[1] %s\n[2] p3a joined the game\n[3] p3a left the game\n' "$held_line" >"$work/before.log"
 printf '[1] p3a joined the game\n[2] %s\n' "$held_line" >"$work/stays.log"
+printf '[1] p3a joined the game\n[2] p3a left the game\n[3] %s\n[4] p3a joined the game\n[5] p3a left the game\n' "$held_line" >"$work/earlier.log"
 session "a hold between the join and the leave is inside the session" holds "$work/inside.log"
 session "a hold after the leave is not" refused "$work/after.log"
 session "a hold before the join is not" refused "$work/before.log"
 session "a bot that never leaves is not counted" refused "$work/stays.log"
+session "a hold between two sessions is not inside either" refused "$work/earlier.log"
 
 [ "$FAILURES" -eq 0 ] || exit 1
 printf 'capture-cost.sh reads every figure and refuses every broken log\n'

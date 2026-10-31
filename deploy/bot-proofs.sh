@@ -682,7 +682,7 @@ for ((n = 1; n <= P6_RUNS; n++)); do p6_run "$n"; gate; done
 printf 'proof 6: %s runs, %s retried on a differing listing, %s failed\n' "$P6_RUNS" "$P6_RETRIED" "$P6_FAILED"
 printf 'backup T: volume a changed during its tar\nbackup T: volume a before its tar: players/p6.dat 9 1.5\nbackup T: complete at /backups/T\n' >"$work/p6-outside.log"
 printf 'backup T: volume a changed during its tar\nbackup T: complete at /backups/T\n' >"$work/p6-empty.log"
-check "[p6-bots] 6. all $P6_RUNS runs began after p3a joined A and held it before p3a left, each passing behind clean holds" \
+check "[p6-bots] 6. all $P6_RUNS holds fell while p3a was online on A, each passing behind clean holds" \
   '[ "$P6_BOTS" = "$P6_RUNS" ] && [ "$P6_INSIDE" = "$P6_RUNS" ]'
 check "[p6-rule] 6. every run completed or failed on a differing listing, and every differing listing logged entries under worlds/ or .capture/ or server.lock" \
   '[ "$P6_RULE" = "$P6_RUNS" ]'

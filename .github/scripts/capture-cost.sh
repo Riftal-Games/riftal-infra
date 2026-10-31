@@ -33,10 +33,11 @@ run_follows_listing_rule() {
 
 # $1 a server log, $2 a request id, $3 a bot's name. True when the log shows the bot join,
 # then the request held, then the bot leave, the join being the bot's last one before the
-# held line.
+# held line and no leave coming between them.
 held_inside_session() {
   sed 's/\x1b\[[0-9;]*m//g' "$1" | awk -v id="$2" -v bot="$3" '
     $0 ~ (" " bot " joined the game") && !held { joined = NR }
+    $0 ~ (" " bot " left the game") && !held { joined = 0 }
     $0 ~ ("capture " id " held: ") { held = NR }
     $0 ~ (" " bot " left the game") && held && !left { left = NR }
     END { exit !(joined && held && left && joined < held) }'
