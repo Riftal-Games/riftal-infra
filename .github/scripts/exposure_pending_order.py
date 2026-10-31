@@ -61,11 +61,11 @@ name, id, if and run: shell would replace the interpreter that runs the write,
 and env can set BASH_ENV or ENV, which run a script before the run does, so both
 are refused with the rest. Its whole run, once spaces and newlines around it are
 dropped, must be HARNESS_RUN, the one fixed form: the script runs with
-GITHUB_OUTPUT unset, so it writes no exposure value; exit 0 writes none, exit 3
-writes found, any other status writes nothing, and the step exits with the
-script's status. A run that writes nothing falls through to pending, the value
-ADR 024 item 3 gives to a run that ended before every listing was judged, so
-bots-stopped-file files it.
+GITHUB_OUTPUT unset, so it writes no exposure value; exit 0 and exit 4 write
+none, exit 3 writes found, any other status writes nothing, and the step exits
+with the script's status. A run that writes nothing falls through to pending,
+the value ADR 024 item 3 gives to a run that ended before every listing was
+judged, so bots-stopped-file files it.
 
 The workflow's concurrency.cancel-in-progress, when it has one, must be a plain
 false, and the check ends otherwise: a newer run cancels an older run and every
@@ -82,19 +82,19 @@ passes when every step is on the allowlist; no operand is judged.
 
 Limits: PyYAML stands in for GitHub's parser and is not compared with it. Not
 read: the contents of other jobs, whose ids are read as keys of jobs; the values
-under workflow name, on, permissions and concurrency, bar cancel-in-progress, and of workflow env
-variables; a job's name, needs, if, runs-on, timeout-minutes and permissions;
-the values of outputs keys other than exposure; if values on any step, ahead
-of the pending step or after it, and the continue-on-error value of a step
-ahead of it unless its run is PENDING_WRITE and it has an id; a script a step
-calls. A step after the pending step is read as a mapping and its id meets the
-id rules above. Only whether it has an if is read, never the value. Its keys
-are judged only when it has an if, and then its run is read and it may hold
-only name, if and run. Without an if its run, env, with and continue-on-error
-are not read, nor is what it writes to its outputs, except for the harness step
-above. What deploy/bot-proofs.sh does is not read, and the form above only
-withholds GITHUB_OUTPUT from it (riftal-infra#1240, riftal-infra#1259,
-riftal-infra#1262).
+under workflow name, on, permissions and concurrency, bar cancel-in-progress,
+and of workflow env variables; a job's name, needs, if, runs-on, timeout-minutes
+and permissions; the values of outputs keys other than exposure; if values on
+any step, ahead of the pending step or after it, and the continue-on-error value
+of a step ahead of it unless its run is PENDING_WRITE and it has an id; a script
+a step calls. A step after the pending step is read as a mapping and its id
+meets the id rules above. Only whether it has an if is read, never the value.
+Its keys are judged only when it has an if, and then its run is read and it may
+hold only name, if and run. Without an if its run, env, with and
+continue-on-error are not read, nor is what it writes to its outputs, except for
+the harness step above. What deploy/bot-proofs.sh does is not read, and the form
+above only withholds GITHUB_OUTPUT from it (riftal-infra#1240,
+riftal-infra#1259, riftal-infra#1262).
 """
 
 import re
@@ -127,7 +127,7 @@ TEARDOWN_KEYS = {"name", "if", "run"}
 HARNESS_RUN = r"""status=0
 env -u GITHUB_OUTPUT bash deploy/bot-proofs.sh || status=$?
 case "$status" in
-  0) printf 'exposure=none\n' >> "$GITHUB_OUTPUT" ;;
+  0|4) printf 'exposure=none\n' >> "$GITHUB_OUTPUT" ;;
   3) printf 'exposure=found\n' >> "$GITHUB_OUTPUT" ;;
 esac
 exit "$status"
