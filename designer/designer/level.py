@@ -2,10 +2,10 @@
 
 ``build_level`` drives the bridge of a throwaway server whose default world is the
 zone: ``pregen``, the recipe's steps, the zone's checks, ``scan_items``, the chorus
-flower rule and the block fingerprint. It then hands over to ``after_stop``, which
-stops that server and reports what only the saved folder and the engine know, and
-writes the lock last, so a failure anywhere leaves no lock behind. The recipe and lock formats are in
-``levels/README.md``.
+flower rule and the block fingerprint. It then calls ``after_stop``, which stops that
+server and reports what only the saved folder and the engine know. ``build_level``
+writes the lock last, from both, so a failure anywhere leaves no lock behind. The
+recipe and lock formats are in ``levels/README.md``.
 """
 
 from __future__ import annotations
@@ -95,13 +95,26 @@ def load_recipe(zone: str, root: Path = PROJECT_ROOT) -> Recipe:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         steps = tuple(Step(str(s["build"]), str(s["spec"]), str(s["palette"])) for s in data["steps"])
-        recipe = Recipe(zone, path, str(data["generator"]), int(data["seed"]), Bounds.from_json(data["bounds"]), steps)
+        seed = data["seed"]
+        # The lock copies this seed as authoritative, so a float or string that merely converts is refused.
+        if type(seed) is not int:
+            raise TypeError(f"seed must be an integer, got {seed!r}")
+        recipe = Recipe(zone, path, str(data["generator"]), seed, Bounds.from_json(data["bounds"]), steps)
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise LevelError(f"cannot read recipe {path}: {exc}") from exc
+    palettes = load_palettes()["palettes"]
     for n, step in enumerate(recipe.steps):
         if step.build not in BUILDERS:
             raise LevelError(f"step {n}: no builder {step.build!r}")
-        _input(root, step.spec)
+        if step.palette not in palettes:
+            raise LevelError(f"step {n}: no palette {step.palette!r} in palettes.json")
+        spec_path = _input(root, step.spec)
+        try:
+            world = json.loads(spec_path.read_text(encoding="utf-8"))["world"]
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise LevelError(f"step {n}: cannot read the world of spec {step.spec}: {exc!r}") from exc
+        if world != zone:
+            raise LevelError(f"step {n} ({step.build} {step.spec}) writes world {world!r}, not the zone {zone!r}")
     return recipe
 
 
@@ -203,8 +216,6 @@ def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex) ->
     for n, step in enumerate(recipe.steps):
         spec = json.loads(_input(root, step.spec).read_text(encoding="utf-8"))
         edits = BUILDERS[step.build](spec, Palette.load(step.palette), fetch)
-        if edits.world != recipe.zone:
-            raise LevelError(f"step {n} writes world {edits.world!r}, not the zone {recipe.zone!r}")
         locations, regions = edits.extras.get("locations", []), edits.extras.get("regions", [])
         try:
             again = sorted(made & set(index.preflight(locations, regions)))
