@@ -63,34 +63,40 @@ def docker_spelling(args: tuple[str, ...]) -> tuple[str, ...]:
 
 MEMORY = re.compile(r"\d+[bkmg]?", re.IGNORECASE)
 CPUS = re.compile(r"\d+(\.\d+)?")
+NO_CAP = re.compile(r"0+(\.0+)?[bkmg]?", re.IGNORECASE)
+
+
+def _cap(flag: str, value: str) -> list[str]:
+    return [] if NO_CAP.fullmatch(value) else [flag, value]
 
 
 @dataclass(frozen=True)
 class Limits:
-    """Memory and CPU caps on the build's containers; ``0`` is the engine's spelling of no cap.
+    """Memory and CPU caps on the build's containers.
 
-    The defaults are the caps every agent run on the shared PC already holds its containers to.
-    ``--memory`` is spelled out because ``wslc`` and ``docker`` both accept it.
+    A value of ``0`` leaves its flag out of the engine's argv, so the container is uncapped on both
+    runtimes without relying on how either reads a zero. Sizes use the upper-case unit ``wslc``
+    documents, which ``docker`` also accepts.
     """
 
-    memory: str = "2g"
+    memory: str = "2G"
     cpus: str = "2"
-    tool_memory: str = "1g"
-    tool_cpus: str = "1"
+    tool_memory: str = stack.TOOL_MEMORY
+    tool_cpus: str = stack.TOOL_CPUS
 
     def __post_init__(self) -> None:
         for flag, value in (("memory", self.memory), ("tool-memory", self.tool_memory)):
             if not MEMORY.fullmatch(value):
-                raise LevelError(f"--{flag} must be a size such as 2g or 512m, got {value!r}")
+                raise LevelError(f"--{flag} must be a size such as 2G or 512M, got {value!r}")
         for flag, value in (("cpus", self.cpus), ("tool-cpus", self.tool_cpus)):
             if not CPUS.fullmatch(value):
                 raise LevelError(f"--{flag} must be a number such as 2 or 0.5, got {value!r}")
 
     def server(self) -> list[str]:
-        return ["--memory", self.memory, "--cpus", self.cpus]
+        return [*_cap("--memory", self.memory), *_cap("--cpus", self.cpus)]
 
     def tool(self) -> list[str]:
-        return ["--memory", self.tool_memory, "--cpus", self.tool_cpus]
+        return [*_cap("--memory", self.tool_memory), *_cap("--cpus", self.tool_cpus)]
 
 
 @dataclass(frozen=True)

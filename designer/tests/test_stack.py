@@ -288,7 +288,7 @@ def test_build_image_and_build_devtools_use_the_runtime_binary(monkeypatch: pyte
     assert recorder.calls[-1][0] == runtime and "GIT_HASH=abc1234" in recorder.calls[-1] and str(tmp_path) in recorder.calls[-1]
     stack.build_devtools(runtime, core_dir=tmp_path, plugins_dir=tmp_path / "plugins")
     assert recorder.calls[-1][:3] == [runtime, "run", "--rm"] and any("DevTools" in a for a in recorder.calls[-1])
-    assert recorder.calls[-1][3:7] == ["--memory", "1g", "--cpus", "1"]
+    assert recorder.calls[-1][3:7] == ["--memory", "1G", "--cpus", "1"]
 
 
 def test_exec_wraps_a_timeout_as_a_stack_error(monkeypatch: pytest.MonkeyPatch) -> None:
