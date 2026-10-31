@@ -469,7 +469,7 @@ SH
 chmod +x "$work/tar"
 
 # True once p1a's saved file on A holds the stack.
-saved() { grep -qx "p1a 1" <<<"$(stacks "$VOL")"; }
+saved() { grep -qx "p1a 1" <<<"$(stacks "$VOL" p1a)"; }
 
 # True once both bots' saved files on A are newer than the shim's pass 1 marker.
 rewritten() {
