@@ -1,13 +1,17 @@
 import json
+from pathlib import Path
 
 import pytest
 
+from designer.blocks import format_name
 from designer.builders.base import Palette
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
 from designer.edits import SetBlock
+from designer.level import LevelError, check_reset_states, load_recipe
 from designer.region import Bounds, Region
+from designer.reset_states import RESET_STATES
 from designer.verify import mine_valid
 
 WET = "minecraft:farmland[moisturized_amount=7]"
@@ -43,7 +47,7 @@ def test_a_crop_mine_fragment_is_one_layer_with_floor_y_one_below_it() -> None:
 def test_a_crop_mine_places_crops_in_its_bottom_row_only() -> None:
     spec = _crop_spec()
     ops = [op for op in build_mine(spec, Palette.load("mine_stone")).ops if isinstance(op, SetBlock)]
-    crops = {op.y for op in ops if op.block in ("minecraft:wheat", "minecraft:carrots")}
+    crops = {op.y for op in ops if op.block in ("minecraft:wheat[growth=7]", "minecraft:carrots[growth=7]")}
     assert crops == {spec.floor_y}
     region, interior = _built(spec)
     above = Bounds((interior.min[0], spec.floor_y + 1, interior.min[2]), interior.max)
@@ -122,3 +126,32 @@ def test_the_wetness_state_on_a_block_that_is_not_farmland_fails_the_build() -> 
     region.set(interior.min[0], spec.floor_y - 1, interior.min[2], "minecraft:dirt[moisturized_amount=7]")
     found = mine_valid(region, spec)
     assert not found.ok and found.data["crop_floor_dry"] == 1
+
+
+@pytest.mark.parametrize("crop", ["wheat", "carrots", "potatoes", "beetroot", "melon_stem", "pumpkin_stem"])
+def test_a_built_crop_mine_holds_its_crop_at_the_reset_state_and_passes_mine_valid(crop: str) -> None:
+    spec = _crop_spec(ores={f"minecraft:{crop}": 1.0})
+    region, interior = _built(spec)
+    row = Bounds(interior.min, (interior.max[0], interior.min[1], interior.max[2]))
+    [(name, count)] = region.sub(row).counts().items()
+    assert count == row.volume and name == format_name(f"minecraft:{crop}", RESET_STATES[f"minecraft:{crop}"])
+    found = mine_valid(region, spec)
+    assert found.ok and found.data["crop_floor_dry"] == 0
+
+
+def test_a_crop_below_max_age_fails_mine_valid() -> None:
+    spec = _crop_spec(ores={"minecraft:wheat": 1.0})
+    region, interior = _built(spec)
+    region.set(interior.min[0], spec.floor_y, interior.min[2], "minecraft:wheat[growth=0]")
+    found = mine_valid(region, spec)
+    assert not found.ok and "1 interior cells neither air nor in ores" in found.detail
+
+
+def test_a_level_recipe_naming_a_crop_has_its_reset_state(tmp_path: Path) -> None:
+    (tmp_path / "specs").mkdir()
+    (tmp_path / "levels").mkdir()
+    spec = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    (tmp_path / "specs" / "mine_a.json").write_text(json.dumps({**spec, "ores": {"minecraft:wheat": 1.0, "minecraft:melon_stem": 1.0}}), encoding="utf-8")
+    recipe = {"generator": "normal", "seed": 1, "bounds": {"min": [0, 0, 0], "max": [1, 1, 1]}, "steps": [{"build": "mine", "spec": "specs/mine_a.json", "palette": "mine_stone"}]}
+    (tmp_path / "levels" / "mine_a.json").write_text(json.dumps(recipe), encoding="utf-8")
+    check_reset_states(load_recipe("mine_a", tmp_path), tmp_path)
