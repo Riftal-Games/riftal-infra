@@ -5,7 +5,8 @@
 # root listing, and plays ADR 015 proof 1 with bots against the head's backup.sh and
 # again against a mutant of it, proof 3 the same way, proof 10's held run, then proof 1
 # against main's merge-base script through a tar shim while that script has no capture
-# request, then proof 10's clean-stop run and its mutant.
+# request, then proof 6's twenty runs with a bot mining, proof 8's cost run, and proof
+# 10's clean-stop run and its mutant.
 #
 # Exit status: 0 when every listing was clean, every assertion passed, the expected
 # count ran, teardown's listings were empty and every recorded runner was clean; 3 when
@@ -37,7 +38,7 @@ done
 
 # The deadline lets teardown and the summary line run before the runner kills the step.
 if [ -z "${BOT_PROOFS_INNER:-}" ]; then
-  BOT_PROOFS_INNER=1 exec timeout --preserve-status -k 120 1100 bash "${BASH_SOURCE[0]}"
+  BOT_PROOFS_INNER=1 exec timeout --preserve-status -k 120 1500 bash "${BASH_SOURCE[0]}"
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,6 +46,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/images/devtools-image.sh"
 . "$ROOT/.github/scripts/bot-proofs-checks.sh"
 . "$ROOT/.github/scripts/bot-proofs-finish.sh"
+. "$ROOT/.github/scripts/capture-cost.sh"
 core_image && devtools_image || exit 1
 DT="${RUNNER_TEMP:?}/riftal-devtools" NODE="$DT/node-runtime/bin/node"
 [ -x "$NODE" ] || { printf '::error::%s is not the devtools image'"'"'s node\n' "$NODE"; exit 1; }
@@ -58,7 +60,7 @@ grep -qF CAPTURE_DIR "$BASE_SH" || CONTROL=1
 
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
-EXPECTED_ASSERTIONS=$((76 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" rspid="" LOGB="" LOGR="" NA=1 NB=0 under="" RED=""
+EXPECTED_ASSERTIONS=$((82 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" rspid="" LOGB="" LOGR="" NA=1 NB=0 under="" RED=""
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
@@ -90,7 +92,8 @@ halt() {
   echo stop >&"$2" || true
   for _ in $(seq 1 300); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
   eval "exec $2>&-"
-  # SIGTERM is the server's own graceful stop; nothing here kills it.
+  # A server still up after its stop on stdin gets SIGTERM, its own graceful stop,
+  # and docker stop sends SIGKILL once 30 s have passed.
   ! kill -0 "$pid" 2>/dev/null || docker stop -t 30 "$3" >/dev/null 2>&1 || true
   wait "$pid" || true
   pid=""
@@ -643,6 +646,82 @@ if [ "$CONTROL" = 1 ]; then
   [ "$FAILURES" -eq 0 ] || exit 1
   control
 fi
+
+# ADR 015 proof 6. Twenty consecutive runs against A with no stall, each started as p3a
+# joins A and mines, so the hold falls inside the mining. A run's log names the entries
+# of every differing listing, and the rule holds for all twenty (capture-cost.sh).
+P6_RUNS=20 P6_RETRIED=0 P6_FAILED=0 P6_OVERLAP=0 P6_BOTS=0 P6_RULE=0
+STALL=0
+
+# $1 the run's number. Sets BRC and JRC, and counts the run in the P6 totals.
+p6_run() {
+  local bots="$work/p6-$1-bots.log" bk="$work/p6-$1-bk.log" seen jpid overlap=0 changes entries outside empty
+  seen=$(grep -c "p3a joined the game" "$LOG" || true)
+  bots capture-stall-seed-stack 1 "$A" "$H" "$bots"
+  timeout 60 bash -c 'until [ "$(grep -c "p3a joined the game" "$0")" -gt "$1" ]; do sleep 0.2; done' "$LOG" "$seen" || true
+  backup_run "$ROOT/deploy/backup.sh" "p6-$1-$ID" "$VOL:/worlds/a:ro" "$bk"
+  jpid=$!
+  JRC=0; wait "$jpid" || JRC=$?
+  ! kill -0 "$BPID" 2>/dev/null || overlap=1
+  BRC=0; wait "$BPID" || BRC=$?
+  [ "$BRC" -ne 4 ] || FOUND=1
+  read -r changes entries outside empty < <(listing_audit "$bk" a)
+  { grep -E '^(ROOT LISTING|PROBE RELEASED|SCENARIO|HOLD FAILURE)' "$bots" || true; } | sed 's/^/  bots | /'
+  printf 'p6 run %s: run exit %s, %s differing listing(s) with %s entries (%s outside a held volume'"'"'s), mining overlapped: %s\n' "$1" "$JRC" "$changes" "$entries" "$outside" "$overlap"
+  [ "$changes" = 0 ] || grep -E ': volume a (changed|before|after) its tar|: failed' "$bk" | sed 's/^backup [^ ]*: /  /'
+  [ "$changes" = 0 ] || P6_RETRIED=$((P6_RETRIED + 1))
+  [ "$JRC" = 0 ] || P6_FAILED=$((P6_FAILED + 1))
+  P6_OVERLAP=$((P6_OVERLAP + overlap))
+  { [ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-seed-stack" "$bots"; } && P6_BOTS=$((P6_BOTS + 1)) || true
+  ! run_follows_listing_rule "$bk" || P6_RULE=$((P6_RULE + 1))
+}
+
+gate
+for ((n = 1; n <= P6_RUNS; n++)); do p6_run "$n"; gate; done
+printf 'proof 6: %s runs, %s retried on a differing listing, %s failed\n' "$P6_RUNS" "$P6_RETRIED" "$P6_FAILED"
+printf 'backup T: volume a changed during its tar\nbackup T: volume a before its tar: players/p6.dat 9 1.5\nbackup T: complete at /backups/T\n' >"$work/p6-outside.log"
+printf 'backup T: volume a changed during its tar\nbackup T: complete at /backups/T\n' >"$work/p6-empty.log"
+check "[p6-bots] 6. all $P6_RUNS runs began after p3a joined A and ended while its bot was still in its scenario, each passing behind clean holds" \
+  '[ "$P6_BOTS" = "$P6_RUNS" ] && [ "$P6_OVERLAP" = "$P6_RUNS" ]'
+check "[p6-rule] 6. every run completed or failed on a differing listing, and every differing listing logged entries under worlds/ or .capture/ or server.lock" \
+  '[ "$P6_RULE" = "$P6_RUNS" ]'
+check "[p6-red] 6. the rule refuses an entry under players/ on a held volume and a differing listing with no entry" \
+  '! run_follows_listing_rule "$work/p6-outside.log" && ! run_follows_listing_rule "$work/p6-empty.log"'
+
+# ADR 015 proof 8. A holds 500 more player files, p10 roams out of range, and one run
+# with no stall takes the hold. `status` is sent every 0.2 s until the hold is released,
+# so the last sample inside the hold is the loaded chunk count and memory at release.
+p8() {
+  local rid=p8-$ID bots="$work/p8-bots.log" bk="$work/p8-bk.log" jpid online_at files="" tick="" hold="" chunks="" mem=""
+  docker run --rm -m 1g --cpus 1 -v "$VOL:/d" "$IMG:head" \
+    bash -c 'for i in $(seq 1 500); do head -c 600 /dev/urandom >"/d/players/fill$i.dat"; done'
+  rm -f "$work/stall" "$work/end"
+  CAPTURE_STALL_FILE="$work/stall" CAPTURE_END_FILE="$work/end" bots capture-stall-chunk-out-of-range 1 "$A" "$H" "$bots"
+  await "CAPTURE WAIT stall" "$bots" 120 || true
+  touch "$work/stall"
+  await "CAPTURE WAIT end" "$bots" 240 || true
+  backup_run "$ROOT/deploy/backup.sh" "$rid" "$VOL:/worlds/a:ro" "$bk"
+  jpid=$!
+  timeout 60 bash -c 'until grep -qF "$0" "$1"; do echo status >&3; sleep 0.2; done' "capture $rid released" "$LOG" || true
+  online_at="$(online "$LOG" "capture $rid released")"
+  p10_end "$bots"
+  JRC=0; wait "$jpid" || JRC=$?
+  sed 's/^/  run | /' "$bk"
+  { grep -F "capture $rid " "$LOG" || true; } | sed 's/^/  A | /'
+  read -r files tick hold chunks mem <<<"$(cost_figures "$LOG" "$rid")" || true
+  printf 'proof 8: %s player files staged in %s ms, hold %s ms, %s loaded chunks and %s MB of memory at release, online at release: %s\n' \
+    "$files" "$tick" "$hold" "$chunks" "$mem" "$online_at"
+  docker run --rm -m 1g --cpus 1 -v "$VOL:/d" "$IMG:head" bash -c 'rm -f /d/players/fill*.dat'
+  check "[p8-run] 8. p10 roamed out of range behind clean holds, the run completed, and only p10 was online at the release" \
+    '[ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-chunk-out-of-range" "$bots" && [ "$JRC" = 0 ] && [ "$online_at" = p10 ]'
+  check "[p8-files] 8. the held tick staged the 500 files and the saved files already on A" '[ "${files:-0}" -ge 501 ]'
+  check "[p8-cost] 8. the held tick's duration, the hold's length, and the loaded chunks and memory at release were read" \
+    '[[ $tick =~ ^[0-9.]+$ && $hold =~ ^[0-9.]+$ && $chunks =~ ^[0-9]+$ && $mem =~ ^[0-9.]+$ ]]'
+}
+
+gate
+p8
+STALL=120
 
 # Proof 10's clean stop. A is stopped cleanly inside the stall and stays down, so its ack
 # is gone at the tar and the volume goes back to the wait and is called down. The set

@@ -25,6 +25,8 @@
 set -euo pipefail
 trap '' PIPE
 
+[ "${GITHUB_ACTIONS:-}" = true ] || { printf '::error::this runs only in GitHub Actions\n'; exit 1; }
+
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source-path=SCRIPTDIR source=../images/core-image.sh
 . "$DIR/../images/core-image.sh"
