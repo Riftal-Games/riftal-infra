@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for wipe-volumes.sh through wipe.sh, against one throwaway mysql:8
-# container that publishes nothing, with two throwaway riftal_smoke_ volumes
+# container that publishes nothing and sits alone on its own internal network,
+# with two throwaway riftal_smoke_ volumes
 # mounted as instance volumes. Runs under `docker`, as wipe-selftest.sh does.
 #
 # Each volume is seeded with the paths the wipe clears and the files it keeps
@@ -19,6 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TAG="$$_$(date +%s)"
 C="riftal_smoke_wipevol_$TAG"
+NET="riftal_smoke_wipevol_net_$TAG"
 VOLUMES=("riftal_smoke_wipevol_a_$TAG" "riftal_smoke_wipevol_b_$TAG")
 LOGS="$(mktemp -d)"
 
@@ -30,12 +32,20 @@ cleanup() {
     docker volume rm "${VOLUMES[@]}" >/dev/null 2>&1 && break
     sleep 1
   done
+  for _ in $(seq 1 30); do
+    docker network rm "$NET" >/dev/null 2>&1 && break
+    sleep 1
+  done
   rm -rf "$LOGS"
 }
 trap cleanup EXIT
 
 for v in "${VOLUMES[@]}"; do docker volume create "$v" >/dev/null; done
-docker run -d --rm --name "$C" -m 1g --cpus 1 -v "$SCRIPT_DIR:/deploy:ro" \
+# Only this network reaches the database. On the daemon's default bridge, any
+# container of any build running there could open a session on it, and the
+# wipe refuses while another session is connected.
+docker network create --internal "$NET" >/dev/null
+docker run -d --rm --name "$C" --network "$NET" -m 1g --cpus 1 -v "$SCRIPT_DIR:/deploy:ro" \
   -v "${VOLUMES[0]}:/worlds/riftal_smoke_a" -v "${VOLUMES[1]}:/worlds/riftal_smoke_b" \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_dev mysql:8 >/dev/null
 for _ in $(seq 1 90); do
@@ -76,7 +86,7 @@ kept >"$LOGS/kept.before"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=66
+EXPECTED_ASSERTIONS=67
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # wipe <database> <set> [docker exec -e flags]
@@ -129,6 +139,15 @@ check_fails() {
 }
 NOBUILD="has no ADR 009 build and should be absent after a wipe"
 BUILT="has an ADR 009 build, and checking it against its lock's content_sha256 is riftal-infra#1126"
+
+printf '\n== no container but this one can open a session on the database\n'
+joined="$(docker inspect -f '{{range $n, $_ := .NetworkSettings.Networks}}{{$n}}{{end}}' "$C")"
+members="$(docker network inspect -f '{{len .Containers}}' "$NET")"
+if [ "$joined" = "$NET" ] && [ "$members" = 1 ]; then
+  pass "the database is on $NET alone, and nothing else is on $NET"
+else
+  fail "the database is on '$joined' and $NET holds $members container(s), not $NET alone with 1"
+fi
 
 printf '\n== wipe-check fails on the seeded volumes\n'
 CHECK=("${W[@]}" "${L[@]}")
