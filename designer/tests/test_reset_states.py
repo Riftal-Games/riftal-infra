@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from designer.blocks import format_name
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
 from designer.reset_states import RESET_STATES
@@ -92,3 +93,24 @@ def test_from_dict_refuses_an_ores_key_spelling_the_not_reset_marker() -> None:
     ores = {"minecraft:quartz_ore": 1.0, "minecraft:quartz_ore (not its reset state)": 99.0}
     with pytest.raises(ValueError, match="which is not a block id"):
         MineSpec.from_dict({**data, "ores": ores})
+
+
+CROPS = {
+    "minecraft:wheat": "minecraft:wheat[growth=7]",
+    "minecraft:carrots": "minecraft:carrots[growth=7]",
+    "minecraft:potatoes": "minecraft:potatoes[growth=7]",
+    "minecraft:beetroot": "minecraft:beetroot[growth=7]",
+    "minecraft:melon_stem": "minecraft:melon_stem[facing_direction=0,growth=7]",
+    "minecraft:pumpkin_stem": "minecraft:pumpkin_stem[facing_direction=0,growth=7]",
+}
+
+
+@pytest.mark.parametrize(("base", "read_back"), CROPS.items())
+def test_a_crop_reset_state_is_its_live_max_age_read_back(base: str, read_back: str) -> None:
+    assert format_name(base, RESET_STATES[base]) == read_back
+
+
+@pytest.mark.parametrize(("base", "read_back"), CROPS.items())
+def test_a_crop_matches_its_key_only_at_max_age(base: str, read_back: str) -> None:
+    young = read_back.replace("growth=7", "growth=0")
+    assert _as_ores([read_back, young], {base: 1.0}) == [base, young]
