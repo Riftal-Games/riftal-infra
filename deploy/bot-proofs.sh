@@ -57,7 +57,7 @@ grep -qF CAPTURE_DIR "$BASE_SH" || CONTROL=1
 
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
-EXPECTED_ASSERTIONS=$((38 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" LOGB="" NB=0 under="" RED=""
+EXPECTED_ASSERTIONS=$((46 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" LOGB="" NB=0 under="" RED=""
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
@@ -263,6 +263,10 @@ STALL=90
 # $1 a literal string; $2 a file; $3 seconds to wait for the string in it
 await() { timeout "$3" bash -c 'until grep -qF -- "$0" "$1" 2>/dev/null; do sleep 0.2; done' "$1" "$2"; }
 
+# An exposure ends the run with exit 3 ahead of any failure, and a failure ends it
+# before another bot connects.
+gate() { [ "$FOUND" = 0 ] || exit 3; [ "$FAILURES" -eq 0 ] || { tail -n 60 "$LOG"; exit 1; }; }
+
 # Counts the minecraft:dirt entries of each named bot's saved inventory on /v.
 cat >"$work/count.js" <<'JS'
 const fs = require('fs')
@@ -361,8 +365,7 @@ docker run -d --rm --name "$RDB" -m 1g --cpus 1 --network "$NET" --network-alias
 p1_run head "$ROOT/deploy/backup.sh" "p1-$ID"
 timeout 90 bash -c 'until docker exec "$0" mysqladmin ping -h 127.0.0.1 --silent >/dev/null 2>&1; do sleep 1; done' "$RDB"
 p1_judge head "p1-$ID"
-[ "$FOUND" = 0 ] || exit 3
-[ "$FAILURES" -eq 0 ] || { tail -n 60 "$LOG"; exit 1; }
+gate
 
 # The held volume's tar reads the live players/ in place of the stage, so the
 # restored set holds what the bots left: p1b's stack, and none in p1a's file.
@@ -383,13 +386,14 @@ check "mutant stage-ignored turns only [p1-stacks] red, with p1b's file holding 
 # stopped. B starts during the stall; the run must see the volume differ, wait on it
 # again under the held request, and tar it as held, with the stage of the held tick,
 # in which p3a still holds the stack.
-gate() { [ "$FOUND" = 0 ] || exit 3; [ "$FAILURES" -eq 0 ] || { tail -n 60 "$LOG"; exit 1; }; }
 gate
 
 # $1 a tag for the run's files; $2 the backup script to run; $3 its request id.
 # B is running when this starts and again when it ends. Sets BRC, JRC and EARLY as p1_run does.
+# Its checks count under a mutant too, since a failure of any of them must stop the bots.
 p3_run() {
-  local seed="$work/$1-seed.log" bots="$work/$1-bots.log" bk="$work/$1-bk.log" jpid
+  local seed="$work/$1-seed.log" bots="$work/$1-bots.log" bk="$work/$1-bk.log" jpid keep=$under
+  under=""
   docker run --rm -m 1g --cpus 1 -v "$BVOL:/d" "$IMG:head" rm -f /d/players/p3a.dat /d/players/p3b.dat
   bots capture-stall-seed-stack 1 "$B" "$HB" "$seed"
   SRC=0; wait "$BPID" || SRC=$?
@@ -406,6 +410,7 @@ p3_run() {
   up "$B" "$BVOL" "$LOGB" 4 bspid
   HB=$NH CB=$NC
   await "capture $3 held" "$LOGB" 60 || true
+  gate
   bots capture-stall-late-start-drop-pickup 2 "$B" "$HB" "$bots"
   BRC=0; wait "$BPID" || BRC=$?
   [ "$BRC" -ne 4 ] || FOUND=1
@@ -413,6 +418,7 @@ p3_run() {
   JRC=0; wait "$jpid" || JRC=$?
   sed 's/^/  bots | /' "$bots"
   sed 's/^/  run | /' "$bk"
+  under=$keep
 }
 
 # $1 the run's tag; $2 its request id
