@@ -138,6 +138,11 @@ def build_parser() -> argparse.ArgumentParser:
     level_build.add_argument("--designbridge", type=Path, default=default_bridge, metavar="PATH", help="DesignBridge source folder.")
     level_build.add_argument("--plugins", type=Path, default=stack_mod.STACK_DIR / "plugins", metavar="PATH", help="Folder holding DevTools.phar.")
     level_build.add_argument("--bridge-port", type=int, default=level_engine.DEFAULT_BRIDGE_PORT, metavar="PORT", help="Loopback port the build's bridge publishes on.")
+    limits = level_engine.Limits()
+    level_build.add_argument("--memory", default=limits.memory, metavar="SIZE", help="Memory cap of the build server; 0 for none.")
+    level_build.add_argument("--cpus", default=limits.cpus, metavar="N", help="CPU cap of the build server; 0 for none.")
+    level_build.add_argument("--tool-memory", default=limits.tool_memory, metavar="SIZE", help="Memory cap of each one-shot tool container; 0 for none.")
+    level_build.add_argument("--tool-cpus", default=limits.tool_cpus, metavar="N", help="CPU cap of each one-shot tool container; 0 for none.")
     return parser
 
 
@@ -345,7 +350,8 @@ def _level(options: argparse.Namespace) -> str:
     if not (options.plugins / "DevTools.phar").is_file():
         raise LevelError(f"{options.plugins} holds no DevTools.phar, which loads DesignBridge from source; run 'designer stack build-devtools'")
     sources = level_engine.Sources(options.designbridge.resolve(), options.plugins.resolve(), options.bridge_port)
-    lock = level_engine.build(options.zone, stack_mod.runtime_name(), sources)
+    limits = level_engine.Limits(options.memory, options.cpus, options.tool_memory, options.tool_cpus)
+    lock = level_engine.build(options.zone, stack_mod.runtime_name(), sources, limits=limits)
     return f"{lock}\ncontent_sha256={json.loads(lock.read_text(encoding='utf-8'))['content_sha256']}"
 
 

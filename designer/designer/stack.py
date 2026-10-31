@@ -25,6 +25,8 @@ COMPOSE_FILE = STACK_DIR / "compose.yaml"
 SERVICE = "designer"
 CONTAINER_NAME = "designer"
 IMAGE = "local-pocketmine-mp"
+TOOL_MEMORY = "1G"
+TOOL_CPUS = "1"
 DEFAULT_CORE_DIR = STACK_DIR.parent.parent.parent / "pmmp-core"
 
 RUNTIMES = ("wslc", "docker")
@@ -234,7 +236,7 @@ def build_devtools(runtime: str, core_dir: Path | None = None, plugins_dir: Path
     plugins_dir = plugins_dir or (STACK_DIR / "plugins")
     devtools_src = core_dir / "tests" / "plugins" / "DevTools"
     argv = [
-        _binary(runtime), "run", "--rm", "-v", f"{devtools_src}:/src:ro", "-v", f"{plugins_dir}:/out", IMAGE,
+        _binary(runtime), "run", "--rm", "--memory", TOOL_MEMORY, "--cpus", TOOL_CPUS, "-v", f"{devtools_src}:/src:ro", "-v", f"{plugins_dir}:/out", IMAGE,
         "php", "-dphar.readonly=0", "/src/src/ConsoleScript.php", "--make", "src,plugin.yml,resources,stub.php",
         "--relative", "/src", "--stub", "stub.php", "--out", "/out/DevTools.phar",
     ]
