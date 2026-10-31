@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from designer.blocks import format_name
+from designer.builders import BUILDERS
+from designer.builders.base import Palette
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
 from designer.reset_states import RESET_STATES
@@ -81,6 +83,24 @@ def test_from_dict_refuses_an_ore_layer_key_the_reset_cannot_resolve() -> None:
     layer = {"y_from": data["floor_y"], "y_to": data["floor_y"], "ores": {f"{LOG}[pillar_axis=y]": 1.0}}
     with pytest.raises(ValueError, match="ore_layers names .*which the mine reset cannot resolve"):
         MineSpec.from_dict({**data, "ore_layers": [layer]})
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("ores", {"minecraft:wheat[growth=0]": 1.0}),
+    ("ore_layers", [{"y_from": 40, "y_to": 40, "ores": {"minecraft:coal_ore[lit=true]": 1.0}}]),
+])
+def test_the_mine_builder_refuses_a_stated_ore_key_instead_of_writing_it_to_mine_reset(field: str, value: object) -> None:
+    data = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="which the mine reset cannot resolve"):
+        BUILDERS["mine"]({**data, field: value}, Palette.load("mine_stone"), lambda *_: None)
+
+
+def test_the_mine_builder_writes_only_bare_ids_to_mine_reset() -> None:
+    data = json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8"))
+    layer = {"y_from": data["floor_y"], "y_to": data["floor_y"], "ores": {"coal_ore": 1.0}}
+    fragment = BUILDERS["mine"]({**data, "ore_layers": [layer]}, Palette.load("mine_stone"), lambda *_: None).extras["mine_reset"]
+    keys = [*fragment["ores"], *(k for l in fragment["ore_layers"] for k in l["ores"])]
+    assert keys and all("[" not in k for k in keys) and "minecraft:coal_ore" in fragment["ore_layers"][0]["ores"]
 
 
 def test_from_dict_accepts_a_bare_id_with_or_without_its_namespace() -> None:
