@@ -169,6 +169,9 @@ jobs:
       - name: Bot proofs pre-container checks and devtools pin self-test
         run: bash .github/scripts/bot-proofs-selftest.sh
 
+      - name: Rig lock self-test
+        run: bash .github/scripts/rig-lock-selftest.sh
+
       - name: Capture plugin self-test
         run: bash images/plugins/capture-selftest.sh
 
@@ -286,6 +289,12 @@ jobs:
       - name: bot-proofs writes exposure=pending before any step that may start a bot
         run: uv run --frozen --project designer python .github/scripts/exposure_pending_order.py
 
+      - name: Self-test, prove the rig lock job check can fail
+        run: uv run --frozen --project designer python .github/scripts/rig_lock_job.py --selftest
+
+      - name: bot-proofs takes the rig lock before a container and releases it last
+        run: uv run --frozen --project designer python .github/scripts/rig_lock_job.py
+
       # Riots treats a world as safe once any region in it carries safe_zone, so
       # a ranked mine without one is open PvP and a contested world with one is
       # not contested. Standard library only; uv run supplies the interpreter.
@@ -337,8 +346,10 @@ jobs:
     # always() so a scope job that failed or wrote nothing still runs this one.
     if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
     runs-on: [self-hosted, linux, riftal]
-    # Under ci-sweep-selftest.sh's reap_after, like every job here.
-    timeout-minutes: 15
+    # Under ci-sweep-selftest.sh's reap_after, like every job here. 60 minutes
+    # of this are the longest wait for the rig lock (rig-lock.sh), 15 the body.
+    # The holder outlasts all 75 (rig_lock_job.py).
+    timeout-minutes: 75
     permissions:
       contents: read
       issues: read
@@ -388,6 +399,14 @@ jobs:
           printf 'eth0 address %s\n' "$address"
           printf 'address=%s\n' "$address" >> "$GITHUB_OUTPUT"
 
+      # The lock is held until the release step at the end of the job, so no
+      # container of this job runs beside an in-distro rig.
+      - name: Take the machine-wide rig lock
+        run: bash .github/scripts/rig-lock.sh take
+
+      - name: No rig is left up on docker
+        run: bash .github/scripts/rig-lock.sh rig-up-check
+
       - name: Label this job's containers
         run: bash .github/scripts/ci-docker-label.sh
 
@@ -402,6 +421,10 @@ jobs:
       - name: Remove this job's containers
         if: always()
         run: bash .github/scripts/ci-container-sweep.sh
+
+      - name: Release the machine-wide rig lock
+        if: always()
+        run: bash .github/scripts/rig-lock.sh release
 
   # The only job with issues: write. It has no checkout, so no step in it
   # runs a script from the PR's tree; the run: block below is in the workflow

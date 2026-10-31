@@ -186,7 +186,7 @@ cases = [
     (
         "ci.yml-pending-then-bot-step",
         rep(ETH0, PENDING + FIRST_BOT.replace("bot\n", "bot\n        id: harness\n", 1) + ETH0, "harness.outputs.exposure || steps.exposure", "harness.outputs.exposure || steps.pending.outputs.exposure || steps.exposure"),
-        "=8 step(s) ahead of step 9 (id pending) writing exposure=pending, all on the allowlist",
+        "=10 step(s) ahead of step 11 (id pending) writing exposure=pending, all on the allowlist",
     ),
 ]
 sources = [here.parent / "ci-fixtures/good/exposure-pending/pending-first.yml", here.parent / "workflows/ci.yml"]
