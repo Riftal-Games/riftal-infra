@@ -387,9 +387,9 @@ jobs:
         run: bash .github/scripts/pull-mysql.sh
 
       # After the pending write, so the allowlist ahead of it does not apply. The
-      # job's read token is set on this step alone and the checkout left none in
-      # .git/config. The harness step carries no env, so the script is handed over
-      # as a file.
+      # job's read token is in the env of this step and of the bots-stopped check
+      # only, never the job's, and the checkout left none in .git/config. The
+      # harness step carries no env, so the script is handed over as a file.
       - name: Fetch main's merge-base backup script
         env:
           GITHUB_TOKEN: ${{ github.token }}

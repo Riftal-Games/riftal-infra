@@ -3,6 +3,8 @@
 # job. Each one has a single timing, reads one source, and refuses with an
 # ::error:: when the source is unreadable, times out, or says stop. Sourced by
 # the bot-proofs job, one step per check, and by bot-proofs-selftest.sh.
+# merge_base_script is not one of them: it fetches, and runs after the pending
+# write.
 
 WSLCONFIG="${WSLCONFIG:-/mnt/c/Users/nasir/.wslconfig}"
 JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
@@ -98,11 +100,11 @@ bots_stopped_clear() {
   printf 'no open bots-stopped issue\n'
 }
 
-# $1 the PR head sha, $2 a directory that does not exist yet. Writes main's merge base
-# with that head to $2/sha and its deploy/backup.sh to $2/backup.sh. It reads through
-# the API with the job's own read token, so no git fetch and no credential in
-# .git/config. The base is main's and not the PR's base branch, which carries the
-# capture request the control must not.
+# $1 the head sha of the PR, or of the push, $2 a directory that does not exist
+# yet. Writes main's merge base with that head to $2/sha and its deploy/backup.sh
+# to $2/backup.sh. It reads through the API with the job's own read token, so no
+# git fetch and no credential in .git/config. The base is main's and not the PR's base branch, which can carry
+# the capture request the control must not.
 merge_base_script() {
   local api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:?}" base
   if ! base="$(timeout 30 curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN:?}" -H 'Accept: application/vnd.github+json' \
