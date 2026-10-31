@@ -61,9 +61,9 @@ def docker_spelling(args: tuple[str, ...]) -> tuple[str, ...]:
     return args
 
 
-MEMORY = re.compile(r"\d+[bkmg]?", re.IGNORECASE)
+MEMORY = re.compile(r"0|[1-9]\d*[MG]")
 CPUS = re.compile(r"\d+(\.\d+)?")
-NO_CAP = re.compile(r"0+(\.0+)?[bkmg]?", re.IGNORECASE)
+NO_CAP = re.compile(r"0+(\.0+)?")
 
 
 def _cap(flag: str, value: str) -> list[str]:
@@ -75,8 +75,8 @@ class Limits:
     """Memory and CPU caps on the build's containers.
 
     A value of ``0`` leaves its flag out of the engine's argv, so the container is uncapped on both
-    runtimes without relying on how either reads a zero. Sizes use the upper-case unit ``wslc``
-    documents, which ``docker`` also accepts.
+    runtimes without relying on how either reads a zero. A memory size is a whole number of ``M`` or
+    ``G``, upper case only, the spelling ``wslc`` documents and ``docker`` also accepts.
     """
 
     memory: str = "2G"
