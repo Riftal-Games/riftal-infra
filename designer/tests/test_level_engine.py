@@ -178,7 +178,7 @@ def test_the_level_is_copied_to_a_fresh_output_volume_with_plain_named_mounts(fa
     assert verbs.count(removed) == verbs.count(created) == 1
     copy = next(a for a in engine.calls if "cp" in a)
     assert next(i for i, v in enumerate(verbs) if "tee" in v) < verbs.index(removed) < verbs.index(created) < verbs.index(" ".join(copy[1:]))
-    assert copy[1:] == ["run", "--rm", "-v", f"{WORK}:/work:ro", "-v", f"{OUTPUT}:/data", stack.IMAGE, "cp", "-R", "/work/worlds/zt/.", "/data/"]
+    assert copy[1:] == ["run", "--rm", "--memory", "1g", "--cpus", "1", "-v", f"{WORK}:/work:ro", "-v", f"{OUTPUT}:/data", stack.IMAGE, "cp", "-R", "/work/worlds/zt/.", "/data/"]
     assert {*engine.copied} == {"db/CURRENT", "level.dat", "level-manifest.json"}
     assert OUTPUT in engine.volumes and WORK in engine.volumes
 
@@ -366,3 +366,53 @@ def test_the_cli_refuses_a_missing_devtools_phar(tmp_path: Path, capsys: pytest.
 
     assert main(["level", "build", "zt", "--designbridge", str(tmp_path), "--plugins", str(tmp_path)]) == 1
     assert "DevTools.phar" in capsys.readouterr().err
+
+
+def limit_of(argv: list[str], flag: str) -> str:
+    assert argv.count(flag) == 1, argv
+    return argv[argv.index(flag) + 1]
+
+
+def containers(engine: FakeEngine) -> tuple[list[str], list[list[str]]]:
+    runs = [a for a in engine.calls if a[0] != "git" and a[1] == "run"]
+    return next(a for a in runs if "-d" in a), [a for a in runs if "--rm" in a]
+
+
+@pytest.mark.parametrize("runtime", ["wslc", "docker"])
+def test_the_server_and_every_tool_container_run_under_the_default_limits(fake: FakeBridge, root: Path, runtime: str) -> None:
+    engine = FakeEngine()
+    _build(engine, fake, root, runtime)
+    server, tools = containers(engine)
+    assert (limit_of(server, "--memory"), limit_of(server, "--cpus")) == ("2g", "2")
+    assert len(tools) == 4
+    assert {(limit_of(t, "--memory"), limit_of(t, "--cpus")) for t in tools} == {("1g", "1")}
+
+
+def test_the_limits_are_overridable_per_container_kind(fake: FakeBridge, root: Path) -> None:
+    engine = FakeEngine()
+    limits = level_engine.Limits(memory="3g", cpus="1.5", tool_memory="512m", tool_cpus="0.5")
+    level_engine.build("zt", "docker", SOURCES, root=root, runner=engine, limits=limits, index=_index(), checks_path=root / "checks.yaml",
+                       mines_config=root / "mines.yml", connect=lambda port, token: Bridge("127.0.0.1", fake.port, fake.token, timeout=2.0, max_retries=1))
+    server, tools = containers(engine)
+    assert (limit_of(server, "--memory"), limit_of(server, "--cpus")) == ("3g", "1.5")
+    assert {(limit_of(t, "--memory"), limit_of(t, "--cpus")) for t in tools} == {("512m", "0.5")}
+
+
+@pytest.mark.parametrize("field,value", [("memory", "lots"), ("memory", "2gb "), ("memory", "-1g"), ("tool_memory", ""), ("cpus", "two"), ("cpus", "-1"), ("tool_cpus", "1.")])
+def test_a_malformed_limit_is_refused_before_any_engine_call(field: str, value: str) -> None:
+    with pytest.raises(LevelError, match="must be a"):
+        level_engine.Limits(**{field: value})
+
+
+def test_zero_is_accepted_as_no_limit() -> None:
+    assert level_engine.Limits(memory="0", cpus="0", tool_memory="0", tool_cpus="0").server() == ["--memory", "0", "--cpus", "0"]
+
+
+def test_the_cli_defaults_and_overrides_reach_the_limits() -> None:
+    from designer.cli import build_parser
+
+    parser = build_parser()
+    options = parser.parse_args(["level", "build", "zt"])
+    assert (options.memory, options.cpus, options.tool_memory, options.tool_cpus) == ("2g", "2", "1g", "1")
+    options = parser.parse_args(["level", "build", "zt", "--memory", "4g", "--cpus", "3", "--tool-memory", "2g", "--tool-cpus", "2"])
+    assert (options.memory, options.cpus, options.tool_memory, options.tool_cpus) == ("4g", "3", "2g", "2")

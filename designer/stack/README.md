@@ -64,6 +64,27 @@ docker run --rm \
     --stub stub.php --out /out/DevTools.phar
 ```
 
+The toolkit runs the same build as one command, from `riftal-infra/designer`,
+with `local-pocketmine-mp` already built and `pmmp-core` a sibling. It writes
+`stack/plugins/DevTools.phar`, which `designer level build` needs, and runs its
+container under `--memory 1g --cpus 1`:
+
+```sh
+uv run designer stack build-devtools
+```
+
+## Level build limits
+
+`designer level build <zone>` runs its server container
+(`riftal_smoke_levelbuild_<zone>`) under `--memory 2g --cpus 2` and each
+one-shot tool container (`tar`, `tee`, `cp`) under `--memory 1g --cpus 1`.
+Override per run with `--memory`, `--cpus`, `--tool-memory` and `--tool-cpus`;
+`0` removes that cap.
+
+```sh
+uv run designer level build lumber --memory 3g --cpus 3
+```
+
 ## Build a plugin phar
 
 Same tool, any plugin with a `plugin.yml`. Never mount a plugin's phar and its
