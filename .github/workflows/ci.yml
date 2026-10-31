@@ -289,6 +289,12 @@ jobs:
       - name: bot-proofs writes exposure=pending before any step that may start a bot
         run: uv run --frozen --project designer python .github/scripts/exposure_pending_order.py
 
+      - name: Self-test, prove the rig lock job check can fail
+        run: uv run --frozen --project designer python .github/scripts/rig_lock_job.py --selftest
+
+      - name: bot-proofs takes the rig lock before a container and releases it last
+        run: uv run --frozen --project designer python .github/scripts/rig_lock_job.py
+
       # Riots treats a world as safe once any region in it carries safe_zone, so
       # a ranked mine without one is open PvP and a contested world with one is
       # not contested. Standard library only; uv run supplies the interpreter.
@@ -342,6 +348,7 @@ jobs:
     runs-on: [self-hosted, linux, riftal]
     # Under ci-sweep-selftest.sh's reap_after, like every job here. 60 minutes
     # of this are the longest wait for the rig lock (rig-lock.sh), 15 the body.
+    # The holder outlasts all 75 (rig_lock_job.py).
     timeout-minutes: 75
     permissions:
       contents: read

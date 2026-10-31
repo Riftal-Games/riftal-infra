@@ -10,7 +10,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=16
+EXPECTED_ASSERTIONS=17
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -55,6 +55,10 @@ if grep -qx "bot-proofs run 4242 since [0-9TZ:-]*" "$RIG_LOCK"; then pass "the l
 
 ( release_rig_lock >"$work/release.out" 2>&1 )
 if [ $? -eq 0 ] && ! held; then pass "release frees the lock"; else fail "release should free the lock: $(cat "$work/release.out")"; fi
+
+( RIG_LOCK_HOLD_SEC=1 take_rig_lock >/dev/null 2>&1 )
+sleep 2
+expect "a holder that ended before the release" refused "was gone before the release" release_rig_lock
 
 expect "release with nothing taken" ok "holds no rig lock" bash -c '. "$1"; RUNNER_TEMP="$2"; release_rig_lock' _ "$DIR/rig-lock.sh" "$work/empty"
 
