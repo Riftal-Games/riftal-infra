@@ -61,8 +61,10 @@ if [ -z "$provisioner" ]; then
 fi
 
 # The throwaway stack: only these three services, no host publish, every
-# volume and the network renamed, resources capped, and the CI job's label on
-# everything, since compose bypasses the docker shim that stamps it. mysql:8
+# volume they could mount and the network renamed, resources capped, and the CI
+# job's label on everything, since compose bypasses the docker shim that stamps
+# it. An external volume is dropped: none of the three mounts one, and compose
+# refuses labels on it. mysql:8
 # declares VOLUME /var/lib/mysql, which `backup` and the provisioning service
 # leave unmounted, so each of their containers would get an anonymous volume
 # for the run's leftovers. A tmpfs takes its place.
@@ -73,7 +75,7 @@ stack() {
     | .services |= with_entries(select(.key == "mysql" or .key == "backup" or .key == $p)
         | .value |= (del(.ports) + {mem_limit: "1g", cpus: 1, labels: ((.labels // {}) + $l)})
         | if .key == "mysql" then . else .value.tmpfs = ["/var/lib/mysql"] end)
-    | .volumes |= with_entries(.value.name = "\($id)_\(.key)" | .value.labels = $l)
+    | .volumes |= with_entries(select(.value.external != true) | .value.name = "\($id)_\(.key)" | .value.labels = $l)
     | .networks |= with_entries(.value.name = "\($id)_\(.key)" | .value.labels = $l)
   ' > "$work/stack.json"
 }

@@ -5,8 +5,9 @@
 # require-accounts.sh, the scripts that load them. Also pins crash
 # auto-report off on every PocketMine service, designer/stack's included, and
 # covers deliver-world-index.sh and the index mount both instances boot with
-# (riftal-infra#293), and the memory and CPU limits on mysql and both
-# instances (riftal-infra#460).
+# (riftal-infra#293), the memory and CPU limits on mysql and both
+# instances (riftal-infra#460), and the seed step and lumber level mount that
+# `instance` alone carries (riftal-infra#1324).
 #
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
@@ -32,7 +33,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=87
+EXPECTED_ASSERTIONS=92
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -393,6 +394,40 @@ check "the start command runs after delivery with its arguments intact" \
 check "a missing index stops the boot before the start command, saying it is not mounted" \
   '! deliver "" printf started && ! grep -q started "$work/deliver/out" &&
     grep -q "etc/world_index.json is not mounted;" "$work/deliver/out"'
+
+printf '\n== the lumber level reaches instance and no other service (ADR 009 item 6)\n'
+# Services with a zone list that do not run seed-levels.sh straight after the
+# delivery, or that lack, for some listed zone, one read-only mount of
+# riftal_smoke_level_<zone> at /etc/riftal/levels/<zone> backed by an external
+# volume. External, because a volume compose created would be empty.
+unseeded() {
+  jq -r '. as $m | .services | to_entries[] | .value as $v
+    | select(($v.environment.RIFTAL_LEVEL_ZONES // "") != "")
+    | select(($v.command[4:6] != ["bash", "/plugins/seed-levels.sh"])
+      or ([$v.environment.RIFTAL_LEVEL_ZONES | split(" ")[] | select(. != "")]
+        | any(.[]; . as $z
+          | ([$v.volumes[]? | select(.target == "/etc/riftal/levels/\($z)"
+              and .source == "riftal_smoke_level_\($z)" and .read_only == true)] | length != 1)
+            or ($m.volumes["riftal_smoke_level_\($z)"].external != true))))
+    | .key' <<<"$1"
+}
+levelled() {
+  jq -r '.services | to_entries[]
+    | select(any(.value.volumes[]?; .target | startswith("/etc/riftal/levels/"))
+      or (.value.environment.RIFTAL_LEVEL_ZONES // "") != "")
+    | "\(.key)=\(.value.environment.RIFTAL_LEVEL_ZONES // "")"' <<<"$1"
+}
+check "only instance lists a zone or mounts a level, lumber, and it runs the seed step beside the delivery" \
+  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber" ]'
+check "an instance without the seed step is caught" \
+  '[ "$(unseeded "$(edited "/- \/plugins\/seed-levels.sh/{N;d}")")" = instance ]'
+check "a level mount that lost :ro is caught" \
+  '[ "$(unseeded "$(edited "s#/etc/riftal/levels/lumber:ro#/etc/riftal/levels/lumber#")")" = instance ]'
+check "a level volume compose would create itself is caught" \
+  '[ "$(unseeded "$(edited "/^    external: true/d")")" = instance ]'
+check "a zone list on instance-b is caught" \
+  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber
+instance-b=lumber" ]'
 
 printf '\n== link-replaced.sh gives pharynx the folder a virion requires (riftal-infra#579)\n'
 # Lays out vendor/ as composer install leaves it for mines: libasynql, a

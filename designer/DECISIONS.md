@@ -1040,3 +1040,15 @@ The live check on the designer stack, on the core image pinned by `images/core-i
 as the reset does and read it back through `get_region`; the bridge refuses a stem written with
 `growth` alone, `Property "facing_direction" is missing`. The farmland under the row is the
 `build_mine` floor, which matches the farmland `MineRefillTask.php` writes (#1347).
+
+## 2026-10-31 The committed index carries `lumber_spawn`, lumber's arrival at the stairway foot
+
+A client arriving in lumber by the level's own spawn lands at 256 55 256, a flooded cave about 360
+blocks from the yard, and RiftalCustody refuses every break outside the mine interior. The committed
+entry is the one `build_mine` emits for `specs/lumber.json` (`[0, 40, 16]`, facing north up the
+stairway the `stairs` steps climb), committed through `WorldIndex.add_location` and saved, so the
+level build reproduces it exactly and `lumber_spawn_to_surface` already walks from it. RiftalMines'
+join teleport takes the location name from its `join_teleport.location` setting and has no lumber
+route of its own, so the name is the builder's, as `mine_a_spawn` is Mine A's. Setting the built
+level's own spawn was rejected: the lock does not cover it, and the index, the one file every
+plugin reads, would still hold no lumber arrival (#1355).
