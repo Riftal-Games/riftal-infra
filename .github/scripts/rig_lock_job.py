@@ -63,8 +63,8 @@ def selftest(workflow, script):
         ("take-after-label", swap(label, label + take_step, moved), script, "first that runs a container"),
         ("take-after-extract", swap(sweep_note, take_step + sweep_note, moved), script, "first that runs a container"),
         ("wait-shortened", workflow, swap("RIG_LOCK_WAIT_SEC=3600", "RIG_LOCK_WAIT_SEC=2700", script), "RIG_LOCK_WAIT_SEC"),
-        ("hold-under-timeout", workflow, swap("RIG_LOCK_HOLD_SEC=5400", "RIG_LOCK_HOLD_SEC=1200", script), "RIG_LOCK_HOLD_SEC"),
-        ("timeout-over-hold", swap("timeout-minutes: 83", "timeout-minutes: 95", workflow), script, "RIG_LOCK_HOLD_SEC"),
+        ("hold-under-timeout", workflow, swap("RIG_LOCK_HOLD_SEC=6000", "RIG_LOCK_HOLD_SEC=1200", script), "RIG_LOCK_HOLD_SEC"),
+        ("timeout-over-hold", swap("timeout-minutes: 90", "timeout-minutes: 105", workflow), script, "RIG_LOCK_HOLD_SEC"),
     ]
     for name, flow, text, want in cases:
         got = "\n".join(problems(flow, text))

@@ -16,10 +16,10 @@
 RIG_LOCK=/tmp/riftal-rig.lock
 # One scenario is bounded at 1560 s, so a two-scenario rig run takes about 3120 s.
 RIG_LOCK_WAIT_SEC=3600
-# Above the bot-proofs job's 83 minute timeout (4980 s), so the lock outlasts
+# Above the bot-proofs job's 90 minute timeout (5400 s), so the lock outlasts
 # every step between take and release; only a runner that dies in between
 # leaves the holder to run this out. rig_lock_job.py holds the two together.
-RIG_LOCK_HOLD_SEC=5400
+RIG_LOCK_HOLD_SEC=6000
 RIG_LOCK_BUSY=75
 
 rig_lock_state_dir() {
