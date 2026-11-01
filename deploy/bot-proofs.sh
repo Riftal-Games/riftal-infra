@@ -60,7 +60,7 @@ grep -qF CAPTURE_DIR "$BASE_SH" || CONTROL=1
 
 # PocketMine prints every severity as [<thread>/<LEVEL>].
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
-EXPECTED_ASSERTIONS=$((82 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" rspid="" LOGB="" LOGR="" NA=1 NB=0 under="" RED=""
+EXPECTED_ASSERTIONS=$((83 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" rspid="" LOGB="" LOGR="" NA=1 NB=0 under="" RED=""
 work="$(mktemp -d)" LOG="$work/a.log"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
@@ -651,14 +651,76 @@ fi
 # has joined A to mine. A's log must show each hold between p3a's join and its leave.
 # A run's log names the entries of every differing listing, and the rule holds for all
 # twenty (capture-cost.sh).
-P6_RUNS=20 P6_RETRIED=0 P6_FAILED=0 P6_INSIDE=0 P6_BOTS=0 P6_RULE=0
+#
+# RiftalDevBots puts every bot session at the world spawn, so a saved position cannot
+# move p3a. Run n instead moves the world spawn to its own site on a grid clear of the
+# spawn and of the +x lane proof 10 walks, 32 blocks apart where the bot's 8-block reach
+# of one run never touches the next, and p3a joins with no saved file so the server
+# places it at the new spawn. The spawn goes back to its value when the runs are done.
+P6_RUNS=20 P6_RETRIED=0 P6_FAILED=0 P6_INSIDE=0 P6_BOTS=0 P6_RULE=0 P6_PLACED=0
 STALL=0
+
+cat >"$work/spawn.js" <<'JS'
+const fs = require('fs')
+const nbt = require('/devtools/node_modules/prismarine-nbt')
+;(async () => {
+  const level = nbt.simplify((await nbt.parse(fs.readFileSync('/v/worlds/world/level.dat').subarray(8), 'little')).parsed)
+  console.log(`${level.SpawnX} ${level.SpawnY} ${level.SpawnZ}`)
+})()
+JS
+
+read -r SPAWN_X SPAWN_Y SPAWN_Z < <(docker run --rm -m 1g --cpus 1 -v "$VOL:/v:ro" -v "$work/spawn.js:/spawn.js:ro" "$DEVTOOLS_IMAGE" \
+  /devtools/node-runtime/bin/node /spawn.js) || true
+[[ ${SPAWN_X:-} =~ ^-?[0-9]+$ && ${SPAWN_Y:-} =~ ^-?[0-9]+$ && ${SPAWN_Z:-} =~ ^-?[0-9]+$ ]] || { printf '::error::A level.dat holds no readable spawn\n'; exit 1; }
+printf 'A spawn before proof 6: %s %s %s\n' "$SPAWN_X" "$SPAWN_Y" "$SPAWN_Z"
+
+# $1 a console command for A. Waits for the console to answer it and prints the answer.
+a_console() {
+  local lines
+  lines=$(wc -l <"$LOG")
+  echo "$1" >&3
+  timeout 5 bash -c 'until [ "$(wc -l <"$0")" -gt "$1" ]; do sleep 0.1; done' "$LOG" "$lines" || true
+  sleep 0.5
+  { tail -n +$((lines + 1)) "$LOG" || true; } | sed 's/^/  A | /'
+}
+
+# $1 the number of "p3a joined the game" lines A had before the run. Prints A's log from the
+# login line of the run's p3a to its leave.
+p6_session() {
+  awk -v n="$1" '/ p3a\[.*logged in with entity id/ { login = $0 }
+    / p3a joined the game/ { if (++joined == n + 1) { on = 1; print login } }
+    on { print }
+    on && / p3a left the game/ { exit }' "$LOG"
+}
+
+# $1 the run's number, $2 its bots' log, $3 the count p6_session takes. Prints the whole of what a
+# run that did not pass left: its bots' log, the scenario's notes with the drop trace, and A's
+# lines from p3a's join to its leave and the run's hold.
+p6_trace() {
+  local report
+  printf '  == run %s did not pass: whole bots log, scenario notes, A from p3a'"'"'s join to its leave\n' "$1"
+  sed 's/^/  bots-full | /' "$2"
+  report="$(find "$DT/reports" -name '*-capture-stall-seed-stack.json' -newer "$work/p6-$1-mark" 2>/dev/null | head -n 1 || true)"
+  if [ -n "$report" ]; then
+    { docker run --rm -m 1g --cpus 1 -v "$DT/reports:/r:ro" "$DEVTOOLS_IMAGE" /devtools/node-runtime/bin/node -e \
+      'for (const n of JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).notes) console.log(n)' "/r/${report##*/}" || true; } | sed 's/^/  notes | /'
+  else
+    printf '  notes | the scenario wrote no report\n'
+  fi
+  { p6_session "$3" || true; } | sed 's/^/  A | /'
+  { grep -F " capture p6-$1-$ID " "$LOG" || true; } | sed 's/^/  A hold | /'
+}
 
 # $1 the run's number. Sets BRC and JRC, and counts the run in the P6 totals.
 p6_run() {
-  local bots="$work/p6-$1-bots.log" bk="$work/p6-$1-bk.log" seen jpid inside=0 changes entries outside empty
+  local bots="$work/p6-$1-bots.log" bk="$work/p6-$1-bk.log" seen jpid inside=0 changes entries outside empty session x z
+  x=$((SPAWN_X - 64 + 32 * (($1 - 1) % 5)))
+  z=$((SPAWN_Z + 32 + 32 * (($1 - 1) / 5)))
+  docker run --rm -m 1g --cpus 1 -v "$VOL:/d" "$IMG:head" rm -f /d/players/p3a.dat
+  a_console "setworldspawn $x $SPAWN_Y $z"
   seen=$(grep -c "p3a joined the game" "$LOG" || true)
-  bots capture-stall-seed-stack 1 "$A" "$H" "$bots"
+  : >"$work/p6-$1-mark"
+  BOT_TRACE_DROPS=1 bots capture-stall-seed-stack 1 "$A" "$H" "$bots"
   timeout 60 bash -c 'until [ "$(grep -c "p3a joined the game" "$0")" -gt "$1" ]; do sleep 0.2; done' "$LOG" "$seen" || true
   backup_run "$ROOT/deploy/backup.sh" "p6-$1-$ID" "$VOL:/worlds/a:ro" "$bk"
   jpid=$!
@@ -673,17 +735,27 @@ p6_run() {
   [ "$changes" = 0 ] || P6_RETRIED=$((P6_RETRIED + 1))
   [ "$JRC" = 0 ] || P6_FAILED=$((P6_FAILED + 1))
   P6_INSIDE=$((P6_INSIDE + inside))
-  { [ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-seed-stack" "$bots"; } && P6_BOTS=$((P6_BOTS + 1)) || true
+  session="$(p6_session "$seen")"
+  grep -qE "logged in with entity id [0-9]+ at \(world, $x, [0-9.-]+, $z\)" <<<"$session" && P6_PLACED=$((P6_PLACED + 1)) || true
+  if [ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-seed-stack" "$bots"; then
+    P6_BOTS=$((P6_BOTS + 1))
+    [ "$inside" = 1 ] || p6_trace "$1" "$bots" "$seen"
+  else
+    p6_trace "$1" "$bots" "$seen"
+  fi
   ! run_follows_listing_rule "$bk" || P6_RULE=$((P6_RULE + 1))
 }
 
 gate
 for ((n = 1; n <= P6_RUNS; n++)); do p6_run "$n"; gate; done
+a_console "setworldspawn $SPAWN_X $SPAWN_Y $SPAWN_Z"
 printf 'proof 6: %s runs, %s retried on a differing listing, %s failed\n' "$P6_RUNS" "$P6_RETRIED" "$P6_FAILED"
 printf 'backup T: volume a changed during its tar\nbackup T: volume a before its tar: players/p6.dat 9 1.5\nbackup T: complete at /backups/T\n' >"$work/p6-outside.log"
 printf 'backup T: volume a changed during its tar\nbackup T: complete at /backups/T\n' >"$work/p6-empty.log"
 check "[p6-bots] 6. all $P6_RUNS holds fell while p3a was online on A, each passing behind clean holds" \
   '[ "$P6_BOTS" = "$P6_RUNS" ] && [ "$P6_INSIDE" = "$P6_RUNS" ]'
+check "[p6-ground] 6. p3a logged in on A at the site of each of the $P6_RUNS runs, where no earlier run mined" \
+  '[ "$P6_PLACED" = "$P6_RUNS" ]'
 check "[p6-rule] 6. every run completed or failed on a differing listing, and every differing listing logged entries under worlds/ or .capture/ or server.lock" \
   '[ "$P6_RULE" = "$P6_RUNS" ]'
 check "[p6-red] 6. the rule refuses an entry under players/ on a held volume and a differing listing with no entry" \
