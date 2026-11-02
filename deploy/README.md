@@ -76,11 +76,15 @@ them `mysqldump` still exits 0 and silently leaves every trigger or stored
 procedure out of the set. `../migrations/selftest.sh` proves `backup` is
 denied `INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`, `ALTER TABLE`,
 `DROP TABLE`, `LOCK TABLES`, `CREATE EVENT`, `CREATE USER` and `GRANT`.
-MySQL ties seeing a trigger to creating and dropping
-one, so `TRIGGER` lets `backup` drop any existing trigger in the schema,
-whatever the binlog setting, and with it whatever that trigger enforces. With
-the binlog on, as `binlog-check.sh` requires, MySQL refuses only
-`CREATE TRIGGER` to a login without `SUPER`. With the binlog off, or
+The login writes no table directly. Apart from the password and locks below,
+it has two exceptions. The first is the capture fence, which it changes only
+through `EXECUTE` on `capture_fence_raise` and `capture_fence_lower`; the
+procedures run as their definer, so the login holds no `UPDATE` on the table. The second
+is trigger DDL. MySQL ties seeing a trigger to creating and dropping one, so
+`TRIGGER` lets `backup` drop any existing trigger in the schema, whatever the
+binlog setting, and with it whatever that trigger enforces. With the binlog
+on, as `binlog-check.sh` requires, MySQL refuses only `CREATE TRIGGER` to a
+login without `SUPER`. With the binlog off, or
 `log_bin_trust_function_creators` set, `backup` can create triggers too, and
 a `SIGNAL` trigger can block writers. `../migrations/selftest.sh` pins each
 of these: the refused create, the accepted drop, and the create once the
