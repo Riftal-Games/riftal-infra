@@ -7,18 +7,20 @@ set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="$DIR/bot-proofs-runner-logs.sh"
-EXPECTED_CASES=22
+FINISH="$DIR/bot-proofs-finish.sh"
+EXPECTED_CASES=36
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 # $1 the file to source, $2 a scratch directory of its own. Prints one "  ok" or
 # "FAILCASE" line per case, so a mutant that stops early shows as missing cases.
-run_cases() { ( . "$1" && cases "$2" ) </dev/null 2>/dev/null; }
+run_cases() { ( . "$FINISH" && . "$1" && cases "$2" ) </dev/null 2>/dev/null; }
 
 cases() {
-  local d=$1 i out ledger rec
-  mkdir -p "$d/inst" "$d/empty" "$d/run"
+  local d=$1 i out out2 ledger rec bg t0 gone
+  mkdir -p "$d/inst" "$d/empty" "$d/run" "$d/proc"
+  PROC_ROOT="$d/proc"
   RK() { printf '[12:00:0%s] [RakLib thread/%s]: %s\n' "$1" "$2" "$3"; }
   { RK 1 INFO a-one; echo noise; RK 2 WARNING a-two; } >"$d/inst/a.log"
   RK 3 INFO a2-only >"$d/inst/a2.log"
@@ -83,6 +85,63 @@ cases() {
   is unprinted-no-record-rc '0' "$(PRINTED="$d/p2" print_unprinted_runners "$d/absent" >/dev/null; echo $?)"
   ledger="$(grep -c . "$d/p2" 2>/dev/null || true)"
   is unprinted-no-record-writes-nothing '' "$ledger"
+
+  # Pid 202 and 205 are running and exit during the wait, 203 is running throughout
+  # and 204 has no process. 203 is let go after 8 s so a wait that ignores its bound
+  # ends and reads as a failed case.
+  mkdir -p "$d/proc/202" "$d/proc/203" "$d/proc/205"
+  for i in 202 203 205; do printf 'State:\tS (sleeping)\n' >"$d/proc/$i/status"; done
+  kill() { printf '%s\n' "$*" >>"$d/kills"; }
+  printf '%s\n' x1 x2 >"$d/run/exited.log"
+  printf '%s\n' d1 d2 >"$d/run/during.log"
+  printf 's1\ns2-partial' >"$d/run/stuck.log"
+  printf '%s\n' f1 >"$d/run/fast.log"
+  {
+    printf 'node\t204\t%s\n' "$d/run/exited.log"
+    printf 'node\t202\t%s\n' "$d/run/during.log"
+    printf 'node\t203\t%s\n' "$d/run/stuck.log"
+  } >"$d/runners2"
+  PRINTED="$d/printed2" LIVE="$d/live2"
+  : >"$PRINTED"
+  is no-live-returns '0:' "$(print_live_remainders 5 >/dev/null; echo "$?"):$(print_live_remainders 5)"
+  out="$(print_unprinted_runners "$d/runners2")"
+  is live-first-pass "  unprinted start 1 pid 204 | x1"$'\n'"  unprinted start 1 pid 204 | x2"$'\n'"  unprinted start 2 pid 202 live | d1"$'\n'"  unprinted start 2 pid 202 live | d2"$'\n'"  unprinted start 3 pid 203 live | s1" "$out"
+  is live-recorded '2,1' "$(cut -f4 "$LIVE" | paste -sd, -)"
+  ( sleep 8; printf 'State:\tZ\n' >"$d/proc/203/status" ) >/dev/null 2>&1 &
+  (
+    sleep 0.5
+    printf 'd3\nPROBE DONE x\n' >>"$d/run/during.log"
+    printf -- '-rest\ns3\n' >>"$d/run/stuck.log"
+    printf 'State:\tZ (zombie)\n' >"$d/proc/202/status"
+  ) >/dev/null 2>&1 &
+  bg=$!
+  t0=${EPOCHREALTIME/./}
+  out2="$(print_live_remainders 2)"
+  gone=$(((${EPOCHREALTIME/./} - t0) / 1000))
+  wait "$bg"
+  is remainder-exited-during-wait "  unprinted start 2 pid 202 continued | d3"$'\n'"  unprinted start 2 pid 202 continued | PROBE DONE x" "$(grep 'pid 202' <<<"$out2")"
+  is remainder-whole-lines "  unprinted start 3 pid 203 continued | s2-partial-rest"$'\n'"  unprinted start 3 pid 203 continued | s3" "$(grep 'pid 203 continued' <<<"$out2")"
+  is still-live-note "  unprinted start 3 pid 203 | still running after 2s, its later output is not recorded" "$(grep 'not recorded' <<<"$out2")"
+  is no-line-twice '0' "$(printf '%s\n%s\n' "$out" "$out2" | sed 's/^ *unprinted start [0-9]* pid [0-9]* [a-z]* | //' | grep -v '^unprinted' | sort | uniq -d | grep -c .)"
+  is exited-before-teardown-once '1' "$(printf '%s\n%s\n' "$out" "$out2" | grep -c 'x1')"
+  is wait-bounded '1' "$([ "$gone" -ge 1000 ] && [ "$gone" -le 4000 ] && echo 1 || echo "${gone}ms")"
+  is no-signal '' "$(cat "$d/kills" 2>/dev/null)"
+
+  printf 'node\t205\t%s\n' "$d/run/fast.log" >"$d/runners3"
+  PRINTED="$d/printed3" LIVE="$d/live3"
+  : >"$PRINTED"
+  print_unprinted_runners "$d/runners3" >/dev/null
+  ( sleep 0.5; printf 'f2\n' >>"$d/run/fast.log"; printf 'State:\tX\n' >"$d/proc/205/status" ) >/dev/null 2>&1 &
+  bg=$!
+  t0=${EPOCHREALTIME/./}
+  out2="$(print_live_remainders 20)"
+  gone=$(((${EPOCHREALTIME/./} - t0) / 1000))
+  wait "$bg"
+  is wait-ends-when-runners-exit "  unprinted start 1 pid 205 continued | f2:1" "$out2:$([ "$gone" -le 5000 ] && echo 1 || echo "${gone}ms")"
+
+  is wait-bound-capped '30' "$(live_wait_bound 10 1620 60 30)"
+  is wait-bound-shrinks '20' "$(live_wait_bound 1540 1620 60 30)"
+  is wait-bound-floored '0' "$(live_wait_bound 1590 1620 60 30)"
 }
 
 good="$work/good"
@@ -128,9 +187,26 @@ mutant print-not-recorded 'printf '"'"'%s\n'"'"' "$2" >>"${PRINTED:?}"' ':' "pri
 mutant printed-ignored 'while IFS= read -r f; do [ "$log" -ef "$f" ] && continue 2; done <"$PRINTED"' 'false' "unprinted-printed-skipped unprinted-output unprinted-once unprinted-ledger unprinted-whole unprinted-second-pass-empty unprinted-no-ledger"
 mutant harness-files-printed 'for f; do [ "$log" -ef "$f" ] && continue 2; done' ':' "unprinted-harness-files unprinted-output unprinted-ledger unprinted-no-ledger"
 mutant non-files-printed '[[ $log == /* && -f $log ]] || continue' ':' "unprinted-harness-files unprinted-ledger unprinted-no-ledger unprinted-output unprinted-second-pass-empty"
-mutant start-number-fixed 'n=$((n + 1))' 'n=1' "unprinted-output"
-mutant unprinted-untagged 'print_runner "unprinted start $n pid $pid" "$log"' 'print_runner "bots" "$log"' "unprinted-output unprinted-tagged-with-start"
-mutant log-truncated 'sed "s/^/  $1 | /" "$2"' 'sed -n "1s/^/  $1 | /p" "$2"' "print-tags-whole unprinted-output unprinted-whole unprinted-no-ledger"
+mutant start-number-fixed 'n=$((n + 1))' 'n=1' "unprinted-output live-first-pass remainder-exited-during-wait remainder-whole-lines still-live-note"
+mutant unprinted-untagged 'print_runner "unprinted start $n pid $pid" "$log"' 'print_runner "bots" "$log"' "unprinted-output unprinted-tagged-with-start live-first-pass"
+mutant log-truncated 'sed "s/^/  $1 | /" "$2"' 'sed -n "1s/^/  $1 | /p" "$2"' "print-tags-whole unprinted-output unprinted-whole unprinted-no-ledger live-first-pass"
+mutant live-runner-not-detected 'if [[ $pid =~ ^[0-9]+$ ]] && ! runner_exited "$pid"; then' 'if false; then' "live-first-pass live-recorded remainder-exited-during-wait remainder-whole-lines still-live-note wait-bounded wait-ends-when-runners-exit"
+mutant live-tag-dropped 'pid $2 live | ' 'pid $2 | ' "live-first-pass"
+mutant live-partial-line-printed 'head -n "$lines" "$3" |' 'cat "$3" |' "live-first-pass"
+mutant live-lines-not-recorded '"$1" "$2" "$3" "$lines" >>"${LIVE:?}"' '"$1" "$2" "$3" 0 >>"${LIVE:?}"' "live-recorded no-line-twice remainder-exited-during-wait remainder-whole-lines wait-ends-when-runners-exit"
+mutant wait-skipped 'sleep 0.2' 'break' "remainder-exited-during-wait remainder-whole-lines still-live-note wait-ends-when-runners-exit wait-bounded"
+mutant wait-ignores-its-bound 'if [ "$pending" = 0 ] || [ "$SECONDS" -ge "$deadline" ]; then break; fi' 'if [ "$pending" = 0 ]; then break; fi' "still-live-note wait-bounded"
+mutant wait-always-full 'if [ "$pending" = 0 ] || [ "$SECONDS" -ge "$deadline" ]; then break; fi' 'if [ "$SECONDS" -ge "$deadline" ]; then break; fi' "wait-ends-when-runners-exit"
+mutant remainder-from-first-line 'tail -n +$((lines + 1)) "$log" |' 'tail -n +1 "$log" |' "no-line-twice remainder-exited-during-wait wait-ends-when-runners-exit"
+mutant live-remainder-from-first-line 'head -n "$gained" "$log" | tail -n +$((lines + 1))' 'head -n "$gained" "$log"' "no-line-twice remainder-whole-lines"
+mutant exited-treated-as-live 'if runner_exited "$pid"; then
+      tail' 'if false; then
+      tail' "remainder-exited-during-wait still-live-note wait-ends-when-runners-exit"
+mutant still-running-not-named "      printf '  unprinted start %s pid %s | still running after" "      : '  unprinted start %s pid %s | still running after" "still-live-note"
+mutant runner-signalled 'gained=$(($(wc -l <"$log")))' 'kill "$pid"; gained=$(($(wc -l <"$log")))' "no-signal"
+mutant bound-cap-dropped '[ "$w" -le "$4" ] || w=$4' ':' "wait-bound-capped"
+mutant bound-floor-dropped '[ "$w" -ge 0 ] || w=0' ':' "wait-bound-floored"
+mutant bound-reserve-dropped 'local w=$(($2 - $3 - $1))' 'local w=$(($2 - $1))' "wait-bound-floored wait-bound-shrinks"
 
 if [ "$FAILURES" -ne 0 ]; then
   printf '%s mutant(s) not caught for the reason expected\n' "$FAILURES"

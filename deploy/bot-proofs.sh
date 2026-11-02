@@ -37,8 +37,12 @@ for name in "$NET" "$DB" "$A" "$VOL" "$CAP" "$SETS" "$IMG" "$RDB" "$RVOL" "$BK" 
 done
 
 # The deadline lets teardown and the summary line run before the runner kills the step.
+# TERM lands at DEADLINE seconds, KILL KILL_GRACE seconds later. Teardown waits at most
+# LIVE_WAIT seconds for a bot runner still running, and never past the KILL less
+# CLEANUP_RESERVE seconds for the container cleanup and the summary line.
+DEADLINE=1500 KILL_GRACE=120 LIVE_WAIT=30 CLEANUP_RESERVE=60
 if [ -z "${BOT_PROOFS_INNER:-}" ]; then
-  BOT_PROOFS_INNER=1 exec timeout --preserve-status -k 120 1500 bash "${BASH_SOURCE[0]}"
+  BOT_PROOFS_INNER=1 exec timeout --preserve-status -k "$KILL_GRACE" "$DEADLINE" bash "${BASH_SOURCE[0]}"
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -63,7 +67,7 @@ grep -qF CAPTURE_DIR "$BASE_SH" || CONTROL=1
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
 EXPECTED_ASSERTIONS=$((83 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" rspid="" LOGB="" LOGR="" NA=1 NB=0 under="" RED=""
 work="$(mktemp -d)" LOG="$work/a.log"
-PRINTED="$work/printed"
+PRINTED="$work/printed" LIVE="$work/live"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
 # $1 what is claimed; $2 a condition, evaluated. Under a mutant a failure is
@@ -112,6 +116,7 @@ teardown() {
   halt bspid 4 "$B" "$LOGB"
   halt rspid 5 "$R" "$LOGR"
   raklib_lines "$work" "after stop"
+  print_live_remainders "$(live_wait_bound "$SECONDS" $((DEADLINE + KILL_GRACE)) "$CLEANUP_RESERVE" "$LIVE_WAIT")"
   docker stop -t 30 "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
   for _ in $(seq 1 30); do
     docker rm -v "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
