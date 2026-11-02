@@ -55,6 +55,7 @@ done
 q() { docker exec "$C" mysql -uroot -pselftest -h 127.0.0.1 -N -B -e "$1" 2>/dev/null; }
 sh_in() { docker exec "$C" bash -c "$1"; }
 q 'SELECT 1' >/dev/null || { echo "mysql in $C never became ready" >&2; exit 1; }
+sh_in 'mysql -uroot -pselftest -h 127.0.0.1 riftal_dev </deploy/fence-fixture.sql'
 
 KEPT="server.log ops.txt white-list.txt banned-players.txt banned-ips.txt crashdumps/c.txt log_archive/l.log"
 KEPT="$KEPT .capture/r1/players/p.dat pocketmine.yml"
