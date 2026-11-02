@@ -102,11 +102,22 @@ halt() {
     'grep -qF "Stopping other threads" "$log" && ! grep -qE "$SEVERE" "$log"'
 }
 
+# Prints every RakLib thread line of every instance log the run wrote, each tagged with
+# its log: a.log, a2.log... for A, b1.log... for B, r.log for R.
+raklib_lines() {
+  local f
+  for f in "$work"/a.log "$work"/a[0-9]*.log "$work"/b[0-9]*.log "$work"/r.log; do
+    [ -e "$f" ] || continue
+    { grep -F '[RakLib thread/' "$f" || true; } | sed "s/^/  ${f##*/} | /"
+  done
+}
+
 teardown() {
   local left=""
   halt spid 3 "$A" "$LOG"
   halt bspid 4 "$B" "$LOGB"
   halt rspid 5 "$R" "$LOGR"
+  raklib_lines
   docker stop -t 30 "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
   for _ in $(seq 1 30); do
     docker rm -v "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
@@ -729,7 +740,7 @@ p6_run() {
   [ "$BRC" -ne 4 ] || FOUND=1
   ! held_inside_session "$LOG" "p6-$1-$ID" p3a || inside=1
   read -r changes entries outside empty < <(listing_audit "$bk" a)
-  { grep -E '^(ROOT LISTING|PROBE RELEASED|SCENARIO|HOLD FAILURE)' "$bots" || true; } | sed 's/^/  bots | /'
+  sed 's/^/  bots | /' "$bots"
   printf 'p6 run %s: run exit %s, %s differing listing(s) with %s entries (%s outside a held volume'"'"'s), hold between p3a'"'"'s join and leave: %s\n' "$1" "$JRC" "$changes" "$entries" "$outside" "$inside"
   [ "$changes" = 0 ] || grep -E ': volume a (changed during|before|after) its tar|: failed' "$bk" | sed 's/^backup [^ ]*: /  /'
   [ "$changes" = 0 ] || P6_RETRIED=$((P6_RETRIED + 1))
