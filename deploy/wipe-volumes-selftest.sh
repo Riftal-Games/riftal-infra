@@ -84,6 +84,8 @@ state() { sh_in 'cd /worlds && { find . -type f -exec sha256sum {} +; find . -ty
 kept() { sh_in "cd /worlds && for v in riftal_smoke_a riftal_smoke_b; do for f in $KEPT; do sha256sum \$v/\$f; done; done"; }
 state >"$LOGS/state.before"
 kept >"$LOGS/kept.before"
+TABLES_BEFORE="$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'riftal_dev'")"
+[ "${TABLES_BEFORE:-0}" -ge 1 ] || { echo "riftal_dev lists no table before the refusals" >&2; exit 1; }
 
 FAILURES=0
 PASSES=0
@@ -199,7 +201,7 @@ RUN=(/deploy/wipe-volumes.sh dev)
 refused direct "wipe-volumes.sh runs only inside wipe.sh" \
   riftal_dev /tmp/set "${W[@]}" "${L[@]}" "${DEV[@]}"
 RUN=(/deploy/wipe.sh)
-[ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'riftal_dev'")" = "1" ] \
+[ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'riftal_dev'")" = "$TABLES_BEFORE" ] \
   && pass "every refusal left riftal_dev in place" || fail "a refused wipe changed riftal_dev"
 
 printf '\n== RIFTAL_DEV_ENV=1 on riftal_dev clears the ruled paths and keeps the rest\n'
