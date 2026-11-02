@@ -252,7 +252,7 @@ for key in 'if: false' 'continue-on-error: true'; do
 done
 
 real="$repo/.github/workflows/ci.yml"
-expect "the real workflow" pass 'precedes all 6 step(s)' "$real" "$repo"
+expect "the real workflow" pass 'precedes all 8 step(s)' "$real" "$repo"
 
 # The real workflow with its pull step cut out, and with that step put back
 # below the last mysql self-test. A mutation that missed would pass for the

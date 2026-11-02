@@ -9,6 +9,11 @@
 # (CLAUDE.md hard rule 5) needs only a mount added where this script is run
 # from, never a change here. compose.yaml's `backup` service is what decides
 # which volumes appear under WORLDS_DIR.
+#
+# A running instance is never tarred live. The run asks every instance to hold
+# one tick through a request on CAPTURE_DIR, and tars each volume either at
+# that held tick or, when its instance is down, as it lies, then proves the
+# volume did not change during its tar (riftal-pm docs/decisions, ADR 015).
 set -euo pipefail
 
 MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
@@ -26,6 +31,9 @@ WORLDS_DIR="${WORLDS_DIR:-/worlds}"
 BACKUP_RETENTION="${BACKUP_RETENTION:-10}"
 PARTIAL_MAX_AGE_MINUTES="${PARTIAL_MAX_AGE_MINUTES:-360}"
 LOCK_MAX_AGE_MINUTES="${LOCK_MAX_AGE_MINUTES:-90}"
+CAPTURE_DIR="${CAPTURE_DIR:-/capture}"
+CAPTURE_ACK_TIMEOUT_SECONDS="${CAPTURE_ACK_TIMEOUT_SECONDS:-60}"
+CAPTURE_HOLD_MAX_SECONDS="${CAPTURE_HOLD_MAX_SECONDS:-900}"
 
 # Nanosecond precision, not just seconds, so two runs started close together
 # (a manual run and the loop, or two runs in a test) never collide on the
@@ -48,6 +56,17 @@ fail() {
 # acquire_lock before that claim is attempted.
 lock_acquired=0
 lock_owner=""
+request_written=0
+
+# RiftalCapture ignores a request whose id falls outside its grammar
+# (images/plugins/RiftalCapture.php, CaptureRequest::parse), which would
+# surface only as an ack timeout on every running instance. $ts always fits;
+# CAPTURE_TEST_REQUEST_ID is set only by a self-test.
+request_id="${CAPTURE_TEST_REQUEST_ID:-$ts}"
+
+# Per volume: held or stopped, the first listing, and the descriptor holding a
+# free server.lock until that volume is verified.
+declare -A mode=() first=() lock_fd=()
 
 LOCK_DIR="$BACKUP_ROOT/.lock"
 
@@ -181,11 +200,157 @@ release_lock() {
   fi
 }
 
+# ADR 015 item 3.7, and on every exit. Only this run's own request is
+# deleted, so a run whose lock was swept never ends another run's hold.
+release_request() {
+  if [ "$request_written" = 1 ] \
+    && [ "$(cut -d' ' -f1 "$CAPTURE_DIR/request" 2>/dev/null)" = "$request_id" ]; then
+    rm -f "$CAPTURE_DIR/request"
+  fi
+  request_written=0
+}
+
+# Written through a rename, so an instance never reads half a request. The
+# deadline is the lease: a run that dies without its trap ends no later.
+write_request() {
+  mkdir -p "$CAPTURE_DIR"
+  printf '%s %s\n' "$request_id" "$(( $(date +%s) + CAPTURE_HOLD_MAX_SECONDS ))" \
+    > "$CAPTURE_DIR/request.tmp"
+  request_written=1
+  mv -f "$CAPTURE_DIR/request.tmp" "$CAPTURE_DIR/request"
+}
+
+# ADR 015 item 5: name, size and mtime, to the fraction of a second because on
+# a held volume this listing alone guards worlds/ and .capture/, and whole
+# seconds would miss a same-size rewrite. A held volume lists only what holds
+# an item or marks a restart; its stage stands in for players/, and its
+# server.log holds no item. A down volume adds both, since a start appends to
+# server.log before any player joins. Absent paths list as nothing.
+list_volume() {
+  local paths=(worlds .capture server.lock)
+  [ "$2" = held ] || paths+=(players server.log)
+  { (cd "$1" && find "${paths[@]}" -printf '%p %s %T@\n' 2>/dev/null) || true; } | LC_ALL=C sort
+}
+
+# $1 a listing; $2 a path within the volume. True when the listing shows it.
+listed() {
+  awk -v p="$2" '$1 == p { found = 1 } END { exit !found }' <<<"$1"
+}
+
+# Every entry of listing $1 that listing $2 lacks, one per line.
+entries_missing() {
+  LC_ALL=C comm -23 <(printf '%s' "${1:+$1$'\n'}") <(printf '%s' "${2:+$2$'\n'}")
+}
+
+# The ack is two lines: the request id, then the server's start time in whole
+# microseconds (RiftalCapture.php, Stage). A restart writes a new second line.
+acked() {
+  local lines=()
+  mapfile -t lines 2>/dev/null < "$1/.capture/$request_id/ack" || return 1
+  [ "${#lines[@]}" -eq 2 ] && [ "${lines[0]}" = "$request_id" ] && [[ "${lines[1]}" =~ ^[0-9]+$ ]]
+}
+
+unlock_volume() {
+  local fd="${lock_fd[$1]:-}"
+  if [ -n "$fd" ]; then
+    exec {fd}<&-
+    unset 'lock_fd[$1]'
+  fi
+}
+
+# ADR 015 items 3.4 and 6. Core holds a shared flock on server.lock while it
+# runs. A held lock means a running instance, which must ack. A free one
+# means a down instance: the exclusive lock taken here, on a descriptor kept
+# open until the volume is verified, blocks any start until then. An absent
+# one means down only if the listing taken at once shows neither the lock nor
+# this run's ack; otherwise the volume is tested again. Every wait, an absent
+# lock beside a stale ack included, ends at CAPTURE_ACK_TIMEOUT_SECONDS.
+await_volume() {
+  local name="$1" vol="$WORLDS_DIR/$1" fd listing why
+  local deadline=$(( $(date +%s) + CAPTURE_ACK_TIMEOUT_SECONDS ))
+  # On a retry this run may still hold the volume's exclusive lock from its
+  # first try. flock locks each open file description, so the test below would
+  # then find this run's own lock and wait out the ack timeout.
+  unlock_volume "$name"
+  while :; do
+    if [ -e "$vol/server.lock" ] && exec {fd}<"$vol/server.lock"; then
+      if flock -xn "$fd"; then
+        lock_fd[$name]="$fd"
+        mode[$name]=stopped
+        first[$name]="$(list_volume "$vol" stopped)"
+        echo "backup $ts: volume $name is down, its server.lock is free"
+        return 0
+      fi
+      exec {fd}<&-
+      if acked "$vol"; then
+        mode[$name]=held
+        echo "backup $ts: volume $name is held for request $request_id"
+        return 0
+      fi
+      why="its instance is running and has not acked request $request_id; is RiftalCapture loaded?"
+    else
+      listing="$(list_volume "$vol" stopped)"
+      if ! listed "$listing" server.lock && ! listed "$listing" ".capture/$request_id/ack"; then
+        mode[$name]=stopped
+        first[$name]="$listing"
+        echo "backup $ts: volume $name is down, it has no server.lock"
+        return 0
+      fi
+      why="it shows a server.lock or an ack for request $request_id that no running instance holds"
+    fi
+    [ "$(date +%s)" -lt "$deadline" ] \
+      || fail "volume $name: after ${CAPTURE_ACK_TIMEOUT_SECONDS}s $why"
+    sleep 1
+  done
+}
+
+# ADR 015 items 4 and 5. A held volume is tarred without its live players/,
+# with the stage from its held tick stored as players/ in its place. False,
+# with the tar discarded, when the volume must be tarred again.
+#
+# GNU tar exits 1 under --create when a file changed while it was read, and 2
+# on a fatal error. A held instance keeps writing files that hold no item, so
+# there exit 1 is left to the listings; nothing may write a down volume, so
+# there it is a change. Exit 2 with a changed listing is a restart removing
+# the stage, which a retry fixes; with an unchanged one, a retry would not.
+capture_volume() {
+  local name="$1" vol="$WORLDS_DIR/$1" out="$tmp_dir/worlds/$1.tar.gz" after rc=0
+  if [ "${mode[$name]}" = held ]; then
+    first[$name]="$(list_volume "$vol" held)"
+    if ! listed "${first[$name]}" ".capture/$request_id/ack"; then
+      echo "backup $ts: volume $name lost its ack for request $request_id before its tar"
+      return 1
+    fi
+    tar -czf "$out" --anchored --exclude=./players --exclude=./.capture \
+      -C "$vol" . -C "$vol/.capture/$request_id" players || rc=$?
+  else
+    tar -czf "$out" --anchored --exclude=./.capture -C "$vol" . || rc=$?
+  fi
+  echo "backup $ts: tar of volume $name, ${mode[$name]}, exited $rc"
+  [ "$rc" -le 2 ] || fail "tar of volume $name exited $rc, no set is written"
+  after="$(list_volume "$vol" "${mode[$name]}")"
+  unlock_volume "$name"
+  if [ "$after" != "${first[$name]}" ]; then
+    echo "backup $ts: volume $name changed during its tar"
+    entries_missing "${first[$name]}" "$after" | sed "s|^|backup $ts: volume $name before its tar: |"
+    entries_missing "$after" "${first[$name]}" | sed "s|^|backup $ts: volume $name after its tar: |"
+    rm -f "$out"
+    return 1
+  fi
+  [ "$rc" -ne 2 ] || fail "tar of volume $name exited 2 with its listing unchanged, no set is written"
+  if [ "$rc" -eq 1 ] && [ "${mode[$name]}" = stopped ]; then
+    echo "backup $ts: volume $name is down and tar saw a file change"
+    rm -f "$out"
+    return 1
+  fi
+}
+
 # Fires on every exit, including an uncaught failure under `set -e`, so a
 # broken run is never silent (acceptance criterion 5) and never leaves a
 # half-written set behind for retention to count as a real backup.
 cleanup() {
   status=$?
+  release_request
   release_lock
   if [ "$status" -ne 0 ]; then
     echo "backup $ts: failed, exit $status" >&2
@@ -267,11 +432,34 @@ worlds=("$WORLDS_DIR"/*/)
 shopt -u nullglob
 [ "${#worlds[@]}" -gt 0 ] || fail "no world volumes found under $WORLDS_DIR"
 
+# The dump comes before the request: a flow that takes an item from a player
+# and then commits in MySQL can then only be lost by a restore, never copied
+# (ADR 015, Why).
+[[ "$request_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] \
+  || fail "request id '$request_id' is outside RiftalCapture's grammar, no instance would ack it"
+echo "backup $ts: requesting a held capture $request_id, lease ${CAPTURE_HOLD_MAX_SECONDS}s"
+write_request
+
+for world in "${worlds[@]}"; do
+  await_volume "$(basename "$world")"
+done
+
+# Defaults to 0, and is set only by a proof run that acts between the acks
+# and the tars.
+sleep "${CAPTURE_TEST_STALL_SECONDS:-0}"
+
+# A volume that changed during its tar is waited on again, now under the
+# held request, and tarred once more. A second change fails the run.
 for world in "${worlds[@]}"; do
   name="$(basename "$world")"
-  echo "backup $ts: snapshotting world volume $name"
-  tar -C "$world" -czf "$tmp_dir/worlds/$name.tar.gz" .
+  echo "backup $ts: snapshotting world volume $name, ${mode[$name]}"
+  if ! capture_volume "$name"; then
+    await_volume "$name"
+    capture_volume "$name" || fail "volume $name changed during its tar twice, no set is written"
+  fi
 done
+
+release_request
 
 {
   echo "timestamp: $ts"
@@ -281,6 +469,14 @@ done
   for world in "${worlds[@]}"; do
     name="$(basename "$world")"
     echo "  - $name: $(wc -c < "$tmp_dir/worlds/$name.tar.gz") bytes"
+  done
+  for world in "${worlds[@]}"; do
+    name="$(basename "$world")"
+    if [ "${mode[$name]}" = held ]; then
+      echo "capture_mode.$name: held $request_id"
+    else
+      echo "capture_mode.$name: stopped"
+    fi
   done
 } > "$tmp_dir/manifest.txt"
 

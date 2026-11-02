@@ -54,7 +54,7 @@ def selftest(workflow, script):
         return text.replace(old, new, 1)
     take_step = f"      - name: Take the machine-wide rig lock\n        run: {TAKE}\n\n"
     label = "rig-lock.sh rig-up-check\n\n      - name: Label this job's containers\n        run: bash .github/scripts/ci-docker-label.sh\n\n"
-    sweep_note = "      # steps.eth0.outputs.address is what"
+    sweep_note = "      # Every step from here may start a bot."
     release_if = f"        if: always()\n        run: {RELEASE}\n"
     moved, failures = swap(take_step, "", workflow), 0
     cases = [
@@ -63,8 +63,8 @@ def selftest(workflow, script):
         ("take-after-label", swap(label, label + take_step, moved), script, "first that runs a container"),
         ("take-after-extract", swap(sweep_note, take_step + sweep_note, moved), script, "first that runs a container"),
         ("wait-shortened", workflow, swap("RIG_LOCK_WAIT_SEC=3600", "RIG_LOCK_WAIT_SEC=2700", script), "RIG_LOCK_WAIT_SEC"),
-        ("hold-under-timeout", workflow, swap("RIG_LOCK_HOLD_SEC=4800", "RIG_LOCK_HOLD_SEC=1200", script), "RIG_LOCK_HOLD_SEC"),
-        ("timeout-over-hold", swap("timeout-minutes: 75", "timeout-minutes: 90", workflow), script, "RIG_LOCK_HOLD_SEC"),
+        ("hold-under-timeout", workflow, swap("RIG_LOCK_HOLD_SEC=6000", "RIG_LOCK_HOLD_SEC=1200", script), "RIG_LOCK_HOLD_SEC"),
+        ("timeout-over-hold", swap("timeout-minutes: 90", "timeout-minutes: 105", workflow), script, "RIG_LOCK_HOLD_SEC"),
     ]
     for name, flow, text, want in cases:
         got = "\n".join(problems(flow, text))
