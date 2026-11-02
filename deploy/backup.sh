@@ -24,8 +24,9 @@ MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
 # A login granted SELECT, SHOW VIEW and TRIGGER on the schema and global
 # SHOW_ROUTINE, provisioned with its role by ../migrations/run-migrations.sh
-# from RIFTAL_DB_PASSWORD_BACKUP. It is read-only apart from trigger DDL;
-# what it is denied and what it can still do are in README.md, The dump login.
+# from RIFTAL_DB_PASSWORD_BACKUP. It writes no table directly, but can run the
+# two capture fence procedures and do trigger DDL; what it is denied and what it
+# can still do are in README.md, The dump login.
 MYSQL_USER="${MYSQL_USER:-backup}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 MYSQL_DATABASE="${MYSQL_DATABASE:?MYSQL_DATABASE is required}"
