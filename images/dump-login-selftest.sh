@@ -104,6 +104,7 @@ dc exec -T -e MYSQL_PWD="$root_pw" mysql mysql -uroot riftal_dev < "$DIR/../depl
 check "without EXECUTE on the fence procedures, a run fails before taking a dump" \
   '! dc run --rm -T backup bash /deploy/backup.sh > "$work/nofence.out" 2>&1 &&
     grep -q "could not raise the capture fence" "$work/nofence.out" &&
+    ! grep -q "dumping database" "$work/nofence.out" &&
     ! grep -q "complete at /backups/" "$work/nofence.out"'
 dc exec -T -e MYSQL_PWD="$root_pw" mysql mysql -uroot -e \
   'GRANT EXECUTE ON PROCEDURE riftal_dev.capture_fence_raise TO riftal_role_backup;

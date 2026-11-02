@@ -149,8 +149,9 @@ else
   pass "a run against another run's live fence exits nonzero"
 fi
 grep -q "another run's lease is live" "$LOGS"/out-fence-busy.log \
-  && pass "the busy refusal is logged with its reason" \
-  || { fail "expected the busy refusal in the log"; cat "$LOGS"/out-fence-busy.log; }
+  && ! grep -q "dumping database" "$LOGS"/out-fence-busy.log \
+  && pass "the busy refusal is logged with its reason, before any dump starts" \
+  || { fail "expected the busy refusal in the log and no dump started"; cat "$LOGS"/out-fence-busy.log; }
 [ "$(backups 'ls -1 /backups | wc -l')" = "1" ] && [ "$(fence_row)" = "other-run" ] \
   && pass "a busy refusal writes no set and leaves the other run's fence raised" \
   || fail "expected one set and the other run's fence untouched, got fence '$(fence_row)'"
