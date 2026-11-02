@@ -46,6 +46,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/images/devtools-image.sh"
 . "$ROOT/.github/scripts/bot-proofs-checks.sh"
 . "$ROOT/.github/scripts/bot-proofs-finish.sh"
+. "$ROOT/.github/scripts/bot-proofs-runner-logs.sh"
 . "$ROOT/.github/scripts/capture-cost.sh"
 core_image && devtools_image || exit 1
 DT="${RUNNER_TEMP:?}/riftal-devtools" NODE="$DT/node-runtime/bin/node"
@@ -62,6 +63,7 @@ grep -qF CAPTURE_DIR "$BASE_SH" || CONTROL=1
 SEVERE='/(EMERGENCY|ALERT|CRITICAL|ERROR)\]'
 EXPECTED_ASSERTIONS=$((83 + 5 * CONTROL)) FOUND=0 PASSES=0 FAILURES=0 spid="" bspid="" rspid="" LOGB="" LOGR="" NA=1 NB=0 under="" RED=""
 work="$(mktemp -d)" LOG="$work/a.log"
+PRINTED="$work/printed"
 PW="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
 # $1 what is claimed; $2 a condition, evaluated. Under a mutant a failure is
@@ -102,22 +104,14 @@ halt() {
     'grep -qF "Stopping other threads" "$log" && ! grep -qE "$SEVERE" "$log"'
 }
 
-# Prints every RakLib thread line of every instance log the run wrote, each tagged with
-# its log: a.log, a2.log... for A, b1.log... for B, r.log for R.
-raklib_lines() {
-  local f
-  for f in "$work"/a.log "$work"/a[0-9]*.log "$work"/b[0-9]*.log "$work"/r.log; do
-    [ -e "$f" ] || continue
-    { grep -F '[RakLib thread/' "$f" || true; } | sed "s/^/  ${f##*/} | /"
-  done
-}
-
 teardown() {
   local left=""
+  print_unprinted_runners "$work/runners" "$work/hold.log" "$LOG"
+  raklib_lines "$work" "before stop"
   halt spid 3 "$A" "$LOG"
   halt bspid 4 "$B" "$LOGB"
   halt rspid 5 "$R" "$LOGR"
-  raklib_lines
+  raklib_lines "$work" "after stop"
   docker stop -t 30 "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
   for _ in $(seq 1 30); do
     docker rm -v "$DB" "$RDB" "$BK" >/dev/null 2>&1 || true
@@ -345,7 +339,7 @@ p1_run() {
   EARLY=0; ! grep -qF "snapshotting world volume" "$bk" || EARLY=1
   touch "$work/end"
   JRC=0; wait "$jpid" || JRC=$?
-  sed 's/^/  bots | /' "$bots"
+  print_runner bots "$bots"
   sed 's/^/  run | /' "$bk"
 }
 
@@ -419,7 +413,7 @@ p3_run() {
   bots capture-stall-seed-stack 1 "$B" "$HB" "$seed"
   SRC=0; wait "$BPID" || SRC=$?
   [ "$SRC" -ne 4 ] || FOUND=1
-  sed 's/^/  seed | /' "$seed"
+  print_runner seed "$seed"
   halt bspid 4 "$B" "$LOGB"
   check "[p3-seed] p3a mined and quit holding a stack, and B stopped cleanly with its server.lock gone" \
     '[ "$SRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-seed-stack" "$seed" &&
@@ -437,7 +431,7 @@ p3_run() {
   [ "$BRC" -ne 4 ] || FOUND=1
   EARLY=0; ! grep -qF "snapshotting world volume" "$bk" || EARLY=1
   JRC=0; wait "$jpid" || JRC=$?
-  sed 's/^/  bots | /' "$bots"
+  print_runner bots "$bots"
   sed 's/^/  run | /' "$bk"
   under=$keep
 }
@@ -502,7 +496,7 @@ p10_end() {
   touch "$work/end"
   BRC=0; wait "$BPID" || BRC=$?
   [ "$BRC" -ne 4 ] || FOUND=1
-  sed 's/^/  bots | /' "$1"
+  print_runner bots "$1"
   BROKEN="$(sed -n 's/^SCENARIO PASS capture-stall-chunk-out-of-range .*CAPTURE_BROKEN=//p' "$1")"
 }
 
@@ -512,7 +506,7 @@ p10_air() {
   CAPTURE_BROKEN="$BROKEN" bots capture-stall-blocks-are-air 1 "$1" "$2" "$3"
   AIRRC=0; wait "$BPID" || AIRRC=$?
   [ "$AIRRC" -ne 4 ] || FOUND=1
-  sed 's/^/  air | /' "$3"
+  print_runner air "$3"
 }
 
 # The hold stands while p10 is out of range. A tool container samples p10's saved file
@@ -640,7 +634,7 @@ control() {
   check "[ctl-rewrite] both bots' saved files on A were rewritten after pass 1 read A, before pass 2" 'retry 10 rewritten'
   docker run --rm -m 1g --cpus 1 -v "$SHIM:/s" "$IMG:head" touch /s/release
   JRC=0; wait "$jpid" || JRC=$?
-  sed 's/^/  bots | /' "$bots"
+  print_runner bots "$bots"
   sed 's/^/  run | /' "$bk"
   restore_set ctl a p1a p1b
   check "[ctl-bots] the control's bots passed behind clean holds" \
@@ -740,7 +734,7 @@ p6_run() {
   [ "$BRC" -ne 4 ] || FOUND=1
   ! held_inside_session "$LOG" "p6-$1-$ID" p3a || inside=1
   read -r changes entries outside empty < <(listing_audit "$bk" a)
-  sed 's/^/  bots | /' "$bots"
+  print_runner bots "$bots"
   printf 'p6 run %s: run exit %s, %s differing listing(s) with %s entries (%s outside a held volume'"'"'s), hold between p3a'"'"'s join and leave: %s\n' "$1" "$JRC" "$changes" "$entries" "$outside" "$inside"
   [ "$changes" = 0 ] || grep -E ': volume a (changed during|before|after) its tar|: failed' "$bk" | sed 's/^backup [^ ]*: /  /'
   [ "$changes" = 0 ] || P6_RETRIED=$((P6_RETRIED + 1))
