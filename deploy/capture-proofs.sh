@@ -125,9 +125,12 @@ boot() {
   [ "${3:-}" = nowait ] || await 'Done (' "$slog" 120 || { cat "$slog"; return 1; }
 }
 
-# Every proof starts with no instance, no live request, and no lock left by a killed run.
+# Every proof starts with no instance, no live request, no raised fence and no
+# lock left by a killed run.
 begin() {
   halt
+  docker exec "$DB" mysql -uroot -priftal_smoke_only riftal_smoke_cproofs \
+    -e 'UPDATE capture_fence SET request_id = NULL, raised_until = NULL WHERE id = 1'
   docker run --rm -m 1g --cpus 1 -v "$CAP:/c" -v "$SETS:/s" "$IMG" rm -rf /c/request /s/.lock
   boot "$@"
 }
@@ -361,6 +364,7 @@ for _ in $(seq 1 90); do
   docker exec "$DB" mysqladmin ping -h 127.0.0.1 --silent >/dev/null 2>&1 && break
   sleep 1
 done
+docker exec -i "$DB" mysql -uroot -priftal_smoke_only riftal_smoke_cproofs <"$DIR/fence-fixture.sql"
 
 for proof in p3_down p3_before p3_during p3_killed_start p4 p5_operator p5_restart p5_lease; do
   printf '\n== %s against backup.sh\n' "$proof"
