@@ -14,6 +14,10 @@
 # one tick through a request on CAPTURE_DIR, and tars each volume either at
 # that held tick or, when its instance is down, as it lies, then proves the
 # volume did not change during its tar (riftal-pm docs/decisions, ADR 015).
+#
+# The capture fence row in the shared database is raised before the dump and
+# lowered only after the last volume is verified, so a commit-first flow
+# cannot copy an item between the dump and a tick (ADR 027).
 set -euo pipefail
 
 MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
@@ -34,6 +38,7 @@ LOCK_MAX_AGE_MINUTES="${LOCK_MAX_AGE_MINUTES:-90}"
 CAPTURE_DIR="${CAPTURE_DIR:-/capture}"
 CAPTURE_ACK_TIMEOUT_SECONDS="${CAPTURE_ACK_TIMEOUT_SECONDS:-60}"
 CAPTURE_HOLD_MAX_SECONDS="${CAPTURE_HOLD_MAX_SECONDS:-900}"
+CAPTURE_FENCE_MAX_SECONDS="${CAPTURE_FENCE_MAX_SECONDS:-1800}"
 
 # Nanosecond precision, not just seconds, so two runs started close together
 # (a manual run and the loop, or two runs in a test) never collide on the
@@ -49,6 +54,13 @@ fail() {
   exit 1
 }
 
+# The fence must outlast the dump plus the hold, and 3600 is the bound
+# capture_fence_raise itself enforces (ADR 027 item 5).
+{ [[ "$CAPTURE_FENCE_MAX_SECONDS" =~ ^[0-9]+$ ]] \
+  && [ "$CAPTURE_FENCE_MAX_SECONDS" -gt "$CAPTURE_HOLD_MAX_SECONDS" ] \
+  && [ "$CAPTURE_FENCE_MAX_SECONDS" -le 3600 ]; } \
+  || fail "CAPTURE_FENCE_MAX_SECONDS '$CAPTURE_FENCE_MAX_SECONDS' must be above CAPTURE_HOLD_MAX_SECONDS ($CAPTURE_HOLD_MAX_SECONDS) and at most 3600"
+
 # Set before the trap below can possibly fire, since `set -u` turns a
 # reference to an unset variable into its own error. Flipped to 1 only once
 # this run's own claim_lock below actually wins the lock, so a run that lost
@@ -57,6 +69,7 @@ fail() {
 lock_acquired=0
 lock_owner=""
 request_written=0
+fence_raised=0
 
 # RiftalCapture ignores a request whose id falls outside its grammar
 # (images/plugins/RiftalCapture.php, CaptureRequest::parse), which would
@@ -210,6 +223,49 @@ release_request() {
   request_written=0
 }
 
+# $1 the SQL. Runs as the dump login, which holds EXECUTE on the two fence
+# procedures and SELECT on capture_fence and nothing that writes a table.
+fence_sql() {
+  MYSQL_PWD="$MYSQL_PASSWORD" mysql --host="$MYSQL_HOST" --port="$MYSQL_PORT" \
+    --user="$MYSQL_USER" --batch --skip-column-names "$MYSQL_DATABASE" -e "$1"
+}
+
+# ADR 027 item 5.2. $request_id is inside RiftalCapture's grammar, which
+# holds no quote. fence_raised is set first: a raise that committed but whose
+# answer was lost is still this run's to lower, and lowering by id is a no-op
+# on a fence this run does not hold.
+raise_fence() {
+  local outcome
+  fence_raised=1
+  outcome="$(fence_sql "CALL capture_fence_raise('$request_id', $CAPTURE_FENCE_MAX_SECONDS, @o); SELECT @o")" \
+    || fail "could not raise the capture fence; is migration 0027 applied and EXECUTE granted to the dump login? no dump is taken"
+  [ "$outcome" = raised ] \
+    || fail "capture fence raise answered '$outcome', another run's lease is live; no dump is taken"
+  echo "backup $ts: capture fence raised as $request_id for ${CAPTURE_FENCE_MAX_SECONDS}s"
+}
+
+# ADR 027 items 5.6 and 5.7's trap. A lower that fails is logged and the
+# lease ends the fence.
+lower_fence() {
+  local outcome
+  [ "$fence_raised" = 1 ] || return 0
+  if outcome="$(fence_sql "CALL capture_fence_lower('$request_id', @o); SELECT @o" 2>&1)"; then
+    fence_raised=0
+    echo "backup $ts: capture fence $request_id $outcome"
+  else
+    echo "backup $ts: could not lower capture fence $request_id, its ${CAPTURE_FENCE_MAX_SECONDS}s lease ends it: $outcome" >&2
+  fi
+}
+
+# ADR 027 item 5.5. The lease is fixed at the raise and one run holds it, so a
+# live lease here covers every moment from the dump to the last tick.
+check_fence_lease() {
+  local live
+  live="$(fence_sql "SELECT COUNT(*) FROM capture_fence WHERE id = 1 AND request_id = '$request_id' AND raised_until > UTC_TIMESTAMP(3)")" \
+    || fail "could not read the capture fence, no set is written"
+  [ "$live" = 1 ] || fail "capture fence lapsed before the last volume was verified, no set is written"
+}
+
 # Written through a rename, so an instance never reads half a request. The
 # deadline is the lease: a run that dies without its trap ends no later.
 write_request() {
@@ -351,6 +407,7 @@ capture_volume() {
 cleanup() {
   status=$?
   release_request
+  lower_fence
   release_lock
   if [ "$status" -ne 0 ]; then
     echo "backup $ts: failed, exit $status" >&2
@@ -419,6 +476,15 @@ done
 
 mkdir -p "$tmp_dir/worlds"
 
+# The id goes into SQL, and no instance would ack one outside the grammar.
+[[ "$request_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] \
+  || fail "request id '$request_id' is outside RiftalCapture's grammar, no instance would ack it"
+
+# The fence goes up before the dump and comes down only after the last volume
+# is verified, so no commit-first flow can commit between the dump and the
+# last tick and then deliver (ADR 027 item 5).
+raise_fence
+
 echo "backup $ts: dumping database $MYSQL_DATABASE from $MYSQL_HOST:$MYSQL_PORT"
 # Tablespace definitions are server-wide and need PROCESS, which the backup
 # login does not hold; a single-schema restore never recreates them anyway.
@@ -435,8 +501,10 @@ shopt -u nullglob
 # The dump comes before the request: a flow that takes an item from a player
 # and then commits in MySQL can then only be lost by a restore, never copied
 # (ADR 015, Why).
-[[ "$request_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] \
-  || fail "request id '$request_id' is outside RiftalCapture's grammar, no instance would ack it"
+#
+# Defaults to 0, and is set only by the self-tests, to act between the dump
+# and the request.
+sleep "${FENCE_TEST_STALL_SECONDS:-0}"
 echo "backup $ts: requesting a held capture $request_id, lease ${CAPTURE_HOLD_MAX_SECONDS}s"
 write_request
 
@@ -459,7 +527,9 @@ for world in "${worlds[@]}"; do
   fi
 done
 
+check_fence_lease
 release_request
+lower_fence
 
 {
   echo "timestamp: $ts"
@@ -478,6 +548,7 @@ release_request
       echo "capture_mode.$name: stopped"
     fi
   done
+  echo "capture_fence: $request_id"
 } > "$tmp_dir/manifest.txt"
 
 mv "$tmp_dir" "$set_dir"
