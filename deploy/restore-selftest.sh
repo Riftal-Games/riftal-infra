@@ -89,6 +89,7 @@ exec_sql 'CREATE TRIGGER riftal_selftest.accounts_no_negative BEFORE INSERT
           SET NEW.balance = GREATEST(NEW.balance, 0)'
 exec_sql 'CREATE VIEW riftal_selftest.account_balances AS
           SELECT id, balance FROM riftal_selftest.accounts'
+docker exec -i "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest <"$SCRIPT_DIR/fence-fixture.sql"
 docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo 17 > /world/blocks_broken_mine_a.txt' >/dev/null
 docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
@@ -149,6 +150,9 @@ if provision_backup_login >"$LOGS"/out-provision.log 2>&1; then
 else
   fail "the migration runner should provision the backup login"; cat "$LOGS"/out-provision.log
 fi
+# riftal-game's grants.sql gives the role these; the runner here applies no grants file.
+exec_sql 'GRANT EXECUTE ON PROCEDURE riftal_selftest.capture_fence_raise TO riftal_role_backup;
+          GRANT EXECUTE ON PROCEDURE riftal_selftest.capture_fence_lower TO riftal_role_backup'
 if run_backup >"$LOGS"/out-backup.log 2>&1; then
   pass "the backup run exits 0"
 else

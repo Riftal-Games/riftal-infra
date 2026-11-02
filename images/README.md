@@ -14,6 +14,7 @@ Set in `images/.env`, copied from `.env.example`. Never commit `.env`.
 | `INSTANCE_ID` | This instance's identity, read by `RiftalGames\Lib\InstanceIdentity::fromEnvironment()` in riftal-game's shared lib and tagged onto every shared-database row the instance writes. No safe default exists across a split, which is why the class throws rather than guess one; the dev stack's single instance ships `dev-1` in `.env.example` so the boot has something to read. When an instance is split out under `/add-instance`, its `INSTANCE_ID` is set the same way, as a container env var, never written into mounted `server.properties` or `pocketmine.yml`. |
 | `INSTANCE_B_BIND`, `INSTANCE_B_ID` | The same two settings for `instance-b`, the second core instance `compose.yaml` defines alongside `instance` to prove the instance-split shape on one shared MySQL (riftal-infra#6). Distinct names because both instances read a container env var literally named `INSTANCE_ID`; the `_B` suffix is only how `.env` tells them apart before substitution. |
 | `BACKUP_RETENTION`, `BACKUP_INTERVAL_SECONDS`, `PARTIAL_MAX_AGE_MINUTES`, `LOCK_MAX_AGE_MINUTES` | How many backup sets `../deploy/backup.sh` keeps, how often the `backup` service runs it, how old a leftover `.partial` must be before it sweeps it, and how old a held `.lock` must be before it presumes the lock abandoned and sweeps that too. See `../deploy/README.md`. |
+| `CAPTURE_ACK_TIMEOUT_SECONDS`, `CAPTURE_HOLD_MAX_SECONDS` | How long a running instance has to ack the backup's capture request through `riftal-capture`, and the lease that ends its hold (ADR 015). |
 | `RIFTAL_DB_PASSWORD_BACKUP` | Password of `backup`, the login the `backup` service dumps with. The `dump-login` service runs `../migrations/run-migrations.sh` with it on every `docker compose up`, creating or rotating the login, which is read-only apart from trigger DDL, and `backup` starts only once that run succeeds. Empty or unset, `dump-login` exits 1 naming the variable and `backup` never starts. `dump-login-selftest.sh` proves both. See `../deploy/README.md`. |
 | `RIFTAL_DB_PASSWORD_ACCOUNTS` | The `accounts` MySQL login's password (ADR 008). The migration runner provisions the login with it, and compose hands it to both instances, where `RiftalAccounts` reads it from the environment, never from its config. At least 24 characters, `[A-Za-z0-9]` only. See RiftalAccounts below. |
 | `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). `plugins/RiftalDevFaults.php` exists under the same gate, or not at all. It is also reserved at wipe time: see Reserved for the dev stack, below. |
@@ -121,6 +122,31 @@ names worlds, never instances, so every instance gets the same one and a split
 changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
 path. A `wslc run` of either instance needs the same `-v` and command.
+
+## The lumber level
+
+`instance` runs `plugins/seed-levels.sh` straight after the delivery above,
+with `RIFTAL_LEVEL_ZONES=lumber`, and mounts the named volume
+`riftal_smoke_level_lumber` read-only at `/etc/riftal/levels/lumber`
+(ADR 009 items 5 and 6). When `/data/worlds/lumber` is absent the step checks
+the mounted level against its `level-manifest.json`, copies it onto
+`riftal-world` as uid 1000 and logs the `content_sha256` it seeded; when the
+folder exists it logs `lumber present` and changes nothing. `instance-b` sets
+no zone list, mounts no level and does not run the step.
+
+`designer level build lumber` fills the volume (`../designer/levels/README.md`),
+and the volume is declared `external: true`, so `docker compose up` never
+creates it empty. A volume that is missing stops `up` naming it. One that is
+empty or was never fully built stops the boot before PocketMine starts, with
+the `seed-levels:` line that names
+`riftal_smoke_level_lumber` and `designer level build lumber`. Stop and remove
+`instance` before a rebuild: the build refuses a volume a container mounts. The
+volume is a cache, and losing it costs one build run. A `riftal-world` that
+already holds `lumber`, generated or built, is never reseeded.
+
+`riftal-pm`'s `devtools/instance-shape.js` mirrors `instance`'s command, mount
+destinations and environment names for the `wslc` bring-up, so a change to any
+of them here is a change there (riftal-pm#1730).
 
 ## Restarts
 

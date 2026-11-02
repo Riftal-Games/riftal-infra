@@ -13,7 +13,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A cancel would end bot-proofs before it files its exposure.
+  cancel-in-progress: false
 
 env:
   # Pinned. An unpinned linter changes the meaning of a merge gate with no
@@ -30,8 +31,15 @@ jobs:
     runs-on: [self-hosted, linux, riftal]
     # ci-sweep-selftest.sh removes its other-job volumes once they are older
     # than its reap_after, as left by a run that has ended, and fails unless
-    # every job here times out sooner.
-    timeout-minutes: 15
+    # every job here times out sooner. The capture proofs take four of these.
+    #
+    # A run on an idle daemon takes about 14 minutes. Runners of every repo
+    # share one docker daemon, and a single step there has run 1.3 to 2.6 times
+    # longer while another build runs. The steps do not all slow at once, so 30
+    # covers twice the idle time of the whole job, not 2.6 times. A concurrency
+    # group cannot serialise this job: it queues one pending run and cancels
+    # the others, and it cannot see another repo's builds.
+    timeout-minutes: 30
 
     steps:
       # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
@@ -67,6 +75,13 @@ jobs:
 
       - name: Grants REVOKE check self-test
         run: bash deploy/grants-revoke-check-selftest.sh
+
+      # Reads instances/, designer/levels/ and /usr/bin/jq only, so it also
+      # runs before any container step.
+      - name: Instance definitions list only built zones
+        run: |
+          bash deploy/instance-levels-check-selftest.sh
+          bash deploy/instance-levels-check.sh
 
       # Synthetic timings and fixture configs only, so it also runs before any
       # container step.
@@ -155,6 +170,15 @@ jobs:
       - name: Bot proofs pre-container checks and devtools pin self-test
         run: bash .github/scripts/bot-proofs-selftest.sh
 
+      - name: Self-test, prove the bot-proofs finish decision can fail
+        run: bash .github/scripts/bot-proofs-finish-selftest.sh
+
+      - name: Rig lock self-test
+        run: bash .github/scripts/rig-lock-selftest.sh
+
+      - name: Capture proof 6 and 8 readers self-test
+        run: bash .github/scripts/capture-cost-selftest.sh
+
       - name: Capture plugin self-test
         run: bash images/plugins/capture-selftest.sh
 
@@ -171,7 +195,7 @@ jobs:
         run: bash images/plugins/join-order/selftest.sh
 
       # A healthy run takes under half a minute. The bound keeps one wedged
-      # boot from spending the rest of the job's 15 minutes.
+      # boot from spending the rest of the job's 30 minutes.
       - name: Dev bots watch camera self-test
         timeout-minutes: 10
         run: bash images/plugins/watch/selftest.sh
@@ -193,6 +217,12 @@ jobs:
 
       - name: Instance boot on the pinned core image self-test
         run: bash images/plugins/instance-only/boot-selftest.sh
+
+      # Boots the pinned core image three times, the first to generate the fixture level.
+      # A healthy run takes under a minute; the bound stops one wedged boot spending the job's 30 minutes.
+      - name: Level seed step on the pinned core image self-test
+        timeout-minutes: 10
+        run: bash images/plugins/seed-levels-selftest.sh
 
       - name: Instance-b start script self-test
         run: bash images/plugins/instance-b/selftest.sh
@@ -239,6 +269,12 @@ jobs:
       - name: Write latency probe self-test
         run: bash deploy/write-latency-probe-selftest.sh --probe
 
+      # ADR 015 proofs 3, 4 and 5 without bots, on the pinned core, and each
+      # mutant of backup.sh going red. A healthy run takes about four minutes.
+      - name: Capture proofs on the real core
+        timeout-minutes: 9
+        run: bash deploy/capture-proofs.sh
+
       # Runs before the host-side sync below, which writes designer/.venv. The
       # script mounts the project read-only, so a container run that tried to
       # put its environment in the checkout fails here instead of leaving one.
@@ -265,6 +301,12 @@ jobs:
 
       - name: bot-proofs writes exposure=pending before any step that may start a bot
         run: uv run --frozen --project designer python .github/scripts/exposure_pending_order.py
+
+      - name: Self-test, prove the rig lock job check can fail
+        run: uv run --frozen --project designer python .github/scripts/rig_lock_job.py --selftest
+
+      - name: bot-proofs takes the rig lock before a container and releases it last
+        run: uv run --frozen --project designer python .github/scripts/rig_lock_job.py
 
       # Riots treats a world as safe once any region in it carries safe_zone, so
       # a ranked mine without one is open PvP and a contested world with one is
@@ -309,7 +351,7 @@ jobs:
           . .github/scripts/bot-proofs-scope.sh
           scope_run "$EVENT" "$BASE" "$HEAD" "$GITHUB_OUTPUT"
 
-  # ADR 024. The job holds a read token, starts no bot or server, and every
+  # ADR 024. The job holds a read token, starts two servers and their bots, and every
   # check before a container refuses with ::error:: and ends the job.
   bot-proofs:
     name: bot proofs
@@ -317,13 +359,15 @@ jobs:
     # always() so a scope job that failed or wrote nothing still runs this one.
     if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
     runs-on: [self-hosted, linux, riftal]
-    # Under ci-sweep-selftest.sh's reap_after, like every job here.
-    timeout-minutes: 15
+    # Under ci-sweep-selftest.sh's reap_after, like every job here. 60 minutes
+    # of this are the longest wait for the rig lock (rig-lock.sh), 30 the body.
+    # The holder outlasts all 90 (rig_lock_job.py).
+    timeout-minutes: 90
     permissions:
       contents: read
       issues: read
     outputs:
-      exposure: ${{ steps.harness.outputs.exposure || steps.exposure.outputs.exposure }}
+      exposure: ${{ steps.harness.outputs.exposure || steps.pending.outputs.exposure || steps.exposure.outputs.exposure }}
 
     steps:
       # persist-credentials: false leaves no token in .git/config for any step
@@ -340,7 +384,7 @@ jobs:
       # ADR 024 names pending, found and none. no-bots is this job's own
       # starting value, held until a bot starts, and files nothing. The job
       # output takes the exposure written by a step with id harness when
-      # one ran, and this step's value otherwise.
+      # one ran, else the pending step's, else this step's.
       - name: Exposure, no bot has started
         id: exposure
         run: printf 'exposure=no-bots\n' >> "$GITHUB_OUTPUT"
@@ -368,6 +412,14 @@ jobs:
           printf 'eth0 address %s\n' "$address"
           printf 'address=%s\n' "$address" >> "$GITHUB_OUTPUT"
 
+      # The lock is held until the release step at the end of the job, so no
+      # container of this job runs beside an in-distro rig.
+      - name: Take the machine-wide rig lock
+        run: bash .github/scripts/rig-lock.sh take
+
+      - name: No rig is left up on docker
+        run: bash .github/scripts/rig-lock.sh rig-up-check
+
       - name: Label this job's containers
         run: bash .github/scripts/ci-docker-label.sh
 
@@ -376,12 +428,47 @@ jobs:
           . images/devtools-image.sh
           devtools_extract "$RUNNER_TEMP/riftal-devtools"
 
-      # steps.eth0.outputs.address is what every socket listing is judged
-      # against.
+      # Every step from here may start a bot. A run that ends before the harness
+      # step writes found or none leaves this as the output, and it is filed.
+      - name: Exposure, bots may start
+        id: pending
+        run: printf 'exposure=pending\n' >> "$GITHUB_OUTPUT"
+
+      - name: Pull mysql:8
+        run: bash .github/scripts/pull-mysql.sh
+
+      # After the pending write, so the allowlist ahead of it does not apply. The
+      # job's read token is in the env of this step and of the bots-stopped check
+      # only, never the job's, and the checkout left none in .git/config. The
+      # harness step carries no env, so the script is handed over as a file.
+      - name: Fetch main's merge-base backup script
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          . .github/scripts/bot-proofs-checks.sh
+          merge_base_script "$HEAD_SHA" "$RUNNER_TEMP/merge-base"
+
+      # The one form the exposure check compares. The script reads the eth0
+      # address itself, since this step carries no env.
+      - name: Harness
+        id: harness
+        run: |
+          status=0
+          env -u GITHUB_OUTPUT bash deploy/bot-proofs.sh || status=$?
+          case "$status" in
+            0|4) printf 'exposure=none\n' >> "$GITHUB_OUTPUT" ;;
+            3) printf 'exposure=found\n' >> "$GITHUB_OUTPUT" ;;
+          esac
+          exit "$status"
 
       - name: Remove this job's containers
         if: always()
         run: bash .github/scripts/ci-container-sweep.sh
+
+      - name: Release the machine-wide rig lock
+        if: always()
+        run: bash .github/scripts/rig-lock.sh release
 
   # The only job with issues: write. It has no checkout, so no step in it
   # runs a script from the PR's tree; the run: block below is in the workflow

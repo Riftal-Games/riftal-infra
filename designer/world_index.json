@@ -2,6 +2,20 @@
   "default_world": "design",
   "locations": [
     {
+      "name": "lumber_spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        40,
+        16
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "lumber",
+      "yaw": 180
+    },
+    {
       "name": "rankup_npc_a",
       "pitch": 0,
       "pos": [
@@ -124,7 +138,7 @@
       "world": "mine_c"
     }
   ],
-  "updated": "2026-10-22T06:47:55+00:00",
+  "updated": "2026-10-31T21:40:20+00:00",
   "version": 1,
   "worlds": [
     {
@@ -149,7 +163,7 @@
       "generator": "normal",
       "name": "lumber",
       "role": "lumber",
-      "seed": 20260907
+      "seed": 23
     },
     {
       "generator": "normal",

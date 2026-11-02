@@ -27,6 +27,42 @@ subdirectories `WORLDS_DIR` holds. What appears there is decided by
 instance world volume. Splitting a world onto a new instance (`/add-instance`)
 adds one line there; the script needs no change, per `CLAUDE.md` hard rule 5.
 
+## The capture fence
+
+A flow that commits a removal in MySQL and only then hands the item to a
+player would be copied by a restore if the dump fell before the commit and an
+instance's held tick after the delivery. So the run raises the one row of
+`capture_fence` before `mysqldump` and lowers it only after the last volume is
+verified (riftal-pm ADR 027 item 5). While it is raised, every commit-first
+procedure answers `capture_fenced` and the item waits.
+
+The order of a run: take the lock, raise the fence under the run's request id
+for `CAPTURE_FENCE_MAX_SECONDS`, dump, write the capture request, wait for the
+acks, tar and verify each volume, check that the run's own lease is still live,
+delete the request, lower the fence, write the manifest. The check is what
+makes a set safe: a lease that lapsed mid-run fails the run with `capture
+fence lapsed` and no set is produced. The manifest gains `capture_fence:
+<request id>`.
+
+- A raise answering `busy`, or failing, fails the run before the dump. `busy`
+  means another run's lease is live.
+- The EXIT trap deletes the request and lowers the fence by id on every exit.
+  A lower that fails is logged and the lease ends the fence. After a killed
+  run, commit-first flows stay refused for the rest of the lease, up to
+  `CAPTURE_FENCE_MAX_SECONDS`.
+- `backup.sh` refuses to start unless `CAPTURE_FENCE_MAX_SECONDS` is above
+  `CAPTURE_HOLD_MAX_SECONDS` and at most 3600, `capture_fence_raise`'s bound.
+- The fence is written through `capture_fence_raise` and `capture_fence_lower`,
+  which riftal-game's migration 0027 creates and its `grants.sql` grants to
+  the dump login's role. The `dump-login` compose service applies no grants
+  file (`../images/compose.yaml`), so on a stack where only it has run, the
+  role lacks `EXECUTE` on `capture_fence_raise` and every run fails at the
+  raise, before the dump. That fails safe: no set is written and no fence is
+  left raised. Apply the migrations and grants (`../migrations/README.md`)
+  before the first scheduled run.
+- `deploy/fence-fixture.sql` is a copy of the table and the two procedures that
+  the self-tests load into their throwaway databases.
+
 ## The dump login
 
 `backup.sh` dumps as the login `backup`, whose password is
@@ -516,6 +552,8 @@ image on the daemon.
 | `BACKUP_INTERVAL_SECONDS` | no | `21600` | `backup-loop.sh` only |
 | `PARTIAL_MAX_AGE_MINUTES` | no | `360` | Age past which a leftover `.partial` is swept |
 | `LOCK_MAX_AGE_MINUTES` | no | `90` | Age past which a held `.lock` is presumed abandoned and swept |
+| `CAPTURE_FENCE_MAX_SECONDS` | no | `1800` | The capture fence's lease, from before the dump until every volume is verified. Must be above `CAPTURE_HOLD_MAX_SECONDS` and at most `3600`, or the run refuses to start |
+| `FENCE_TEST_STALL_SECONDS` | no | `0` | Seconds a run stalls between its dump and its capture request. Set only by the self-tests |
 | `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
 | `WIPE_BACKUP_MAX_AGE_MINUTES` | no, `wipe.sh` only | `60` | Age past which `wipe.sh` refuses its `BACKUP_SET`, read from the manifest's `timestamp:` line. The set is taken with every instance stopped, just before the wipe, so an older one was likely taken while they still wrote |
 
