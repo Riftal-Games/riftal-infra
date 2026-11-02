@@ -54,6 +54,7 @@ fi
 docker exec "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest -e \
   'CREATE TABLE marker (id INT PRIMARY KEY, note VARCHAR(64));
    INSERT INTO marker VALUES (1, "backup-selftest-marker");' >/dev/null
+docker exec -i "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest <"$SCRIPT_DIR/fence-fixture.sql"
 
 docker run --rm -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo world-a-marker > /world/marker.txt' >/dev/null
@@ -62,7 +63,7 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=43
+EXPECTED_ASSERTIONS=50
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -83,6 +84,7 @@ run_backup() {
     -e STEAL_RACE_TEST_STALL_SECONDS="${STEAL_RACE_TEST_STALL_SECONDS:-0}" \
     -e DISCARD_RACE_TEST_STALL_SECONDS="${DISCARD_RACE_TEST_STALL_SECONDS:-0}" \
     -e CLAIM_RACE_TEST_STALL_SECONDS="${CLAIM_RACE_TEST_STALL_SECONDS:-0}" \
+    -e CAPTURE_FENCE_MAX_SECONDS="${CAPTURE_FENCE_MAX_SECONDS:-1800}" \
     mysql:8 bash /deploy/backup.sh "$@"
 }
 
@@ -125,6 +127,46 @@ extracted="$(backups "mkdir -p /tmp/x && tar -xzf /backups/$dir1/worlds/world-a.
 [ "$extracted" = "world-a-marker" ] \
   && pass "the world tar extracts back into a usable world directory" \
   || fail "expected the extracted marker file content, got '$extracted'"
+
+fence_row() {
+  docker exec "$MYSQL_CONTAINER" mysql -uroot -pselftest -N -B riftal_selftest -e \
+    "SELECT COALESCE(request_id, 'lowered') FROM capture_fence WHERE id = 1"
+}
+
+section "the capture fence is raised for the run, lowered after it, and named in the manifest"
+backups "grep -qx 'capture_fence: $dir1' /backups/$dir1/manifest.txt" \
+  && pass "the manifest names the run's capture fence request id" \
+  || fail "expected 'capture_fence: $dir1' in the manifest"
+[ "$(fence_row)" = "lowered" ] \
+  && pass "the fence is lowered once the run has exited" \
+  || fail "expected the fence lowered after a run, got '$(fence_row)'"
+
+docker exec "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest -e \
+  "UPDATE capture_fence SET request_id = 'other-run', raised_until = UTC_TIMESTAMP(3) + INTERVAL 600 SECOND WHERE id = 1"
+if run_backup 10 mysql selftest >"$LOGS"/out-fence-busy.log 2>&1; then
+  fail "a run against another run's live fence should fail"; cat "$LOGS"/out-fence-busy.log
+else
+  pass "a run against another run's live fence exits nonzero"
+fi
+grep -q "another run's lease is live" "$LOGS"/out-fence-busy.log \
+  && ! grep -q "dumping database" "$LOGS"/out-fence-busy.log \
+  && pass "the busy refusal is logged with its reason, before any dump starts" \
+  || { fail "expected the busy refusal in the log and no dump started"; cat "$LOGS"/out-fence-busy.log; }
+[ "$(backups 'ls -1 /backups | wc -l')" = "1" ] && [ "$(fence_row)" = "other-run" ] \
+  && pass "a busy refusal writes no set and leaves the other run's fence raised" \
+  || fail "expected one set and the other run's fence untouched, got fence '$(fence_row)'"
+docker exec "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest -e \
+  "UPDATE capture_fence SET request_id = NULL, raised_until = NULL WHERE id = 1"
+
+for bad in 900 3601; do
+  if CAPTURE_FENCE_MAX_SECONDS="$bad" run_backup 10 mysql selftest >"$LOGS/out-fence-max-$bad.log" 2>&1; then
+    fail "CAPTURE_FENCE_MAX_SECONDS=$bad should refuse to start"
+  elif grep -q "CAPTURE_FENCE_MAX_SECONDS '$bad' must be above" "$LOGS/out-fence-max-$bad.log"; then
+    pass "CAPTURE_FENCE_MAX_SECONDS=$bad is refused at start"
+  else
+    fail "expected the start refusal for $bad"; cat "$LOGS/out-fence-max-$bad.log"
+  fi
+done
 
 section "retention prunes older backups once the configured count is exceeded"
 follow_up_ok=1

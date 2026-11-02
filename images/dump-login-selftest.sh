@@ -24,7 +24,7 @@ trap cleanup EXIT
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=9
+EXPECTED_ASSERTIONS=10
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -96,7 +96,19 @@ check "an empty RIFTAL_DB_PASSWORD_BACKUP fails the provisioning and \`backup\` 
 check "the provisioning says which variable is empty" \
   'dc logs --no-log-prefix "$provisioner" 2>&1 | grep -q "RIFTAL_DB_PASSWORD_BACKUP is empty"'
 
+# The fence objects are riftal-game's migration 0027 and their EXECUTE grants
+# come from its grants.sql; neither is in this stack, so the test applies them
+# as a migration run would, after showing a run without the grants fails safe.
 model "$dump_pw" | stack
+dc exec -T -e MYSQL_PWD="$root_pw" mysql mysql -uroot riftal_dev < "$DIR/../deploy/fence-fixture.sql"
+check "without EXECUTE on the fence procedures, a run fails before taking a dump" \
+  '! dc run --rm -T backup bash /deploy/backup.sh > "$work/nofence.out" 2>&1 &&
+    grep -q "could not raise the capture fence" "$work/nofence.out" &&
+    ! grep -q "dumping database" "$work/nofence.out" &&
+    ! grep -q "complete at /backups/" "$work/nofence.out"'
+dc exec -T -e MYSQL_PWD="$root_pw" mysql mysql -uroot -e \
+  'GRANT EXECUTE ON PROCEDURE riftal_dev.capture_fence_raise TO riftal_role_backup;
+   GRANT EXECUTE ON PROCEDURE riftal_dev.capture_fence_lower TO riftal_role_backup'
 dc up -d backup > "$work/up.out" 2>&1 || cat "$work/up.out"
 for _ in $(seq 1 60); do
   dc logs --no-log-prefix backup > "$work/run.out" 2>&1 || true
@@ -111,7 +123,7 @@ check "the first scheduled run completes a set as \`backup\`" \
 
 if [ "$FAILURES" -ne 0 ] || [ "$PASSES" -ne "$EXPECTED_ASSERTIONS" ]; then
   printf '\n%d passed, %d failed, expected %d to pass\n' "$PASSES" "$FAILURES" "$EXPECTED_ASSERTIONS"
-  for f in early empty up run; do
+  for f in early empty nofence up run; do
     [ -f "$work/$f.out" ] && { printf -- '--- %s\n' "$f"; cat "$work/$f.out"; }
   done
   exit 1

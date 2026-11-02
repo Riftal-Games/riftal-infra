@@ -193,6 +193,7 @@ for vol in "$VOL" "$BVOL" "$CAP" "$SETS" "$SHIM"; do docker volume create "$vol"
 docker run -d --rm --name "$DB" -m 1g --cpus 1 --network "$NET" --network-alias db \
   -e MYSQL_ROOT_PASSWORD="$PW" -e MYSQL_DATABASE=riftal_smoke_ci mysql:8 >/dev/null
 timeout 90 bash -c 'until docker exec "$0" mysqladmin ping -h 127.0.0.1 --silent >/dev/null 2>&1; do sleep 1; done' "$DB"
+docker exec -i -e MYSQL_PWD="$PW" "$DB" mysql -uroot riftal_smoke_ci <"$ROOT/deploy/fence-fixture.sql"
 check "the backup image reaches MySQL over the job network and writes both volumes" \
   'docker run --rm -m 1g --cpus 1 --network "$NET" -e MYSQL_PWD="$PW" -v "$SETS:/b" -v "$CAP:/c" "$IMG:head" \
      bash -c "mysql -h db -uroot -e \"SELECT 1\" >/dev/null && touch /b/t /c/t && rm /b/t /c/t"'

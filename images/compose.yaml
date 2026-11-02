@@ -254,6 +254,8 @@ services:
       LOCK_MAX_AGE_MINUTES: ${LOCK_MAX_AGE_MINUTES:-90}
       CAPTURE_ACK_TIMEOUT_SECONDS: ${CAPTURE_ACK_TIMEOUT_SECONDS:-60}
       CAPTURE_HOLD_MAX_SECONDS: ${CAPTURE_HOLD_MAX_SECONDS:-900}
+      CAPTURE_FENCE_MAX_SECONDS: ${CAPTURE_FENCE_MAX_SECONDS:-1800}
+      FENCE_TEST_STALL_SECONDS: ${FENCE_TEST_STALL_SECONDS:-0}
     volumes:
       - riftal-backups:/backups
       # The one read-write mount of riftal-capture: backup.sh writes the
