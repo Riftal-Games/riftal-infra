@@ -257,6 +257,13 @@ jobs:
       - name: Restore drill self-test
         run: bash deploy/restore-selftest.sh
 
+      # Thirteen scenarios of about a minute and a half each, seven at a time, each
+      # with its own mysql:8. The bound stops one wedged container spending the job's
+      # 30 minutes.
+      - name: Level replace runbook script exits self-test
+        timeout-minutes: 10
+        run: bash deploy/level-replace-selftest.sh
+
       - name: Compose dump login self-test
         run: bash images/dump-login-selftest.sh
 
