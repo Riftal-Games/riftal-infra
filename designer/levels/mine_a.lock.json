@@ -1,0 +1,28 @@
+{
+  "bounds": {
+    "max": [
+      17,
+      52,
+      17
+    ],
+    "min": [
+      -18,
+      38,
+      -18
+    ]
+  },
+  "chunks": 356,
+  "content_sha256": "093988ae7dfc11ad92d494335cfdad06c75e04f659fdec6879f64ea9e2eba786",
+  "core_image": "sha256:1b7d1b309c3cdfaafb187397eeda2515c79ea51dd8ef1b791dc06f1383feea1b",
+  "designbridge_commit": "0a3efec02ee80e1b0ff540d3c59aab5220fa449c",
+  "generator": "normal",
+  "inputs": {
+    "levels/mine_a.json": "687b66b6f213668cd4a36918822552258a659846959970f020630b5988d0b66c",
+    "palette:mine_stone": "30c68b82e89822017f0173446c4f3fbd81ad3d470c9d57c8645cdfb292e33979",
+    "specs/mine_a.json": "bcc5a8ef0c02340f65d2e355256b147cbc5ab2e033e5184d7f3d92068adee13e"
+  },
+  "seed": 20260907,
+  "size_bytes": 1416023,
+  "toolkit_commit": "6df4cc61cc0b95f99accdc3cef4eaeae5dbf233f",
+  "zone": "mine_a"
+}
