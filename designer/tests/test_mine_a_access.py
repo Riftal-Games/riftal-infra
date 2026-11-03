@@ -3,6 +3,7 @@ import json
 import pytest
 import yaml
 
+from designer.blocks import AIR
 from designer.builders.base import DIRS, Palette
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
@@ -97,6 +98,14 @@ def test_the_stairs_carry_a_walker_from_the_spawn_onto_the_ground(mine: MineSpec
 def test_the_mine_alone_leaves_the_spawn_sealed_under_the_ground(mine: MineSpec, legs: list[StairsSpec]) -> None:
     sealed = path_exists(_built(mine, legs, with_legs=False), _spawn(mine), _goal(legs))
     assert (sealed.ok, sealed.detail) == (False, "no path")
+
+
+def test_the_stairs_leave_the_sell_and_rankup_signs_standing(mine: MineSpec, legs: list[StairsSpec]) -> None:
+    locations = build_mine(mine, Palette.load("mine_stone")).extras["locations"]
+    signs = [tuple(l["pos"]) for l in locations if l["name"] in ("sell_npc_a", "rankup_npc_a")]
+    alone, built = _built(mine, legs, with_legs=False), _built(mine, legs)
+    assert len(signs) == 2
+    assert all(alone.get(*s) not in (AIR, STONE) and built.get(*s) == alone.get(*s) for s in signs)
 
 
 def test_the_committed_surface_check_ends_where_the_stairs_do(mine: MineSpec, legs: list[StairsSpec]) -> None:

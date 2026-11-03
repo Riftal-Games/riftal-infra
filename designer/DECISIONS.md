@@ -1057,13 +1057,18 @@ plugin reads, would still hold no lumber arrival (#1355).
 
 On seed 20260907 the ground over `mine_a` is open ocean at y 62, so its exit lane ended in stone under
 the seabed and a join teleport to `mine_a_spawn` sealed a client underground (#1394). Seed 23, lumber's,
-is grass at y 63 to 65 across the whole yard and beyond.
-`mine_a`'s `world_index.json` entry and recipe take it; its mine spec keeps its own `seed` field, which
-seeds the ore roll and not the terrain. Two `stairs` steps climb 13 rows south from the lane's last cell
-`(0, 39, 23)` and 11 rows east, to a last tread at y 63, flush with the grass top at `(11, 36)`. A tread
-one cell higher would stand 1.0 above that grass. The legs lie in the chunks `pregen` populates around
-the recipe box, which holds a ground cell only where a step overwrites it. `bounds` reaches z 23 so the
-exit platform is in `content_sha256`; the stairs are outside it, so `mine_a_spawn_to_surface`
-(`path_exists`, `zone: mine_a`) walks the built terrain from the spawn to `(13, 64, 36)`. The two
-`travel_time` checks and `warp_safe` carry `zone: mine_a` and gate the build too. `entity_clear` on
-`sell_npc_a` stays zoneless until the mine builder clears the NPC cells (#1395).
+is grass at y 63 to 65 across the whole yard and beyond. `mine_a`'s `world_index.json` entry and recipe
+take it; its mine spec keeps its own `seed` field, which seeds the ore roll and not the terrain.
+
+Two `stairs` steps climb 13 rows south from the lane's last cell `(0, 39, 23)` and 11 rows east, to a
+last tread at y 63, flush with the grass top at `(11, 36)`. A tread one cell higher would stand 1.0
+above that grass. They are one block wide, unlike lumber's: a stairs step clears its base row to its
+whole width, and the lane's last row holds the sell and rank-up signs at x -1 and 1, which a three-wide
+base row erased. `tests/test_mine_a_access.py` pins the signs. The legs lie in the chunks `pregen`
+populates around the recipe box.
+
+`bounds` reaches z 23 so the exit platform is in `content_sha256`. The cells beside the lane are stone
+under the surface, and builds on two engines agreed on the hash. The stairs are outside it, so
+`mine_a_spawn_to_surface` (`path_exists`, `zone: mine_a`) walks the built terrain from the spawn to
+`(13, 64, 36)`. The two `travel_time` checks and `warp_safe` carry `zone: mine_a` and gate the build
+too. `entity_clear` on `sell_npc_a` stays zoneless until the mine builder clears the NPC cells (#1395).

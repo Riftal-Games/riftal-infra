@@ -3,6 +3,6 @@
   "from": [0, 52, 36],
   "direction": "east",
   "rise": 11,
-  "width": 3,
+  "width": 1,
   "headroom": 3
 }
