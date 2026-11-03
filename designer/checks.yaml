@@ -5,13 +5,22 @@ defaults:
   corridor_margin: 16
 checks:
   - check: travel_time
+    zone: mine_a
     from: mine_a_spawn
     to: mine_a_exit
   - check: travel_time
+    zone: mine_a
     from: mine_a_exit
     to: sell_npc_a
   - check: warp_safe
+    zone: mine_a
     at: mine_a_spawn
+  - check: path_exists
+    id: mine_a_spawn_to_surface
+    zone: mine_a
+    world: mine_a
+    from: mine_a_spawn
+    to: "13,64,36"
   - check: entity_clear
     at: sell_npc_a
   - check: mine_valid

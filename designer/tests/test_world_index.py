@@ -29,8 +29,8 @@ def test_committed_file_names_the_spec_worlds(index: WorldIndex) -> None:
     mines = [NamedRegion(f"mine_{m}_safe_zone", f"mine_{m}", (-16, 40, -16), (15, 50, 15), ["mine", "safe_zone"]) for m in "abc"]
     assert index.regions == [NamedRegion("lumber_safe_zone", "lumber", (-32, 40, -32), (31, 63, 31), ["mine", "safe_zone"]), *mines]
     assert {w.name: w.extra["rank"] for w in index.worlds if w.role == "ore_mine"} == {"mine_a": "A", "mine_b": "B", "mine_c": "C"}
-    assert {(w.generator, w.seed) for w in index.worlds if w.name != "lumber"} == {("normal", 20260907)}
-    assert (index.world("lumber").generator, index.world("lumber").seed) == ("normal", 23)
+    assert {(w.generator, w.seed) for w in index.worlds if w.name not in ("lumber", "mine_a")} == {("normal", 20260907)}
+    assert {(index.world(n).generator, index.world(n).seed) for n in ("lumber", "mine_a")} == {("normal", 23)}
     assert index.resolve_pos("spawn") == (256, 70, 256)
     assert [(l.name, l.world) for l in index.locations_tagged("spawn")] == [("lumber_spawn", "lumber"), ("spawn", "design")]
 

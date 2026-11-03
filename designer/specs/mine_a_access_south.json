@@ -1,0 +1,8 @@
+{
+  "world": "mine_a",
+  "from": [0, 39, 23],
+  "direction": "south",
+  "rise": 13,
+  "width": 3,
+  "headroom": 3
+}
