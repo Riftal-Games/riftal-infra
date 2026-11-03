@@ -209,6 +209,9 @@ jobs:
       - name: Dev bots packet limit self-test
         run: bash images/plugins/packet-limit/selftest.sh
 
+      - name: Downstream packet limit self-test
+        run: bash images/plugins/downstream-limit/selftest.sh
+
       - name: Dev bots tile contents self-test
         run: bash images/plugins/tile-contents/selftest.sh
 

@@ -474,7 +474,8 @@ already be on the daemon, since nothing here builds or pulls it. The image adds
 ten production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
 `RiftalAccounts.phar`, `contracts.phar`, `RiftalMines.phar`, `RiftalRanks.phar`,
 `RiftalEconomy.phar`, `RiftalGangs.phar`, `RiftalRiots.phar`, `RiftalPlots.phar`
-and `RiftalAnvil.phar`, from `../images/release/Dockerfile`. They are
+and `RiftalAnvil.phar`, from `../images/release/Dockerfile`, and the script
+plugin `RiftalDownstreamLimit.php` from `../images/plugins`. They are
 mode 0444 and owned by root, in directories owned by root, so `pocketmine` can
 neither rewrite nor replace one. They sit outside `/data` and `/plugins`,
 the base's two VOLUMEs, so a mount or a reused volume cannot hide them there or
@@ -486,6 +487,13 @@ This image does not yet start from `/opt/riftal/plugins`. Core's
 `start-pocketmine` passes `--plugins=/plugins`, and nothing in the image or in a
 deploy selects a per-instance roster from the image path, so no instance runs
 the image's own phars today. That start command is riftal-infra#1253.
+
+`RiftalDownstreamLimit.php` turns RakLib's per-address packet limit off on
+every RakLib interface, because behind the proxy all players share the proxy's
+address. It acts only when the instance's service definition passes
+`--riftal-downstream=on` and `xbox-auth` is off; otherwise it makes no call and
+logs why. No instance sets the option today, and a downstream must publish no
+port (spec 016). `images/plugins/downstream-limit/selftest.sh` holds it.
 
 `GAME_COMMIT` is the full lowercase 40-character riftal-game sha the phars and
 `GRANTS_SQL` were built from, and `GRANTS_SQL` is that commit's `grants.sql`.

@@ -3,10 +3,10 @@
 /**
  * @name PacketLimitProbe
  * @main riftal\dev\packetlimit\Main
- * @version 0.0.2
+ * @version 0.0.3
  * @api 5.0.0
- * @depend RiftalDevBots
- * @description Self-test fixture for selftest.sh beside it. Never loaded by a stack.
+ * @softdepend RiftalDevBots,RiftalDownstreamLimit
+ * @description Self-test fixture for the packet limit self-tests. Never loaded by a stack.
  */
 
 declare(strict_types=1);

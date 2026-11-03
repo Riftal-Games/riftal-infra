@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the release image (spec 016, acceptance criterion 3): the core image
-# pinned by images/core-image.sha plus the ten production phars in
-# /opt/riftal/plugins, under an immutable tag on the local daemon. Nothing is
-# pushed anywhere.
+# pinned by images/core-image.sha plus the ten production phars and the script
+# plugins of SHIPPED_PLUGINS in /opt/riftal/plugins, under an immutable tag on
+# the local daemon. Nothing is pushed anywhere.
 #
 #   release-image.sh <directory holding the built phars>
 #
@@ -23,8 +23,8 @@
 # same core sha on one date therefore need the date or the pin to differ.
 #
 # Sourcing this file sets errexit, nounset and pipefail in the caller, sources
-# images/core-image.sh and defines SCRIPT_DIR, release_tag, REQUIRED_PHARS and
-# main. It builds nothing.
+# images/core-image.sh and defines SCRIPT_DIR, release_tag, REQUIRED_PHARS,
+# SHIPPED_PLUGINS and main. It builds nothing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,6 +35,10 @@ REQUIRED_PHARS=(
   RiftalMines.phar RiftalRanks.phar RiftalEconomy.phar
   RiftalGangs.phar RiftalRiots.phar RiftalPlots.phar RiftalAnvil.phar
 )
+
+# Script plugins read from images/plugins in this repository. The phars come
+# from riftal-game; these are riftal-infra's own.
+SHIPPED_PLUGINS=(RiftalDownstreamLimit.php)
 
 # $1 repo, $2 UTC date as YYYY-MM-DD, $3 the full 40-character sha. Prints the
 # tag, or a message on stderr and returns 1.
@@ -60,7 +64,7 @@ main() {
   local phars="${1:?usage: release-image.sh <directory holding the built phars>}"
   local image="${RELEASE_IMAGE:-riftal/pocketmine-mp}"
   local date="${RELEASE_DATE:-$(date -u +%F)}"
-  local name tag ref ctx sums="" id
+  local name tag ref ctx sums="" scripts="" id
   local commit="${GAME_COMMIT:-}" grants="${GRANTS_SQL:-}" grants_sha
 
   for name in "${REQUIRED_PHARS[@]}"; do
@@ -99,11 +103,18 @@ main() {
     sums+="${sums:+,}$name=$(sha256sum "$ctx/plugins/$name" | cut -d' ' -f1)"
   done
 
+  for name in "${SHIPPED_PLUGINS[@]}"; do
+    cp "$SCRIPT_DIR/../images/plugins/$name" "$ctx/plugins/$name"
+    chmod 0444 "$ctx/plugins/$name"
+    scripts+="${scripts:+,}$name=$(sha256sum "$ctx/plugins/$name" | cut -d' ' -f1)"
+  done
+
   docker build \
     --build-arg "CORE_REPO=${CORE_IMAGE%:*}" \
     --build-arg "CORE_TAG=${CORE_IMAGE##*:}" \
     --label "org.riftal.core-image=$CORE_IMAGE" \
     --label "org.riftal.phars=$sums" \
+    --label "org.riftal.script-plugins=$scripts" \
     --label "org.riftal.game-commit=$commit" \
     --label "org.riftal.grants-sha256=$grants_sha" \
     -t "$ref" "$ctx" || return 1

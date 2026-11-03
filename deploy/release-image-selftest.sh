@@ -4,9 +4,10 @@
 # full lowercase sha, a GRANTS_SQL that is not a non-empty regular file and an
 # existing tag are refused. The image records GAME_COMMIT and the sha256 of
 # GRANTS_SQL in its labels and holds no grants.sql. The image it builds is on
-# ubuntu:24.04 and the pinned core revision, holds the phars named in
-# REQUIRED_PHARS intact in /opt/riftal/plugins, owned by root, mode 0444 and in
-# a root-owned 0755 directory pocketmine cannot write, holds none in /plugins,
+# ubuntu:24.04 and the pinned core revision, holds the files named in
+# REQUIRED_PHARS and SHIPPED_PLUGINS intact in /opt/riftal/plugins, owned by
+# root, mode 0444 and in a root-owned 0755 directory pocketmine cannot write,
+# holds no phar in /plugins,
 # has pocketmine as its configured user and is never tagged latest. Builds on
 # the local daemon under a riftal_smoke_ name and removes it. Needs the core
 # image pinned in images/core-image.sha.
@@ -107,20 +108,22 @@ else
     pass "no latest tag exists"
   fi
   mismatch=0
-  for name in "${REQUIRED_PHARS[@]}"; do
-    want="$(sha256sum "$phars/$name" | cut -d' ' -f1)"
+  for name in "${REQUIRED_PHARS[@]}" "${SHIPPED_PLUGINS[@]}"; do
+    src="$phars/$name"
+    [ -f "$src" ] || src="$DIR/../images/plugins/$name"
+    want="$(sha256sum "$src" | cut -d' ' -f1)"
     got="$(docker run --rm -m 1g --cpus 1 --entrypoint sha256sum "$image:$tag" "/opt/riftal/plugins/$name" | cut -d' ' -f1 || true)"
     [ "$got" = "$want" ] || mismatch=$((mismatch + 1))
   done
   if [ "$mismatch" -eq 0 ]; then
-    pass "every phar in /opt/riftal/plugins matches its source sha256"
+    pass "every phar and script plugin in /opt/riftal/plugins matches its source sha256"
   else
-    fail "$mismatch phar(s) in /opt/riftal/plugins are not the ones given"
+    fail "$mismatch file(s) in /opt/riftal/plugins are not the ones given"
   fi
-  want_list="$(printf '/opt/riftal/plugins/%s\n' "${REQUIRED_PHARS[@]}" | sort)"
+  want_list="$(printf '/opt/riftal/plugins/%s\n' "${REQUIRED_PHARS[@]}" "${SHIPPED_PLUGINS[@]}" | sort)"
   got_list="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -mindepth 1 | sort')"
   if [ "$got_list" = "$want_list" ]; then
-    pass "/opt/riftal/plugins holds exactly the required phars"
+    pass "/opt/riftal/plugins holds exactly the required phars and script plugins"
   else
     fail "/opt/riftal/plugins holds: $got_list"
   fi
