@@ -668,7 +668,13 @@ fi
 # spawn and of the +x lane proof 10 walks, 32 blocks apart where the bot's 8-block reach
 # of one run never touches the next, and p3a joins with no saved file so the server
 # places it at the new spawn. The spawn goes back to its value when the runs are done.
-P6_RUNS=20 P6_RETRIED=0 P6_FAILED=0 P6_INSIDE=0 P6_BOTS=0 P6_RULE=0 P6_PLACED=0
+#
+# p3a stays online about 6.5 seconds and the backup takes about as long to reach its hold,
+# so a slow runner puts a hold after the leave. Such a run tested nothing about a hold
+# with a player online, and only it is run again, at a site of its own, up to P6_TRIES
+# attempts. A run whose bots, backup or listing failed is never run again, and a run that
+# misses on every attempt fails [p6-bots].
+P6_RUNS=20 P6_TRIES=3 P6_AGAIN=0 P6_MISSED=0 P6_RETRIED=0 P6_FAILED=0 P6_INSIDE=0 P6_BOTS=0 P6_RULE=0 P6_PLACED=0
 STALL=0
 
 cat >"$work/spawn.js" <<'JS'
@@ -704,14 +710,15 @@ p6_session() {
     on && / p3a left the game/ { exit }' "$LOG"
 }
 
-# $1 the run's number, $2 its bots' log, $3 the count p6_session takes. Prints the whole of what a
-# run that did not pass left: its bots' log, the scenario's notes with the drop trace, and A's
-# lines from p3a's join to its leave and the run's hold.
+# $1 the run's number, $2 its bots' log, $3 the count p6_session takes, $4 the attempt's
+# request id, $5 the attempt's mark file. Prints the whole of what a run that did not pass
+# left: its bots' log, the scenario's notes with the drop trace, and A's lines from p3a's
+# join to its leave and the run's hold.
 p6_trace() {
   local report
   printf '  == run %s did not pass: whole bots log, scenario notes, A from p3a'"'"'s join to its leave\n' "$1"
   sed 's/^/  bots-full | /' "$2"
-  report="$(find "$DT/reports" -name '*-capture-stall-seed-stack.json' -newer "$work/p6-$1-mark" 2>/dev/null | head -n 1 || true)"
+  report="$(find "$DT/reports" -name '*-capture-stall-seed-stack.json' -newer "$5" 2>/dev/null | head -n 1 || true)"
   if [ -n "$report" ]; then
     { docker run --rm -m 1g --cpus 1 -v "$DT/reports:/r:ro" "$DEVTOOLS_IMAGE" /devtools/node-runtime/bin/node -e \
       'for (const n of JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).notes) console.log(n)' "/r/${report##*/}" || true; } | sed 's/^/  notes | /'
@@ -719,48 +726,67 @@ p6_trace() {
     printf '  notes | the scenario wrote no report\n'
   fi
   { p6_session "$3" || true; } | sed 's/^/  A | /'
-  { grep -F " capture p6-$1-$ID " "$LOG" || true; } | sed 's/^/  A hold | /'
+  { grep -F " capture $4 " "$LOG" || true; } | sed 's/^/  A hold | /'
 }
 
-# $1 the run's number. Sets BRC and JRC, and counts the run in the P6 totals.
+# $1 the run's number, $2 the attempt, from 1. Sets BRC and JRC, and P6_AGAIN to 1 with
+# nothing counted in the P6 totals when the run is to be run again at another site.
 p6_run() {
-  local bots="$work/p6-$1-bots.log" bk="$work/p6-$1-bk.log" seen jpid inside=0 changes entries outside empty session x z
-  x=$((SPAWN_X - 64 + 32 * (($1 - 1) % 5)))
-  z=$((SPAWN_Z + 32 + 32 * (($1 - 1) / 5)))
+  local id="p6-$1-$2-$ID" mark="$work/p6-$1-$2-mark" bots="$work/p6-$1-$2-bots.log" bk="$work/p6-$1-$2-bk.log"
+  local seen jpid inside=0 changes entries outside empty session x z site bots_ok=0 rule_ok=0
+  P6_AGAIN=0
+  site=$(($1 - 1 + P6_RUNS * ($2 - 1)))
+  x=$((SPAWN_X - 64 + 32 * (site % 5)))
+  z=$((SPAWN_Z + 32 + 32 * (site / 5)))
   docker run --rm -m 1g --cpus 1 -v "$VOL:/d" "$IMG:head" rm -f /d/players/p3a.dat
   a_console "setworldspawn $x $SPAWN_Y $z"
   seen=$(grep -c "p3a joined the game" "$LOG" || true)
-  : >"$work/p6-$1-mark"
+  : >"$mark"
   BOT_TRACE_DROPS=1 bots capture-stall-seed-stack 1 "$A" "$H" "$bots"
   timeout 60 bash -c 'until [ "$(grep -c "p3a joined the game" "$0")" -gt "$1" ]; do sleep 0.2; done' "$LOG" "$seen" || true
-  backup_run "$ROOT/deploy/backup.sh" "p6-$1-$ID" "$VOL:/worlds/a:ro" "$bk"
+  backup_run "$ROOT/deploy/backup.sh" "$id" "$VOL:/worlds/a:ro" "$bk"
   jpid=$!
   JRC=0; wait "$jpid" || JRC=$?
   BRC=0; wait "$BPID" || BRC=$?
   [ "$BRC" -ne 4 ] || FOUND=1
-  ! held_inside_session "$LOG" "p6-$1-$ID" p3a || inside=1
+  ! held_inside_session "$LOG" "$id" p3a || inside=1
   read -r changes entries outside empty < <(listing_audit "$bk" a)
   print_runner bots "$bots"
-  printf 'p6 run %s: run exit %s, %s differing listing(s) with %s entries (%s outside a held volume'"'"'s), hold between p3a'"'"'s join and leave: %s\n' "$1" "$JRC" "$changes" "$entries" "$outside" "$inside"
+  printf 'p6 run %s attempt %s: run exit %s, %s differing listing(s) with %s entries (%s outside a held volume'"'"'s), hold between p3a'"'"'s join and leave: %s\n' "$1" "$2" "$JRC" "$changes" "$entries" "$outside" "$inside"
   [ "$changes" = 0 ] || grep -E ': volume a (changed during|before|after) its tar|: failed' "$bk" | sed 's/^backup [^ ]*: /  /'
+  if [ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-seed-stack" "$bots"; then bots_ok=1; fi
+  ! run_follows_listing_rule "$bk" || rule_ok=1
+  if p6_rerun "$bots_ok" "$JRC" "$inside" "$rule_ok" "$2" "$P6_TRIES"; then
+    P6_MISSED=$((P6_MISSED + 1))
+    printf 'p6 run %s attempt %s: the hold fell outside p3a'"'"'s session, run again\n' "$1" "$2"
+    p6_trace "$1" "$bots" "$seen" "$id" "$mark"
+    P6_AGAIN=1
+    return 0
+  fi
   [ "$changes" = 0 ] || P6_RETRIED=$((P6_RETRIED + 1))
   [ "$JRC" = 0 ] || P6_FAILED=$((P6_FAILED + 1))
   P6_INSIDE=$((P6_INSIDE + inside))
   session="$(p6_session "$seen")"
   grep -qE "logged in with entity id [0-9]+ at \(world, $x, [0-9.-]+, $z\)" <<<"$session" && P6_PLACED=$((P6_PLACED + 1)) || true
-  if [ "$BRC" = 0 ] && grep -q "^SCENARIO PASS capture-stall-seed-stack" "$bots"; then
+  if [ "$bots_ok" = 1 ]; then
     P6_BOTS=$((P6_BOTS + 1))
-    [ "$inside" = 1 ] || p6_trace "$1" "$bots" "$seen"
+    [ "$inside" = 1 ] || p6_trace "$1" "$bots" "$seen" "$id" "$mark"
   else
-    p6_trace "$1" "$bots" "$seen"
+    p6_trace "$1" "$bots" "$seen" "$id" "$mark"
   fi
-  ! run_follows_listing_rule "$bk" || P6_RULE=$((P6_RULE + 1))
+  P6_RULE=$((P6_RULE + rule_ok))
 }
 
 gate
-for ((n = 1; n <= P6_RUNS; n++)); do p6_run "$n"; gate; done
+for ((n = 1; n <= P6_RUNS; n++)); do
+  for ((attempt = 1; attempt <= P6_TRIES; attempt++)); do
+    p6_run "$n" "$attempt"
+    gate
+    [ "$P6_AGAIN" = 1 ] || break
+  done
+done
 a_console "setworldspawn $SPAWN_X $SPAWN_Y $SPAWN_Z"
-printf 'proof 6: %s runs, %s retried on a differing listing, %s failed\n' "$P6_RUNS" "$P6_RETRIED" "$P6_FAILED"
+printf 'proof 6: %s runs, %s run again after a hold outside p3a'"'"'s session, %s retried on a differing listing, %s failed\n' "$P6_RUNS" "$P6_MISSED" "$P6_RETRIED" "$P6_FAILED"
 printf 'backup T: volume a changed during its tar\nbackup T: volume a before its tar: players/p6.dat 9 1.5\nbackup T: complete at /backups/T\n' >"$work/p6-outside.log"
 printf 'backup T: volume a changed during its tar\nbackup T: complete at /backups/T\n' >"$work/p6-empty.log"
 check "[p6-bots] 6. all $P6_RUNS holds fell while p3a was online on A, each passing behind clean holds" \
