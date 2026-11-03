@@ -33,13 +33,13 @@ jobs:
     # than its reap_after, as left by a run that has ended, and fails unless
     # every job here times out sooner. The capture proofs take four of these.
     #
-    # A run on an idle daemon takes about 14 minutes. Runners of every repo
+    # A run on an idle daemon takes about 22 minutes. Runners of every repo
     # share one docker daemon, and a single step there has run 1.3 to 2.6 times
-    # longer while another build runs. The steps do not all slow at once, so 30
+    # longer while another build runs. The steps do not all slow at once, so 45
     # covers twice the idle time of the whole job, not 2.6 times. A concurrency
     # group cannot serialise this job: it queues one pending run and cancels
     # the others, and it cannot see another repo's builds.
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
@@ -136,7 +136,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/tile-contents/*.php images/plugins/capture-harness/*.php images/plugins/restart/*.php images/plugins/watch/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/packet-limit/*.php images/plugins/tile-contents/*.php images/plugins/capture-harness/*.php images/plugins/restart/*.php images/plugins/watch/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
@@ -144,7 +144,7 @@ jobs:
           docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/tile-contents/*.php /plugins/capture-harness/*.php /plugins/restart/*.php /plugins/watch/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/packet-limit/*.php /plugins/tile-contents/*.php /plugins/capture-harness/*.php /plugins/restart/*.php /plugins/watch/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -198,13 +198,16 @@ jobs:
         run: bash images/plugins/join-order/selftest.sh
 
       # A healthy run takes under half a minute. The bound keeps one wedged
-      # boot from spending the rest of the job's 30 minutes.
+      # boot from spending the rest of the job's 45 minutes.
       - name: Dev bots watch camera self-test
         timeout-minutes: 10
         run: bash images/plugins/watch/selftest.sh
 
       - name: Dev bots crash hook self-test
         run: bash images/plugins/crash-hook/selftest.sh
+
+      - name: Dev bots packet limit self-test
+        run: bash images/plugins/packet-limit/selftest.sh
 
       - name: Dev bots tile contents self-test
         run: bash images/plugins/tile-contents/selftest.sh
@@ -222,7 +225,7 @@ jobs:
         run: bash images/plugins/instance-only/boot-selftest.sh
 
       # Boots the pinned core image three times, the first to generate the fixture level.
-      # A healthy run takes under a minute; the bound stops one wedged boot spending the job's 30 minutes.
+      # A healthy run takes under a minute; the bound stops one wedged boot spending the job's 45 minutes.
       - name: Level seed step on the pinned core image self-test
         timeout-minutes: 10
         run: bash images/plugins/seed-levels-selftest.sh
@@ -256,6 +259,12 @@ jobs:
 
       - name: Restore drill self-test
         run: bash deploy/restore-selftest.sh
+
+      # Each scenario has its own mysql:8, and they run seven at a time. The bound
+      # stops one wedged container spending the job's 45 minutes.
+      - name: Level replace runbook script exits self-test
+        timeout-minutes: 10
+        run: bash deploy/level-replace-selftest.sh
 
       - name: Compose dump login self-test
         run: bash images/dump-login-selftest.sh
@@ -362,10 +371,11 @@ jobs:
     # always() so a scope job that failed or wrote nothing still runs this one.
     if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
     runs-on: [self-hosted, linux, riftal]
-    # Under ci-sweep-selftest.sh's reap_after, like every job here. 60 minutes
-    # of this are the longest wait for the rig lock (rig-lock.sh), 30 the body.
-    # The holder outlasts all 90 (rig_lock_job.py).
-    timeout-minutes: 90
+    # Under ci-sweep-selftest.sh's reap_after, like every job here. 78 minutes
+    # of this are the longest wait for the rig lock (rig-lock.sh), 30 the body,
+    # and 2 the steps before the take.
+    # The holder outlasts all 110 (rig_lock_job.py).
+    timeout-minutes: 110
     permissions:
       contents: read
       issues: read
