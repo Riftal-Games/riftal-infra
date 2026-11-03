@@ -43,6 +43,14 @@ held_inside_session() {
     END { exit !(joined && held && left && joined < held) }'
 }
 
+# $1 1 when the run's bots passed, $2 the backup's exit status, $3 1 when its hold fell inside
+# p3a's session, $4 1 when its log follows the listing rule, $5 the attempt, $6 the attempts
+# allowed. True when the only thing wrong is a hold outside the session and an attempt
+# remains, so the run is run again; a run that failed any other way is never run again.
+p6_rerun() {
+  [ "$1" = 1 ] && [ "$2" = 0 ] && [ "$3" = 0 ] && [ "$4" = 1 ] && [ "$5" -lt "$6" ]
+}
+
 # $1 a server log, $2 a request id. Prints "<files> <tick ms> <hold ms> <loaded chunks>
 # <total MB>": the player files staged, the held tick's duration, the hold from the
 # start of that tick to the release, and the last `status` sample between the held
