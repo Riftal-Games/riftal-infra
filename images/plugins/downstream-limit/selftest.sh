@@ -10,11 +10,13 @@
 # xbox-auth off sets PHP_INT_MAX on every interface, including one announced
 # again later; no opt-in makes no call; the opt-in with xbox-auth on makes no
 # call; with RiftalDevBots admitted beside it, the last value on every
-# interface is PHP_INT_MAX, whichever handler ran first, because the plugin
-# calls a tick after the event. Six controls mutate the plugin and the check
-# for the case they break must then reject the log: handler emptied, call
-# removed, value 200, call removed beside RiftalDevBots, opt-in gate dropped,
-# xbox-auth gate dropped.
+# interface is PHP_INT_MAX. Core shuffles plugin load order on every boot, so
+# the RiftalDevBots copy here @depends on RiftalDownstreamLimit, which makes
+# its handler run second every time; the plugin's call a tick after the event
+# still comes last. Seven controls mutate the plugin and the check for the case
+# they break must then reject the log: handler emptied, call removed, value
+# 200, call removed beside RiftalDevBots, call made inline beside RiftalDevBots,
+# opt-in gate dropped, xbox-auth gate dropped.
 #
 # Runs the pinned core image from ../../core-image.sha, present only on the
 # self-hosted runners' Docker daemon. It publishes no port and keeps nothing:
@@ -34,7 +36,7 @@ SET_CALL='$interface->setPacketLimit(self::PACKET_LIMIT);'
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=31
+EXPECTED_ASSERTIONS=33
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -47,7 +49,11 @@ stack() {
   mkdir -p "$work/$1"
   cp "$2" "$work/$1/RiftalDownstreamLimit.php"
   cp "$DIR/../packet-limit/PacketLimitProbe.php" "$work/$1/"
-  [ "${3:-}" = dev ] && cp "$DIR/../RiftalDevBots.php" "$work/$1/"
+  if [ "${3:-}" = dev ]; then
+    sed 's/^ \* @softdepend RiftalCustody.*/&\n * @depend RiftalDownstreamLimit/' "$DIR/../RiftalDevBots.php" >"$work/$1/RiftalDevBots.php"
+    grep -qF '@depend RiftalDownstreamLimit' "$work/$1/RiftalDevBots.php" \
+      || { printf '::error::RiftalDevBots.php no longer has the @softdepend line the %s stack extends\n' "$1"; exit 1; }
+  fi
   chmod -R a+rX "$work/$1"
 }
 stack shipped "$PLUGIN"
@@ -69,6 +75,7 @@ mutant empty-handler "$HANDLER" null
 mutant no-set-call "$SET_CALL" ''
 mutant other-value "$SET_CALL" '$interface->setPacketLimit(200);'
 mutant no-set-call-dev "$SET_CALL" '' dev
+mutant inline-call-dev '$this->getScheduler()->scheduleDelayedTask(new ClosureTask(' '(static fn(ClosureTask $t) => $t->onRun())(new ClosureTask(' dev
 mutant no-opt-in-gate '!$optedIn || ' ''
 mutant no-auth-gate ' || $server->requiresAuthentication()' ''
 
@@ -193,6 +200,7 @@ control empty-handler "whose handler sets nothing" "$OPT_IN --xbox-auth=false" "
 control no-set-call "that never calls setPacketLimit" "$OPT_IN --xbox-auth=false" "" max_everywhere
 control other-value "that sets another limit" "$OPT_IN --xbox-auth=false" "" max_everywhere
 control no-set-call-dev "that never calls setPacketLimit beside RiftalDevBots" "$OPT_IN --xbox-auth=false --riftal-dev-bots=on" 1 max_last
+control inline-call-dev "that calls setPacketLimit inline beside RiftalDevBots" "$OPT_IN --xbox-auth=false --riftal-dev-bots=on" 1 max_last
 control no-opt-in-gate "that ignores the opt-in" "--xbox-auth=false" "" no_call
 control no-auth-gate "that ignores xbox-auth" "$OPT_IN --xbox-auth=true" "" no_call
 

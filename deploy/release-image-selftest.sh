@@ -120,7 +120,7 @@ else
   else
     fail "$mismatch file(s) in /opt/riftal/plugins are not the ones given"
   fi
-  want_list="$(printf '/opt/riftal/plugins/%s\n' "${REQUIRED_PHARS[@]}" "${SHIPPED_PLUGINS[@]}" | sort)"
+  want_list="$(printf '/opt/riftal/plugins/%s\n' "${REQUIRED_PHARS[@]}" "${SHIPPED_PLUGINS[@]}" RiftalDownstreamLimit.php | sort -u)"
   got_list="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -mindepth 1 | sort')"
   if [ "$got_list" = "$want_list" ]; then
     pass "/opt/riftal/plugins holds exactly the required phars and script plugins"
@@ -168,9 +168,9 @@ else
   fi
   unowned="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -type f \( ! -user root -o ! -perm 444 \)')"
   if [ -z "$unowned" ]; then
-    pass "every phar in /opt/riftal/plugins is owned by root and mode 444"
+    pass "every file in /opt/riftal/plugins is owned by root and mode 444"
   else
-    fail "phar(s) not owned by root or not mode 444: $unowned"
+    fail "file(s) not owned by root or not mode 444: $unowned"
   fi
   dirs="$(docker run --rm -m 1g --cpus 1 --entrypoint stat "$image:$tag" -c '%n %U %a' /opt/riftal /opt/riftal/plugins)"
   want_dirs="$(printf '%s\n' '/opt/riftal root 755' '/opt/riftal/plugins root 755')"
@@ -181,7 +181,7 @@ else
   fi
   writable="$(docker run --rm -m 1g --cpus 1 --user pocketmine --entrypoint sh "$image:$tag" -c 'for p in /opt/riftal /opt/riftal/plugins /opt/riftal/plugins/*; do [ -w "$p" ] && echo "$p"; done; true')"
   if [ -z "$writable" ]; then
-    pass "pocketmine can write none of /opt/riftal, /opt/riftal/plugins or a phar in it"
+    pass "pocketmine can write none of /opt/riftal, /opt/riftal/plugins or a file in it"
   else
     fail "pocketmine can write: $writable"
   fi

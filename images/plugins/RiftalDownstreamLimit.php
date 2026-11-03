@@ -26,8 +26,9 @@ use function spl_object_id;
 
 /**
  * Applies only when the instance's service definition passes
- * --riftal-downstream=on and xbox-auth is off. Anything else makes no call and
- * logs that it made none; the network is never consulted.
+ * --riftal-downstream=on (a riftal-downstream=on line in server.properties
+ * also counts) and xbox-auth is off. Anything else makes no call and logs
+ * that it made none; the network is never consulted.
  */
 final class Main extends PluginBase{
 
@@ -59,10 +60,10 @@ final class Main extends PluginBase{
 		);
 	}
 
-	// The call waits a tick because handlers of one event run in plugin load
-	// order, which core does not fix between plugins that soft-depend on a
-	// plugin that is absent, and RiftalDevBots sets its own, lower limit from
-	// this same event. A call a tick later is always the last.
+	// The call waits a tick because core shuffles plugin load order on every
+	// boot, so handlers of one event run in no fixed order, and RiftalDevBots
+	// sets its own, lower limit from this same event. A call a tick later is
+	// always the last.
 	private function disableLater(NetworkInterface $interface) : void{
 		if(!$interface instanceof RakLibInterface){
 			return;

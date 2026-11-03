@@ -504,7 +504,8 @@ the image's own phars today. That start command is riftal-infra#1253.
 `RiftalDownstreamLimit.php` turns RakLib's per-address packet limit off on
 every RakLib interface, because behind the proxy all players share the proxy's
 address. It acts only when the instance's service definition passes
-`--riftal-downstream=on` and `xbox-auth` is off; otherwise it makes no call and
+`--riftal-downstream=on` (or a `riftal-downstream=on` line in
+`server.properties`) and `xbox-auth` is off; otherwise it makes no call and
 logs why. No instance sets the option today, and a downstream must publish no
 port (spec 016). `images/plugins/downstream-limit/selftest.sh` holds it.
 
