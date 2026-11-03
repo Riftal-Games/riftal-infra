@@ -14,12 +14,14 @@
 #   bash rig-lock.sh take | rig-up-check | release
 
 RIG_LOCK=/tmp/riftal-rig.lock
-# One scenario is bounded at 1560 s, so a two-scenario rig run takes about 3120 s.
-RIG_LOCK_WAIT_SEC=3600
-# Above the bot-proofs job's 90 minute timeout (5400 s), so the lock outlasts
+# devtools/rig-lock.js waits the same 4680 s: rig.js bounds one scenario at
+# 2040 s, so a run of two takes up to 4080 s plus boot, and 4680 s is two bounds
+# and 600 s of boot slack.
+RIG_LOCK_WAIT_SEC=4680
+# Above the bot-proofs job's 110 minute timeout (6600 s), so the lock outlasts
 # every step between take and release; only a runner that dies in between
 # leaves the holder to run this out. rig_lock_job.py holds the two together.
-RIG_LOCK_HOLD_SEC=6000
+RIG_LOCK_HOLD_SEC=7200
 RIG_LOCK_BUSY=75
 
 rig_lock_state_dir() {
