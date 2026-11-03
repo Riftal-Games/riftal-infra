@@ -365,10 +365,11 @@ jobs:
     # always() so a scope job that failed or wrote nothing still runs this one.
     if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
     runs-on: [self-hosted, linux, riftal]
-    # Under ci-sweep-selftest.sh's reap_after, like every job here. 60 minutes
-    # of this are the longest wait for the rig lock (rig-lock.sh), 30 the body.
-    # The holder outlasts all 90 (rig_lock_job.py).
-    timeout-minutes: 90
+    # Under ci-sweep-selftest.sh's reap_after, like every job here. 78 minutes
+    # of this are the longest wait for the rig lock (rig-lock.sh), 30 the body,
+    # and 2 the steps before the take.
+    # The holder outlasts all 110 (rig_lock_job.py).
+    timeout-minutes: 110
     permissions:
       contents: read
       issues: read
