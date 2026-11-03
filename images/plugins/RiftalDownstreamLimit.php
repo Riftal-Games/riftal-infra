@@ -5,13 +5,14 @@
  * @main riftal\infra\downstream\Main
  * @version 0.1.0
  * @api 5.0.0
- * @softdepend RiftalDevBots
+ * @softdepend RiftalCustody,RiftalDevBots
  * @description Turns off RakLib's per-address packet limit on an instance configured as a downstream behind the proxy.
  */
 
-// The softdepend keeps this plugin enabled after RiftalDevBots, so its
-// MONITOR handler runs after that plugin's and the final limit is the one set
-// here (riftal-infra#1376).
+// The RiftalDevBots softdepend keeps this plugin enabled after it, so this
+// plugin's MONITOR handler runs after that plugin's and the final limit is the
+// one set here. RiftalCustody stays enabled until every script plugin has
+// disabled (ADR 013, item 2).
 
 declare(strict_types=1);
 
