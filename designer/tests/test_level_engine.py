@@ -264,7 +264,15 @@ def test_a_vanished_container_does_not_hide_one_that_still_mounts_the_volume(fak
         _build(engine, fake, root)
 
 
-@pytest.mark.parametrize("says", [b"", b"Cannot connect to the Docker daemon", b"permission denied", b"error: container service unavailable"])
+@pytest.mark.parametrize("says", [
+    b"",
+    b"Cannot connect to the Docker daemon",
+    b"permission denied",
+    b"error: container service unavailable",
+    b"error: container runtime not found",
+    b"error: container runtime socket not found",
+    b"Error: container service does not exist",
+])
 @pytest.mark.parametrize("runtime", ["wslc", "docker"])
 def test_a_container_inspect_that_fails_without_naming_absence_refuses_before_any_change(fake: FakeBridge, root: Path, runtime: str, says: bytes) -> None:
     engine = FakeEngine()

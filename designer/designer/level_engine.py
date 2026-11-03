@@ -38,7 +38,7 @@ READY = ("[DesignBridge] enabled, bridge target", "Done (")
 FAILED = re.compile(r"/(ERROR|CRITICAL|EMERGENCY|ALERT)\]|Exception")
 DOCS = ("design_npcs.json", "design_texts.json")
 VOLUME_ABSENT = re.compile(r"no such volume|volume\b.*\b(not found|does not exist)", re.IGNORECASE)
-CONTAINER_ABSENT = re.compile(r"no such (object|container)|container\b.*\b(not found|does not exist)", re.IGNORECASE)
+CONTAINER_ABSENT = re.compile(r"no such (object|container)", re.IGNORECASE)
 
 Runner = Callable[[list[str], "bytes | None", float], "subprocess.CompletedProcess[bytes]"]
 
