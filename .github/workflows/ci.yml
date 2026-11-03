@@ -198,7 +198,7 @@ jobs:
         run: bash images/plugins/join-order/selftest.sh
 
       # A healthy run takes under half a minute. The bound keeps one wedged
-      # boot from spending the rest of the job's 30 minutes.
+      # boot from spending the rest of the job's 45 minutes.
       - name: Dev bots watch camera self-test
         timeout-minutes: 10
         run: bash images/plugins/watch/selftest.sh
@@ -225,7 +225,7 @@ jobs:
         run: bash images/plugins/instance-only/boot-selftest.sh
 
       # Boots the pinned core image three times, the first to generate the fixture level.
-      # A healthy run takes under a minute; the bound stops one wedged boot spending the job's 30 minutes.
+      # A healthy run takes under a minute; the bound stops one wedged boot spending the job's 45 minutes.
       - name: Level seed step on the pinned core image self-test
         timeout-minutes: 10
         run: bash images/plugins/seed-levels-selftest.sh
