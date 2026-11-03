@@ -70,9 +70,10 @@ live_wait_bound() {
 
 # $1 the wait in seconds. Waits until every runner in LIVE has exited or the wait is
 # over. It never signals a runner: node has no TERM handler, so a signal would lose
-# the PROBE DONE line the runner prints last. Then prints, for each runner, the lines
-# its log gained since print_live_runner, under the same start number, and for each
-# that is still running one line saying its later output is not recorded.
+# the PROBE DONE line, the SOCKET LISTING heads and the SCENARIO line it has yet to
+# print. Then prints, for each runner, the lines its log gained since
+# print_live_runner, under the same start number, and for each that is still running
+# one line saying its later output is not recorded.
 print_live_remainders() {
   local deadline=$((SECONDS + $1)) n pid log lines pending gained
   [ -s "${LIVE:?}" ] || return 0
