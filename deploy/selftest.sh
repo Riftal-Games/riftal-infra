@@ -689,8 +689,9 @@ fence_run() {
 }
 
 # $1 a name, $2 how many lines of backup.sh the sed arguments after it change.
-# Leaves the mutant's path in $mutant. A mutation that matches nothing would
-# make its case pass for the wrong reason.
+# Leaves the mutant's path in $mutant. The changed-line count catches a pattern
+# that matches more lines than intended and a backup.sh whose shape has drifted
+# from what the patterns expect.
 mutate() {
   local name="$1" lines="$2"
   shift 2
@@ -718,7 +719,7 @@ fi
   && pass "the commit-first procedure answered capture_fenced during the stall and during the retried ack wait" \
   || { fail "expected capture_fenced twice from the responder"; cat "$LOGS/responder-clean.log"; }
 [ "$(fence_row)" = lowered ] \
-  && pass "the fence is lowered once the run has exited" \
+  && pass "the fence is lowered once the commit-first clean run has exited" \
   || fail "expected the fence lowered, got '$(fence_row)'"
 
 # Each mutant also blinds the end check, which would otherwise fail the run
@@ -788,7 +789,8 @@ else
 fi
 
 # The run is killed with SIGKILL during its stall, so its trap never runs. The
-# fence it raised is the only thing left, and it lapses at its 8s lease.
+# fence it raised is the only thing left in the database, and it lapses at its
+# 8s lease.
 fence_reset
 RUN_NAME="$RUN_NAME_KILLED" CAPTURE_FENCE_MAX_SECONDS=8 CAPTURE_HOLD_MAX_SECONDS=3 FENCE_TEST_STALL_SECONDS=60 \
   run_backup 50 mysql selftest >"$LOGS/run-killed.log" 2>&1 &
