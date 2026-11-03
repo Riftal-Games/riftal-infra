@@ -14,6 +14,8 @@ MYSQL_CONTAINER="riftal-backup-selftest-mysql-$SUFFIX"
 BACKUPS_VOL="riftal-backup-selftest-backups-$SUFFIX"
 WORLD_A_VOL="riftal-backup-selftest-world-a-$SUFFIX"
 WORLD_B_VOL="riftal-backup-selftest-world-b-$SUFFIX"
+CAPTURE_VOL="riftal-backup-selftest-capture-$SUFFIX"
+RUN_NAME_KILLED="riftal-backup-selftest-killed-$SUFFIX"
 
 # Per run, so two runs sharing a host, as the self-hosted CI runners do,
 # never read each other's logs.
@@ -22,7 +24,7 @@ LOGS="$(mktemp -d)"
 cleanup() {
   docker rm -f -v "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
-  docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" >/dev/null 2>&1 || true
+  docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" "$CAPTURE_VOL" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
 }
 trap cleanup EXIT
@@ -33,8 +35,10 @@ docker network create "$NETWORK" >/dev/null
 docker volume create "$BACKUPS_VOL" >/dev/null
 docker volume create "$WORLD_A_VOL" >/dev/null
 docker volume create "$WORLD_B_VOL" >/dev/null
+docker volume create "$CAPTURE_VOL" >/dev/null
 
 docker run -d --rm --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
+  -v "$WORLD_A_VOL:/instance-a" -v "$CAPTURE_VOL:/capture:ro" \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
   mysql:8 >/dev/null
 
@@ -55,6 +59,7 @@ docker exec "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest -e \
   'CREATE TABLE marker (id INT PRIMARY KEY, note VARCHAR(64));
    INSERT INTO marker VALUES (1, "backup-selftest-marker");' >/dev/null
 docker exec -i "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest <"$SCRIPT_DIR/fence-fixture.sql"
+docker exec -i "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest <"$SCRIPT_DIR/fence-listing-fixture.sql"
 
 docker run --rm -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo world-a-marker > /world/marker.txt' >/dev/null
@@ -63,7 +68,7 @@ docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=50
+EXPECTED_ASSERTIONS=63
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -74,9 +79,9 @@ section() { printf '\n== %s\n' "$1"; }
 run_backup() {
   local retention="$1" host="$2" password="$3" partial_max_age="${4:-360}" lock_max_age="${5:-90}"
   if [ "$#" -gt 5 ]; then shift 5; else shift "$#"; fi
-  timeout 60 docker run --rm --network "$NETWORK" \
-    -v "$SCRIPT_DIR/backup.sh:/deploy/backup.sh:ro" \
-    -v "$BACKUPS_VOL:/backups" \
+  timeout 60 docker run --rm --network "$NETWORK" ${RUN_NAME:+--name "$RUN_NAME"} \
+    -v "${BACKUP_SCRIPT:-$SCRIPT_DIR/backup.sh}:/deploy/backup.sh:ro" \
+    -v "$BACKUPS_VOL:/backups" -v "$CAPTURE_VOL:/capture" \
     -v "$WORLD_A_VOL:/worlds/world-a:ro" -v "$WORLD_B_VOL:/worlds/world-b:ro" \
     -e MYSQL_HOST="$host" -e MYSQL_USER=root -e MYSQL_PASSWORD="$password" \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION="$retention" \
@@ -85,6 +90,11 @@ run_backup() {
     -e DISCARD_RACE_TEST_STALL_SECONDS="${DISCARD_RACE_TEST_STALL_SECONDS:-0}" \
     -e CLAIM_RACE_TEST_STALL_SECONDS="${CLAIM_RACE_TEST_STALL_SECONDS:-0}" \
     -e CAPTURE_FENCE_MAX_SECONDS="${CAPTURE_FENCE_MAX_SECONDS:-1800}" \
+    -e CAPTURE_HOLD_MAX_SECONDS="${CAPTURE_HOLD_MAX_SECONDS:-900}" \
+    -e CAPTURE_ACK_TIMEOUT_SECONDS="${CAPTURE_ACK_TIMEOUT_SECONDS:-60}" \
+    -e CAPTURE_TEST_REQUEST_ID="${CAPTURE_TEST_REQUEST_ID:-}" \
+    -e FENCE_TEST_STALL_SECONDS="${FENCE_TEST_STALL_SECONDS:-0}" \
+    -e CAPTURE_TEST_STALL_SECONDS="${CAPTURE_TEST_STALL_SECONDS:-0}" \
     mysql:8 bash /deploy/backup.sh "$@"
 }
 
@@ -584,6 +594,219 @@ else
   fail "expected a logged failure message"; cat "$LOGS"/out-unreachable.log
 fi
 
+section "the capture fence closes the copy: a held item is collected once, and each mutant of backup.sh copies it"
+# ADR 027 P6. The MySQL container stands in for an instance whose world is
+# world-a: a shell responder calls the fixture commit-first procedure as the
+# plugin would, writes a delivery marker into players/ on a commit, then stages
+# players/ and acks. mysql:8 carries no flock, so backup.sh's `flock -xn`
+# fails and a volume with a server.lock reads as running; its ack decides.
+# The responder calls twice: while the run stalls between its dump and its
+# request, and again while the volume's second ack wait is open after a forced
+# retry, which an ack the responder removes causes. A correct run holds the
+# fence across both, so each call must answer capture_fenced.
+INSTANCE=/instance-a
+INSTANCE_ACK='
+id="$1"
+for _ in $(seq 150); do
+  [ "$(cut -d" " -f1 /capture/request 2>/dev/null)" = "$id" ] && break
+  sleep 0.2
+done
+[ "$(cut -d" " -f1 /capture/request 2>/dev/null)" = "$id" ] || exit 1
+rm -rf "/instance-a/.capture/$id/players"
+mkdir -p /instance-a/players "/instance-a/.capture/$id"
+cp -a /instance-a/players "/instance-a/.capture/$id/players"
+printf "%s\n%s\n" "$id" 1700000000000000 > "/instance-a/.capture/$id/ack.tmp"
+mv -f "/instance-a/.capture/$id/ack.tmp" "/instance-a/.capture/$id/ack"
+'
+
+sql() { docker exec "$MYSQL_CONTAINER" mysql -uroot -pselftest -N -B "${2:-riftal_selftest}" -e "$1" 2>/dev/null; }
+set_count() { backups 'ls -1 /backups | wc -l'; }
+
+# $1 a literal, $2 a file, $3 seconds to wait for the literal in it
+await_log() {
+  local i
+  for ((i = 0; i < $3 * 5; i++)); do
+    grep -qF -- "$1" "$2" 2>/dev/null && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
+collect_item() {
+  local outcome
+  outcome="$(sql 'CALL fixture_listing_collect(1, "responder", @o); SELECT @o')"
+  [ "$outcome" != collected ] \
+    || docker exec "$MYSQL_CONTAINER" bash -c "mkdir -p $INSTANCE/players && echo item > $INSTANCE/players/marker.dat"
+  echo "$outcome"
+}
+
+# $1 the run's log, $2 its request id, $3 seconds after the dump starts before the first call
+fence_responder() {
+  await_log "dumping database" "$1" 30
+  sleep "$3"
+  collect_item
+  docker exec "$MYSQL_CONTAINER" bash -c "$INSTANCE_ACK" _ "$2"
+  await_log "volume world-a is held for request" "$1" 30
+  docker exec "$MYSQL_CONTAINER" rm -f "$INSTANCE/.capture/$2/ack"
+  await_log "lost its ack" "$1" 30
+  # A run that lowers the fence here does so within a moment of this line.
+  sleep 2
+  collect_item
+  docker exec "$MYSQL_CONTAINER" bash -c "$INSTANCE_ACK" _ "$2"
+}
+
+fence_reset() {
+  sql 'UPDATE capture_fence SET request_id = NULL, raised_until = NULL WHERE id = 1;
+       UPDATE fixture_listing SET collected_by = NULL'
+  docker exec "$MYSQL_CONTAINER" rm -rf "$INSTANCE/players" "$INSTANCE/.capture"
+}
+
+# Runs backup.sh with the responder. $1 case name (letters only), $2 the script
+# to run, $3 the fence lease, $4 FENCE_TEST_STALL_SECONDS, $5 seconds after the
+# dump starts before the responder first calls. Sets fence_rc, fence_new (sets
+# written), fence_item (the restored fixture row) and fence_marker (1 when the
+# restored world holds the delivery marker).
+fence_run() {
+  local name="$1" id="fence-$1" db="riftal_selftest_r_$1" before set_name responder
+  fence_reset
+  before="$(set_count)"
+  fence_responder "$LOGS/run-$name.log" "$id" "$5" >"$LOGS/responder-$name.log" 2>&1 &
+  responder=$!
+  fence_rc=0
+  BACKUP_SCRIPT="$2" CAPTURE_TEST_REQUEST_ID="$id" CAPTURE_FENCE_MAX_SECONDS="$3" CAPTURE_HOLD_MAX_SECONDS=3 \
+    FENCE_TEST_STALL_SECONDS="$4" CAPTURE_TEST_STALL_SECONDS=5 \
+    run_backup 50 mysql selftest >"$LOGS/run-$name.log" 2>&1 || fence_rc=$?
+  wait "$responder" || true
+  fence_new=$(( $(set_count) - before ))
+  fence_item="" fence_marker=""
+  set_name="$(sed -n 's|.*complete at /backups/||p' "$LOGS/run-$name.log")"
+  if [ -n "$set_name" ]; then
+    sql "CREATE DATABASE $db"
+    backups "cat /backups/$set_name/mysql.sql" | docker exec -i "$MYSQL_CONTAINER" mysql -uroot -pselftest "$db" 2>/dev/null
+    fence_item="$(sql 'SELECT COALESCE(collected_by, "none") FROM fixture_listing WHERE id = 1' "$db")"
+    fence_marker="$(backups "tar -tzf /backups/$set_name/worlds/world-a.tar.gz | grep -c '^players/marker.dat\$' || true")"
+  fi
+}
+
+# $1 a name, $2 how many lines of backup.sh the sed arguments after it change.
+# Leaves the mutant's path in $mutant. The changed-line count catches a pattern
+# that matches more lines than intended and a backup.sh whose shape has drifted
+# from what the patterns expect.
+mutate() {
+  local name="$1" lines="$2"
+  shift 2
+  mutant="$LOGS/backup-$name.sh"
+  sed "$@" "$SCRIPT_DIR/backup.sh" >"$mutant"
+  [ "$(diff "$SCRIPT_DIR/backup.sh" "$mutant" | grep -c '^<' || true)" = "$lines" ] \
+    || fail "the $name mutant did not change exactly $lines line(s) of backup.sh"
+}
+
+# True when a set was written that holds the row uncollected and the delivery both.
+two_copies() {
+  [ "$fence_rc" = 0 ] && [ "$fence_new" = 1 ] && [ "$fence_item" = none ] && [ "$fence_marker" = 1 ]
+}
+
+docker exec "$MYSQL_CONTAINER" touch "$INSTANCE/server.lock"
+
+fence_run clean "$SCRIPT_DIR/backup.sh" 120 6 2
+if [ "$fence_rc" = 0 ] && [ "$fence_new" = 1 ] && [ "$fence_item" = none ] && [ "$fence_marker" = 0 ]; then
+  pass "restoring the set shows the item once: the fixture row uncollected and no delivery marker"
+else
+  fail "expected one set, an uncollected row and no marker, got rc=$fence_rc sets=$fence_new row='$fence_item' marker='$fence_marker'"
+  cat "$LOGS/run-clean.log" "$LOGS/responder-clean.log"
+fi
+[ "$(grep -c '^capture_fenced$' "$LOGS/responder-clean.log")" = 2 ] \
+  && pass "the commit-first procedure answered capture_fenced during the stall and during the retried ack wait" \
+  || { fail "expected capture_fenced twice from the responder"; cat "$LOGS/responder-clean.log"; }
+[ "$(fence_row)" = lowered ] \
+  && pass "the fence is lowered once the commit-first clean run has exited" \
+  || fail "expected the fence lowered, got '$(fence_row)'"
+
+# Each mutant also blinds the end check, which would otherwise fail the run
+# before it wrote a set to restore. The control under test is the one removed.
+mutate noraise 2 -e '/^raise_fence$/d' -e 's/^check_fence_lease$/:/'
+fence_run noraise "$mutant" 120 6 2
+two_copies && pass "mutant: with the raise removed the restored set holds the row uncollected and the marker, two copies" \
+  || { fail "the no-raise mutant should leave two copies, got rc=$fence_rc sets=$fence_new row='$fence_item' marker='$fence_marker'"; cat "$LOGS/run-noraise.log"; }
+
+mutate earlylower 2 -e 's/^    await_volume "\$name"$/    lower_fence; await_volume "$name"/' -e 's/^check_fence_lease$/:/'
+fence_run earlylower "$mutant" 120 6 2
+two_copies && pass "mutant: with the fence lowered before a retried volume's second ack the restored set holds two copies" \
+  || { fail "the early-lower mutant should leave two copies, got rc=$fence_rc sets=$fence_new row='$fence_item' marker='$fence_marker'"; cat "$LOGS/run-earlylower.log"; }
+
+section "run failures: a lapsed lease, a missing table, an unacked instance and a failed dump leave no set, and the fence comes down"
+# ADR 027 P7. The busy raise and the two start refusals are asserted above.
+# A 6s lease with a stall of 12s and a first call at 8s puts the call after the
+# lease has lapsed, while the lease stays above the 3s hold.
+fence_run lapsed "$SCRIPT_DIR/backup.sh" 6 12 8
+if [ "$fence_rc" != 0 ] && [ "$fence_new" = 0 ] && grep -q "capture fence lapsed before the last volume was verified" "$LOGS/run-lapsed.log"; then
+  pass "a run whose lease lapsed before the last verification fails with its reason and writes no set"
+else
+  fail "expected a failed run, no set and the lapsed reason, got rc=$fence_rc sets=$fence_new"; cat "$LOGS/run-lapsed.log"
+fi
+[ "$(fence_row)" = lowered ] \
+  && pass "the trap lowers the fence of a run that failed its end check" \
+  || fail "expected the fence lowered after the lapsed run, got '$(fence_row)'"
+
+mutate nocheck 1 -e 's/^check_fence_lease$/:/'
+fence_run nocheck "$mutant" 6 12 8
+two_copies && pass "mutant: with the end check removed and the lease lapsed, a set is produced holding two copies" \
+  || { fail "the no-check mutant should leave two copies, got rc=$fence_rc sets=$fence_new row='$fence_item' marker='$fence_marker'"; cat "$LOGS/run-nocheck.log"; }
+
+fence_reset
+before="$(set_count)"
+sql 'RENAME TABLE capture_fence TO capture_fence_off' >/dev/null
+missing_rc=0
+run_backup 50 mysql selftest >"$LOGS/run-missing.log" 2>&1 || missing_rc=$?
+sql 'RENAME TABLE capture_fence_off TO capture_fence' >/dev/null
+if [ "$missing_rc" != 0 ] && [ "$(set_count)" = "$before" ] && grep -q "could not raise the capture fence" "$LOGS/run-missing.log" \
+  && ! grep -q "dumping database" "$LOGS/run-missing.log"; then
+  pass "a run without the fence table fails with its reason before any dump and writes no set"
+else
+  fail "expected a failed run, no set and no dump"; cat "$LOGS/run-missing.log"
+fi
+
+fence_reset
+before="$(set_count)"
+ack_rc=0
+CAPTURE_ACK_TIMEOUT_SECONDS=3 CAPTURE_HOLD_MAX_SECONDS=3 run_backup 50 mysql selftest >"$LOGS/run-unacked.log" 2>&1 || ack_rc=$?
+if [ "$ack_rc" != 0 ] && [ "$(set_count)" = "$before" ] && grep -q "has not acked" "$LOGS/run-unacked.log" && [ "$(fence_row)" = lowered ]; then
+  pass "a run whose running instance never acks fails with its reason, writes no set and lowers the fence"
+else
+  fail "expected a failed run, no set and a lowered fence, got '$(fence_row)'"; cat "$LOGS/run-unacked.log"
+fi
+
+fence_reset
+before="$(set_count)"
+sql 'CREATE TABLE dump_gone (a INT); CREATE VIEW dump_broken AS SELECT a FROM dump_gone; DROP TABLE dump_gone' >/dev/null
+dump_rc=0
+run_backup 50 mysql selftest >"$LOGS/run-dump.log" 2>&1 || dump_rc=$?
+sql 'DROP VIEW dump_broken' >/dev/null
+if [ "$dump_rc" != 0 ] && [ "$(set_count)" = "$before" ] && grep -q "dumping database" "$LOGS/run-dump.log" && [ "$(fence_row)" = lowered ]; then
+  pass "a run whose dump fails writes no set and lowers the fence"
+else
+  fail "expected a failed dump, no set and a lowered fence, got '$(fence_row)'"; cat "$LOGS/run-dump.log"
+fi
+
+# The run is killed with SIGKILL during its stall, so its trap never runs. The
+# fence it raised is the only thing left in the database, and it lapses at its
+# 8s lease.
+fence_reset
+RUN_NAME="$RUN_NAME_KILLED" CAPTURE_FENCE_MAX_SECONDS=8 CAPTURE_HOLD_MAX_SECONDS=3 FENCE_TEST_STALL_SECONDS=60 \
+  run_backup 50 mysql selftest >"$LOGS/run-killed.log" 2>&1 &
+killed_pid=$!
+await_log "dumping database" "$LOGS/run-killed.log" 30
+sleep 2
+docker kill "$RUN_NAME_KILLED" >/dev/null
+wait "$killed_pid" || true
+[ "$(fence_row)" != lowered ] \
+  && pass "a run killed with SIGKILL leaves its fence raised, as its trap never ran" \
+  || fail "expected the killed run's fence still raised"
+sleep 8
+[ "$(sql 'CALL capture_fence_raise("after-kill", 5, @o); SELECT @o')" = raised ] \
+  && pass "the killed run's fence lapses at its lease, and a later run raises it" \
+  || fail "expected a raise to succeed once the killed run's lease had lapsed"
+
 printf '\n'
 ran=$((PASSES + FAILURES))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
@@ -595,4 +818,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, no lock visible during a claim, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, no lock visible during a claim, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure, the capture fence closing the copy under three mutants, failed runs lowering the fence.\n' "$PASSES"
