@@ -59,6 +59,7 @@ class FakeEngine:
         self.copied: dict[str, bytes] = {}
         self.absent_says = b"Error response from daemon: get volume: no such volume"
         self.inspect_error: bytes | None = None
+        self.vanished: dict[str, bytes] = {}
         self.stop_log, self.boot_log, self.exit_lag, self.written = stop_log, boot_log, exit_lag, b""
 
     @staticmethod
@@ -89,7 +90,9 @@ class FakeEngine:
             self.volumes.discard(args[2])
         elif args[:3] == ["ps", "-a", "-q"]:
             # docker's ps -q answers ids, never names.
-            out = "\n".join(map(self.id_of, self.mounts)).encode()
+            out = "\n".join(map(self.id_of, [*self.mounts, *self.vanished])).encode()
+        elif args[0] == "inspect" and (gone := next((n for n in self.vanished if self.id_of(n) == args[1]), None)):
+            code, err = 1, self.vanished[gone]
         elif args[0] == "inspect":
             name = next((n for n in self.mounts if self.id_of(n) == args[1]), args[1])
             info = {"Name": f"/{name}", "Image": "sha256:core", "State": {"Status": "exited" if name in self.exited else "running"}}
@@ -236,6 +239,41 @@ def test_a_volume_inspect_that_fails_without_naming_absence_refuses_before_any_c
         _build(engine, fake, root, runtime)
     assert engine.verbs() == ["volume inspect"]
     assert "riftal_smoke_level_zt" in engine.volumes
+
+
+@pytest.mark.parametrize("says", [
+    b"error: no such object: 9dd6acfbdb1d",
+    b"Error response from daemon: No such container: 9dd6acfbdb1d",
+    b"Error: No such object: 9dd6acfbdb1d",
+])
+@pytest.mark.parametrize("runtime", ["wslc", "docker"])
+def test_a_container_that_vanishes_between_the_listing_and_its_inspect_is_skipped(fake: FakeBridge, root: Path, runtime: str, says: bytes) -> None:
+    engine = FakeEngine()
+    engine.volumes.add(OUTPUT)
+    engine.vanished["helper"] = says
+    _build(engine, fake, root, runtime)
+    assert OUTPUT in engine.volumes and "run -d" in engine.verbs()
+
+
+def test_a_vanished_container_does_not_hide_one_that_still_mounts_the_volume(fake: FakeBridge, root: Path) -> None:
+    engine = FakeEngine()
+    engine.volumes.add(OUTPUT)
+    engine.vanished["helper"] = b"error: no such object: 9dd6acfbdb1d"
+    engine.mounts["instance"] = [OUTPUT]
+    with pytest.raises(LevelError, match=f"volume {OUTPUT} is mounted by instance"):
+        _build(engine, fake, root)
+
+
+@pytest.mark.parametrize("says", [b"", b"Cannot connect to the Docker daemon", b"permission denied", b"error: container service unavailable"])
+@pytest.mark.parametrize("runtime", ["wslc", "docker"])
+def test_a_container_inspect_that_fails_without_naming_absence_refuses_before_any_change(fake: FakeBridge, root: Path, runtime: str, says: bytes) -> None:
+    engine = FakeEngine()
+    engine.volumes.add(OUTPUT)
+    engine.vanished["helper"] = says
+    with pytest.raises(LevelError, match=f"cannot tell whether container {FakeEngine.id_of('helper')} mounts a volume"):
+        _build(engine, fake, root, runtime)
+    assert not [a for a in engine.calls if a[1] in ("run", "rm", "remove") or a[1:3] in (["volume", "rm"], ["volume", "remove"], ["volume", "create"])]
+    assert OUTPUT in engine.volumes
 
 
 def test_a_mine_gate_refusal_makes_no_engine_call(fake: FakeBridge, root: Path) -> None:
