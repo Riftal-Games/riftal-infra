@@ -110,5 +110,28 @@ session "a hold before the join is not" refused "$work/before.log"
 session "a bot that never leaves is not counted" refused "$work/stays.log"
 session "a hold between two sessions is not inside either" refused "$work/earlier.log"
 
+# $1 case, $2 wanted status (again or final), the rest the arguments of p6_rerun.
+rerun() {
+  local what=$1 want=$2 status=again
+  shift 2
+  p6_rerun "$@" || status=final
+  if [ "$status" = "$want" ]; then
+    printf '  ok    %s
+' "$what"
+  else
+    printf '::error::%s: wanted %s, got %s
+' "$what" "$want" "$status"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+rerun "a hold outside the session with an attempt left runs again" again 1 0 0 1 1 3
+rerun "a hold outside the session on the second attempt runs again" again 1 0 0 1 2 3
+rerun "a hold outside the session on the last attempt is final" final 1 0 0 1 3 3
+rerun "a hold inside the session is final" final 1 0 1 1 1 3
+rerun "a bot that did not pass is final" final 0 0 0 1 1 3
+rerun "a backup that exited non-zero is final" final 1 1 0 1 1 3
+rerun "a log that breaks the listing rule is final" final 1 0 0 0 1 3
+
 [ "$FAILURES" -eq 0 ] || exit 1
 printf 'capture-cost.sh reads every figure and refuses every broken log\n'
