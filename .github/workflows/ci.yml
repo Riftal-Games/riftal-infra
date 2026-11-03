@@ -173,6 +173,9 @@ jobs:
       - name: Self-test, prove the bot-proofs finish decision can fail
         run: bash .github/scripts/bot-proofs-finish-selftest.sh
 
+      - name: Self-test, prove the bot-proofs teardown prints can fail
+        run: bash .github/scripts/bot-proofs-runner-logs-selftest.sh
+
       - name: Rig lock self-test
         run: bash .github/scripts/rig-lock-selftest.sh
 
