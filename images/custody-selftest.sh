@@ -16,7 +16,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\n' > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=13
+EXPECTED_ASSERTIONS=12
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -81,12 +81,11 @@ check "an instance that skips it is caught" '[ "$(unguarded "$(model "$work/comp
 
 printf '\n== every script plugin both instances load softdepends on RiftalCustody\n'
 # Script plugins at the top of $1 whose header, the first /** */ block as core's
-# ScriptPluginLoader reads it, has no `@softdepend` line naming RiftalCustody,
-# alone or in a comma-separated list.
+# ScriptPluginLoader reads it, has no `@softdepend RiftalCustody` line.
 unsoft() {
   local f
   for f in "$1"/*.php; do
-    sed -n '\#/\*\*#,\#\*/#p;\#\*/#q' "$f" | grep -qE '^[[:space:]]*\*?[[:space:]]*@softdepend[[:space:]]+([^[:space:],]+,)*RiftalCustody(,[^[:space:],]+)*[[:space:]]*$' ||
+    sed -n '\#/\*\*#,\#\*/#p;\#\*/#q' "$f" | grep -qE '^[[:space:]]*\*?[[:space:]]*@softdepend[[:space:]]+RiftalCustody[[:space:]]*$' ||
       basename "$f"
   done
 }
@@ -95,8 +94,6 @@ check "RiftalDevBots.php carries the header, and no script plugin lacks it" \
 mkdir -p "$work/scripts"
 sed '/@softdepend RiftalCustody/d' "$DIR/plugins/RiftalDevBots.php" > "$work/scripts/RiftalDevBots.php"
 check "a header without it is caught" '[ "$(unsoft "$work/scripts")" = RiftalDevBots.php ]'
-sed 's/@softdepend RiftalCustody/@softdepend RiftalDevBots/' "$DIR/plugins/RiftalDevBots.php" > "$work/scripts/RiftalDevBots.php"
-check "a header softdepending on another plugin only is caught" '[ "$(unsoft "$work/scripts")" = RiftalDevBots.php ]'
 
 printf '\n'
 ran=$((PASSES + FAILURES))

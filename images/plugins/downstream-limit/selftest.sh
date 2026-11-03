@@ -10,10 +10,11 @@
 # xbox-auth off sets PHP_INT_MAX on every interface, including one announced
 # again later; no opt-in makes no call; the opt-in with xbox-auth on makes no
 # call; with RiftalDevBots admitted beside it, the last value on every
-# interface is PHP_INT_MAX. Six controls mutate the plugin and the check for the
-# case they break must then reject the log: handler emptied, call removed,
-# value 200, priority below RiftalDevBots', opt-in gate dropped, xbox-auth
-# gate dropped.
+# interface is PHP_INT_MAX, whichever handler ran first, because the plugin
+# calls a tick after the event. Six controls mutate the plugin and the check
+# for the case they break must then reject the log: handler emptied, call
+# removed, value 200, call removed beside RiftalDevBots, opt-in gate dropped,
+# xbox-auth gate dropped.
 #
 # Runs the pinned core image from ../../core-image.sha, present only on the
 # self-hosted runners' Docker daemon. It publishes no port and keeps nothing:
@@ -28,7 +29,7 @@ IMAGE="$CORE_IMAGE"
 ERRORS='CRITICAL|EMERGENCY|Exception|Stack trace'
 MAX=9223372036854775807
 DEV_BOTS_LIMIT=20000
-HANDLER='$this->disablePacketLimit($event->getInterface())'
+HANDLER='$this->disableLater($event->getInterface())'
 SET_CALL='$interface->setPacketLimit(self::PACKET_LIMIT);'
 
 FAILURES=0
@@ -67,7 +68,7 @@ mutant() {
 mutant empty-handler "$HANDLER" null
 mutant no-set-call "$SET_CALL" ''
 mutant other-value "$SET_CALL" '$interface->setPacketLimit(200);'
-mutant early-priority 'EventPriority::MONITOR,' 'EventPriority::NORMAL,' dev
+mutant no-set-call-dev "$SET_CALL" '' dev
 mutant no-opt-in-gate '!$optedIn || ' ''
 mutant no-auth-gate ' || $server->requiresAuthentication()' ''
 
@@ -191,7 +192,7 @@ control() {
 control empty-handler "whose handler sets nothing" "$OPT_IN --xbox-auth=false" "" max_everywhere
 control no-set-call "that never calls setPacketLimit" "$OPT_IN --xbox-auth=false" "" max_everywhere
 control other-value "that sets another limit" "$OPT_IN --xbox-auth=false" "" max_everywhere
-control early-priority "that runs before RiftalDevBots" "$OPT_IN --xbox-auth=false --riftal-dev-bots=on" 1 max_last
+control no-set-call-dev "that never calls setPacketLimit beside RiftalDevBots" "$OPT_IN --xbox-auth=false --riftal-dev-bots=on" 1 max_last
 control no-opt-in-gate "that ignores the opt-in" "--xbox-auth=false" "" no_call
 control no-auth-gate "that ignores xbox-auth" "$OPT_IN --xbox-auth=true" "" no_call
 

@@ -5,14 +5,12 @@
  * @main riftal\infra\downstream\Main
  * @version 0.1.0
  * @api 5.0.0
- * @softdepend RiftalCustody,RiftalDevBots
+ * @softdepend RiftalCustody
  * @description Turns off RakLib's per-address packet limit on an instance configured as a downstream behind the proxy.
  */
 
-// The RiftalDevBots softdepend keeps this plugin enabled after it, so this
-// plugin's MONITOR handler runs after that plugin's and the final limit is the
-// one set here. RiftalCustody stays enabled until every script plugin has
-// disabled (ADR 013, item 2).
+// The softdepend keeps RiftalCustody enabled until this plugin has disabled
+// (ADR 013, item 2).
 
 declare(strict_types=1);
 
@@ -23,6 +21,7 @@ use pocketmine\event\server\NetworkInterfaceRegisterEvent;
 use pocketmine\network\mcpe\raklib\RakLibInterface;
 use pocketmine\network\NetworkInterface;
 use pocketmine\plugin\PluginBase;
+use pocketmine\scheduler\ClosureTask;
 use function spl_object_id;
 
 /**
@@ -54,17 +53,23 @@ final class Main extends PluginBase{
 		// event is the only way to reach each RakLib interface.
 		$server->getPluginManager()->registerEvent(
 			NetworkInterfaceRegisterEvent::class,
-			fn(NetworkInterfaceRegisterEvent $event) => $this->disablePacketLimit($event->getInterface()),
+			fn(NetworkInterfaceRegisterEvent $event) => $this->disableLater($event->getInterface()),
 			EventPriority::MONITOR,
 			$this
 		);
 	}
 
-	private function disablePacketLimit(NetworkInterface $interface) : void{
+	// The call waits a tick because handlers of one event run in plugin load
+	// order, which core does not fix between plugins that soft-depend on a
+	// plugin that is absent, and RiftalDevBots sets its own, lower limit from
+	// this same event. A call a tick later is always the last.
+	private function disableLater(NetworkInterface $interface) : void{
 		if(!$interface instanceof RakLibInterface){
 			return;
 		}
-		$interface->setPacketLimit(self::PACKET_LIMIT);
-		$this->getLogger()->info("downstream packet limit off on interface " . spl_object_id($interface));
+		$this->getScheduler()->scheduleDelayedTask(new ClosureTask(function() use ($interface) : void{
+			$interface->setPacketLimit(self::PACKET_LIMIT);
+			$this->getLogger()->info("downstream packet limit off on interface " . spl_object_id($interface));
+		}), 1);
 	}
 }
