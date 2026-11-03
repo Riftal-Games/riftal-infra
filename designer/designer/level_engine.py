@@ -38,6 +38,7 @@ READY = ("[DesignBridge] enabled, bridge target", "Done (")
 FAILED = re.compile(r"/(ERROR|CRITICAL|EMERGENCY|ALERT)\]|Exception")
 DOCS = ("design_npcs.json", "design_texts.json")
 VOLUME_ABSENT = re.compile(r"no such volume|volume\b.*\b(not found|does not exist)", re.IGNORECASE)
+CONTAINER_ABSENT = re.compile(r"no such (object|container)", re.IGNORECASE)
 
 Runner = Callable[[list[str], "bytes | None", float], "subprocess.CompletedProcess[bytes]"]
 
@@ -133,6 +134,21 @@ class Engine:
         doc = json.loads(self.text("inspect", ref))
         return doc[0] if isinstance(doc, list) else doc
 
+    def inspect_listed(self, ref: str) -> dict[str, Any] | None:
+        """``inspect`` of a container a listing named; ``None`` when the engine says it is gone since.
+
+        Another job's ``--rm`` helper can exit between the listing and the inspect. Any other
+        failure leaves the container's mounts unknown and refuses.
+        """
+        done = self("inspect", ref, check=False)
+        says = (done.stdout + done.stderr).decode(errors="replace").strip()
+        if done.returncode == 0:
+            doc = json.loads(says)
+            return doc[0] if isinstance(doc, list) else doc
+        if CONTAINER_ABSENT.search(says):
+            return None
+        raise LevelError(f"cannot tell whether container {ref} mounts a volume: {says}")
+
     def field(self, ref: str, key: str) -> Any:
         info = self.inspect(ref)
         if key not in info:
@@ -152,7 +168,8 @@ def check_unmounted(engine: Engine, volume: str) -> bool:
     if probe.returncode == 0:
         users = []
         for ref in engine.text("list", "-a", "-q").split():
-            info = engine.inspect(ref)
+            if (info := engine.inspect_listed(ref)) is None:
+                continue
             if any(volume in (m.get("Name"), m.get("Source")) for m in info.get("Mounts") or []):
                 users.append(str(info.get("Name") or ref).lstrip("/"))
         if users:
