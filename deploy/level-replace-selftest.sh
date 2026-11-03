@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Self-test for the script-driven exits of the level replace runbook
 # (riftal-infra#1387, ADR 027): step 2 taking a verified set, step 2 refused by the
-# database login, the whole-set rollback with restore.sh, and the first run after
-# that restore answering busy until the restored capture fence lease has passed.
+# database login, the whole-set rollback with restore.sh, restore.sh lowering the
+# capture fence the set carries, and the first run after that restore completing at
+# once.
 #
 # It runs only as a CI step. ADR 027 forbids any agent running backup.sh or
 # restore.sh by hand, on any volume. Each scenario owns a throwaway mysql:8 container,
@@ -17,7 +18,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUFFIX="$$-$(date +%s)"
-EXPECTED_CASES=20
+EXPECTED_CASES=17
 JOBS=7
 
 # The tree hash of step 4 of the runbook, over the zone folder of a mounted volume.
@@ -58,16 +59,16 @@ scenario() (
   count_sets() { printf '%s\n' "$SET_LIST" | grep -cE '^[0-9]+T[0-9]+Z$'; }
   count_partials() { printf '%s\n' "$SET_LIST" | grep -c '\.partial$'; }
 
-  # Fence lease 90s: long enough that 10s or more remain at the busy run on a loaded
-  # runner, short enough that waiting it out is brief. The hold is 2s because
-  # no instance runs. The lease outlasts the dump, the tars and the lowering.
+  # Fence lease 600s: a fence the restore left raised is still live when the first
+  # run after it asks, however slow the runner. The hold is 2s because no instance
+  # runs.
   run_backup() {
     docker run --rm -m 1g --cpus 1 --network "$net" \
       -v "$backup_sh:/deploy/backup.sh:ro" -v "$sets:/backups" \
       -v "$inst:/worlds/$inst:ro" \
       -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$1" \
       -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION=10 \
-      -e CAPTURE_HOLD_MAX_SECONDS=2 -e CAPTURE_FENCE_MAX_SECONDS=90 \
+      -e CAPTURE_HOLD_MAX_SECONDS=2 -e CAPTURE_FENCE_MAX_SECONDS=600 \
       mysql:8 bash /deploy/backup.sh
   }
 
@@ -153,35 +154,19 @@ scenario() (
   [ "$(tree_of)" = "$pre_tree" ] && pass restore-level-tree || fail restore-level-tree
   [ "$(inst_sh 'ls -A /data/worlds' 2>/dev/null)" = mine_a ] && pass restore-volume-rebuilt || fail restore-volume-rebuilt
 
-  left="$(sql 'SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(3), raised_until) FROM capture_fence WHERE id = 1' 2>/dev/null)"
-  case "$left" in
-    '' | *[!0-9]*) lease_live=0 ;;
-    *) if [ "$left" -ge 10 ]; then lease_live=1; else lease_live=0; fi ;;
-  esac
-  [ "$lease_live" = 1 ] && pass busy-lease-live || fail busy-lease-live
+  # The set was dumped while its own run held the fence, so the restored row is
+  # raised until restore.sh lowers it.
+  [ "$(sql 'SELECT COUNT(*) FROM capture_fence WHERE id = 1 AND request_id IS NULL AND raised_until IS NULL' 2>/dev/null)" = 1 ] \
+    && pass restore-fence-lowered || fail restore-fence-lowered
 
   load_sets
   sets_before="$(count_sets)"
-  run_backup selftest >"$logs/busy.log" 2>&1
+  run_backup selftest >"$logs/first.log" 2>&1
   rc=$?
-  [ "$rc" != 0 ] && pass busy-exit-nonzero || fail busy-exit-nonzero
-  grep -q "capture fence raise answered 'busy'" "$logs/busy.log" && [ "$(grep -c 'dumping database' "$logs/busy.log")" = 0 ] \
-    && pass busy-reason-no-dump || fail busy-reason-no-dump
+  [ "$rc" = 0 ] && pass first-run-exit0 || fail first-run-exit0
+  grep -q '^backup [^ ]*: complete at /backups/' "$logs/first.log" && pass first-run-complete-line || fail first-run-complete-line
   load_sets
-  [ "$(count_sets)" = "$sets_before" ] && pass busy-no-new-set || fail busy-no-new-set
-
-  for _ in $(seq 1 120); do
-    [ "$(sql 'SELECT raised_until <= UTC_TIMESTAMP(3) FROM capture_fence WHERE id = 1' 2>/dev/null)" != 0 ] && break
-    sleep 1
-  done
-  load_sets
-  sets_before="$(count_sets)"
-  run_backup selftest >"$logs/later.log" 2>&1
-  rc=$?
-  [ "$rc" = 0 ] && pass later-run-exit0 || fail later-run-exit0
-  grep -q '^backup [^ ]*: complete at /backups/' "$logs/later.log" && pass later-complete-line || fail later-complete-line
-  load_sets
-  [ "$(count_sets)" = "$((sets_before + 1))" ] && pass later-new-set || fail later-new-set
+  [ "$(count_sets)" = "$((sets_before + 1))" ] && pass first-run-new-set || fail first-run-new-set
 )
 
 IDS=() EXPECT=() BACKUP_SH=() RESTORE_SH=()
@@ -209,10 +194,10 @@ IDS+=(clean) EXPECT+=("") BACKUP_SH+=("$SCRIPT_DIR/backup.sh") RESTORE_SH+=("$SC
 
 mutant exit-after-publish backup.sh \
   'echo "backup $ts: applying retention, keeping the last $BACKUP_RETENTION"' 'exit 3' \
-  "set-run-exit0 later-run-exit0"
+  "set-run-exit0 first-run-exit0"
 mutant complete-line-renamed backup.sh \
   'echo "backup $ts: complete at $set_dir"' 'echo "backup $ts: done at $set_dir"' \
-  "set-complete-line set-verified later-complete-line"
+  "set-complete-line set-verified first-run-complete-line"
 mutant manifest-omits-volume backup.sh \
   'echo "  - $name: $(wc -c < "$tmp_dir/worlds/$name.tar.gz") bytes"' 'true' \
   "set-verified"
@@ -221,28 +206,28 @@ mutant tar-omits-level backup.sh \
   "set-verified restore-level-tree restore-volume-rebuilt"
 mutant failure-exits-zero backup.sh \
   $'  echo "backup $ts: $1" >&2\n  exit 1' $'  echo "backup $ts: $1" >&2\n  exit 0' \
-  "refused-exit-nonzero refused-failed-line refused-no-partial busy-exit-nonzero"
+  "refused-exit-nonzero refused-failed-line refused-no-partial"
 mutant failure-claims-complete backup.sh \
   'echo "backup $ts: $1" >&2' 'echo "backup $ts: complete at $set_dir, then $1" >&2' \
   "refused-no-complete-line"
 mutant failure-publishes-partial backup.sh \
   'rm -rf "$tmp_dir"' 'mv "$tmp_dir" "$set_dir"' \
-  "refused-no-new-set busy-no-new-set"
-mutant busy-ignored backup.sh \
-  "fail \"capture fence raise answered '\$outcome', another run's lease is live; no dump is taken\"" 'true' \
-  "busy-reason-no-dump"
+  "refused-no-new-set"
 mutant restore-noop restore.sh \
   'echo "restore $BACKUP_SET: rebuilding database $MYSQL_DATABASE at $MYSQL_HOST:$MYSQL_PORT"' 'exit 0' \
-  "restore-complete-line restore-row-at-set restore-level-tree restore-volume-rebuilt busy-lease-live busy-exit-nonzero busy-reason-no-dump busy-no-new-set"
+  "restore-complete-line restore-row-at-set restore-level-tree restore-volume-rebuilt"
 mutant restore-merges-volume restore.sh \
   'find "$target" -mindepth 1 -delete' 'true' \
   "restore-level-tree restore-volume-rebuilt"
 mutant restore-loads-nothing restore.sh \
   '< "$BACKUP_SET/mysql.sql"' '< /dev/null' \
-  "restore-row-at-set busy-lease-live busy-reason-no-dump later-run-exit0 later-complete-line later-new-set"
+  "restore-exit0 restore-complete-line restore-row-at-set restore-level-tree restore-volume-rebuilt restore-fence-lowered first-run-exit0 first-run-complete-line first-run-new-set"
 mutant restore-exits-nonzero restore.sh \
   'echo "restore $BACKUP_SET: complete, database' 'exit 4; echo "restore $BACKUP_SET: complete, database' \
   "restore-exit0 restore-complete-line"
+mutant restore-keeps-fence restore.sh \
+  'if [ "$fenced" = 1 ]; then' 'if false; then' \
+  "restore-fence-lowered first-run-exit0 first-run-complete-line first-run-new-set"
 
 [ "$PREP_FAILURES" = 0 ] || exit 1
 
