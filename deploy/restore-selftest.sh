@@ -90,6 +90,7 @@ exec_sql 'CREATE TRIGGER riftal_selftest.accounts_no_negative BEFORE INSERT
 exec_sql 'CREATE VIEW riftal_selftest.account_balances AS
           SELECT id, balance FROM riftal_selftest.accounts'
 docker exec -i "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest <"$SCRIPT_DIR/fence-fixture.sql"
+docker exec -i "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest <"$SCRIPT_DIR/fence-listing-fixture.sql"
 docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo 17 > /world/blocks_broken_mine_a.txt' >/dev/null
 docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
@@ -97,7 +98,7 @@ docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=23
+EXPECTED_ASSERTIONS=32
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -127,7 +128,8 @@ provision_backup_login() {
 run_restore() {
   local backup_set="$1" user="${2:-root}" rc=0
   timeout -k 5 60 docker run --rm -m 1g --cpus 1 --name "$RESTORE_CONTAINER" --network "$NETWORK" \
-    -v "$SCRIPT_DIR/restore.sh:/deploy/restore.sh:ro" \
+    -v "${RESTORE_SCRIPT:-$SCRIPT_DIR/restore.sh}:/deploy/restore.sh:ro" \
+    -e ALLOW_UNFENCED_SET="${ALLOW_UNFENCED_SET:-}" \
     -v "$BACKUPS_VOL:/backups:ro" \
     -v "$WORLD_A_VOL:/worlds/world-a" -v "$WORLD_B_VOL:/worlds/world-b" \
     -e MYSQL_HOST=mysql -e MYSQL_USER="$user" -e MYSQL_PASSWORD=selftest \
@@ -289,8 +291,8 @@ if [ "$held" != "1" ]; then
 fi
 
 refused_unchanged() {
-  local label="$1" pattern="$2" user="$3" balance marker
-  if run_restore "/backups/$dir1" "$user" >"$LOGS/out-$label.log" 2>&1; then
+  local label="$1" pattern="$2" user="$3" set="${4:-/backups/$dir1}" balance marker
+  if run_restore "$set" "$user" >"$LOGS/out-$label.log" 2>&1; then
     fail "$label: the restore should exit nonzero"
   elif grep -q "$pattern" "$LOGS/out-$label.log"; then
     pass "$label: refused with '$pattern'"
@@ -326,6 +328,55 @@ else
   fail "expected the restore to succeed once the held session ended"; cat "$LOGS"/out-released.log
 fi
 
+section "a restored fence row is lowered, and a set with no capture_fence line is refused unless allowed"
+fence_lowered() { query riftal_selftest 'SELECT request_id IS NULL AND raised_until IS NULL FROM capture_fence WHERE id = 1'; }
+fence_collect() { query riftal_selftest 'CALL fixture_listing_collect(1, "restore-check", @o); SELECT @o'; }
+
+# The dump holds the row raised for 1800 s from the run that took it, so a
+# restore that does not lower it leaves every commit-first flow fenced.
+keeps_fence="$LOGS/restore-keeps-fence.sh"
+sed 's/^if \[ "\$fenced" = 1 \]; then$/if false; then/' "$SCRIPT_DIR/restore.sh" >"$keeps_fence"
+if [ "$(diff "$SCRIPT_DIR/restore.sh" "$keeps_fence" | grep -c '^<' || true)" != "1" ]; then
+  echo "the keeps-fence mutant did not change exactly one line of restore.sh" >&2
+  exit 1
+fi
+if RESTORE_SCRIPT="$keeps_fence" run_restore "/backups/$dir1" >"$LOGS"/out-keeps-fence.log 2>&1; then
+  pass "mutant: with the lower removed the restore still exits 0"
+else
+  fail "the keeps-fence mutant should restore"; cat "$LOGS"/out-keeps-fence.log
+fi
+[ "$(fence_lowered)" = "0" ] \
+  && pass "mutant: the fence row is left raised, the lease of a run that no longer exists" \
+  || fail "expected the keeps-fence mutant to leave the row raised, got '$(fence_lowered)'"
+[ "$(fence_collect)" = "capture_fenced" ] \
+  && pass "mutant: a commit-first collect answers capture_fenced" \
+  || fail "expected capture_fenced from the keeps-fence mutant, got '$(fence_collect)'"
+
+if run_restore "/backups/$dir1" >"$LOGS"/out-lowered.log 2>&1; then
+  pass "a fenced set restores inside its lease"
+else
+  fail "the fenced set should restore"; cat "$LOGS"/out-lowered.log
+fi
+[ "$(fence_lowered)" = "1" ] \
+  && pass "the restored fence row is lowered" \
+  || fail "expected the restored fence row lowered, got '$(fence_lowered)'"
+[ "$(fence_collect)" = "collected" ] \
+  && pass "a commit-first collect commits at once" \
+  || fail "expected collected after the restore, got '$(fence_collect)'"
+
+dir3="unfenced-$SUFFIX"
+backups "cp -r /backups/$dir1 /backups/$dir3 && sed -i '/^capture_fence:/d' /backups/$dir3/manifest.txt \
+  && test \"\$(grep -c '^capture_fence:' /backups/$dir3/manifest.txt)\" = 0"
+exec_sql 'UPDATE riftal_selftest.accounts SET balance = 777 WHERE id = 1'
+world_a 'echo 777 > /world/blocks_broken_mine_a.txt'
+refused_unchanged unfenced-set "no capture_fence line" root "/backups/$dir3"
+if ALLOW_UNFENCED_SET=1 run_restore "/backups/$dir3" >"$LOGS"/out-allowed.log 2>&1 \
+  && [ "$(query riftal_selftest 'SELECT balance FROM accounts WHERE id = 1')" = "500" ]; then
+  pass "with ALLOW_UNFENCED_SET=1 the same set restores to the backup-time balance"
+else
+  fail "expected the unfenced set to restore with ALLOW_UNFENCED_SET=1"; cat "$LOGS"/out-allowed.log
+fi
+
 printf '\n'
 ran=$((PASSES + FAILURES))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
@@ -337,4 +388,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1.\n' "$PASSES"
