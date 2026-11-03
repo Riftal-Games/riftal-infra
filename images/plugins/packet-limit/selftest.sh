@@ -12,15 +12,18 @@
 # PacketLimitProbe.php beside it. Plugins enable before the network interfaces
 # start, so the plugin reaches each one through the register event. The probe
 # lists the RakLib interfaces by object id once the server ticks and then
-# announces the first of them as a registration again. With dev bots admitted
-# the log carries a limit line for every id before the announcement and another
-# for the first id after it. Without the --riftal-dev-bots=on flag, or without
-# RIFTAL_DEV_ENV=1, it carries none. The control empties the handler, and the
-# check then rejects the log.
+# announces the first of them as a registration again.
 #
-# The limit itself lives in the RakLib thread and cannot be read back from the
-# plugin, so this holds that the call is made on each interface; the bot-proofs
-# job holds the effect.
+# The limit itself lives in the RakLib thread and cannot be read back, so the
+# probe swaps the UserToRakLibThreadMessageSender inside each RakLibInterface,
+# as it registers and ahead of RiftalDevBots, for a subclass that logs every
+# setPacketsPerTickLimit value on its way to the thread. With dev bots
+# admitted the log carries an observed 20000 for every id before the
+# announcement and another for the first id after it. Without the
+# --riftal-dev-bots=on flag, or without RIFTAL_DEV_ENV=1, it carries none.
+# Three controls mutate RiftalDevBots.php and the check must then reject the
+# log: the register handler emptied, the setPacketLimit call deleted, and the
+# call given another value. The bot-proofs job holds the effect on the fleet.
 #
 # Runs the pinned core image from ../../core-image.sha, present only on the
 # self-hosted runners' Docker daemon. It publishes no port and keeps nothing:
@@ -32,12 +35,14 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 core_image || { printf 'the packet limit was never checked\n'; exit 1; }
 IMAGE="$CORE_IMAGE"
 ERRORS='CRITICAL|EMERGENCY|Exception|Stack trace'
-LIMIT='raklib packet limit 20000 on interface '
+LIMIT='packet-limit-probe observed setPacketsPerTickLimit(20000) on interface '
+ANY_LIMIT='packet-limit-probe observed|raklib packet limit'
 CALL='$this->raisePacketLimit($event->getInterface())'
+SET_CALL='$interface->setPacketLimit(self::RAKLIB_PACKET_LIMIT);'
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=14
+EXPECTED_ASSERTIONS=18
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -53,14 +58,21 @@ stack() {
 }
 stack shipped "$DIR/../RiftalDevBots.php"
 
-grep -qF "$CALL" "$DIR/../RiftalDevBots.php" \
-  || { printf '::error::RiftalDevBots.php no longer holds the call the control empties\n'; exit 1; }
-while IFS= read -r line; do
-  printf '%s\n' "${line//"$CALL"/null}"
-done <"$DIR/../RiftalDevBots.php" >"$work/empty-handler.php"
-cmp -s "$work/empty-handler.php" "$DIR/../RiftalDevBots.php" \
-  && { printf '::error::the control did not change RiftalDevBots.php\n'; exit 1; }
-stack empty-handler "$work/empty-handler.php"
+# $1 plugins directory name, $2 the text of RiftalDevBots.php to replace,
+# $3 what replaces it; stacks a copy of the shipped plugin that differs there
+mutant() {
+  grep -qF "$2" "$DIR/../RiftalDevBots.php" \
+    || { printf '::error::RiftalDevBots.php no longer holds the text the %s control replaces\n' "$1"; exit 1; }
+  while IFS= read -r line; do
+    printf '%s\n' "${line//"$2"/"$3"}"
+  done <"$DIR/../RiftalDevBots.php" >"$work/$1.php"
+  cmp -s "$work/$1.php" "$DIR/../RiftalDevBots.php" \
+    && { printf '::error::the %s control did not change RiftalDevBots.php\n' "$1"; exit 1; }
+  stack "$1" "$work/$1.php"
+}
+mutant empty-handler "$CALL" null
+mutant no-set-call "$SET_CALL" ''
+mutant other-value "$SET_CALL" '$interface->setPacketLimit(200);'
 
 # $1 plugins directory name, $2 --riftal-dev-bots value, $3 RIFTAL_DEV_ENV
 # value ("" for unset); leaves the log in $work/log and the exit status in
@@ -94,7 +106,7 @@ ids() {
 }
 
 limit_lines() {
-  grep -cF "$LIMIT" "$work/log" || true
+  grep -cE "$ANY_LIMIT" "$work/log" || true
 }
 
 # Holds when every id has a limit line before the announcement and the first
@@ -125,12 +137,18 @@ admitted_shape \
 [ "$status" -eq 0 ] && pass "admitted: the server stops cleanly" \
   || fail "admitted: the server exited $status"
 
-printf '\n== control: with an empty register handler the shape check fails\n'
-boot empty-handler on 1
-clean "control"
-! admitted_shape \
-  && pass "control: the shape check rejects a plugin whose handler raises nothing ($(limit_lines) limit lines)" \
-  || fail "control: the shape check passed a plugin whose handler raises nothing"
+# $1 plugins directory name, $2 what the plugin does wrong
+control() {
+  printf '\n== control: a plugin %s fails the shape check\n' "$2"
+  boot "$1" on 1
+  clean "control ($2)"
+  ! admitted_shape \
+    && pass "control ($2): the shape check rejects the log ($(limit_lines) limit lines)" \
+    || fail "control ($2): the shape check passed the log"
+}
+control empty-handler "whose handler raises nothing"
+control no-set-call "that never calls setPacketLimit"
+control other-value "that sets another limit"
 
 # $1 --riftal-dev-bots value, $2 RIFTAL_DEV_ENV value, $3 description
 absent() {
@@ -142,7 +160,7 @@ absent() {
     || fail "$3: the probe found no RakLib interface, so nothing here was checked"
   [ "$(limit_lines)" -eq 0 ] \
     && pass "$3: no limit line, including after the announced registration" \
-    || fail "$3: the limit was raised: $(grep -F "$LIMIT" "$work/log")"
+    || fail "$3: the limit was raised: $(grep -E "$ANY_LIMIT" "$work/log")"
   [ "$status" -eq 0 ] && pass "$3: the server stops cleanly" \
     || fail "$3: the server exited $status"
 }
