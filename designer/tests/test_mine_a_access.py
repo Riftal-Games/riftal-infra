@@ -79,10 +79,9 @@ def test_the_legs_chain_from_the_spawn_and_stay_in_the_populated_chunks(mine: Mi
                 assert area.contains((tread[0] + abs(dz) * lateral, tread[2] + abs(dx) * lateral))
 
 
-def test_the_recipe_bounds_hold_the_whole_exit_platform(mine: MineSpec) -> None:
-    platform = mine.geometry().exit_platform
-    bounds = Bounds.from_json(_json("levels", "mine_a.json")["bounds"])
-    assert bounds.contains(platform.min) and bounds.contains(platform.max)
+def test_the_recipe_bounds_are_the_mines_own_box(mine: MineSpec) -> None:
+    # Stone beside the exit lane is natural terrain, and its dirt and gravel pockets differ from one build to the next.
+    assert Bounds.from_json(_json("levels", "mine_a.json")["bounds"]) == mine.geometry().outer
 
 
 def test_the_last_tread_is_flush_with_seed_23s_ground_at_the_exit(legs: list[StairsSpec]) -> None:

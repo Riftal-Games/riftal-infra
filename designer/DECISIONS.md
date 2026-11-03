@@ -1067,8 +1067,9 @@ whole width, and the lane's last row holds the sell and rank-up signs at x -1 an
 base row erased. `tests/test_mine_a_access.py` pins the signs. The legs lie in the chunks `pregen`
 populates around the recipe box.
 
-`bounds` reaches z 23 so the exit platform is in `content_sha256`. The cells beside the lane are stone
-under the surface, and builds on two engines agreed on the hash. The stairs are outside it, so
-`mine_a_spawn_to_surface` (`path_exists`, `zone: mine_a`) walks the built terrain from the spawn to
-`(13, 64, 36)`. The two `travel_time` checks and `warp_safe` carry `zone: mine_a` and gate the build
-too. `entity_clear` on `sell_npc_a` stays zoneless until the mine builder clears the NPC cells (#1395).
+`bounds` stays the mine's own box. Widening it to z 23, to put the exit platform in `content_sha256`,
+reaches the stone beside the lane, which is natural terrain: two builds of the same recipe on one engine
+differed in 29 cells (dirt and gravel pockets at x 16 to 17, z 19 to 23, y 47 to 51) and so in the hash.
+The platform and the stairs are outside it, so `mine_a_spawn_to_surface` (`path_exists`,
+`zone: mine_a`) walks the built terrain from the spawn to `(13, 64, 36)`. The two `travel_time` checks
+and `warp_safe` carry `zone: mine_a` and gate the build too. `entity_clear` on `sell_npc_a` stays zoneless until the mine builder clears the NPC cells (#1395).
