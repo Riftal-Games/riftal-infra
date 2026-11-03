@@ -52,10 +52,13 @@ scenario() (
   inst_sh() { docker run --rm -m 1g --cpus 1 -v "$inst:/data" mysql:8 bash -c "$1"; }
   sets_sh() { docker run --rm -m 1g --cpus 1 -v "$sets:/backups" mysql:8 bash -c "$1"; }
   tree_of() { inst_sh "$TREE" 2>/dev/null; }
-  count_sets() { sets_sh 'ls -1 /backups' 2>/dev/null | grep -cE '^[0-9]+T[0-9]+Z$'; }
-  count_partials() { sets_sh 'ls -1 /backups' 2>/dev/null | grep -c '\.partial$'; }
+  # Runs in the scenario's own shell, not a substitution, so a failed listing ends
+  # the scenario instead of reading as no sets.
+  load_sets() { SET_LIST="$(sets_sh 'ls -1 /backups' 2>/dev/null)" || setup_failed "listing the sets volume failed"; }
+  count_sets() { printf '%s\n' "$SET_LIST" | grep -cE '^[0-9]+T[0-9]+Z$'; }
+  count_partials() { printf '%s\n' "$SET_LIST" | grep -c '\.partial$'; }
 
-  # Fence lease 50s: long enough to outlast the steps up to the busy run on a loaded
+  # Fence lease 90s: long enough that 10s or more remain at the busy run on a loaded
   # runner, short enough that waiting it out is brief. The hold is 2s because
   # no instance runs. The lease outlasts the dump, the tars and the lowering.
   run_backup() {
@@ -64,7 +67,7 @@ scenario() (
       -v "$inst:/worlds/$inst:ro" \
       -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$1" \
       -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION=10 \
-      -e CAPTURE_HOLD_MAX_SECONDS=2 -e CAPTURE_FENCE_MAX_SECONDS=50 \
+      -e CAPTURE_HOLD_MAX_SECONDS=2 -e CAPTURE_FENCE_MAX_SECONDS=90 \
       mysql:8 bash /deploy/backup.sh
   }
 
@@ -124,12 +127,14 @@ scenario() (
   rc=$?
   [ "$rc" = 0 ] && grep -qx "set $set_ts verified" "$logs/verify.log" && pass set-verified || fail set-verified
 
+  load_sets
   sets_before="$(count_sets)"
   run_backup wrong-password >"$logs/refused.log" 2>&1
   rc=$?
   [ "$rc" != 0 ] && pass refused-exit-nonzero || fail refused-exit-nonzero
   [ "$(grep -c 'complete at' "$logs/refused.log")" = 0 ] && pass refused-no-complete-line || fail refused-no-complete-line
   grep -q '^backup [^ ]*: failed, exit 1$' "$logs/refused.log" && pass refused-failed-line || fail refused-failed-line
+  load_sets
   [ "$(count_sets)" = "$sets_before" ] && pass refused-no-new-set || fail refused-no-new-set
   [ "$(count_partials)" = 0 ] && pass refused-no-partial || fail refused-no-partial
 
@@ -151,27 +156,31 @@ scenario() (
   left="$(sql 'SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(3), raised_until) FROM capture_fence WHERE id = 1' 2>/dev/null)"
   case "$left" in
     '' | *[!0-9]*) lease_live=0 ;;
-    *) if [ "$left" -ge 2 ]; then lease_live=1; else lease_live=0; fi ;;
+    *) if [ "$left" -ge 10 ]; then lease_live=1; else lease_live=0; fi ;;
   esac
   [ "$lease_live" = 1 ] && pass busy-lease-live || fail busy-lease-live
 
+  load_sets
   sets_before="$(count_sets)"
   run_backup selftest >"$logs/busy.log" 2>&1
   rc=$?
   [ "$rc" != 0 ] && pass busy-exit-nonzero || fail busy-exit-nonzero
   grep -q "capture fence raise answered 'busy'" "$logs/busy.log" && [ "$(grep -c 'dumping database' "$logs/busy.log")" = 0 ] \
     && pass busy-reason-no-dump || fail busy-reason-no-dump
+  load_sets
   [ "$(count_sets)" = "$sets_before" ] && pass busy-no-new-set || fail busy-no-new-set
 
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 120); do
     [ "$(sql 'SELECT raised_until <= UTC_TIMESTAMP(3) FROM capture_fence WHERE id = 1' 2>/dev/null)" != 0 ] && break
     sleep 1
   done
+  load_sets
   sets_before="$(count_sets)"
   run_backup selftest >"$logs/later.log" 2>&1
   rc=$?
   [ "$rc" = 0 ] && pass later-run-exit0 || fail later-run-exit0
   grep -q '^backup [^ ]*: complete at /backups/' "$logs/later.log" && pass later-complete-line || fail later-complete-line
+  load_sets
   [ "$(count_sets)" = "$((sets_before + 1))" ] && pass later-new-set || fail later-new-set
 )
 
