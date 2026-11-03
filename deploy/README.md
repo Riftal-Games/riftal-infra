@@ -268,6 +268,11 @@ recreates the database and clears the levels, `players/` and `plugin_data/`
 on every instance volume, and its rollback is this restore with the backup
 set taken just before the wipe. Every wipe of alpha or production data is Nasir's.
 
+Replacing one zone's level on a volume that already holds it is
+[`LEVEL-REPLACE.md`](LEVEL-REPLACE.md). Its first rollback is a rename of the old folder
+back, which touches nothing else; this restore is its fallback and discards the database
+and every volume with it. Every swap of alpha or production data is Nasir's.
+
 ## Binary log retention
 
 The shared database keeps its binary log for **30 days**
