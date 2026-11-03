@@ -33,6 +33,18 @@ world_tars=("$BACKUP_SET"/worlds/*.tar.gz)
 shopt -u nullglob
 [ "${#world_tars[@]}" -gt 0 ] || fail "no world tars found under $BACKUP_SET/worlds"
 
+# A set without the line was taken before the capture fence existed, so its
+# dump can hold a commit-first delivery whose item a held volume also holds
+# (docs/decisions/027, item 6). Refused before anything is touched unless the
+# operator accepts that copy.
+fenced=0
+if [ -r "$BACKUP_SET/manifest.txt" ] && grep -Eq '^capture_fence: [^ ]+$' "$BACKUP_SET/manifest.txt"; then
+  fenced=1
+fi
+if [ "$fenced" = 0 ] && [ "${ALLOW_UNFENCED_SET:-}" != "1" ]; then
+  fail "refused: the manifest has no capture_fence line, so this set may hold an item twice; set ALLOW_UNFENCED_SET=1 to restore it anyway"
+fi
+
 # Listed, not extracted: a truncated or otherwise corrupt tar fails `tar -t`
 # the same way it would fail `tar -x`, without writing anything. Checked for
 # every world before the database or any target directory is touched, so one
@@ -84,6 +96,17 @@ MYSQL_PWD="$MYSQL_PASSWORD" mysql --host="$MYSQL_HOST" --port="$MYSQL_PORT" \
   "DROP DATABASE IF EXISTS \`$MYSQL_DATABASE\`; CREATE DATABASE \`$MYSQL_DATABASE\`"
 MYSQL_PWD="$MYSQL_PASSWORD" mysql --host="$MYSQL_HOST" --port="$MYSQL_PORT" \
   --user="$MYSQL_USER" "$MYSQL_DATABASE" < "$BACKUP_SET/mysql.sql"
+
+# The dump holds the fence row raised by the run that took it, and inside that
+# lease every commit-first flow would answer capture_fenced.
+lower_fence() {
+  MYSQL_PWD="$MYSQL_PASSWORD" mysql --host="$MYSQL_HOST" --port="$MYSQL_PORT" \
+    --user="$MYSQL_USER" "$MYSQL_DATABASE" -e \
+    "UPDATE capture_fence SET request_id = NULL, raised_until = NULL WHERE id = 1"
+}
+if [ "$fenced" = 1 ]; then
+  lower_fence
+fi
 
 for tar_file in "${world_tars[@]}"; do
   name="$(basename "$tar_file" .tar.gz)"
