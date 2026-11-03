@@ -17,9 +17,9 @@ is on riftal-infra#1305. Where this file says "observed", the transcript shows i
 
 ## Names
 
-A zone name matches `^[a-z0-9_]+$` and contains none of `world`, `player` or `backup`
-(ADR 009 item 2). Every volume, container and network of a rehearsal starts with
-`riftal_smoke_` and contains none of those words either.
+A zone name matches `^[a-z0-9_]+$` (`instance-levels-check.sh`) and contains none of
+`world`, `player` or `backup` (ADR 009 item 2). Every volume, container and network of a
+rehearsal starts with `riftal_smoke_` and contains none of those words either.
 
 ## Preconditions
 
@@ -56,10 +56,9 @@ INSTANCE=<the instance container, from docker ps>
 BACKUP_SVC=<the backup container, or leave empty if none runs>
 ```
 
-A rehearsal sets `NET`, `DB`, `VOL`, `SETS` and `SRC` to `riftal_smoke_` names. The
-rehearsed instance was the core image tagged with the lock's `core_image`, with no game
-plugins, on a volume whose generated `lumber` stood in for the stack's generated
-`mine_a`.
+A rehearsal sets `NET`, `DB`, `VOL`, `SETS` and `SRC` to `riftal_smoke_` names. Its
+instance was the lock's `core_image` with no game plugins, on a volume whose generated
+`lumber` stood in for the stack's generated `mine_a`.
 
 ## Steps
 
@@ -144,11 +143,10 @@ does not list the volume stopped at the `manifest.txt` line. Fix the cause and r
 2 again, or go to step 5 then step 6. Nothing stands in for the set: not the build
 volume, not the `.replaced-` folder of step 3.
 
-Retention prunes the set `BACKUP_RETENTION - 1` intervals after step 6: 9 x 21600 s, 54
-hours at the defaults (`WIPE.md` step 3). Any other `backup.sh` run into the same
-`BACKUP_ROOT` brings that forward, and so does each start of the service, which backs up
-at once. A window that could outlast that copies the set out of `BACKUP_ROOT` before
-step 6, and where to is Nasir's call (`ROLLOUT.md`).
+Retention prunes the set `BACKUP_RETENTION - 1` intervals after step 6: 54 hours at the
+defaults (`WIPE.md` step 3). Any other `backup.sh` run into the same `BACKUP_ROOT` brings
+that forward, and so does each start of the service. A window that could outlast that
+copies the set out of `BACKUP_ROOT` before step 6, to where Nasir says (`ROLLOUT.md`).
 
 ### 3. Swap the folder
 
@@ -172,9 +170,6 @@ docker run --rm -m 1g --cpus 1 --user 1000:1000 \
     mv ".incoming-$ZONE-$STAMP" "$ZONE"
     echo "swapped $ZONE, old level at .replaced-$ZONE-$STAMP"'
 ```
-
-On production the source is the image layer at `/etc/riftal/levels/<zone>` of the tag
-being deployed (ADR 009 item 7), see Production.
 
 `STAMP` lives in this shell only. The last line prints it; every rollback needs it, so
 copy it into the new shell with `export STAMP=<stamp>`. If the line was lost, read the
@@ -226,8 +221,9 @@ docker run --rm -m 1g --cpus 1 -v "$VOL":/data:ro -v "$INFRA/designer/levels":/l
   echo "step 4 passed: tree $tree, content_sha256 $content"'
 ```
 
-It passes only on exit 0 and the `step 4 passed` line. An empty digest is refused, so a
-missing manifest cannot pass as two equal blanks. `content_sha256` is a hash of block
+It passes only on exit 0 and the `step 4 passed` line. A manifest without a digest is
+refused by the `holds no digest` line, and a missing one by the `sed` under `set -e`, so
+neither passes as two equal blanks. `content_sha256` is a hash of block
 states read through DesignBridge, which nothing on `main` recomputes from a folder: the
 check compares the build's own value with the lock. The tree hash proves the files are
 the ones the build published. A swap is not a seed, so no boot line carries
@@ -270,13 +266,17 @@ If one runs: `docker start "$BACKUP_SVC"` (under compose `docker compose -f
 "$INFRA/images/compose.yaml" start backup`). `backup-loop.sh` runs `backup.sh` at once, so
 the first set after the swap is taken then. Read its log for `complete at`.
 
+**Exit: the run failed `capture fence raise answered 'busy'`.** A live lease blocks it,
+after a whole-set rollback the one it restored. The loop logs it and sleeps
+`BACKUP_INTERVAL_SECONDS` (6 hours) with no set. Wait out `raised_until` (Rollback, whole
+set), then `docker restart "$BACKUP_SVC"`, which runs `backup.sh` at once (not rehearsed).
+
 ### 7. Settle the old folder
 
 `.replaced-<zone>-<stamp>` stays on the volume until Nasir removes it. So do
 `.rejected-<zone>-<stamp>` after a rollback and a `.incoming-<zone>-<stamp>` a failed copy
-left. While any exists it is inside every later set's volume tar (observed in the set
-taken after the exits above). The set from step 2 is the durable record whether or not
-the folders are kept. Nothing in the loop deletes them.
+left. While any exists it is inside every later set's volume tar (observed). The set from
+step 2 is the durable record either way. Nothing in the loop deletes them.
 
 ## Rollback
 
@@ -297,9 +297,8 @@ docker run --rm -m 1g --cpus 1 --user 1000:1000 -v "$VOL":/data -e ZONE -e STAMP
 ```
 
 Observed after both failed checks of step 4: the folder's tree hash equalled the one
-taken before the swap. The guards refuse with `no old level to put back` when
-`.replaced-` is absent and with `a leftover name exists` when `.rejected-` is present,
-each exit 1 with nothing moved.
+taken before the swap. The guards print `no old level to put back` when `.replaced-` is
+absent and `a leftover name exists` when `.rejected-` is present, exit 1, nothing moved.
 
 **After an instance ran on the new level.** The new level has been written to and players
 may have altered it. Choose with Nasir. First repeat step 1: a live server holds the
@@ -344,8 +343,20 @@ folder open, and a later save writes into whatever is at that path.
   Add a `-v` line for each volume in the set. Observed: it ended `complete, database
   ... and 1 world volume(s) rebuilt`, a table row written after step 2 read its step 2
   value again, `worlds/` held only `lumber`, and the folder equalled the step 1 level.
-  Run `../migrations/run-migrations.sh` afterwards for the logins, as `README.md` says.
-  The rehearsal database held no logins, so that was not run.
+  Run `../migrations/run-migrations.sh` afterwards for the logins (`README.md`); the
+  rehearsal database held none, so it was not run.
+
+  **The step 6 start waits.** The step 2 run dumped the database with the capture fence
+  raised, so the restored `capture_fence` row holds that lease and `backup.sh` answers
+  `busy` until it passes: at most `CAPTURE_FENCE_MAX_SECONDS` (1800 s) after the set's
+  timestamp. `restore.sh` does not lower it; riftal-infra#1100 does, and removes the wait.
+  Observed: the first run after the restore failed `busy`, and a run after `raised_until`
+  passed ended `complete at`. Start step 6 when `seconds_left` is 0 or less or NULL:
+
+  ```sh
+  docker run --rm -m 1g --cpus 1 --network "$NET" mysql:8 mysql -h mysql -uroot \
+    -p"$MYSQL_ROOT_PASSWORD" "$DB" -e 'SELECT raised_until, TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(3), raised_until) AS seconds_left FROM capture_fence WHERE id = 1'
+  ```
 
 ## Production
 
@@ -362,8 +373,7 @@ does it, rehearses it on that host or reads its volumes.
 - Before step 3, read `content_sha256` from the manifest in that layer, run from the new
   tag, and require it equal to the lock's. A tag whose layer disagrees with the lock is
   not deployed. Step 4 then checks the volume as above.
-- Rolling an image tag back never rolls a level back (ADR 009 item 7). A level goes back
-  by Rollback above, whatever the tag does.
+- Rolling an image tag back never rolls a level back (ADR 009 item 7); Rollback above does.
 - Every instance of the release stops, per `ROLLOUT.md`, since the whole-set rollback
   needs every session closed. A zone that is another instance's after a split is swapped
   on that instance's volume; two instances never list the same zone.
@@ -374,5 +384,4 @@ does it, rehearses it on that host or reads its volumes.
 The stack's boot chain and seed step, game plugins, a second instance volume, the compose
 `backup` service, `restore.sh` refusing on a connected session, the migrations run after
 a restore, a client joining, and production. The instance and the `backup` service never
-ran together in the rehearsal, because it held two containers at most; a real run stops
-both in step 1 and starts them in steps 5 and 6.
+ran together; a real run stops both in step 1 and starts them in steps 5 and 6.
