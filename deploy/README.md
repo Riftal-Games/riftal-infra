@@ -250,6 +250,19 @@ cannot see every session:
 
 The check reads the moment it runs. A session opened afterwards is not seen.
 
+`restore.sh` also refuses a set whose `manifest.txt` has no `capture_fence:`
+line, before it touches anything: `refused: the manifest has no capture_fence
+line, so this set may hold an item twice; set ALLOW_UNFENCED_SET=1 to restore it
+anyway`. Such a set predates the capture fence, so its dump can hold a
+commit-first delivery that a held volume also holds. `ALLOW_UNFENCED_SET=1`
+accepts that copy and restores the set as is, without lowering the fence.
+
+After it loads `mysql.sql` from a set that has the line, `restore.sh` runs
+`UPDATE capture_fence SET request_id = NULL, raised_until = NULL WHERE id = 1`
+as the admin account. The dump holds the row raised by the run that took the
+set, and until its lease ended every commit-first flow would answer
+`capture_fenced` and the next `backup.sh` run would answer `busy`.
+
 Wiping between MVPs is its own runbook, [`WIPE.md`](WIPE.md). It drops and
 recreates the database and clears the levels, `players/` and `plugin_data/`
 on every instance volume, and its rollback is this restore with the backup
@@ -559,6 +572,7 @@ image on the daemon.
 | `CAPTURE_FENCE_MAX_SECONDS` | no | `1800` | The capture fence's lease, from before the dump until every volume is verified. Must be above `CAPTURE_HOLD_MAX_SECONDS` and at most `3600`, or the run refuses to start |
 | `FENCE_TEST_STALL_SECONDS` | no | `0` | Seconds a run stalls between its dump and its capture request. Set only by the self-tests |
 | `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
+| `ALLOW_UNFENCED_SET` | no, `restore.sh` only | | `1` lets `restore.sh` restore a set whose manifest has no `capture_fence:` line. Any other value refuses it |
 | `WIPE_BACKUP_MAX_AGE_MINUTES` | no, `wipe.sh` only | `60` | Age past which `wipe.sh` refuses its `BACKUP_SET`, read from the manifest's `timestamp:` line. The set is taken with every instance stopped, just before the wipe, so an older one was likely taken while they still wrote |
 
 ## Concurrency
