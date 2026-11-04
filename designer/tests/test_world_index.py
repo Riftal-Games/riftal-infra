@@ -14,7 +14,7 @@ from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
 SPEC_WORLDS = {"mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm", "contested", "plots"}
-LEVEL_ZONES = ("lumber", "mine_a", "mine_b", "mine_c")
+LEVEL_ZONES = ("lumber", "mine_a", "mine_b")
 STAMP = "2026-09-07T12:00:00+00:00"
 
 

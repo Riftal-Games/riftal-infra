@@ -226,7 +226,7 @@
       "name": "mine_c",
       "rank": "C",
       "role": "ore_mine",
-      "seed": 23
+      "seed": 20260907
     },
     {
       "generator": "normal",
