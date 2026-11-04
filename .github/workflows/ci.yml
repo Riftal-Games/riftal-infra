@@ -254,6 +254,8 @@ jobs:
       - name: Migration runner self-test
         run: bash migrations/selftest.sh
 
+      # Builds images/backup and runs backup.sh in it, so the flock paths of the
+      # held capture run here. mysql:8 has no flock.
       - name: Backup job self-test
         run: bash deploy/selftest.sh
 
