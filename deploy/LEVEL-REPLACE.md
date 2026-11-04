@@ -346,7 +346,7 @@ live server holds the folder open, and a later save writes into whatever is at t
     -v "$INFRA/deploy:/deploy:ro" -v "$SETS":/backups:ro -v "$VOL":/worlds/"$VOL" \
     -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
     -e MYSQL_DATABASE="$DB" -e BACKUP_SET="/backups/$SET" \
-    mysql:8 bash /deploy/restore.sh
+    riftal-backup bash /deploy/restore.sh
   ```
 
   Add a `-v` line for each volume in the set. Observed in CI run 41706915821: it ended

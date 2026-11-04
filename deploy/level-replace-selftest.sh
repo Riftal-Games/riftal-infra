@@ -25,7 +25,10 @@ JOBS=7
 TREE='cd /data/worlds/mine_a && find . -type f -printf "%P\0" | LC_ALL=C sort -z | xargs -0 -r sha256sum -- | sha256sum | cut -d" " -f1'
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+# restore.sh tests server.lock with flock, which mysql:8 does not carry.
+RESTORE_IMG="riftal_smoke_lvr_img:$SUFFIX"
+trap 'rm -rf "$WORK"; docker image rm "$RESTORE_IMG" >/dev/null 2>&1' EXIT
+docker build -q -t "$RESTORE_IMG" "$SCRIPT_DIR/../images/backup" >/dev/null || { echo "building the backup image failed" >&2; exit 1; }
 
 # $1 scenario id, $2 the backup.sh to run, $3 the restore.sh to run. Prints one
 # "  ok" or "FAILCASE" line per case, in a fixed order.
@@ -78,7 +81,7 @@ scenario() (
       -v "$inst:/worlds/$inst" \
       -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
       -e MYSQL_DATABASE=riftal_selftest -e BACKUP_SET="/backups/$1" \
-      mysql:8 bash /deploy/restore.sh
+      "$RESTORE_IMG" bash /deploy/restore.sh
   }
 
   # The verification of step 2 of the runbook, as written there.
@@ -217,7 +220,7 @@ mutant restore-noop restore.sh \
   'echo "restore $BACKUP_SET: rebuilding database $MYSQL_DATABASE at $MYSQL_HOST:$MYSQL_PORT"' 'exit 0' \
   "restore-complete-line restore-row-at-set restore-level-tree restore-volume-rebuilt"
 mutant restore-merges-volume restore.sh \
-  'find "$target" -mindepth 1 -delete' 'true' \
+  'find "$target" -mindepth 1 ! -path "$target/server.lock" -delete' 'true' \
   "restore-level-tree restore-volume-rebuilt"
 mutant restore-loads-nothing restore.sh \
   '< "$BACKUP_SET/mysql.sql"' '< /dev/null' \

@@ -144,7 +144,7 @@ Before it:
    service.
 2. Run `restore.sh` with `BACKUP_SET` the recorded set, as in `README.md`,
    Running it locally. Success is `restore <set>: complete, database <db> and
-   <n> world volume(s) rebuilt` (`restore.sh:124`), `<n>` the count in the
+   <n> world volume(s) rebuilt` (`restore.sh:177`), `<n>` the count in the
    manifest's `world_volumes:`.
 3. Run `../migrations/run-migrations.sh`, which every restore needs for its
    grants and logins (`README.md`, Restore). The directories it is given
@@ -526,7 +526,7 @@ it:
 - Serial: nothing runs against the server, so every role, grant, login and
   password stays as that run left it.
 - By restore onto the same server: `restore.sh` drops and recreates only the
-  database (`restore.sh:94-96`). Roles, logins and their grants live in the
+  database (`restore.sh:145-147`). Roles, logins and their grants live in the
   `mysql` schema and stay, procedure grants included: on mysql:8 8.4.11,
   `mysql.tables_priv`, `columns_priv` and `procs_priv` held 12, 30 and 6 rows
   for the schema before the drop and the same after it. The pre-#454
