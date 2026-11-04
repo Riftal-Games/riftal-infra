@@ -1,8 +1,10 @@
 {
   "generator": "normal",
-  "seed": 20260907,
+  "seed": 23,
   "bounds": {"min": [-18, 38, -18], "max": [17, 52, 17]},
   "steps": [
-    {"build": "mine", "spec": "specs/mine_a.json", "palette": "mine_stone"}
+    {"build": "mine", "spec": "specs/mine_a.json", "palette": "mine_stone"},
+    {"build": "stairs", "spec": "specs/mine_a_access_south.json", "palette": "mine_stone"},
+    {"build": "stairs", "spec": "specs/mine_a_access_east.json", "palette": "mine_stone"}
   ]
 }

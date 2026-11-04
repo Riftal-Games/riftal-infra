@@ -43,8 +43,9 @@ read and written by `designer/level.py`.
   build runs only those, and needs at least one. Each must resolve against the built
   index, read the zone's world and pass. A check with no `zone` never gates a build.
 - `content_sha256` does not cover stairs written outside `bounds`, so lumber's
-  `lumber_spawn_to_surface` (`path_exists`, `world: lumber`) walks the built terrain from
-  the spawn to a cell on the exit's ground and fails the build when a leg ends short of it.
+  `lumber_spawn_to_surface` and `mine_a`'s `mine_a_spawn_to_surface` (`path_exists`, `world`
+  the zone) walk the built terrain from the spawn to a cell on the exit's ground and fail the
+  build when a leg ends short of it.
 - A zone listed under `worlds:` in riftal-game `mines/resources/config.yml` is built
   only when `checks.yaml` has a `mine_valid` with its `zone` on a spec one of the
   recipe's `mine` steps builds (ADR 014 item 7). The file is read from

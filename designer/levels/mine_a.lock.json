@@ -17,12 +17,14 @@
   "designbridge_commit": "0a3efec02ee80e1b0ff540d3c59aab5220fa449c",
   "generator": "normal",
   "inputs": {
-    "levels/mine_a.json": "687b66b6f213668cd4a36918822552258a659846959970f020630b5988d0b66c",
+    "levels/mine_a.json": "8d67fc0cec8bb9849bb2dee94ec8f0c92472252bc3db63ce512527b919cd36c3",
     "palette:mine_stone": "30c68b82e89822017f0173446c4f3fbd81ad3d470c9d57c8645cdfb292e33979",
-    "specs/mine_a.json": "bcc5a8ef0c02340f65d2e355256b147cbc5ab2e033e5184d7f3d92068adee13e"
+    "specs/mine_a.json": "bcc5a8ef0c02340f65d2e355256b147cbc5ab2e033e5184d7f3d92068adee13e",
+    "specs/mine_a_access_east.json": "4aa963b02bdeccb46b7dc3ac39a734a86c03a40149ea634046cd649b0271367c",
+    "specs/mine_a_access_south.json": "fe44cea8b193fe53f337be6c5ab40aa48fa8348e004807e60ffed43d333f2016"
   },
-  "seed": 20260907,
-  "size_bytes": 1416023,
-  "toolkit_commit": "6df4cc61cc0b95f99accdc3cef4eaeae5dbf233f",
+  "seed": 23,
+  "size_bytes": 901727,
+  "toolkit_commit": "c6860815b32062408636fa0f02c8c3f51b424aef",
   "zone": "mine_a"
 }

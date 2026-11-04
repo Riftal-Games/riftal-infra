@@ -1052,3 +1052,25 @@ join teleport takes the location name from its `join_teleport.location` setting 
 route of its own, so the name is the builder's, as `mine_a_spawn` is Mine A's. Setting the built
 level's own spawn was rejected: the lock does not cover it, and the index, the one file every
 plugin reads, would still hold no lumber arrival (#1355).
+
+## 2026-11-04 `mine_a` is sited on seed 23 and climbs from its spawn by two stairs legs
+
+On seed 20260907 the ground over `mine_a` is open ocean at y 62, so its exit lane ended in stone under
+the seabed and a join teleport to `mine_a_spawn` sealed a client underground (#1394). Seed 23, lumber's,
+is grass at y 63 to 65 across the whole yard and beyond. `mine_a`'s `world_index.json` entry and recipe
+take it; its mine spec keeps its own `seed` field, which seeds the ore roll and not the terrain.
+
+Two `stairs` steps climb 13 rows south from the lane's last cell `(0, 39, 23)` and 11 rows east, to a
+last tread at y 63, flush with the grass top at `(11, 36)`. A tread one cell higher would stand 1.0
+above that grass. They are one block wide, unlike lumber's: a stairs step clears its base row to its
+whole width, and the lane's last row holds the sell and rank-up signs at x -1 and 1, which a three-wide
+base row erased. `tests/test_mine_a_access.py` pins the signs. The legs lie in the chunks `pregen`
+populates around the recipe box.
+
+`bounds` stays the mine's own box. Widening it to z 23, to put the exit platform in `content_sha256`,
+reaches the stone beside the lane, which is natural terrain: two builds of the same recipe on one engine
+differed in 29 cells (dirt and gravel pockets at x 16 to 17, z 19 to 23, y 47 to 51) and so in the hash.
+The platform and the stairs are outside it, so `mine_a_spawn_to_surface` (`path_exists`,
+`zone: mine_a`) walks the built terrain from the spawn to `(13, 64, 36)`. The two `travel_time` checks
+and `warp_safe` carry `zone: mine_a` and gate the build too. `entity_clear` on `sell_npc_a` stays
+zoneless until the mine builder clears the NPC cells (#1395).
