@@ -12,7 +12,7 @@ The world-split. This is the core scaling operation on RiftalGames. Rehearse it 
 ## Preconditions
 
 - [ ] Which world is moving, and which instance currently serves it.
-- [ ] A backup of the shared database, taken and verified restorable. On a fresh database the `backup` login exists only after a runner pass with `RIFTAL_DB_PASSWORD_BACKUP` set, so first do a provision-only pass: `migrations/run-migrations.sh` with `MIGRATIONS_DIR` pointed at a path that does not exist and only that password variable set, as `deploy/restore-selftest.sh`'s `provision_backup_login` does.
+- [ ] A backup of the shared database, taken and verified restorable. A fresh database has nothing to back up: skip this, and the runner pass in section 4, with `RIFTAL_DB_PASSWORD_BACKUP` among its passwords, provisions the `backup` login and its `EXECUTE` grant on the capture fence procedures. A login provisioned without `grants.sql` cannot raise the fence, and `deploy/backup.sh` stops before the dump (`deploy/README.md`).
 - [ ] A backup of the world directory.
 - [ ] Discord announcement posted for the window.
 - [ ] An `instance_id` chosen for the new instance. Short, stable, never reused: `mine-h`, `plots-1`, `contested`.
@@ -26,9 +26,10 @@ Instances are containers from one shared image. There is no host to build and no
 - [ ] Mount the plugin phars for this instance's worlds. An instance loads only the plugins it needs, but the shared library version must match everywhere, because they share a schema.
 - [ ] Mount the world directory on a volume. Never in the container layer. A world in a container layer is a world that a redeploy destroys.
 - [ ] Join it to the stack network.
-- [ ] Downstream config, both required, carried as flags in `POCKETMINE_ARGS` (flags beat `server.properties` and `pocketmine.yml`, `ServerConfigGroup.php:48` and `:98`):
+- [ ] Downstream config, all three required, carried as flags in `POCKETMINE_ARGS` (flags beat `server.properties` and `pocketmine.yml`, `ServerConfigGroup.php:48` and `:98`):
   - `--xbox-auth=false`
   - `--player.verify-xuid=0` (`0`, not `false`: the flag's string is cast, and `(bool)"false"` is true)
+  - `--auto-report.enabled=0`, so crash dumps, which carry config and player data, stay off the public crash archive. Also `0`, never `false`, for the same cast (`images/compose.yaml`, `instance`).
 - [ ] **Do not publish the instance port to a host interface.** It is reachable on the container network by the proxy and by nothing else. The instance is in offline mode and must never be publicly reachable. Under containers this is a publish decision rather than a firewall rule, which makes it easier to get wrong and easier to fix.
 
 If this step feels like it is taking real time, something has drifted. Adding an instance should be a config directory plus a container run. That was the reason for the container decision.
@@ -51,7 +52,7 @@ If this step feels like it is taking real time, something has drifted. Adding an
 
 - [ ] Same MySQL credentials, same database, as every other instance. There is no per-instance database.
 - [ ] Set `instance_id` in the instance config to the id chosen above. Rows representing this world's state will carry it.
-- [ ] Confirm the schema is current: the instance must not boot against a database with pending migrations. Run `migrations/run-migrations.sh` first, with `GRANTS_FILE` and every `RIFTAL_DB_PASSWORD_<NAME>`, the new instance's plugin logins included. Its last phase provisions them (`migrations/README.md`, Provisioning logins). Run it again after every `restore.sh`, since a dump carries no roles or logins.
+- [ ] Confirm the schema is current: the instance must not boot against a database with pending migrations. Run `migrations/run-migrations.sh` first, with `GRANTS_FILE` and every `RIFTAL_DB_PASSWORD_<NAME>`, `RIFTAL_DB_PASSWORD_BACKUP` and the new instance's plugin logins included. Its last phase provisions them (`migrations/README.md`, Provisioning logins). Run it again after every `restore.sh`, since a dump carries no roles or logins.
 
 ## 5. Verify
 

@@ -29,9 +29,10 @@ wslc stop <name> && wslc remove <name>
 
 `wslc run` takes `-d`, `-i`, `--rm`, `--name`, `--network`, `--network-alias`,
 `-p`, `-v`, `-e`, `--memory` and `--cpus`, as the steps below use them. Every
-`wslc run` there that starts a line is held to its `images/compose.yaml`
-service by `.github/scripts/wslc-drift.sh`, so this list names no template
-form of it.
+`wslc run` there that starts a line has to match its `images/compose.yaml`
+service, and `.github/scripts/wslc-drift.sh .claude/skills/dev-stack/SKILL.md`
+checks that by hand, so this list names no template form of it. CI runs the
+script against `docs/dev-stack-two-instance.md` only.
 
 All of it was exercised on 2026-09-12, WSL 2.9.4.0, by the bring-up below.
 `--network-alias` especially: the decision log's 2026-09-07 entry lists a
@@ -225,8 +226,9 @@ timeout 120 wslc run --rm --memory 1G --cpus 1 --network riftal-dev \
 
 ### 5. Instance
 
-This is compose's `instance` service by hand, and `.github/scripts/wslc-drift.sh`
-holds it to compose flag for flag. `dev-stack.ps1` refuses to start an instance
+This is compose's `instance` service by hand, flag for flag. CI does not check
+it: after editing this run or compose, run `.github/scripts/wslc-drift.sh` on
+this file by hand. `dev-stack.ps1` refuses to start an instance
 that differs from it (riftal-pm's `devtools/instance-shape.js`, `check wslc`):
 no `--auto-report.enabled=0`, no `INSTANCE_ID`, login password, index or level
 mount, a different command, or a UDP publish on anything but `127.0.0.1`. The

@@ -23,16 +23,16 @@ The proxy goes last because it is the gate that admits clients. Opening the gate
 - [ ] The image is built and pushed to the registry before the window opens. Never build during a rollout, and never build on a host that runs instances.
 - [ ] Confirm `pmmp-core` passed its boot test and `riftal-game` passed `/test-server`. Deployment does not discover bugs, it ships verified builds.
 - [ ] Every instance will run the same core tag and the same shared library version when this finishes. Mixed library versions against one schema is a data bug.
-- [ ] Database backup taken. Confirm the file exists and its size is plausible. On a fresh database the `backup` login exists only after a runner pass with `RIFTAL_DB_PASSWORD_BACKUP` set, so first do a provision-only pass: `migrations/run-migrations.sh` with `MIGRATIONS_DIR` pointed at a path that does not exist and only that password variable set, as `deploy/restore-selftest.sh`'s `provision_backup_login` does. Take the backup after it.
+- [ ] Database backup taken. Confirm the file exists and its size is plausible. A fresh database has nothing to back up: skip this, and the stage 1 runner pass, with `RIFTAL_DB_PASSWORD_BACKUP` among its passwords, provisions the `backup` login and its `EXECUTE` grant on the capture fence procedures. A login provisioned without `grants.sql` cannot raise the fence, and `deploy/backup.sh` stops before the dump (`deploy/README.md`).
 - [ ] Announce in Discord: what is changing, when the window starts, how long it should take. For a protocol update, announce before work begins, not at rollout.
 - [ ] Rollback path written down for every stage below, including which backup restores what. For instances and the proxy this is the previous image tag, and it must still be in the registry. Confirm that, do not assume it.
 
 ## Stage 1: Database migrations
 
-- [ ] Take the backup if not already taken, after the provision-only pass above on a fresh database.
+- [ ] Take the backup if not already taken. On a fresh database there is none to take.
 - [ ] Review pending migrations. Confirm each is additive. A migration that drops or renames a column while old instances are still running will take them down mid-rollout.
 - [ ] Run `deploy/grants-revoke-check.sh` with the `grants.sql` about to be applied, the new tag, and a `<tag>=<grants.sql>` for every other tag a running or stopped container or an instance definition names, once per machine's container runtime. Stop on any refusal or exit 2 (`deploy/README.md`, Grants REVOKE check).
-- [ ] Apply migrations with `migrations/run-migrations.sh`, `MIGRATIONS_DIR` and `GRANTS_FILE` taken from the riftal-game commit the release's plugins were built from, and every `RIFTAL_DB_PASSWORD_<NAME>` set. The runner takes a MySQL named lock so simultaneous boots cannot race, and its last phase provisions the logins (`migrations/README.md`, Provisioning logins).
+- [ ] Apply migrations with `migrations/run-migrations.sh`, `MIGRATIONS_DIR` and `GRANTS_FILE` taken from the riftal-game commit the release's plugins were built from, and every `RIFTAL_DB_PASSWORD_<NAME>` set, `RIFTAL_DB_PASSWORD_BACKUP` included. The runner takes a MySQL named lock so simultaneous boots cannot race, and its last phase provisions the logins (`migrations/README.md`, Provisioning logins).
 - [ ] Verify `schema_migrations` lists everything expected and nothing unexpected.
 
 **Rollback:** additive migrations need no rollback, leave them. For a destructive migration, restore from the backup, which means the whole window restarts. This is exactly why migrations are additive. After `restore.sh`, run the runner again with the same variables: a dump carries no roles or logins (`deploy/README.md`, Restore; `deploy/ROLLOUT.md`, When a restore is a rollback, step 3).
