@@ -26,7 +26,7 @@ BACKUP_IMG="riftal-backup-selftest:$SUFFIX"
 LOGS="$(mktemp -d)"
 
 cleanup() {
-  docker rm -f -v "$MYSQL_CONTAINER" "$HOLDER" >/dev/null 2>&1 || true
+  docker rm -f -v "$MYSQL_CONTAINER" "$HOLDER" "$RUN_NAME_SHIM" "$RUN_NAME_KILLED" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" "$CAPTURE_VOL" >/dev/null 2>&1 || true
   docker image rm "$BACKUP_IMG" >/dev/null 2>&1 || true
@@ -74,7 +74,7 @@ docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=78
+EXPECTED_ASSERTIONS=82
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -851,7 +851,7 @@ docker exec "$MYSQL_CONTAINER" bash -c "mkdir -p $INSTANCE/worlds/w $INSTANCE/pl
 # $1 a name (letters only), $2 held, free or absent, $3 a command run in the
 # instance container once the stage is cleared. Sets state_rc and state_log.
 state_run() {
-  local id="state-$1"
+  local id="${STATE_ID:-state-$1}"
   set_lock "$2"
   fence_reset
   docker exec "$MYSQL_CONTAINER" bash -c "$3"
@@ -887,6 +887,61 @@ for stale in otherdir wrongid; do
     fail "expected a failed run and no set for a stale ack ($stale), got rc=$state_rc"; cat "$state_log"
   fi
 done
+
+# $1 the script to run, backup.sh when empty. An absent server.lock beside this
+# request's ack is retested until the ack timeout, so the run must last at
+# least that long.
+stale_ack_run() {
+  local start=$SECONDS
+  stale_before="$(set_count)"
+  BACKUP_SCRIPT="$1" state_run staleack absent \
+    "mkdir -p $INSTANCE/.capture/state-staleack && printf 'state-staleack\n1\n' > $INSTANCE/.capture/state-staleack/ack"
+  stale_secs=$((SECONDS - start))
+}
+stale_ack_ok() {
+  [ "$state_rc" != 0 ] && [ "$(set_count)" = "$stale_before" ] && [ "$stale_secs" -ge 3 ] \
+    && grep -qF "after 3s it shows a server.lock or an ack for request state-staleack that no running instance holds" "$state_log"
+}
+
+stale_ack_run ""
+if stale_ack_ok; then
+  pass "an ack with no server.lock is retested for the whole timeout, then fails the run with its reason and writes no set"
+else
+  fail "expected a failed run after 3s and no set for an ack beside an absent lock, got rc=$state_rc in ${stale_secs}s"; cat "$state_log"
+fi
+
+# A refused id never reaches the fence or the dump, so nothing is written.
+bad_id_run() {
+  bad_before="$(set_count)"
+  STATE_ID='bad:id' BACKUP_SCRIPT="$1" state_run badid held :
+}
+bad_id_ok() {
+  [ "$state_rc" != 0 ] && [ "$(set_count)" = "$bad_before" ] \
+    && grep -qF "request id 'bad:id' is outside RiftalCapture's grammar, no instance would ack it" "$state_log" \
+    && ! grep -qE 'capture fence raised|dumping database' "$state_log"
+}
+
+bad_id_run ""
+if bad_id_ok; then
+  pass "a request id outside RiftalCapture's grammar is refused before the fence, the dump or any set"
+else
+  fail "expected a refused id and no set, got rc=$state_rc"; cat "$state_log"
+fi
+
+mutate staleack 1 -e 's| && ! listed "\$listing" "\.capture/\$request_id/ack"||'
+stale_ack_run "$mutant"
+if stale_ack_ok; then
+  fail "the staleack mutant should turn the stale ack case red"
+else
+  pass "mutant staleack: the stale ack case goes red (rc=$state_rc, ${stale_secs}s)"
+fi
+mutate badid 1 -e 's#^  || fail "request id .*$#  || true#'
+bad_id_run "$mutant"
+if bad_id_ok; then
+  fail "the badid mutant should turn the request id case red"
+else
+  pass "mutant badid: the request id case goes red (rc=$state_rc)"
+fi
 
 section "a file changed during a tar: the tar's exit and the listings decide, with the write and the exit fixed by a tar shim"
 TAR_SHIM="$LOGS/tar-shim"
@@ -1023,4 +1078,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, no lock visible during a claim, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure, the capture fence closing the copy under three mutants, failed runs lowering the fence, the lock test and stale acks, tar exits and writes under five mutants.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, no lock visible during a claim, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure, the capture fence closing the copy under three mutants, failed runs lowering the fence, the lock test, stale acks and ids outside the grammar under two mutants, tar exits and writes under five mutants.\n' "$PASSES"
