@@ -113,14 +113,11 @@ def test_the_committed_surface_check_ends_where_the_stairs_do(mine: MineSpec, le
     assert tuple(int(v) for v in entry["to"].split(",")) == _goal(legs)
 
 
-# Zoneless until the mine builder clears the NPC cells (#1395).
-ZONELESS_UNTIL_1395 = {("entity_clear", "sell_npc_a")}
-
-
 def test_every_check_naming_a_mine_a_location_runs_in_the_mine_a_build(mine: MineSpec) -> None:
     names = {l["name"] for l in build_mine(mine, Palette.load("mine_stone")).extras["locations"]}
     checks = yaml.safe_load(CHECKS.read_text(encoding="utf-8"))["checks"]
     naming = [c for c in checks if names & {c.get(key) for key in ("from", "to", "at")}]
-    assert {c["check"] for c in naming} >= {"travel_time", "warp_safe", "path_exists"}
-    unzoned = [c for c in naming if c.get("zone") != "mine_a" and (c["check"], c.get("at")) not in ZONELESS_UNTIL_1395]
+    assert {c["check"] for c in naming} >= {"travel_time", "warp_safe", "path_exists", "entity_clear"}
+    assert {c["at"] for c in naming if c["check"] == "entity_clear"} == {"sell_npc_a", "rankup_npc_a"}
+    unzoned = [c for c in naming if c.get("zone") != "mine_a"]
     assert unzoned == []

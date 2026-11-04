@@ -22,7 +22,11 @@ checks:
     from: mine_a_spawn
     to: "13,64,36"
   - check: entity_clear
+    zone: mine_a
     at: sell_npc_a
+  - check: entity_clear
+    zone: mine_a
+    at: rankup_npc_a
   - check: mine_valid
     zone: mine_a
     region: mine_a
