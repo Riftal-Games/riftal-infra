@@ -25,10 +25,11 @@ JOBS=7
 TREE='cd /data/worlds/mine_a && find . -type f -printf "%P\0" | LC_ALL=C sort -z | xargs -0 -r sha256sum -- | sha256sum | cut -d" " -f1'
 
 WORK="$(mktemp -d)"
-# restore.sh tests server.lock with flock, which mysql:8 does not carry.
-RESTORE_IMG="riftal_smoke_lvr_img:$SUFFIX"
-trap 'rm -rf "$WORK"; docker image rm "$RESTORE_IMG" >/dev/null 2>&1' EXIT
-docker build -q -t "$RESTORE_IMG" "$SCRIPT_DIR/../images/backup" >/dev/null || { echo "building the backup image failed" >&2; exit 1; }
+# backup.sh and restore.sh test server.lock with flock, which mysql:8 does not
+# carry. A restore leaves a server.lock in the volume, so every run after one needs it.
+BACKUP_IMG="riftal_smoke_lvr_img:$SUFFIX"
+trap 'rm -rf "$WORK"; docker image rm "$BACKUP_IMG" >/dev/null 2>&1' EXIT
+docker build -q -t "$BACKUP_IMG" "$SCRIPT_DIR/../images/backup" >/dev/null || { echo "building the backup image failed" >&2; exit 1; }
 
 # $1 scenario id, $2 the backup.sh to run, $3 the restore.sh to run. Prints one
 # "  ok" or "FAILCASE" line per case, in a fixed order.
@@ -72,7 +73,7 @@ scenario() (
       -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$1" \
       -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION=10 \
       -e CAPTURE_HOLD_MAX_SECONDS=2 -e CAPTURE_FENCE_MAX_SECONDS=600 \
-      mysql:8 bash /deploy/backup.sh
+      "$BACKUP_IMG" bash /deploy/backup.sh
   }
 
   run_restore() {
@@ -81,7 +82,7 @@ scenario() (
       -v "$inst:/worlds/$inst" \
       -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
       -e MYSQL_DATABASE=riftal_selftest -e BACKUP_SET="/backups/$1" \
-      "$RESTORE_IMG" bash /deploy/restore.sh
+      "$BACKUP_IMG" bash /deploy/restore.sh
   }
 
   # The verification of step 2 of the runbook, as written there.

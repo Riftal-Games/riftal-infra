@@ -80,7 +80,9 @@ name is never `riftal_dev`: see the section "`riftal_dev` and the wipe's
 Every instance has stopped cleanly: `stop` on stdin, then its shutdown line.
 
 1. Run `backup.sh` once, with one read-only mount per instance world volume,
-   the same list the `backup` service mounts in `../images/compose.yaml`:
+   the same list the `backup` service mounts in `../images/compose.yaml`. The
+   image is `riftal-backup` (`README.md`, Running it locally), because
+   `backup.sh` takes `flock` on a `server.lock`, which `mysql:8` does not carry:
 
    ```sh
    timeout 120 wslc run --rm --network riftal-dev \
@@ -90,7 +92,7 @@ Every instance has stopped cleanly: `stop` on stdin, then its shutdown line.
      -v riftal-world-b:/worlds/riftal-world-b:ro \
      -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
      -e MYSQL_DATABASE=riftal_dev -e BACKUP_RETENTION="${BACKUP_RETENTION:-10}" \
-     mysql:8 bash /deploy/backup.sh
+     riftal-backup bash /deploy/backup.sh
    ```
 
 2. Read its log. Success is `backup <ts>: complete at <set>`, for example
