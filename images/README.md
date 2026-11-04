@@ -112,8 +112,8 @@ The designer file is the deploy's index. RiftalRanks and RiftalRiots also bundle
 `resources/world_index.json` and read that one until riftal-game#208 switches
 them to their data folder; from then the delivered copy is what they read.
 RiftalEconomy bundles none; its sell shop reads the delivered copy.
-RiftalMines bundles none either; its join teleport, once
-`join_teleport.enabled` is on, reads the delivered copy and rejects every join
+RiftalMines bundles none either; its join teleport, which the instance's
+rendered config switches on, reads the delivered copy and rejects every join
 without it. RiftalMines loads on `instance` alone, so on `instance-b` that copy
 sits unread. RiftalGangs bundles none; it finds the contested mine in the
 delivered copy and refuses to enable without it. RiftalPlots reads its
@@ -123,26 +123,34 @@ changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
 path. A `wslc run` of either instance needs the same `-v` and command.
 
-## The lumber level
+## The built levels
 
 `instance` runs `plugins/seed-levels.sh` straight after the delivery above,
-with `RIFTAL_LEVEL_ZONES=lumber`, and mounts the named volume
-`riftal_smoke_level_lumber` read-only at `/etc/riftal/levels/lumber`
-(ADR 009 items 5 and 6). When `/data/worlds/lumber` is absent the step checks
+with `RIFTAL_LEVEL_ZONES="lumber mine_a"`, and mounts the named volumes
+`riftal_smoke_level_lumber` and `riftal_smoke_level_mine_a` read-only at
+`/etc/riftal/levels/lumber` and `/etc/riftal/levels/mine_a`
+(ADR 009 items 5 and 6). When `/data/worlds/<zone>` is absent the step checks
 the mounted level against its `level-manifest.json`, copies it onto
 `riftal-world` as uid 1000 and logs the `content_sha256` it seeded; when the
-folder exists it logs `lumber present` and changes nothing. `instance-b` sets
+folder exists it logs `<zone> present` and changes nothing. `instance-b` sets
 no zone list, mounts no level and does not run the step.
 
-`designer level build lumber` fills the volume (`../designer/levels/README.md`),
-and the volume is declared `external: true`, so `docker compose up` never
+`designer level build <zone>` fills each volume (`../designer/levels/README.md`),
+and each volume is declared `external: true`, so `docker compose up` never
 creates it empty. A volume that is missing stops `up` naming it. One that is
 empty or was never fully built stops the boot before PocketMine starts, with
 the `seed-levels:` line that names
-`riftal_smoke_level_lumber` and `designer level build lumber`. Stop and remove
-`instance` before a rebuild: the build refuses a volume a container mounts. The
+`riftal_smoke_level_<zone>` and `designer level build <zone>`. Stop and remove
+`instance` before a rebuild: the build refuses a volume a container mounts. A
 volume is a cache, and losing it costs one build run. A `riftal-world` that
-already holds `lumber`, generated or built, is never reseeded.
+already holds a zone, generated or built, is never reseeded.
+
+`instance` boots `--level-name=mine_a`, so a `riftal-world` that has booted
+before already holds a generated `mine_a`, which the step leaves alone. The
+built one reaches it through `../deploy/LEVEL-REPLACE.md`, an operator
+procedure. The join teleport sends every join to `mine_a_spawn`, at the end of
+the built level's exit lane, so on that volume the switch is meaningful only
+after the swap. A fresh `riftal-world` is seeded with the built level directly.
 
 `riftal-pm`'s `devtools/instance-shape.js` mirrors `instance`'s command, mount
 destinations and environment names for the `wslc` bring-up, so a change to any

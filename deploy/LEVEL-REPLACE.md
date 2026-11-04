@@ -64,9 +64,10 @@ BACKUP_SVC=<the backup container, or leave empty if none runs>
 treehash() { docker run --rm -m 1g --cpus 1 -v "$VOL":/data:ro -e ZONE mysql:8 bash -c 'cd "/data/worlds/$ZONE" && find . -type f -printf "%P\0" | LC_ALL=C sort -z | xargs -0 -r sha256sum -- | sha256sum | cut -d" " -f1'; }
 ```
 
-`mine_a` has no lock, so it is not a `ZONE` here. Define `treehash` in every new shell. A
-rehearsal sets `NET`, `DB`, `VOL`, `SETS` and `SRC` to `riftal_smoke_` names, runs the
-lock's `core_image` with no game plugins, and uses `lumber` for `mine_a`.
+`mine_a` is a `ZONE` here: its lock is `../designer/levels/mine_a.lock.json` and its build
+volume `riftal_smoke_level_mine_a`. Define `treehash` in every new shell. A rehearsal sets
+`NET`, `DB`, `VOL`, `SETS` and `SRC` to `riftal_smoke_` names, runs the lock's `core_image`
+with no game plugins, and uses `lumber` for `mine_a`.
 
 ## Steps
 
