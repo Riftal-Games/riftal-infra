@@ -108,9 +108,9 @@ read-only at `/etc/riftal/world_index.json` and start through
 `/data/plugin_data/RiftalEconomy/`, `/data/plugin_data/RiftalMines/`, `/data/plugin_data/RiftalGangs/` and
 `/data/plugin_data/RiftalPlots/` on every
 boot, as uid 1000, before handing over to the instance's own start script.
-The designer file is the deploy's index. RiftalRanks and RiftalRiots also bundle a
-`resources/world_index.json` and read that one until riftal-game#208 switches
-them to their data folder; from then the delivered copy is what they read.
+The designer file is the deploy's index. RiftalRanks and RiftalRiots bundle none;
+Ranks gates mine entry and finds its rank-up markers in the delivered copy, Riots
+reads its safe zones from it, and each refuses to enable without it.
 RiftalEconomy bundles none; its sell shop reads the delivered copy.
 RiftalMines bundles none either; its join teleport, which the instance's
 rendered config switches on, reads the delivered copy and rejects every join
