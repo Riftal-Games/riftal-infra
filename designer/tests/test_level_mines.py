@@ -91,7 +91,7 @@ def test_one_mine_step_builds_and_writes_a_lock(bridge: Bridge, root: Path, zone
     assert json.loads(_build(bridge, root, zone).read_text(encoding="utf-8"))["zone"] == zone
 
 
-@pytest.mark.parametrize("zone", ["mine_a", "lumber"])
+@pytest.mark.parametrize("zone", ZONES)
 def test_a_mine_dug_into_terrain_builds_with_its_exit_lane_clear(fake: FakeBridge, bridge: Bridge, root: Path, zone: str) -> None:
     # Stone up to the surface at y 63 buries the whole mine, as a generated world does.
     fake.worlds[zone] = FakeWorld(extent=((-64, -64), (64, 64)))
@@ -118,13 +118,13 @@ def _with_stairs(root: Path, fake: FakeBridge, zone: str, last_rise: int | None 
         east.write_text(json.dumps({**json.loads(east.read_text(encoding="utf-8")), "rise": last_rise}), encoding="utf-8")
 
 
-@pytest.mark.parametrize("zone", ["mine_a", "lumber"])
+@pytest.mark.parametrize("zone", ZONES)
 def test_a_zone_builds_with_its_stairs_when_the_path_check_reaches_the_ground(fake: FakeBridge, bridge: Bridge, root: Path, zone: str) -> None:
     _with_stairs(root, fake, zone)
     assert json.loads(_build(bridge, root, zone, checks=_stone_sign_checks(root)).read_text(encoding="utf-8"))["zone"] == zone
 
 
-@pytest.mark.parametrize("zone", ["mine_a", "lumber"])
+@pytest.mark.parametrize("zone", ZONES)
 def test_a_last_leg_that_ends_under_the_ground_refuses_the_build(fake: FakeBridge, bridge: Bridge, root: Path, zone: str) -> None:
     _with_stairs(root, fake, zone, last_rise=8)
     _refused(bridge, root, zone, rf"{zone}_spawn_to_surface: ", checks=_stone_sign_checks(root))
