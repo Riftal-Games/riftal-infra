@@ -63,6 +63,46 @@ fence lapsed` and no set is produced. The manifest gains `capture_fence:
 - `deploy/fence-fixture.sql` is a copy of the table and the two procedures that
   the self-tests load into their throwaway databases.
 
+## The held capture
+
+`backup.sh` never tars a running instance live (riftal-pm ADR 015). After the
+dump it writes `/capture/request` on the `riftal-capture` volume, holding a
+request id and a lease deadline of `CAPTURE_HOLD_MAX_SECONDS`, and
+`RiftalCapture` on each instance holds one tick for it: it saves, stages its
+`players/` under `.capture/<request id>/` on the instance's own volume and
+writes `.capture/<request id>/ack` there. Per volume under `WORLDS_DIR`, the
+run tests `server.lock` with `flock -xn` on the read-only mount:
+
+- **Held.** The instance is running and must ack within
+  `CAPTURE_ACK_TIMEOUT_SECONDS`. One that does not, because it lacks the
+  plugin, is hung, or only left an ack for another request id, fails the run
+  naming the volume. The volume's tar leaves out `players/` and `.capture/` and
+  stores the staged copy as `players/`. The manifest says
+  `capture_mode.<volume>: held <request id>`.
+- **Free, or `server.lock` absent.** The instance is down. The tar is the volume
+  as it lies and the manifest says `capture_mode.<volume>: stopped`.
+
+Each volume is listed by name, size and mtime before and after its tar. A
+listing that differs, or a `tar` exit that counts as a change, discards the tar
+and tars the volume once more under the same request. A second change fails the
+run and writes no set. The log names every entry in one listing and not the
+other, and each volume's `tar` exit status.
+
+Both modes need util-linux `flock`, which `mysql:8` does not carry, so the
+`backup` service runs in the image built from `../images/backup`
+(`ubuntu:24.04` plus the MySQL client), tagged `riftal-backup`.
+
+`selftest.sh` builds that image and runs `backup.sh` in it. Its holder
+container takes a shared `flock` on `server.lock` as core does, and a shell
+responder plays `RiftalCapture`. It covers a held volume with and without an
+ack, an ack for another request id or with another id inside it, a free lock and
+an absent one. A `tar` shim first on `PATH` runs the image's own `tar`, then
+waits until the test has made one write to the volume, then exits with a chosen
+status. That fixes both the write and the exit status, so no timing is left to
+chance: item-free writes on a held volume, a level file written on a held
+volume, `server.log` and `plugin_data/` writes on a down volume, exit 2 and a
+signal. Each of five mutants of `backup.sh` must turn its case red.
+
 ## The dump login
 
 `backup.sh` dumps as the login `backup`, whose password is
@@ -575,6 +615,11 @@ image on the daemon.
 | `PARTIAL_MAX_AGE_MINUTES` | no | `360` | Age past which a leftover `.partial` is swept |
 | `LOCK_MAX_AGE_MINUTES` | no | `90` | Age past which a held `.lock` is presumed abandoned and swept |
 | `CAPTURE_FENCE_MAX_SECONDS` | no | `1800` | The capture fence's lease, from before the dump until every volume is verified. Must be above `CAPTURE_HOLD_MAX_SECONDS` and at most `3600`, or the run refuses to start |
+| `CAPTURE_DIR` | no | `/capture` | Where the capture request is written: the `riftal-capture` volume, read-write here and read-only in every instance |
+| `CAPTURE_ACK_TIMEOUT_SECONDS` | no | `60` | How long a held volume has to ack before the run fails |
+| `CAPTURE_HOLD_MAX_SECONDS` | no | `900` | The request's lease. Must cover the longest tar, retry included |
+| `CAPTURE_TEST_STALL_SECONDS` | no | `0` | Seconds a run stalls between the acks and the tars. Set only by the self-tests and proof runs |
+| `CAPTURE_TEST_REQUEST_ID` | no | the run's timestamp | The request id. Set only by the self-tests |
 | `FENCE_TEST_STALL_SECONDS` | no | `0` | Seconds a run stalls between its dump and its capture request. Set only by the self-tests |
 | `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
 | `ALLOW_UNFENCED_SET` | no, `restore.sh` only | | `1` lets `restore.sh` restore a set whose manifest has no `capture_fence:` line. Any other value refuses it |
@@ -617,22 +662,31 @@ MSYS_NO_PATHCONV=1 wsl -d Ubuntu-26.04 -u runner --exec bash \
 Each selftest run writes its logs to its own
 `mktemp -d` directory and removes it on exit, so concurrent runs on one host
 do not clobber each other. One backup run by hand, against the dev
-stack's own throwaway data, after `riftal-mysql` is up:
+stack's own throwaway data, after `riftal-mysql` is up. It runs in the
+`riftal-backup` image, which `mysql:8` cannot stand in for, and mounts
+`riftal-capture` read-write, since the run writes its request there. Build the
+image once, from `images/backup`, if the stack has not:
 
 ```sh
 export MSYS_NO_PATHCONV=1
 INFRA=C:/Users/nasir/riftal-games/riftal-infra
 set -a; . "$INFRA/images/.env"; set +a
 
-wslc run --rm --network riftal-dev \
+timeout 300 wslc build -t riftal-backup "$INFRA/images/backup"
+
+timeout 120 wslc run --rm --network riftal-dev \
   -v "$INFRA/deploy:/deploy:ro" \
   -v riftal-backups:/backups \
+  -v riftal-capture:/capture \
   -v riftal-world:/worlds/riftal-world:ro \
   -v riftal-world-b:/worlds/riftal-world-b:ro \
   -e MYSQL_HOST=mysql -e MYSQL_USER=backup -e MYSQL_PASSWORD="$RIFTAL_DB_PASSWORD_BACKUP" \
   -e MYSQL_DATABASE=riftal_dev -e BACKUP_RETENTION="${BACKUP_RETENTION:-10}" \
-  mysql:8 bash /deploy/backup.sh
+  riftal-backup bash /deploy/backup.sh
 ```
+
+An instance running without `RiftalCapture` fails this run after
+`CAPTURE_ACK_TIMEOUT_SECONDS`, which is the intended failure.
 
 And the matching restore, naming one backup set directory that run produced
 (list `riftal-backups` to find one, or read the loop's own log). Note the
