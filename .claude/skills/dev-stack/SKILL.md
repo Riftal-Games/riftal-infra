@@ -18,7 +18,6 @@ Nasir's machine is Windows 11 and the container CLI is `wslc`, at `C:\Program Fi
 wslc images
 wslc list
 wslc build -t <tag> -f <dockerfile> --build-arg K=V <dir>
-wslc run -d -i --name <name> --network <net> --network-alias <alias> ...
 wslc logs <name>
 wslc exec <name> <cmd>
 wslc attach <name>
@@ -27,6 +26,12 @@ wslc network create <net>
 wslc network remove <net>
 wslc stop <name> && wslc remove <name>
 ```
+
+`wslc run` takes `-d`, `-i`, `--rm`, `--name`, `--network`, `--network-alias`,
+`-p`, `-v`, `-e`, `--memory` and `--cpus`, as the steps below use them. Every
+`wslc run` there that starts a line is held to its `images/compose.yaml`
+service by `.github/scripts/wslc-drift.sh`, so this list names no template
+form of it.
 
 All of it was exercised on 2026-09-12, WSL 2.9.4.0, by the bring-up below.
 `--network-alias` especially: the decision log's 2026-09-07 entry lists a
@@ -91,6 +96,7 @@ network only. Never forward this port on the router.
 - [ ] `git -C ../pmmp-core submodule update --init --recursive`. `build/php` is a submodule and the core image build copies `build/php/compile.sh` in its first stage. Without it the build fails immediately.
 - [ ] Confirm `wslc version` responds. If not, `wsl --version` must be 2.9.3 or newer.
 - [ ] Copy `images/.env.example` to `images/.env` and set `MYSQL_ROOT_PASSWORD`. It is gitignored. MySQL refuses to initialise without it.
+- [ ] In the same file set `RIFTAL_DB_PASSWORD_BACKUP` and one `RIFTAL_DB_PASSWORD_<NAME>` per plugin login `.env.example` lists: `MINES`, `RANKS`, `ECONOMY`, `ACCOUNTS`. Each is at least 24 characters, `[A-Za-z0-9]` only, or the migration runner refuses it. `INSTANCE_ID` ships set to `dev-1`; a line ending in `=` needs its value.
 
 ## Bring it up
 
@@ -109,11 +115,12 @@ equivalents are in the last section. Run them from Git Bash with
 `MSYS_NO_PATHCONV=1` so the `C:/...` mount arguments survive. `--network-alias`
 is what makes the database answer to `mysql`, as compose's service name does.
 
-`images/.env` is the single place both paths read `MYSQL_ROOT_PASSWORD` and
-`INSTANCE_BIND` from. `docker compose` reads it on its own; `wslc` has never
-heard of it, so the last line below sources it, and skipping that line starts
-MySQL with an empty password. Re-run the block in every shell that runs a
-command below, and again after editing `.env`.
+`images/.env` is the single place both paths read `MYSQL_ROOT_PASSWORD`,
+`INSTANCE_BIND`, `INSTANCE_ID` and the `RIFTAL_DB_PASSWORD_*` values from.
+`docker compose` reads it on its own; `wslc` has never heard of it, so the last
+line below sources it, and skipping that line starts MySQL with an empty
+password and the instance with no identity. Re-run the block in every shell
+that runs a command below, and again after editing `.env`.
 
 ```sh
 export MSYS_NO_PATHCONV=1
@@ -134,6 +141,22 @@ wslc build -f "$CORE/docker/Dockerfile" -t local-pocketmine-mp \
   --build-arg GIT_HASH="$(git -C "$CORE" rev-parse HEAD)" "$CORE"
 ```
 
+### 1b. The built levels
+
+`instance` seeds `lumber` and `mine_a` onto `riftal-world` from
+`riftal_smoke_level_lumber` and `riftal_smoke_level_mine_a`, which it mounts
+read-only at `/etc/riftal/levels/<zone>`, and lists both in
+`RIFTAL_LEVEL_ZONES`. Each volume is built, never created by the stack: run
+`designer level build <zone>` for the engine in use
+(`designer/levels/README.md`, `DESIGNER_RUNTIME`) before the first bring-up. A
+volume that is missing or was never fully built stops the boot before
+PocketMine starts, with one `seed-levels:` line naming
+`riftal_smoke_level_<zone>` and that command. A `wslc run -v` of a missing name
+may create it empty, which the seed step then refuses the same way.
+`instance-b` lists no zone and mounts no level. A zone already in
+`riftal-world` is never replaced, so only a fresh `riftal-world` is seeded
+(`images/README.md`, The built levels).
+
 ### 2. Network
 
 ```sh
@@ -144,6 +167,7 @@ wslc network create riftal-dev
 
 ```sh
 wslc run -d --name riftal-mysql --network riftal-dev --network-alias mysql \
+  --memory 1G --cpus 1 \
   -p 127.0.0.1:3306:3306 \
   -e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" -e MYSQL_DATABASE=riftal_dev \
   -v riftal-mysql:/var/lib/mysql mysql:8
@@ -163,20 +187,77 @@ wslc logs riftal-mysql
 gate instead, and starting the instance before it appears produces failures
 that look like schema bugs.
 
-### 4. Instance
+### 4. Migrations and logins
 
-`INSTANCE_BIND` comes from `images/.env` on both paths and falls back to
-`127.0.0.1` when unset. To let a device join, set it to `0.0.0.0` there,
-re-source the block above, then run this; the firewall rule has to be in place
-too. Editing `.env` without re-sourcing leaves the shell on `127.0.0.1`, which
-looks exactly like the bind not working.
+Every plugin connects to MySQL as its own login (ADR 008), and those logins are
+created by the migration runner, not by MySQL's entrypoint. An instance started
+before this step fails at its first plugin login. The runner applies pending
+migrations under a MySQL named lock, applies `grants.sql`, then creates or
+rotates each login whose password it is given, so run it again after changing
+a password in `images/.env` and after every `restore.sh`
+(`migrations/README.md`, Provisioning logins).
+
+`dev-stack.ps1` does this itself under docker only. Under wslc the run is by
+hand and spends three bind mounts of wslc's session cap, so check
+`dev-stack.ps1 wslc-mounts` first. Each password is passed by name, exported
+from `images/.env` by the block at the top, so none reaches the command line;
+`MYSQL_PASSWORD` is the root password the runner connects as. `timeout` bounds a
+run that waits on the lock (`migrations/README.md`, Running it locally).
+
+```sh
+export MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD"
+timeout 120 wslc run --rm --memory 1G --cpus 1 --network riftal-dev \
+  -v "$INFRA/migrations/run-migrations.sh:/run-migrations.sh:ro" \
+  -v "$INFRA/../riftal-game/lib/resources/sql/migrations:/migrations:ro" \
+  -v "$INFRA/../riftal-game/lib/resources/sql/grants.sql:/grants.sql:ro" \
+  -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD -e MYSQL_DATABASE=riftal_dev \
+  -e MIGRATIONS_DIR=/migrations -e GRANTS_FILE=/grants.sql \
+  -e RIFTAL_DB_PASSWORD_MINES -e RIFTAL_DB_PASSWORD_RANKS \
+  -e RIFTAL_DB_PASSWORD_ECONOMY -e RIFTAL_DB_PASSWORD_ACCOUNTS \
+  mysql:8 bash /run-migrations.sh
+```
+
+- [ ] It exits 0, and its output has `applying grants from /grants.sql` with no
+      `failed` line after it. A nonzero exit names the failed migration or the
+      login it refused: a password under 24 characters or outside
+      `[A-Za-z0-9]`, or a `grants.sql` that is not a file. Do not start the
+      instance after one.
+
+### 5. Instance
+
+This is compose's `instance` service by hand, and `.github/scripts/wslc-drift.sh`
+holds it to compose flag for flag. `dev-stack.ps1` refuses to start an instance
+that differs from it (riftal-pm's `devtools/instance-shape.js`, `check wslc`):
+no `--auto-report.enabled=0`, no `INSTANCE_ID`, login password, index or level
+mount, a different command, or a UDP publish on anything but `127.0.0.1`. The
+instance runs `--xbox-auth=false`, so `INSTANCE_BIND` stays `127.0.0.1` in
+`images/.env` and a client joins through the relay `dev-stack.ps1` starts. It
+is given no root password. Run step 4 first, with the block above re-sourced,
+and build `RiftalCustody.phar` and `RiftalAccounts.phar` first:
+`require-custody.sh` and `require-accounts.sh` stop the boot without them
+(`images/README.md`).
 
 ```sh
 wslc run -d -i --name riftal-instance --network riftal-dev \
+  --memory 2G --cpus 2 \
   -p "${INSTANCE_BIND:-127.0.0.1}:19132:19132/udp" \
   -v riftal-world:/data -v "$INFRA/images/plugins:/plugins" \
-  -e "POCKETMINE_ARGS=--level-name=mine_a --level-type=normal --xbox-auth=false --motd=riftal-dev --riftal-dev-bots=on" \
-  local-pocketmine-mp
+  -v riftal-capture:/capture:ro \
+  -v "$INFRA/designer/world_index.json:/etc/riftal/world_index.json:ro" \
+  -v riftal_smoke_level_lumber:/etc/riftal/levels/lumber:ro \
+  -v riftal_smoke_level_mine_a:/etc/riftal/levels/mine_a:ro \
+  -e "INSTANCE_ID=${INSTANCE_ID}" \
+  -e "RIFTAL_LEVEL_ZONES=lumber mine_a" \
+  -e "RIFTAL_DEV_ENV=1" \
+  -e "RIFTAL_DB_PASSWORD_MINES=${RIFTAL_DB_PASSWORD_MINES}" \
+  -e "RIFTAL_DB_PASSWORD_RANKS=${RIFTAL_DB_PASSWORD_RANKS}" \
+  -e "RIFTAL_DB_PASSWORD_ECONOMY=${RIFTAL_DB_PASSWORD_ECONOMY}" \
+  -e "RIFTAL_DB_PASSWORD_ACCOUNTS=${RIFTAL_DB_PASSWORD_ACCOUNTS}" \
+  -e "POCKETMINE_ARGS=--level-name=mine_a --level-type=normal --xbox-auth=false --motd=riftal-dev --riftal-dev-bots=on --auto-report.enabled=0" \
+  local-pocketmine-mp bash /plugins/restart/boot-gate.sh \
+  bash /plugins/deliver-world-index.sh bash /plugins/seed-levels.sh \
+  bash /plugins/require-accounts.sh bash /plugins/require-custody.sh \
+  bash /plugins/instance-only/start-instance.sh
 
 wslc logs riftal-instance
 ```
@@ -195,6 +276,10 @@ wslc logs riftal-instance
       on how the boot was broken, so count nothing and match the pattern.
 - [ ] `Online mode is disabled` appears. That is `--xbox-auth=false` taking
       effect, and its absence means the flag did not arrive.
+- [ ] `wslc inspect riftal-instance` lists `POCKETMINE_ARGS` ending
+      `--auto-report.enabled=0`. The value has to be `0`: PocketMine casts the
+      flag's string, and `(bool) "false"` is true, which uploads crash dumps
+      publicly.
 - [ ] `start.sh` prints a `WARNING` that files under `/plugins` are not owned by
       `pocketmine` when that directory is a bind mount from Windows. The warning
       is about writes and nothing writes there at runtime.
@@ -284,6 +369,12 @@ In this order, because each rules out the ones below it:
 6. A phone or console cannot see the server while a client on this machine can. The bind, then the firewall, in that order. See the section above.
 7. Login fails with something that looks like a protocol error. Check `xbox-auth=false`. Behind a proxy `player.verify-xuid: false` is required too, and missing either produces exactly that symptom and it is not a protocol bug. Direct, there is no proxy stripping the XUID, so the default stays.
 8. Build fails in the first stage. `build/php` submodule is empty. See prerequisites.
+9. The instance exits at once, or `dev-stack.ps1` refuses to start it. The
+   refusal names what is missing: `--auto-report.enabled=0`, the command,
+   `INSTANCE_ID`, a login password, the index or a level mount. A `seed-levels:`
+   line means a level volume is missing or unbuilt, see step 1b. A boot that
+   reaches a plugin login and fails there means step 4 was skipped or
+   `images/.env` changed since: run it again.
 
 ## The docker form
 
@@ -302,6 +393,13 @@ docker compose down
 
 `--wait` holds until the MySQL healthcheck passes, which is the piece `wslc` has
 no equivalent for and the reason the local bring-up waits on a log line instead.
+
+`up` runs `dump-login`, which provisions the `backup` login alone
+(`images/compose.yaml`, `dump-login`). The plugin logins still need step 4's
+runner, as a `docker run` with the same mounts and variables, between MySQL
+turning healthy and `instance` starting: `docker compose up -d --wait mysql`,
+the runner, then the full `up`. `dev-stack.ps1 -Engine docker` does that run
+itself.
 
 ## Rules
 

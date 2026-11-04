@@ -8,7 +8,7 @@ the edit outright regardless of what this repo's own `.claude/settings.json`
 or agent definitions say. **A human needs to fold this into
 `.claude/skills/dev-stack/SKILL.md` by hand.**
 
-Four corrections to the current SKILL.md text:
+Two corrections to the current SKILL.md text:
 
 1. The "Bring it up" section's opening line still reads "one core
    `instance`". Since riftal-infra#129, `images/compose.yaml` defines two:
@@ -23,43 +23,10 @@ Four corrections to the current SKILL.md text:
    inspect`, distinct worlds confirmed in the boot log (`Preparing world
    "mine_a"` vs `Preparing world "plots_b"`), and a RakNet ping against each
    published port answered with a distinct MOTD on the same protocol number.
-3. Step 4, "Instance", creates `riftal-instance` without
-   `--auto-report.enabled=0`, so a crash in that container uploads its dump
-   to the core image's crash archive. Every PocketMine service in
-   `images/compose.yaml` and `designer/stack/compose.yaml` passes the flag
-   (riftal-infra#232). Only `0` turns reporting off: the flag's value is a
-   raw string cast with `(bool)`, and `(bool) "false"` is `true`. Step 4's
-   `POCKETMINE_ARGS` line should read:
 
-   ```sh
-     -e "POCKETMINE_ARGS=--level-name=mine_a --level-type=normal --xbox-auth=false --motd=riftal-dev --riftal-dev-bots=on --auto-report.enabled=0" \
-   ```
+## 6. Second instance (`instance-b`)
 
-   A `riftal-instance` container created without the flag reports crashes
-   until it is recreated: `stop` on stdin, wait for the shutdown line, remove,
-   and a fresh `wslc run` against the same `riftal-world` volume.
-4. Step 4's command also lacks `RIFTAL_DEV_ENV=1`, which
-   `images/plugins/RiftalDevBots.php` requires for bot admission alongside
-   `--riftal-dev-bots=on` and `--xbox-auth=false` (riftal-infra#113, closed by
-   PR #176; `images/compose.yaml`'s `instance` service sets it). Without it
-   the plugin still enables and logs a boot `WARNING`, `riftal-dev-bots is on
-   but xbox-auth is on or RIFTAL_DEV_ENV=1 is not set; dev bots will be
-   refused`, which step 4's severity check does not catch because it matches
-   only `EMERGENCY`, `ALERT`, `CRITICAL` and `ERROR`. It then logs
-   `dev bots refused` and kicks every bot at pre-login with `dev bots are
-   disabled on this server`. Add this line to step 4's `wslc run`, above the
-   `POCKETMINE_ARGS` line:
-
-   ```sh
-     -e "RIFTAL_DEV_ENV=1" \
-   ```
-
-   A `riftal-instance` created without it refuses bots until it is recreated,
-   as in correction 3.
-
-## 5. Second instance (`instance-b`)
-
-Run this alongside the primary instance from step 4, on the same
+Run this alongside the primary instance from step 5, on the same
 `riftal-dev` network and against the same `riftal-mysql`. Nothing here
 starts a second database: `instance-b` reaches the one `mysql` service the
 same way `instance` does, by network alias.
@@ -112,7 +79,7 @@ RiftalAccounts). `images/plugins/instance-b/start.sh` loads
 then stops the boot without `RIFTAL_DB_PASSWORD_ECONOMY`, as on `instance`.
 
 - [ ] The log reaches `Done (` for `riftal-instance-b`, same checks as the
-      primary instance in step 4: no `[.../CRITICAL]`, `[.../EMERGENCY]`,
+      primary instance in step 5: no `[.../CRITICAL]`, `[.../EMERGENCY]`,
       `[.../ALERT]` or `[.../ERROR]` line, `Online mode is disabled` present.
 - [ ] `wslc inspect riftal-instance-b` shows `INSTANCE_ID=dev-2` (or whatever
       `INSTANCE_B_ID` was set to), distinct from the primary instance's
