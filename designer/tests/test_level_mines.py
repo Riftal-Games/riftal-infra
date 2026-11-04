@@ -22,8 +22,9 @@ MINES = "worlds:\n  lumber: worlds/lumber.json\n  mine_a: worlds/mine_a.json\n  
 MINE_A_INTERIOR_CELL = [0, 45, 0]
 LOG = "minecraft:oak_log[pillar_axis=y]"
 ZONES = ["mine_a", "mine_b", "mine_c", "lumber"]
-# The committed checks less the zoned ones that need the stairs and the ground the mine-only recipes here lack.
-TERRAIN_CHECKS = ("path_exists", "warp_safe")
+# The committed checks less the zoned ones that need the stairs and the ground the mine-only recipes here lack, and
+# the NPC clearance, since test_stone makes each sign a stone block that fills the cell the NPC stands in.
+TERRAIN_CHECKS = ("path_exists", "warp_safe", "entity_clear")
 MINE_CHECKS = "mine_checks.yaml"
 # DesignBridge reads a block back by its Bedrock name with its states, whatever alias or states the write named.
 READ_BACK = {"minecraft:oak_log": LOG, "minecraft:lapis_lazuli_ore": "minecraft:lapis_ore"}
@@ -97,6 +98,15 @@ def test_a_mine_dug_into_terrain_builds_with_its_exit_lane_clear(fake: FakeBridg
     assert json.loads(_build(bridge, root, zone).read_text(encoding="utf-8"))["zone"] == zone
 
 
+def _stone_sign_checks(root: Path) -> Path:
+    """The committed checks less ``entity_clear``, which test_stone's stone signs fill the NPC cells against."""
+    data = yaml.safe_load(CHECKS.read_text(encoding="utf-8"))
+    data["checks"] = [c for c in data["checks"] if c.get("check") != "entity_clear"]
+    path = root / "stairs_checks.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return path
+
+
 def _with_stairs(root: Path, fake: FakeBridge, zone: str, last_rise: int | None = None) -> None:
     """``zone``'s committed recipe over flat terrain at y 63, its last leg climbing ``last_rise`` rows when given."""
     fake.worlds[zone] = FakeWorld(extent=((-64, -64), (64, 64)))
@@ -111,13 +121,13 @@ def _with_stairs(root: Path, fake: FakeBridge, zone: str, last_rise: int | None 
 @pytest.mark.parametrize("zone", ["mine_a", "lumber"])
 def test_a_zone_builds_with_its_stairs_when_the_path_check_reaches_the_ground(fake: FakeBridge, bridge: Bridge, root: Path, zone: str) -> None:
     _with_stairs(root, fake, zone)
-    assert json.loads(_build(bridge, root, zone, checks=CHECKS).read_text(encoding="utf-8"))["zone"] == zone
+    assert json.loads(_build(bridge, root, zone, checks=_stone_sign_checks(root)).read_text(encoding="utf-8"))["zone"] == zone
 
 
 @pytest.mark.parametrize("zone", ["mine_a", "lumber"])
 def test_a_last_leg_that_ends_under_the_ground_refuses_the_build(fake: FakeBridge, bridge: Bridge, root: Path, zone: str) -> None:
     _with_stairs(root, fake, zone, last_rise=8)
-    _refused(bridge, root, zone, rf"{zone}_spawn_to_surface: ", checks=CHECKS)
+    _refused(bridge, root, zone, rf"{zone}_spawn_to_surface: ", checks=_stone_sign_checks(root))
 
 
 @pytest.mark.parametrize("side", ["north", "west"])
