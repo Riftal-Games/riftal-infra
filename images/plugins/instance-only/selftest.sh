@@ -33,7 +33,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=93
+EXPECTED_ASSERTIONS=95
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -555,9 +555,17 @@ check "a shipped scalar whose key holds a digit or hyphen is caught" \
 check "a shipped section the template lacks is caught" \
   '{ cat "$SHIPPED"; printf "messages:\n  reset: x\n"; } > "$mutated" &&
     [ "$(missing "$mutated")" = "messages:" ]'
-check "riftal-game's ranks config.yml has no top-level key or scalar value the ranks config lacks" \
-  '[ -n "$(keys "$RANKS_SHIPPED")" ] && [ -z "$(comm -23 <(keys "$RANKS_SHIPPED") <(keys "$RANKS_CONFIG"))" ] &&
-    [ "$(tuning "$RANKS_SHIPPED")" = "$(tuning "$RANKS_CONFIG")" ]'
+# Every line but comments, blanks and the schema, the one line a dev config
+# overrides on purpose.
+settings() { grep -vE '^[[:space:]]*(#|$|schema:)' "$1" | sed 's/[[:space:]]*$//'; }
+check "every line in riftal-game's ranks config.yml but the schema matches the ranks config" \
+  '[ -n "$(settings "$RANKS_SHIPPED")" ] && [ "$(settings "$RANKS_SHIPPED")" = "$(settings "$RANKS_CONFIG")" ]'
+check "a shipped rank-up cost the ranks config does not carry is caught" \
+  'sed "s/^  C: {cost_minor_units: [0-9]*/  C: {cost_minor_units: 200/" "$RANKS_SHIPPED" > "$mutated" &&
+    ! cmp -s "$RANKS_SHIPPED" "$mutated" && [ "$(settings "$mutated")" != "$(settings "$RANKS_CONFIG")" ]'
+check "a shipped rankup_claim value the ranks config does not carry is caught" \
+  'sed "s/^  lease_seconds: .*/  lease_seconds: 999/" "$RANKS_SHIPPED" > "$mutated" &&
+    ! cmp -s "$RANKS_SHIPPED" "$mutated" && [ "$(settings "$mutated")" != "$(settings "$RANKS_CONFIG")" ]'
 # The lines inside the top-level database section, comments dropped, schema
 # excepted: the one line the ranks config overrides on purpose.
 dbsection() {
@@ -569,9 +577,6 @@ check "every database line in riftal-game's ranks config.yml but the schema matc
 check "a shipped database.port the ranks config does not carry is caught" \
   'sed "s/^  port:.*/  port: 3307/" "$RANKS_SHIPPED" > "$mutated" &&
     [ "$(dbsection "$mutated")" != "$(dbsection "$RANKS_CONFIG")" ]'
-# Every line but comments, blanks and the schema, the one line the accounts
-# config overrides on purpose.
-settings() { grep -vE '^[[:space:]]*(#|$|schema:)' "$1" | sed 's/[[:space:]]*$//'; }
 check "every line in riftal-game's accounts config.yml but the schema matches the accounts config" \
   '[ -n "$(settings "$ACCOUNTS_SHIPPED")" ] && [ "$(settings "$ACCOUNTS_SHIPPED")" = "$(settings "$ACCOUNTS_CONFIG")" ]'
 check "a shipped database.port the accounts config does not carry is caught" \

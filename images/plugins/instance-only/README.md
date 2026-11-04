@@ -178,6 +178,11 @@ that the snapshot equals that checkout's configs. A riftal-game PR author runs
 it to learn the snapshot is behind; an unset `RIFTAL_GAME_DIR` reads no
 checkout at all.
 
+riftal-infra CI does not see riftal-game's `main` moving past the snapshot:
+it compares the template and these configs to the snapshot alone. The nightly
+check in riftal-pm#1946 compares the snapshot to the pinned riftal-game `main`
+and files an issue here when they differ.
+
 ## The config override
 
 With `RiftalMines.phar` present, `start-instance.sh` runs `render-config.sh`
