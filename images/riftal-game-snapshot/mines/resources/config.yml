@@ -1,0 +1,72 @@
+# Ore ladder, specialty mines, reset logic, design plan §5. This plugin
+# resets a mine at its percent-harvested threshold (riftal-game#48) or when
+# a riot in it ends, and announces each ore broken in a ranked mine for
+# ranks/ to count (riftal-game#51). The shared MySQL database is the one
+# docs/specs/001-designer-toolchain.md's build_mine writes its
+# extras.mine_reset fragment for. riftal-infra overrides the database
+# section per instance.
+# `mysql` is the network alias every riftal-infra stack gives the database;
+# `riftal-mysql` is one stack's container name and resolves nowhere else.
+database:
+  host: "mysql"
+  schema: "riftal"
+  username: "mines"
+  password: ""
+  port: 3306
+  worker-limit: 1
+
+# Every mine-shaped world this instance resets, world folder name to its
+# extras.mine_reset fragment (build_mine's output), copied into this
+# plugin's resources/worlds/ and read by MineRegistry on enable. A file at the
+# same relative path in this plugin's data folder is read instead. Starts with
+# the lumber yard (riftal-pm's spec 004); the ore ladder adds entries here as
+# each mine is built, never by editing MineRegistry itself.
+worlds:
+  lumber: "worlds/lumber.json"
+  mine_a: "worlds/mine_a.json"
+  mine_b: "worlds/mine_b.json"
+  mine_c: "worlds/mine_c.json"
+  quarry: "worlds/quarry.json"
+  farm: "worlds/farm.json"
+
+# Used only when a world's own mine_reset fragment omits reset_percent, per
+# MineDefinition::fromFragment. docs/tuning-numbers.md's "Mine reset percent,
+# per mine": 60 is the same placeholder build_mine writes by default.
+default_reset_percent: 60
+
+# Plugin resource limits on MineRefillTask, not design-plan §13 game-economy
+# numbers, so they are documented in mines/docs/tuning-numbers.md rather than
+# the root workspace's docs/tuning-numbers.md. Caps how many blocks one
+# MineRefillTask tick sets, checked alongside refill_tick_budget_ms,
+# whichever trips first, so refilling a mine's interior (over two million
+# blocks at the 128-edge cap) never stalls the world it's refilling, or any
+# other world on the instance, for a whole tick.
+refill_blocks_per_tick: 4096
+
+# Caps wall-clock time spent in one MineRefillTask tick, checked alongside
+# refill_blocks_per_tick, whichever trips first. A tick runs nominally 50ms
+# at 20 TPS; leaving comfortable headroom keeps a refill from being the
+# reason a tick runs long even when the block count alone would not have
+# stopped it.
+refill_tick_budget_ms: 15
+
+# How many fresh whole-interior refills follow one stopped because terrain
+# could not be loaded, after refill_retry_delay_ticks each. One covers a
+# temporary failure without looping on a permanent one. A refill stopped by
+# an out-of-bounds position is a fragment defect and is never retried.
+refill_retry_limit: 1
+
+# Ticks between that failure and its retry, 5 s at 20 TPS, so a chunk that
+# just failed to load is not asked again in the same tick.
+refill_retry_delay_ticks: 100
+
+# docs/specs/006-join-flow.md: every join, first time or returning, goes to
+# this world_index.json location. Shipped off by the steward's decision on
+# riftal-game#53: with the switch on, a missing location or an unloaded world
+# rejects every join.
+# world_index is a file name inside this plugin's data folder, where the
+# deploy delivers the designer's index; it is never read from resources/.
+join_teleport:
+  enabled: false
+  location: "mine_a_spawn"
+  world_index: "world_index.json"

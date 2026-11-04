@@ -24,8 +24,13 @@ sell-shop:
     "minecraft:coal": 5
     "minecraft:raw_copper": 5
     "minecraft:raw_iron": 5
+    "minecraft:raw_gold": 5
+    "minecraft:diamond": 5
     "minecraft:lapis_lazuli": 5
     "minecraft:oak_log": 5
     "minecraft:andesite": 5
     "minecraft:wheat": 5
     "minecraft:carrot": 5
+
+auction-house:
+  listing-tax-percent: 10

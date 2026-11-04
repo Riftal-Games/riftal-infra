@@ -18,6 +18,8 @@ database:
   port: 3306
   worker-limit: 1
 
+world_index: "world_index.json"
+
 rank_order: ["A", "B", "C"]
 
 anti_afk_min_break_interval_ms: 100

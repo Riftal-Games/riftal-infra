@@ -1,0 +1,39 @@
+# Personal rank ladder, design plan §4, docs/specs/007-ranks-ladder.md.
+# riftal-infra overrides the database section per instance.
+# `mysql` is the network alias every riftal-infra stack gives the database;
+# `riftal-mysql` is one stack's container name and resolves nowhere else.
+database:
+  host: "mysql"
+  schema: "riftal"
+  username: "ranks"
+  password: ""
+  port: 3306
+  worker-limit: 1
+
+# A file name inside this plugin's data folder, where the deploy delivers the
+# designer's world_index.json (riftal-infra's deliver-world-index.sh). The
+# plugin refuses to enable without it; no copy is bundled under resources/.
+world_index: "world_index.json"
+
+# Lowest first, each name once. Every new account starts on the first entry. M6 extends it.
+rank_order: ["A", "B", "C"]
+
+# docs/tuning-numbers.md's "Anti-AFK minimum block-break interval", design
+# plan §4.3. A mined block that follows the same player's previous one by
+# less than this many milliseconds does not count toward the milestone.
+anti_afk_min_break_interval_ms: 100
+
+# docs/tuning-numbers.md's rank-up money cost and blocks-mined milestone, per
+# rank, design plan §4.2, keyed by the rank reached. Every rank but the first.
+rankup:
+  B: {cost_minor_units: 100, blocks_mined: 50}
+  C: {cost_minor_units: 100, blocks_mined: 50}
+
+# ADR 021 (riftal-pm#1029). lease_seconds is how long the instance that
+# claimed a rank-up alone may revert it before any instance may take the
+# claim over: a correctness bound, never below 120, not a tuning number. The
+# reconciler's pacing is in ranks/docs/tuning-numbers.md.
+rankup_claim:
+  lease_seconds: 180
+  reconcile_interval_seconds: 60
+  reconcile_batch: 50
