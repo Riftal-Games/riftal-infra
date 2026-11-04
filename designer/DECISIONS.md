@@ -1072,4 +1072,5 @@ reaches the stone beside the lane, which is natural terrain: two builds of the s
 differed in 29 cells (dirt and gravel pockets at x 16 to 17, z 19 to 23, y 47 to 51) and so in the hash.
 The platform and the stairs are outside it, so `mine_a_spawn_to_surface` (`path_exists`,
 `zone: mine_a`) walks the built terrain from the spawn to `(13, 64, 36)`. The two `travel_time` checks
-and `warp_safe` carry `zone: mine_a` and gate the build too. `entity_clear` on `sell_npc_a` stays zoneless until the mine builder clears the NPC cells (#1395).
+and `warp_safe` carry `zone: mine_a` and gate the build too. `entity_clear` on `sell_npc_a` stays
+zoneless until the mine builder clears the NPC cells (#1395).
