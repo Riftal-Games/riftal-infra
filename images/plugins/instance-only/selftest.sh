@@ -33,7 +33,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=92
+EXPECTED_ASSERTIONS=97
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -395,7 +395,7 @@ check "a missing index stops the boot before the start command, saying it is not
   '! deliver "" printf started && ! grep -q started "$work/deliver/out" &&
     grep -q "etc/world_index.json is not mounted;" "$work/deliver/out"'
 
-printf '\n== the lumber level reaches instance and no other service (ADR 009 item 6)\n'
+printf '\n== the built levels reach instance and no other service (ADR 009 item 6)\n'
 # Services with a zone list that do not run seed-levels.sh straight after the
 # delivery, or that lack, for some listed zone, one read-only mount of
 # riftal_smoke_level_<zone> at /etc/riftal/levels/<zone> backed by an external
@@ -417,16 +417,20 @@ levelled() {
       or (.value.environment.RIFTAL_LEVEL_ZONES // "") != "")
     | "\(.key)=\(.value.environment.RIFTAL_LEVEL_ZONES // "")"' <<<"$1"
 }
-check "only instance lists a zone or mounts a level, lumber, and it runs the seed step beside the delivery" \
-  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber" ]'
+check "only instance lists a zone or mounts a level, lumber and mine_a, and it runs the seed step beside the delivery" \
+  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a" ]'
 check "an instance without the seed step is caught" \
   '[ "$(unseeded "$(edited "/- \/plugins\/seed-levels.sh/{N;d}")")" = instance ]'
 check "a level mount that lost :ro is caught" \
   '[ "$(unseeded "$(edited "s#/etc/riftal/levels/lumber:ro#/etc/riftal/levels/lumber#")")" = instance ]'
 check "a level volume compose would create itself is caught" \
   '[ "$(unseeded "$(edited "/^    external: true/d")")" = instance ]'
+check "a listed zone with no level mount is caught" \
+  '[ "$(unseeded "$(edited "/riftal_smoke_level_mine_a:\/etc/d")")" = instance ]'
+check "a listed zone whose volume compose would create itself is caught" \
+  '[ "$(unseeded "$(edited "/^  riftal_smoke_level_mine_a:/,/external/{/external/d}")")" = instance ]'
 check "a zone list on instance-b is caught" \
-  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber
+  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a
 instance-b=lumber" ]'
 
 printf '\n== link-replaced.sh gives pharynx the folder a virion requires (riftal-infra#579)\n'
@@ -520,10 +524,12 @@ keys() { grep -oE '^[^[:space:]#-][^:]*:' "$1" | sort -u; }
 # none, so the values the template overrides on purpose stay out of it.
 tuning() { grep -E '^[^[:space:]#-][^:]*:[[:space:]]*[^[:space:]#]' "$1" | sed 's/[[:space:]]*$//' | sort; }
 # Every section's header and entries, comments and blank lines dropped,
-# except database and worlds, which the template overrides on purpose.
+# except database and worlds, which the template overrides on purpose, and
+# join_teleport's enabled switch, which the template turns on while the plugin
+# ships it off. Its location and world_index stay compared.
 sections() {
-  awk '/^[^[:space:]#]/ { keep = /^[^:]*:[[:space:]]*$/ && !/^(database|worlds):/ }
-    keep && /[^[:space:]]/ && !/^[[:space:]]*#/' "$1" | sed 's/[[:space:]]*$//'
+  awk '/^[^[:space:]#]/ { keep = /^[^:]*:[[:space:]]*$/ && !/^(database|worlds):/; section = $1 }
+    keep && /[^[:space:]]/ && !/^[[:space:]]*#/ && !(section == "join_teleport:" && /^[[:space:]]+enabled:/)' "$1" | sed 's/[[:space:]]*$//'
 }
 # Top-level keys in the shipped file $1 that the template lacks.
 missing() { comm -23 <(keys "$1") <(keys "$TEMPLATE"); }
@@ -537,6 +543,14 @@ drift "every section in riftal-game's mines config.yml but database and worlds m
 drift "a shipped join_teleport value the template does not carry is caught" \
   'sed "s/^  location: .*/  location: \"elsewhere\"/" "$SHIPPED" > "$mutated" &&
     ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" != "$(sections "$TEMPLATE")" ]'
+drift "a shipped join_teleport world_index the template does not carry is caught" \
+  'sed "s/^  world_index: .*/  world_index: \"elsewhere.json\"/" "$SHIPPED" > "$mutated" &&
+    ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" != "$(sections "$TEMPLATE")" ]'
+drift "a shipped join_teleport enabled switch is not compared" \
+  'sed "s/^  enabled: .*/  enabled: maybe/" "$SHIPPED" > "$mutated" &&
+    ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" = "$(sections "$TEMPLATE")" ]'
+check "the template switches the join teleport on" \
+  '[ "$(awk "/^join_teleport:/ { s = 1; next } /^[^[:space:]#]/ { s = 0 } s && /^  enabled:/ { print \$2 }" "$TEMPLATE")" = true ]'
 drift "a shipped value the template does not carry is caught" \
   'sed "s/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/" "$SHIPPED" > "$mutated" &&
     [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'

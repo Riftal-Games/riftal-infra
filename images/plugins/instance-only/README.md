@@ -279,7 +279,7 @@ normally. It is a warning because a boot log check fails on any ERROR line
 such as an interrupted build with no `level.dat`, is a fault and is logged
 as an ERROR.
 
-A built `lumber` reaches `worlds/lumber` through `../seed-levels.sh`
+A built zone (`lumber`, `mine_a`) reaches `worlds/<zone>` through `../seed-levels.sh`
 (ADR 009 item 5), not by hand. For each zone in `RIFTAL_LEVEL_ZONES` whose
 folder is absent from `/data/worlds`, it checks the file tree mounted
 read-only at `/etc/riftal/levels/<zone>` against the `level-manifest.json` at
@@ -287,7 +287,8 @@ that folder's root, copies it into a temporary directory on the volume as the
 server's user, and renames it into place. It never touches a folder that
 exists, and it exits non-zero, before PocketMine starts, on a missing source or
 a failed check. `compose.yaml` runs it on `instance` alone, which mounts
-`riftal_smoke_level_lumber` for it (`../../README.md`, "The lumber level"), so
+`riftal_smoke_level_lumber` and `riftal_smoke_level_mine_a` for it
+(`../../README.md`, "The built levels"), so
 `instance` on a fresh `riftal-world` boots with the folder and logs no such
 line. The build that fills that
 source is `designer level build`, which needs the DesignBridge ops `pregen`

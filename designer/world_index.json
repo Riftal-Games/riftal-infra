@@ -16,6 +16,20 @@
       "yaw": 180
     },
     {
+      "name": "mine_a_spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        40,
+        23
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "mine_a",
+      "yaw": 180
+    },
+    {
       "name": "rankup_npc_a",
       "pitch": 0,
       "pos": [
@@ -138,7 +152,7 @@
       "world": "mine_c"
     }
   ],
-  "updated": "2026-10-31T21:40:20+00:00",
+  "updated": "2026-11-04T06:30:00+00:00",
   "version": 1,
   "worlds": [
     {
