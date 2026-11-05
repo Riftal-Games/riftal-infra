@@ -497,6 +497,20 @@ def test_restore_by_undo_id_refuses_a_snapshot_of_another_level_and_sends_nothin
     assert server.requests == [] and [e["id"] for e in call("list_undo")["entries"]] == [1]
 
 
+@pytest.mark.parametrize("key", ["restored", "op", "path"])
+def test_every_manifest_reader_answers_manifest_invalid_for_an_entry_missing_a_key(server: FakeBridge, key: str) -> None:
+    call("fill", **MUTATING["fill"])
+    stack = mcp_server.UndoStack()
+    entries = json.loads(stack.manifest.read_text(encoding="utf-8"))["entries"]
+    del entries[0][key]
+    stack._write(entries)
+    writes = _writes(server)
+    for name, args in (("undo", {}), ("restore", {"snapshot": 1}), ("list_undo", {}), ("list_snapshots", {})):
+        result = call(name, **args)
+        assert (result["ok"], result["code"]) == (False, "manifest_invalid") and f"lacks {key}" in result["error"], name
+    assert _writes(server) == writes
+
+
 def test_restore_reports_a_bug_in_load_as_itself_not_as_an_unreadable_snapshot(server: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
     def broken(path: Path) -> None:
         raise TypeError("load bug")

@@ -379,6 +379,31 @@ def test_an_entry_without_a_path_or_id_is_reported_rather_than_raising_from_the_
     assert type(caught.value.__cause__) is KeyError
 
 
+@pytest.mark.parametrize("key", ["restored", "op", "path", "id", "texts"])
+def test_undo_refuses_a_manifest_entry_missing_a_key_and_writes_nothing(fake: FakeBridge, bridge: Bridge, key: str) -> None:
+    stack = UndoStack(session="s1")
+    stack.push(take(bridge, WORLD, BOX, "fill"), "fill")
+    stack.push_texts(WORLD, ["sign_1"], "build_signage")
+    entries = json.loads(stack.manifest.read_text(encoding="utf-8"))["entries"]
+    del entries[1 if key == "texts" else 0][key]
+    stack._write(entries)
+    fake.requests.clear()
+    with pytest.raises(ValueError, match=f"lacks {key}$") as caught:
+        stack.undo(bridge, n=2)
+    assert caught.value.code == "manifest_invalid" and fake.requests == []
+    assert json.loads(stack.manifest.read_text(encoding="utf-8"))["entries"] == entries
+
+
+@pytest.mark.parametrize("body", [[], {"entries": {}}, {"entries": [1]}], ids=["list", "entries-object", "entry-int"])
+def test_a_manifest_of_the_wrong_shape_is_refused(body: object) -> None:
+    stack = UndoStack()
+    stack.manifest.parent.mkdir(parents=True, exist_ok=True)
+    stack.manifest.write_text(json.dumps(body), encoding="utf-8")
+    with pytest.raises(ValueError) as caught:
+        stack.entries()
+    assert caught.value.code == "manifest_invalid"
+
+
 def test_restore_of_an_unchanged_region_sends_nothing_and_only_changed_off_sends_every_cell(fake: FakeBridge, bridge: Bridge) -> None:
     snap = take(bridge, WORLD, BOX, "pre")
     fake.requests.clear()
