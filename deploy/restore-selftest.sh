@@ -432,7 +432,8 @@ fi
 
 section "after the extract, server.lock has the owner of its volume directory, whoever made it"
 # Core runs as uid 1000 and opens server.lock for writing. Both tars carry a ./
-# entry owned by 1000:1000, so the directory is root's only until the extract.
+# entry owned by 1000:1000. world-b's directory is root-owned until the extract
+# gives it that owner, so a chown of server.lock before the extract copies root.
 dir8="owned-$SUFFIX"
 backups "cp -r /backups/$dir1 /backups/$dir8 && d=\$(mktemp -d) && for v in world-a world-b; do \
   mkdir \$d/\$v && tar -xzf /backups/$dir8/worlds/\$v.tar.gz -C \$d/\$v \
@@ -443,7 +444,7 @@ vol_inode() { docker run --rm -m 1g --cpus 1 -v "$1:/world" mysql:8 stat -c '%i'
 docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'chown 1000:1000 /world && touch /world/server.lock && chown 0:0 /world/server.lock' >/dev/null
 docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
-  'chown 1000:1000 /world && rm -f /world/server.lock' >/dev/null
+  'chown 0:0 /world && rm -f /world/server.lock' >/dev/null
 inode_a_before="$(vol_inode "$WORLD_A_VOL")"
 if run_restore "/backups/$dir8" >"$LOGS"/out-owner.log 2>&1; then
   pass "a restore of volumes whose directories core's user owns exits 0"
@@ -465,7 +466,8 @@ else
   fail "expected world-a's server.lock owned by 1000:1000 like its directory, same inode, got '$lock_a' under '$dir_a'"
 fi
 
-# Run as a user who cannot give the file away, the restore must not report complete.
+# This case runs as root. The chown stub stands in for a run as a user who cannot
+# give the file away, and the restore must not report complete.
 RESTORE_PRELUDE='chown() { return 1; }; export -f chown; '
 if run_restore "/backups/$dir8" >"$LOGS"/out-chown-fails.log 2>&1; then
   fail "a restore that cannot set the server.lock owner should exit nonzero"; cat "$LOGS"/out-chown-fails.log
@@ -526,4 +528,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1, and refusal, with nothing changed, of a set with no valid capture_mode line for every volume unless ALLOW_UNCAPTURED_SET=1, and of a volume whose server.lock is held, with a free server.lock kept through the extract,, every server.lock held at each extract, including one the restore itself creates, and every server.lock given the owner of its volume directory after the extract or the restore failing loudly.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1, and refusal, with nothing changed, of a set with no valid capture_mode line for every volume unless ALLOW_UNCAPTURED_SET=1, and of a volume whose server.lock is held, with a free server.lock kept through the extract, every server.lock held at each extract, including one the restore itself creates, and every server.lock given the owner of its volume directory after the extract or the restore failing loudly.\n' "$PASSES"
