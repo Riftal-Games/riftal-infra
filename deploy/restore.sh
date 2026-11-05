@@ -120,8 +120,8 @@ read -r _ own sessions < <(grep '^counts' <<<"$probe") || true
 # exclusive try-lock finds a running instance on this host, which the
 # processlist cannot see on another. Pass 1 only reads, so a refusal has written
 # nothing. Pass 2 locks every volume that has no server.lock yet, and every lock
-# stays held on its descriptor until this script exits: a start meanwhile blocks
-# in core's own flock and exits without opening a world.
+# stays held on its descriptor until this script exits. A start meanwhile opens
+# no world: it blocks in core's flock, or fails to open a file created as root.
 command -v flock >/dev/null || fail "refused: flock is not installed, so a running instance cannot be detected; run this in the backup image"
 for tar_file in "${world_tars[@]}"; do
   name="$(basename "$tar_file" .tar.gz)"
@@ -172,6 +172,10 @@ for tar_file in "${world_tars[@]}"; do
   # holds, and the lock taken above would guard nothing.
   find "$target" -mindepth 1 ! -path "$target/server.lock" -delete
   tar -xzf "$tar_file" -C "$target" --anchored --exclude=./server.lock
+  # Core opens server.lock for writing as the volume's own user, and this script
+  # runs as root. chown keeps the inode, so the lock held above still guards it.
+  chown --reference="$target" "$target/server.lock" \
+    || fail "cannot give the server.lock of volume $name the owner of $target, so core could not open it; run this as root"
 done
 
 echo "restore $BACKUP_SET: complete, database $MYSQL_DATABASE and ${#world_tars[@]} world volume(s) rebuilt"

@@ -146,7 +146,7 @@ Before it:
    service.
 2. Run `restore.sh` with `BACKUP_SET` the recorded set, as in `README.md`,
    Running it locally. Success is `restore <set>: complete, database <db> and
-   <n> world volume(s) rebuilt` (`restore.sh:177`), `<n>` the count in the
+   <n> world volume(s) rebuilt` (`restore.sh:181`), `<n>` the count in the
    manifest's `world_volumes:`.
 3. Run `../migrations/run-migrations.sh`, which every restore needs for its
    grants and logins (`README.md`, Restore). The directories it is given

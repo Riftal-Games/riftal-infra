@@ -290,6 +290,7 @@ cannot see every session:
 | `refused: the manifest has no valid capture_mode line for every world volume, so the volumes may not share one tick; set ALLOW_UNCAPTURED_SET=1 to restore it anyway` | See below. A missing `manifest.txt` is the same refusal |
 | `refused: the manifest has no capture_fence line, ...` | See below |
 | `refused: the server.lock of volume <name> is held, so its instance is running; stop it first` | An instance on this host has that volume mounted and running. Stop it. There is no override |
+| `cannot give the server.lock of volume <name> the owner of <dir>, so core could not open it; run this as root` | Raised after the database is rebuilt. The restore was not run as root, so it could not give `server.lock` the directory's owner. Run it again as root; it is not reported complete |
 | `refused: flock is not installed, so a running instance cannot be detected; run this in the backup image` | `mysql:8` has no `flock`. Run `restore.sh` in the `riftal-backup` image |
 
 The check reads the moment it runs. A session opened afterwards is not seen.
@@ -301,10 +302,13 @@ session yet, so both refusals stand. In two passes, all before the database is
 touched, it takes an exclusive `flock -xn` on the `server.lock` of every target
 volume: the first pass tries each file that exists and writes nothing if one is
 held, the second creates and locks the file of each volume that has none. The
-locks are held until the script exits. A core start meanwhile blocks in its own
-`flock` and exits without opening a world. Each volume's `server.lock` is left
-out of the clearing and out of the extract, since replacing the file would swap
-the locked inode for one nothing holds. An instance that was down leaves a free
+locks are held until the script exits. A core start meanwhile opens no world:
+it blocks in its own `flock`, or fails to open a file created as root. Each
+volume's `server.lock` is left out of the clearing and out of the extract, since
+replacing the file would swap the locked inode for one nothing holds. After the
+extract the file is given the owner and group of the volume directory, as
+extracted, because core opens it for writing as its own user. `chown` keeps the
+inode, so the lock still guards it. An instance that was down leaves a free
 `server.lock` behind after a crash, which does not refuse.
 
 Before the tars are listed, `restore.sh` refuses a set whose `manifest.txt`
