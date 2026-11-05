@@ -1,0 +1,52 @@
+name: Core image cleanup
+
+# Removes stale local-pocketmine-mp:<sha> tags from the self-hosted runners'
+# shared Docker daemon (riftal-infra#674). Only merged code removes anything
+# there, so a pull request runs the self-test and nothing else.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/core-image-cleanup.yml
+      - images/core-image.sh
+      - images/core-image-cleanup.sh
+      - images/core-image-cleanup-selftest.sh
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+
+# pull-requests: read lists the open pull requests whose pins are kept.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  selftest:
+    name: core image cleanup self-test
+    runs-on: [self-hosted, linux, riftal]
+    timeout-minutes: 5
+    steps:
+      # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
+      # what runs with this job's token.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Self-test, prove the cleanup keeps every pin and fails closed
+        run: bash images/core-image-cleanup-selftest.sh
+
+  cleanup:
+    name: remove stale core image tags
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: selftest
+    runs-on: [self-hosted, linux, riftal]
+    timeout-minutes: 10
+    # Every runner shares one daemon, so two cleanups never run at once.
+    concurrency:
+      group: core-image-cleanup
+      cancel-in-progress: false
+    steps:
+      # actions/checkout v4.4.0, as above.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Remove stale core image sha tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash images/core-image-cleanup.sh
