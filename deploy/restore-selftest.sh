@@ -103,7 +103,7 @@ docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=46
+EXPECTED_ASSERTIONS=51
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -430,6 +430,56 @@ else
   fail "expected the volume's server.lock to survive the extract unreplaced"
 fi
 
+section "after the extract, server.lock has the owner of its volume directory, whoever made it"
+# Core runs as uid 1000 and opens server.lock for writing. Both tars carry a ./
+# entry owned by 1000:1000, so the directory is root's only until the extract.
+dir8="owned-$SUFFIX"
+backups "cp -r /backups/$dir1 /backups/$dir8 && d=\$(mktemp -d) && for v in world-a world-b; do \
+  mkdir \$d/\$v && tar -xzf /backups/$dir8/worlds/\$v.tar.gz -C \$d/\$v \
+  && tar -czf /backups/$dir8/worlds/\$v.tar.gz --owner=1000 --group=1000 -C \$d/\$v . || exit 1; done && rm -rf \$d"
+vol_owner() { docker run --rm -m 1g --cpus 1 -v "$1:/world" mysql:8 stat -c '%u:%g' "/world$2"; }
+vol_inode() { docker run --rm -m 1g --cpus 1 -v "$1:/world" mysql:8 stat -c '%i' /world/server.lock; }
+# world-a keeps a server.lock root made, as an earlier restore that failed partway would leave.
+docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
+  'chown 1000:1000 /world && touch /world/server.lock && chown 0:0 /world/server.lock' >/dev/null
+docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
+  'chown 1000:1000 /world && rm -f /world/server.lock' >/dev/null
+inode_a_before="$(vol_inode "$WORLD_A_VOL")"
+if run_restore "/backups/$dir8" >"$LOGS"/out-owner.log 2>&1; then
+  pass "a restore of volumes whose directories core's user owns exits 0"
+else
+  fail "expected the restore to exit 0"; cat "$LOGS"/out-owner.log
+fi
+dir_b="$(vol_owner "$WORLD_B_VOL" '')"
+lock_b="$(vol_owner "$WORLD_B_VOL" /server.lock)"
+if [ "$dir_b" = "1000:1000" ] && [ "$lock_b" = "$dir_b" ]; then
+  pass "a server.lock the restore created takes the owner of the volume directory"
+else
+  fail "expected world-b's server.lock owned by 1000:1000 like its directory, got '$lock_b' under '$dir_b'"
+fi
+dir_a="$(vol_owner "$WORLD_A_VOL" '')"
+lock_a="$(vol_owner "$WORLD_A_VOL" /server.lock)"
+if [ "$dir_a" = "1000:1000" ] && [ "$lock_a" = "$dir_a" ] && [ "$(vol_inode "$WORLD_A_VOL")" = "$inode_a_before" ]; then
+  pass "a root-owned server.lock already in the volume takes the directory's owner and stays the same file"
+else
+  fail "expected world-a's server.lock owned by 1000:1000 like its directory, same inode, got '$lock_a' under '$dir_a'"
+fi
+
+# Run as a user who cannot give the file away, the restore must not report complete.
+RESTORE_PRELUDE='chown() { return 1; }; export -f chown; '
+if run_restore "/backups/$dir8" >"$LOGS"/out-chown-fails.log 2>&1; then
+  fail "a restore that cannot set the server.lock owner should exit nonzero"; cat "$LOGS"/out-chown-fails.log
+else
+  pass "a restore that cannot set the server.lock owner exits nonzero"
+fi
+RESTORE_PRELUDE=
+if grep -q 'cannot give the server.lock of volume world-a' "$LOGS"/out-chown-fails.log \
+  && ! grep -q ': complete,' "$LOGS"/out-chown-fails.log; then
+  pass "the failure names the volume and never prints complete"
+else
+  fail "expected a message naming world-a and no complete line"; cat "$LOGS"/out-chown-fails.log
+fi
+
 section "every volume's server.lock is held at each extract, one the volume had and one the restore created"
 # Stands in for an instance starting mid-restore: at each extract it tries a shared
 # lock on every server.lock, as core does, and reports whether it was refused.
@@ -476,4 +526,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1, and refusal, with nothing changed, of a set with no valid capture_mode line for every volume unless ALLOW_UNCAPTURED_SET=1, and of a volume whose server.lock is held, with a free server.lock kept through the extract, and every server.lock held at each extract, including one the restore itself creates.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1, and refusal, with nothing changed, of a set with no valid capture_mode line for every volume unless ALLOW_UNCAPTURED_SET=1, and of a volume whose server.lock is held, with a free server.lock kept through the extract,, every server.lock held at each extract, including one the restore itself creates, and every server.lock given the owner of its volume directory after the extract or the restore failing loudly.\n' "$PASSES"
