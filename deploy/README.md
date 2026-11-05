@@ -296,11 +296,12 @@ cannot see every session:
 The check reads the moment it runs. A session opened afterwards is not seen.
 
 `restore.sh` runs in the `riftal-backup` image (`../images/backup`), because it
-tests each target volume's `server.lock` with `flock`. The processlist cannot
-see an instance on another host, and the lock cannot see one that has no
-session yet, so both refusals stand. In two passes, all before the database is
-touched, it takes an exclusive `flock -xn` on the `server.lock` of every target
-volume: the first pass tries each file that exists and writes nothing if one is
+tests each target volume's `server.lock` with `flock`. The processlist sees the
+session of an instance on any host, but not an instance that has not connected
+yet. The lock sees an instance on this host even before it connects, and an
+instance on another host cannot mount these volumes, so both refusals stand.
+In two passes, all before the database is touched, it takes an exclusive
+`flock -xn` on the `server.lock` of every target volume: the first pass tries each file that exists and writes nothing if one is
 held, the second creates and locks the file of each volume that has none. The
 locks are held until the script exits. A core start meanwhile opens no world:
 it blocks in its own `flock`, or fails to open a file created as root. Each
@@ -309,7 +310,10 @@ replacing the file would swap the locked inode for one nothing holds. After the
 extract the file is given the owner and group of the volume directory, as
 extracted, because core opens it for writing as its own user. `chown` keeps the
 inode, so the lock still guards it. An instance that was down leaves a free
-`server.lock` behind after a crash, which does not refuse.
+`server.lock` behind after a crash, which does not refuse. A restore that fails
+after the second pass, for example on the database load, can leave a root-owned
+`server.lock` in each volume it created one in and the extract has not reached.
+Run the restore again as root: the extract gives each the directory's owner.
 
 Before the tars are listed, `restore.sh` refuses a set whose `manifest.txt`
 lacks a `capture_mode.<volume>: held <request id>` or

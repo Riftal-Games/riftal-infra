@@ -117,8 +117,10 @@ read -r _ own sessions < <(grep '^counts' <<<"$probe") || true
 
 # A restore under a running instance is overwritten by its next save. Core
 # holds a shared flock on server.lock while it runs (ADR 015 item 6), so an
-# exclusive try-lock finds a running instance on this host, which the
-# processlist cannot see on another. Pass 1 only reads, so a refusal has written
+# exclusive try-lock finds a running instance on this host even before it has
+# opened a database session, which the processlist cannot see. The processlist
+# sees the session of an instance on any host, and an instance on another host
+# cannot mount these volumes. Pass 1 only reads, so a refusal has written
 # nothing. Pass 2 locks every volume that has no server.lock yet, and every lock
 # stays held on its descriptor until this script exits. A start meanwhile opens
 # no world: it blocks in core's flock, or fails to open a file created as root.
