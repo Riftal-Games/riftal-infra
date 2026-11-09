@@ -71,6 +71,9 @@ the top of this runbook if either was just edited.
 ```sh
 wslc run -d -i --name riftal-instance-b --network riftal-dev \
   --memory 2G --cpus 2 \
+  --health-cmd "php /plugins/restart/raknet-ping.php" \
+  --health-interval 30s --health-timeout 10s --health-retries 3 \
+  --health-start-period 180s \
   -p "${INSTANCE_B_BIND:-127.0.0.1}:19133:19132/udp" \
   -v riftal-world-b:/data -v "$INFRA/images/plugins:/plugins" \
   -v riftal-capture:/capture:ro \
@@ -88,9 +91,10 @@ wslc logs riftal-instance-b
 ```
 
 This mirrors `images/compose.yaml`'s `instance-b` service definition
-except for its `restart: on-failure` policy and RakNet healthcheck, which this
-`wslc run` does not carry (riftal-infra#578), and CI fails when the two
-disagree on any flag (`.github/scripts/wslc-drift.sh`): same image tag, `19133/udp` published instead of `19132/udp`
+except for its `restart: on-failure` policy, which `wslc run` has no flag for
+(riftal-infra#578), and CI fails when the two disagree on any flag, the
+RakNet healthcheck's five `--health-*` flags included
+(`.github/scripts/wslc-drift.sh`): same image tag, `19133/udp` published instead of `19132/udp`
 (the container still listens on `19132` internally, `19133` is only where the
 host maps it), its own volume `riftal-world-b` instead of `riftal-world`,
 its own `INSTANCE_ID` value from `INSTANCE_B_ID` instead of `INSTANCE_ID`,
@@ -101,9 +105,9 @@ different worlds rather than one world cloned onto a second port.
 admits bots only with it set, alongside `--riftal-dev-bots=on` and
 `--xbox-auth=false`, so an `instance-b` created without it refuses every bot.
 The command chain is the same as compose's too, `boot-gate.sh` first, though
-with no restart policy behind it the gate never sees a second start:
-`require-custody.sh` stops the
-boot before PocketMine when `images/plugins/RiftalCustody.phar` is missing or
+with no restart policy behind it the gate never sees a second start, so a
+crashed `riftal-instance-b` stays down until it is recreated by hand.
+`require-custody.sh` stops the boot before PocketMine when `images/plugins/RiftalCustody.phar` is missing or
 empty, so build it first (`images/README.md`, RiftalCustody), and
 `require-accounts.sh` does the same for `RiftalAccounts.phar`,
 `contracts.phar` and `RIFTAL_DB_PASSWORD_ACCOUNTS` (`images/README.md`,
