@@ -219,7 +219,7 @@
       "name": "mine_b",
       "rank": "B",
       "role": "ore_mine",
-      "seed": 20260907
+      "seed": 23
     },
     {
       "generator": "normal",
