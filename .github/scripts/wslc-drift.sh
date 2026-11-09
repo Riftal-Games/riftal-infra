@@ -19,10 +19,13 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$DIR/../.." && pwd)"
 COMPOSE="${WSLC_DRIFT_COMPOSE:-$ROOT/images/compose.yaml}"
+# A scratch copy of the compose file sets WSLC_DRIFT_PROJECT_DIR so its relative
+# bind paths resolve as they do for the real file.
 [ "$#" -gt 0 ] || set -- "$ROOT/docs/dev-stack-two-instance.md"
 command -v jq >/dev/null || { printf '::error::jq is required\n'; exit 1; }
 
-model="$(docker compose -f "$COMPOSE" config --format json --no-interpolate)"
+model="$(docker compose -f "$COMPOSE" --project-directory "${WSLC_DRIFT_PROJECT_DIR:-$(dirname "$COMPOSE")}" \
+  config --format json --no-interpolate)"
 
 # Prints one shell word per line for each `wslc run` in $1, its continuation
 # lines joined, with a blank line after each command. xargs strips the quotes
