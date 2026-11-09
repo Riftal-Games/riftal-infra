@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Self-test for RiftalDevFaults.php (riftal-infra#932 and #1124), the hooks of
-# ADR 017 P8 and ADR 030.
+# Self-test for RiftalDevFaults.php (riftal-infra#932, #1124 and #1325), the
+# hooks of ADR 017 P8, ADR 030 and ADR 034.
 #
 # Boots the pinned core image six times on one throwaway /data volume, with
 # the shipped RiftalDevBots.php and RiftalDevFaults.php beside two fixtures:
 # DevFaultsCustody.php, named RiftalCustody and enabled at STARTUP as custody
 # is, and DevFaultsContracts.php, named RiftalContracts and holding the
-# DurableChunkSaveEvent contract. The custody fixture records whether the
-# probe path is a directory when it enables, arms every fault through the
-# console commands, saves two players through core, writes the probe the way
-# custody does, and fires three durable chunk save events as lib does.
+# DurableChunkSaveEvent contract and the economy contracts devfaults-debit
+# uses. The custody fixture records whether the probe path is a directory when
+# it enables, arms every fault through the console commands, saves two players
+# through core, writes the probe the way custody does, fires three durable
+# chunk save events as lib does, and runs devfaults-debit against a stub
+# listener that answers debited, rejected, not_applied and failed in turn.
 #
 # The third boot must clear the directory the first armed before RiftalCustody
 # enables; the fourth runs a copy that clears it in onEnable and must not, so
@@ -28,9 +30,13 @@ PLUGIN="$DIR/../RiftalDevFaults.php"
 core_image || { printf 'the dev faults hook was never checked\n'; exit 1; }
 IMAGE="$CORE_IMAGE"
 
+instance=selftest-dev-faults
+uuid7='[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+debit="devfaults-debit request_id=($uuid7) account_id=7 amount_minor_units=250 instance_id=$instance"
+
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=12
+EXPECTED_ASSERTIONS=18
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -54,7 +60,7 @@ boot() {
   chmod -R a+rX "$plugins"
   if ! log="$(timeout 180 docker run --rm --pull never --name "$name" -m 2g --cpus 2 \
       -v "$plugins:/plugins:ro" -v "$volume:/data" \
-      -e "RIFTAL_DEV_ENV=$2" -e "FAULTS_ARM_PROBE=$3" -e "FAULTS_BOOT=$4" \
+      -e "RIFTAL_DEV_ENV=$2" -e "FAULTS_ARM_PROBE=$3" -e "FAULTS_BOOT=$4" -e "INSTANCE_ID=$instance" \
       -e "POCKETMINE_ARGS=--xbox-auth=false --riftal-dev-bots=on --auto-report.enabled=0 --level-type=flat" \
       "$IMAGE" 2>&1)"; then
     docker stop -t 60 "$name" >/dev/null 2>&1 || true
@@ -88,9 +94,28 @@ cancels="$(grep -c 'cancelled the durable save of chunk 0 0 in ' "$work/log-1" |
 printf '\n== RIFTAL_DEV_ENV unset: no command, none of the three by name, no listener, nothing cleared\n'
 expect "a production-shaped boot has no hook and leaves the directory alone" \
   "dir_at_enable=yes commands=no failing=saved other=saved probe=throws chunk=saved,saved,saved" "$(boot "$PLUGIN" "" 1 2)"
-grep -q 'dev-faults-commands devfaults-flush-fail=no devfaults-probe-fail=no devfaults-chunk-save-fail=no' "$work/log-2" \
-  && pass "with the gate closed, no fault command exists, the chunk one included" \
+grep -q 'dev-faults-commands devfaults-flush-fail=no devfaults-probe-fail=no devfaults-chunk-save-fail=no devfaults-debit=no' "$work/log-2" \
+  && pass "with the gate closed, no fault command exists, the chunk and debit ones included" \
   || fail "boot 2 should have no fault command, got: $(grep -o 'dev-faults-commands .*' "$work/log-2" || echo 'no command line')"
+! grep -qE 'devfaults-debit request_id=|dev-faults-debit |devfaults-debit is not registered' "$work/log-2" \
+  && pass "with the gate closed, the log shows no debit fired and no debit warning" \
+  || fail "boot 2 should show no devfaults-debit line, got: $(grep -E 'devfaults-debit request_id=|dev-faults-debit |devfaults-debit is not registered' "$work/log-2")"
+
+printf '\n== devfaults-debit: a refused line fires nothing, four runs log the fire line and each outcome in turn\n'
+grep -q 'dev-faults-debit refused_fired=0 refused_says=yes events=4 reasons=rank_up,rank_up,rank_up,rank_up' "$work/log-1" \
+  && pass "a non-console sender and every missing, extra, zero, negative or non-decimal argument fire nothing, then four runs fire rank_up" \
+  || fail "boot 1 should refuse every bad line and fire four rank_up events, got: $(grep -o 'dev-faults-debit .*' "$work/log-1" || echo 'no debit line')"
+grep -E "devfaults-debit request_id=" "$work/log-1" | sed -E 's/^.*INFO\]: //' || true
+fired="$(grep -oE "$debit reason=rank_up\$" "$work/log-1" | grep -oE "$uuid7" || true)"
+outcomes="$(grep -oE "$debit outcome=[a-z_]+\$" "$work/log-1" || true)"
+answered="$(sed -E 's/.* outcome=//' <<<"$outcomes" | paste -sd' ')"
+[ "$(wc -l <<<"$fired")" = 4 ] && [ "$answered" = 'debited rejected not_applied failed' ] \
+  && [ "$fired" = "$(grep -oE "$uuid7" <<<"$outcomes")" ] \
+  && pass "four fire lines with a lowercase UUIDv7, reason rank_up, and one outcome line each in turn on the same id" \
+  || fail "boot 1 should log four fire lines and the outcomes debited rejected not_applied failed on the same ids, got ids '$fired' and outcomes '$answered'"
+[ "$(sort -u <<<"$fired" | wc -l)" = 4 ] \
+  && pass "every run mints a request id of its own" \
+  || fail "boot 1 should mint four different request ids, got: $fired"
 
 printf '\n== the shipped plugin clears the armed directory before custody enables\n'
 expect "custody's boot probe finds the directory gone, and it can be armed again" \
@@ -123,6 +148,15 @@ expect "a boot without RiftalContracts keeps the other faults" \
 grep -q 'RiftalContracts is not loaded, so devfaults-chunk-save-fail is not registered' "$work/log-6" \
   && pass "the log names the missing RiftalContracts" \
   || fail "a boot without RiftalContracts should say the chunk fault is not registered"
+grep -q 'RiftalContracts is not loaded, so devfaults-debit is not registered' "$work/log-6" \
+  && grep -q 'dev-faults-commands devfaults-flush-fail=yes devfaults-probe-fail=yes devfaults-chunk-save-fail=no devfaults-debit=no' "$work/log-6" \
+  && pass "without RiftalContracts the log names the missing debit command and the other faults still register" \
+  || fail "a boot without RiftalContracts should warn that devfaults-debit is not registered and keep the other commands"
+
+printf '\n== the shipped plugin can only debit\n'
+! grep -q 'CurrencyCreditRequestedEvent' "$PLUGIN" \
+  && pass "RiftalDevFaults.php names no CurrencyCreditRequestedEvent" \
+  || fail "RiftalDevFaults.php must never name CurrencyCreditRequestedEvent: $(grep -n 'CurrencyCreditRequestedEvent' "$PLUGIN")"
 
 printf '\n'
 ran=$((PASSES + FAILURES))
