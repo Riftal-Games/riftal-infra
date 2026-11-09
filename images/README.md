@@ -73,6 +73,15 @@ ADR 017 P8 (riftal-infra#932). From the server console only:
   cancel line rather than assume it was spent. The command exists only when
   `RiftalContracts` is loaded with `DurableChunkSaveEvent`; without it the
   boot logs that the command is not registered and the other two still are.
+- `devfaults-debit <account id> <amount minor units>` fires one
+  `CurrencyDebitRequestedEvent` for ADR 034 (riftal-infra#1325), with the
+  reason `rank_up` fixed in code. Both arguments are plain decimal integers of
+  at least 1, and the instance is `INSTANCE_ID`. It logs `devfaults-debit
+  request_id=<uuid> account_id=<n> amount_minor_units=<n> instance_id=<id>
+  reason=rank_up` when it fires, then the same fields with `outcome=<debited|
+  rejected|not_applied|failed>` for each answer. It only debits, takes no
+  reason argument and is registered under the same conditions as the chunk
+  fault.
 
 ## Dev bots tile contents
 
