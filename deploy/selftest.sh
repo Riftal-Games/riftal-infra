@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for backup.sh, against a real, throwaway mysql:8 container and
-# real, throwaway world volumes. Calls `docker` directly, as
+# real, throwaway world volumes. backup.sh runs in an image built here from
+# ../images/backup, since mysql:8 carries no flock. Calls `docker` directly, as
 # ../migrations/selftest.sh does, so it runs on the self-hosted CI runner and,
 # on Nasir's Windows machine, under the WSL fallback engine:
 #   wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/.../deploy/selftest.sh
@@ -16,19 +17,24 @@ WORLD_A_VOL="riftal-backup-selftest-world-a-$SUFFIX"
 WORLD_B_VOL="riftal-backup-selftest-world-b-$SUFFIX"
 CAPTURE_VOL="riftal-backup-selftest-capture-$SUFFIX"
 RUN_NAME_KILLED="riftal-backup-selftest-killed-$SUFFIX"
+RUN_NAME_SHIM="riftal-backup-selftest-shim-$SUFFIX"
+HOLDER="riftal-backup-selftest-holder-$SUFFIX"
+BACKUP_IMG="riftal-backup-selftest:$SUFFIX"
 
 # Per run, so two runs sharing a host, as the self-hosted CI runners do,
 # never read each other's logs.
 LOGS="$(mktemp -d)"
 
 cleanup() {
-  docker rm -f -v "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
+  docker rm -f -v "$MYSQL_CONTAINER" "$HOLDER" "$RUN_NAME_SHIM" "$RUN_NAME_KILLED" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" "$CAPTURE_VOL" >/dev/null 2>&1 || true
+  docker image rm "$BACKUP_IMG" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
 }
 trap cleanup EXIT
 
+docker build -q -t "$BACKUP_IMG" "$SCRIPT_DIR/../images/backup" >/dev/null
 docker network create "$NETWORK" >/dev/null
 # Created before any `run -v` names them, so CI's label shim stamps them for
 # the job's sweep, which is all that removes them when a cancel skips the trap.
@@ -37,7 +43,7 @@ docker volume create "$WORLD_A_VOL" >/dev/null
 docker volume create "$WORLD_B_VOL" >/dev/null
 docker volume create "$CAPTURE_VOL" >/dev/null
 
-docker run -d --rm --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
+docker run -d --rm -m 1g --cpus 1 --name "$MYSQL_CONTAINER" --network "$NETWORK" --network-alias mysql \
   -v "$WORLD_A_VOL:/instance-a" -v "$CAPTURE_VOL:/capture:ro" \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_selftest \
   mysql:8 >/dev/null
@@ -61,14 +67,14 @@ docker exec "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest -e \
 docker exec -i "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest <"$SCRIPT_DIR/fence-fixture.sql"
 docker exec -i "$MYSQL_CONTAINER" mysql -uroot -pselftest riftal_selftest <"$SCRIPT_DIR/fence-listing-fixture.sql"
 
-docker run --rm -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
+docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
   'echo world-a-marker > /world/marker.txt' >/dev/null
-docker run --rm -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
+docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
   'echo world-b-marker > /world/marker.txt' >/dev/null
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=63
+EXPECTED_ASSERTIONS=82
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -79,7 +85,9 @@ section() { printf '\n== %s\n' "$1"; }
 run_backup() {
   local retention="$1" host="$2" password="$3" partial_max_age="${4:-360}" lock_max_age="${5:-90}"
   if [ "$#" -gt 5 ]; then shift 5; else shift "$#"; fi
-  timeout 60 docker run --rm --network "$NETWORK" ${RUN_NAME:+--name "$RUN_NAME"} \
+  timeout 60 docker run --rm -m 1g --cpus 1 --network "$NETWORK" ${RUN_NAME:+--name "$RUN_NAME"} \
+    ${TAR_SHIM:+-v "$TAR_SHIM:/shim/tar:ro" -e PATH=/shim:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin} \
+    -e SHIM_VOL="${SHIM_VOL:-}" -e SHIM_EXIT="${SHIM_EXIT:-0}" -e SHIM_CALLS="${SHIM_CALLS:-first}" \
     -v "${BACKUP_SCRIPT:-$SCRIPT_DIR/backup.sh}:/deploy/backup.sh:ro" \
     -v "$BACKUPS_VOL:/backups" -v "$CAPTURE_VOL:/capture" \
     -v "$WORLD_A_VOL:/worlds/world-a:ro" -v "$WORLD_B_VOL:/worlds/world-b:ro" \
@@ -95,11 +103,11 @@ run_backup() {
     -e CAPTURE_TEST_REQUEST_ID="${CAPTURE_TEST_REQUEST_ID:-}" \
     -e FENCE_TEST_STALL_SECONDS="${FENCE_TEST_STALL_SECONDS:-0}" \
     -e CAPTURE_TEST_STALL_SECONDS="${CAPTURE_TEST_STALL_SECONDS:-0}" \
-    mysql:8 bash /deploy/backup.sh "$@"
+    "$BACKUP_IMG" bash /deploy/backup.sh "$@"
 }
 
 backups() {
-  docker run --rm -v "$BACKUPS_VOL:/backups" mysql:8 bash -c "$1"
+  docker run --rm -m 1g --cpus 1 -v "$BACKUPS_VOL:/backups" mysql:8 bash -c "$1"
 }
 
 section "a run captures a restorable, coordinated dump and world snapshots"
@@ -598,8 +606,8 @@ section "the capture fence closes the copy: a held item is collected once, and e
 # ADR 027 P6. The MySQL container stands in for an instance whose world is
 # world-a: a shell responder calls the fixture commit-first procedure as the
 # plugin would, writes a delivery marker into players/ on a commit, then stages
-# players/ and acks. mysql:8 carries no flock, so backup.sh's `flock -xn`
-# fails and a volume with a server.lock reads as running; its ack decides.
+# players/ and acks. A holder container keeps a shared flock on the volume's
+# server.lock, as core does, so the volume reads as running and its ack decides.
 # The responder calls twice: while the run stalls between its dump and its
 # request, and again while the volume's second ack wait is open after a forced
 # retry, which an ack the responder removes causes. A correct run holds the
@@ -706,7 +714,34 @@ two_copies() {
   [ "$fence_rc" = 0 ] && [ "$fence_new" = 1 ] && [ "$fence_item" = none ] && [ "$fence_marker" = 1 ]
 }
 
-docker exec "$MYSQL_CONTAINER" touch "$INSTANCE/server.lock"
+holding=0
+# $1 held, free or absent: what the volume's server.lock is. The held lock is
+# taken in a container of its own, as core takes it, and a stopped container
+# releases it.
+set_lock() {
+  if [ "$1" = held ] && [ "$holding" = 1 ]; then
+    return 0
+  fi
+  if [ "$holding" = 1 ]; then
+    docker stop -t 1 "$HOLDER" >/dev/null
+    holding=0
+  fi
+  docker exec "$MYSQL_CONTAINER" rm -f "$INSTANCE/server.lock"
+  case "$1" in
+    free) docker exec "$MYSQL_CONTAINER" touch "$INSTANCE/server.lock" ;;
+    held)
+      docker run -d --rm --init -m 1g --cpus 1 --name "$HOLDER" -v "$WORLD_A_VOL:/instance-a" \
+        "$BACKUP_IMG" flock -s /instance-a/server.lock sleep 3600 >/dev/null
+      holding=1
+      for _ in $(seq 100); do
+        docker exec "$HOLDER" flock -xn -E 99 /instance-a/server.lock true || [ $? != 99 ] || break
+        sleep 0.2
+      done
+      ;;
+  esac
+}
+
+set_lock held
 
 fence_run clean "$SCRIPT_DIR/backup.sh" 120 6 2
 if [ "$fence_rc" = 0 ] && [ "$fence_new" = 1 ] && [ "$fence_item" = none ] && [ "$fence_marker" = 0 ]; then
@@ -807,6 +842,231 @@ sleep 8
   && pass "the killed run's fence lapses at its lease, and a later run raises it" \
   || fail "expected a raise to succeed once the killed run's lease had lapsed"
 
+section "the lock test chooses held, stopped or a failed run, and an ack counts only for this request"
+# The SIGKILLed run above never released its lock.
+backups 'rm -rf /backups/.lock'
+docker exec "$MYSQL_CONTAINER" bash -c "mkdir -p $INSTANCE/worlds/w $INSTANCE/plugin_data && \
+  echo seed > $INSTANCE/worlds/w/level.dat && echo seed > $INSTANCE/plugin_data/x.yml && echo seed > $INSTANCE/server.log"
+
+# $1 a name (letters only), $2 held, free or absent, $3 a command run in the
+# instance container once the stage is cleared. Sets state_rc and state_log.
+state_run() {
+  local id="${STATE_ID:-state-$1}"
+  set_lock "$2"
+  fence_reset
+  docker exec "$MYSQL_CONTAINER" bash -c "$3"
+  state_rc=0 state_log="$LOGS/run-$1.log"
+  CAPTURE_TEST_REQUEST_ID="$id" CAPTURE_ACK_TIMEOUT_SECONDS=3 \
+    run_backup 50 mysql selftest >"$state_log" 2>&1 || state_rc=$?
+}
+
+# $1 a set's name, $2 a volume. Prints the manifest's capture mode for it.
+manifest_mode() { backups "sed -n 's/^capture_mode.$2: //p' /backups/$1/manifest.txt"; }
+
+for lock in free absent; do
+  state_run "lock$lock" "$lock" :
+  set_name="$(sed -n 's|.*complete at /backups/||p' "$state_log")"
+  if [ "$state_rc" = 0 ] && [ "$(manifest_mode "$set_name" world-a)" = stopped ] \
+    && grep -q "volume world-a is down" "$state_log"; then
+    pass "a $lock server.lock reads as a down instance: no ack is waited for and the manifest says stopped"
+  else
+    fail "expected a stopped volume for a $lock server.lock, got rc=$state_rc"; cat "$state_log"
+  fi
+done
+
+for stale in otherdir wrongid; do
+  case "$stale" in
+    otherdir) dir=other ;;
+    wrongid) dir="state-$stale" ;;
+  esac
+  before="$(set_count)"
+  state_run "$stale" held "mkdir -p $INSTANCE/.capture/$dir && printf 'other\n1\n' > $INSTANCE/.capture/$dir/ack"
+  if [ "$state_rc" != 0 ] && [ "$(set_count)" = "$before" ] && grep -q "has not acked" "$state_log"; then
+    pass "a running instance whose ack is stale ($stale) fails the run and writes no set"
+  else
+    fail "expected a failed run and no set for a stale ack ($stale), got rc=$state_rc"; cat "$state_log"
+  fi
+done
+
+# $1 the script to run, backup.sh when empty. An absent server.lock beside this
+# request's ack is retested until the ack timeout, so the run must last at
+# least that long.
+stale_ack_run() {
+  local start=$SECONDS
+  stale_before="$(set_count)"
+  BACKUP_SCRIPT="$1" state_run staleack absent \
+    "mkdir -p $INSTANCE/.capture/state-staleack && printf 'state-staleack\n1\n' > $INSTANCE/.capture/state-staleack/ack"
+  stale_secs=$((SECONDS - start))
+}
+stale_ack_ok() {
+  [ "$state_rc" != 0 ] && [ "$(set_count)" = "$stale_before" ] && [ "$stale_secs" -ge 3 ] \
+    && grep -qF "after 3s it shows a server.lock or an ack for request state-staleack that no running instance holds" "$state_log"
+}
+
+stale_ack_run ""
+if stale_ack_ok; then
+  pass "an ack with no server.lock is retested for the whole timeout, then fails the run with its reason and writes no set"
+else
+  fail "expected a failed run after 3s and no set for an ack beside an absent lock, got rc=$state_rc in ${stale_secs}s"; cat "$state_log"
+fi
+
+# A refused id never reaches the fence or the dump, so nothing is written.
+bad_id_run() {
+  bad_before="$(set_count)"
+  STATE_ID='bad:id' BACKUP_SCRIPT="$1" state_run badid held :
+}
+bad_id_ok() {
+  [ "$state_rc" != 0 ] && [ "$(set_count)" = "$bad_before" ] \
+    && grep -qF "request id 'bad:id' is outside RiftalCapture's grammar, no instance would ack it" "$state_log" \
+    && ! grep -qE 'capture fence raised|dumping database' "$state_log"
+}
+
+bad_id_run ""
+if bad_id_ok; then
+  pass "a request id outside RiftalCapture's grammar is refused before the fence, the dump or any set"
+else
+  fail "expected a refused id and no set, got rc=$state_rc"; cat "$state_log"
+fi
+
+mutate staleack 1 -e 's| && ! listed "\$listing" "\.capture/\$request_id/ack"||'
+stale_ack_run "$mutant"
+if stale_ack_ok; then
+  fail "the staleack mutant should turn the stale ack case red"
+else
+  pass "mutant staleack: the stale ack case goes red (rc=$state_rc, ${stale_secs}s)"
+fi
+mutate badid 1 -e 's#^  || fail "request id .*$#  || true#'
+bad_id_run "$mutant"
+if bad_id_ok; then
+  fail "the badid mutant should turn the request id case red"
+else
+  pass "mutant badid: the request id case goes red (rc=$state_rc)"
+fi
+
+section "a file changed during a tar: the tar's exit and the listings decide, with the write and the exit fixed by a tar shim"
+TAR_SHIM="$LOGS/tar-shim"
+cat >"$TAR_SHIM" <<'EOF'
+#!/bin/bash
+vol="" prev=""
+for a in "$@"; do
+  [ "$prev" != -C ] || { vol="$(basename "$a")"; break; }
+  prev="$a"
+done
+n=$(( $(cat "/tmp/calls-$vol" 2>/dev/null || echo 0) + 1 ))
+echo "$n" >"/tmp/calls-$vol"
+rc=0
+/usr/bin/tar "$@" || rc=$?
+[ "$vol" = "$SHIM_VOL" ] || exit "$rc"
+echo "tar shim: call $n for $vol" >&2
+if [ "$n" = 1 ] || [ "$SHIM_CALLS" = all ]; then
+  for _ in $(seq 300); do [ -e "/tmp/go-$n" ] && break; sleep 0.2; done
+  [ "$SHIM_EXIT" != TERM ] || kill -TERM $$
+  exit "$SHIM_EXIT"
+fi
+exit "$rc"
+EOF
+chmod 755 "$TAR_SHIM"
+
+# $1 a case key, $2 the script to run, backup.sh when empty. Runs it on world-a
+# with the shim. After the image's own tar has read the volume, the shim waits
+# while the instance container makes the case's write, then exits with the
+# case's code. Sets sh_rc, sh_calls (the shim's calls for world-a), sh_mode (the
+# manifest's mode for it) and sh_log.
+shim_case() {
+  local key="$1" script="${2:-$SCRIPT_DIR/backup.sh}" id="shim-$1" lock=absent code=0 calls=first write=: responder="" run n i set_name
+  case "$key" in
+    heldfree) lock=held code=1 write="echo x >> $INSTANCE/server.log; echo x >> $INSTANCE/plugin_data/x.yml" ;;
+    heldlevel) lock=held calls=all write="echo x >> $INSTANCE/worlds/w/level.dat" ;;
+    downlog) write="echo x >> $INSTANCE/server.log" ;;
+    downplug) code=1 write="echo x >> $INSTANCE/plugin_data/x.yml" ;;
+    exit2) code=2 ;;
+    term) code=TERM ;;
+  esac
+  set_lock "$lock"
+  fence_reset
+  sh_log="$LOGS/run-$key.log"
+  if [ "$lock" = held ]; then
+    docker exec "$MYSQL_CONTAINER" bash -c "$INSTANCE_ACK" _ "$id" &
+    responder=$!
+  fi
+  RUN_NAME="$RUN_NAME_SHIM" TAR_SHIM="$TAR_SHIM" SHIM_VOL=world-a SHIM_EXIT="$code" SHIM_CALLS="$calls" \
+    BACKUP_SCRIPT="$script" CAPTURE_TEST_REQUEST_ID="$id" CAPTURE_ACK_TIMEOUT_SECONDS=20 \
+    run_backup 50 mysql selftest >"$sh_log" 2>&1 &
+  run=$!
+  for n in 1 2; do
+    [ "$n" = 1 ] || [ "$calls" = all ] || break
+    for ((i = 0; i < 150; i++)); do
+      grep -qF "tar shim: call $n for world-a" "$sh_log" && break
+      kill -0 "$run" 2>/dev/null || break
+      sleep 0.2
+    done
+    grep -qF "tar shim: call $n for world-a" "$sh_log" || break
+    docker exec "$MYSQL_CONTAINER" bash -c "$write"
+    docker exec "$RUN_NAME_SHIM" touch "/tmp/go-$n"
+  done
+  sh_rc=0
+  wait "$run" || sh_rc=$?
+  [ -z "$responder" ] || wait "$responder" || true
+  sh_calls="$(grep -c 'tar shim: call [0-9]* for world-a' "$sh_log" || true)"
+  set_name="$(sed -n 's|.*complete at /backups/||p' "$sh_log")"
+  sh_mode=""
+  [ -z "$set_name" ] || sh_mode="$(manifest_mode "$set_name" world-a)"
+}
+
+# $1 a case key. True when the last shim_case run did what the case requires.
+shim_ok() {
+  case "$1" in
+    heldfree)
+      [ "$sh_rc" = 0 ] && [ "$sh_calls" = 1 ] && [ "$sh_mode" = "held shim-heldfree" ] \
+        && grep -q 'tar of volume world-a, held, exited 1' "$sh_log" \
+        && ! grep -q 'changed during its tar' "$sh_log" ;;
+    heldlevel)
+      [ "$sh_rc" != 0 ] && [ "$sh_calls" = 2 ] \
+        && [ "$(grep -c 'volume world-a after its tar: worlds/w/level.dat ' "$sh_log")" = 2 ] ;;
+    downlog)
+      [ "$sh_rc" = 0 ] && [ "$sh_calls" = 2 ] && [ "$sh_mode" = stopped ] \
+        && grep -q 'volume world-a before its tar: server.log ' "$sh_log" ;;
+    downplug)
+      [ "$sh_rc" = 0 ] && [ "$sh_calls" = 2 ] && [ "$sh_mode" = stopped ] \
+        && grep -q 'world-a is down and tar saw a file change' "$sh_log" ;;
+    exit2)
+      [ "$sh_rc" != 0 ] && [ "$sh_calls" = 1 ] \
+        && grep -q 'tar of volume world-a exited 2 with its listing unchanged' "$sh_log" ;;
+    term)
+      [ "$sh_rc" != 0 ] && [ "$sh_calls" = 1 ] \
+        && grep -q 'tar of volume world-a exited 143' "$sh_log" ;;
+  esac
+}
+
+for key in heldfree heldlevel downlog downplug exit2 term; do
+  shim_case "$key"
+  if shim_ok "$key"; then
+    pass "tar case $key: rc=$sh_rc, the shim saw $sh_calls call(s), mode '$sh_mode'"
+  else
+    fail "tar case $key did not behave as required: rc=$sh_rc calls=$sh_calls mode='$sh_mode'"; cat "$sh_log"
+  fi
+done
+
+# $1 the mutant's name, $2 the case that guards the rule it removes.
+mutate_case() {
+  shim_case "$2" "$mutant"
+  if shim_ok "$2"; then
+    fail "the $1 mutant should turn the $2 case red"
+  else
+    pass "mutant $1: the $2 case goes red (rc=$sh_rc, calls=$sh_calls)"
+  fi
+}
+mutate failexit1 1 -e 's/^  \[ "\$rc" -le 2 \] || fail/  [ "$rc" -eq 0 ] || fail/'
+mutate_case failexit1 heldfree
+mutate heldlog 1 -e 's/^  \[ "\$2" = held \] || paths+=(players server.log)$/  paths+=(players server.log)/'
+mutate_case heldlog heldfree
+mutate downnolog 1 -e 's/^  \[ "\$2" = held \] || paths+=(players server.log)$/  [ "$2" = held ] || paths+=(players)/'
+mutate_case downnolog downlog
+mutate keepexit1 1 -e 's/^  if \[ "\$rc" -eq 1 \] && \[ "\${mode\[\$name\]}" = stopped \]; then$/  if false; then/'
+mutate_case keepexit1 downplug
+mutate retryexit2 1 -e 's/^  \[ "\$rc" -ne 2 \] || fail .*$/  [ "$rc" -ne 2 ] || return 1/'
+mutate_case retryexit2 exit2
+
 printf '\n'
 ran=$((PASSES + FAILURES))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
@@ -818,4 +1078,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, no lock visible during a claim, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure, the capture fence closing the copy under three mutants, failed runs lowering the fence.\n' "$PASSES"
+printf 'all %s assertions passed: coordinated restorable backup, retention pruning, stale .partial sweep, concurrent-run lock, stale-lock sweep, lock ownership token, steal-vs-steal mutual exclusion, no lock visible during a claim, orphaned lock-discard sweep, discard-sweep-vs-still-alive-owner race, loud failure, the capture fence closing the copy under three mutants, failed runs lowering the fence, the lock test, stale acks and ids outside the grammar under two mutants, tar exits and writes under five mutants.\n' "$PASSES"
