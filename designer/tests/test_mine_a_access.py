@@ -8,11 +8,12 @@ from designer.builders.base import DIRS, Palette
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
 from designer.builders.stairs import StairsSpec, build_stairs
-from designer.checks import DEFAULT_PATH as CHECKS
+from designer.checks import DEFAULT_PATH as CHECKS, RunContext, load_checks, run_one
 from designer.config import PROJECT_ROOT
 from designer.level import load_recipe, pregen_bounds
 from designer.region import Bounds, Region
 from designer.verify import path_exists
+from designer.world_index import WorldIndex
 
 STONE = "minecraft:stone"
 # The top block of seed 23's grass east of the stairs' last tread, read from the built level's heightmap.
@@ -24,14 +25,19 @@ def _json(*parts: str) -> dict:
     return json.loads(PROJECT_ROOT.joinpath(*parts).read_text(encoding="utf-8"))
 
 
-@pytest.fixture
-def mine() -> MineSpec:
-    return MineSpec.from_dict(_json("specs", "mine_a.json"))
+@pytest.fixture(params=["mine_a", "mine_b"])
+def zone(request: pytest.FixtureRequest) -> str:
+    return request.param
 
 
 @pytest.fixture
-def legs() -> list[StairsSpec]:
-    steps = [step for step in load_recipe("mine_a").steps if step.build == "stairs"]
+def mine(zone: str) -> MineSpec:
+    return MineSpec.from_dict(_json("specs", f"{zone}.json"))
+
+
+@pytest.fixture
+def legs(zone: str) -> list[StairsSpec]:
+    steps = [step for step in load_recipe(zone).steps if step.build == "stairs"]
     return [StairsSpec.from_dict(_json(*step.spec.split("/"))) for step in steps]
 
 
@@ -42,7 +48,7 @@ def _top(leg: StairsSpec) -> tuple[int, int, int]:
 
 def _spawn(mine: MineSpec) -> tuple[int, int, int]:
     locations = build_mine(mine, Palette.load("mine_stone")).extras["locations"]
-    return tuple(next(l for l in locations if l["name"] == "mine_a_spawn")["pos"])
+    return tuple(next(l for l in locations if l["name"] == f"{mine.world}_spawn")["pos"])
 
 
 def _goal(legs: list[StairsSpec]) -> tuple[int, int, int]:
@@ -55,9 +61,9 @@ def _goal(legs: list[StairsSpec]) -> tuple[int, int, int]:
 def _built(mine: MineSpec, legs: list[StairsSpec], with_legs: bool = True) -> Region:
     """The mine and its stairs dug into stone that reaches the exit's ground, over the chunks ``pregen`` populates."""
     palette = Palette.load("mine_stone")
-    recipe = Bounds.from_json(_json("levels", "mine_a.json")["bounds"])
+    recipe = Bounds.from_json(_json("levels", f"{mine.world}.json")["bounds"])
     area = pregen_bounds(recipe)
-    region = Region.empty("mine_a", Bounds((area.min[0], recipe.min[1], area.min[1]), (area.max[0], EXIT_GROUND_Y + 3, area.max[1])))
+    region = Region.empty(mine.world, Bounds((area.min[0], recipe.min[1], area.min[1]), (area.max[0], EXIT_GROUND_Y + 3, area.max[1])))
     region.fill(Bounds(region.bounds.min, (region.bounds.max[0], EXIT_GROUND_Y, region.bounds.max[2])), STONE)
     region = build_mine(mine, palette).to_region(region)
     for leg in legs if with_legs else ():
@@ -71,7 +77,7 @@ def test_the_legs_chain_from_the_spawn_and_stay_in_the_populated_chunks(mine: Mi
     assert legs[0].direction == mine.entrance.side and legs[0].base == (x, y - 1, z)
     for before, after in zip(legs, legs[1:]):
         assert after.base == _top(before)
-    area = pregen_bounds(Bounds.from_json(_json("levels", "mine_a.json")["bounds"]))
+    area = pregen_bounds(Bounds.from_json(_json("levels", f"{mine.world}.json")["bounds"]))
     for leg in legs:
         for tread in (leg.base, _top(leg)):
             for lateral in (-(leg.width // 2), leg.width - 1 - leg.width // 2):
@@ -81,11 +87,11 @@ def test_the_legs_chain_from_the_spawn_and_stay_in_the_populated_chunks(mine: Mi
 
 def test_the_recipe_bounds_are_the_mines_own_box(mine: MineSpec) -> None:
     # Stone beside the exit lane is natural terrain, and its dirt and gravel pockets differ from one build to the next.
-    assert Bounds.from_json(_json("levels", "mine_a.json")["bounds"]) == mine.geometry().outer
+    assert Bounds.from_json(_json("levels", f"{mine.world}.json")["bounds"]) == mine.geometry().outer
 
 
-def test_the_last_tread_is_flush_with_seed_23s_ground_at_the_exit(legs: list[StairsSpec]) -> None:
-    assert load_recipe("mine_a").seed == 23
+def test_the_last_tread_is_flush_with_seed_23s_ground_at_the_exit(zone: str, legs: list[StairsSpec]) -> None:
+    assert load_recipe(zone).seed == 23
     assert _top(legs[-1])[1] == EXIT_GROUND_Y
 
 
@@ -99,25 +105,37 @@ def test_the_mine_alone_leaves_the_spawn_sealed_under_the_ground(mine: MineSpec,
     assert (sealed.ok, sealed.detail) == (False, "no path")
 
 
+def test_warp_safe_passes_at_the_spawn_with_the_stairs_built_in_its_ring(zone: str, mine: MineSpec, legs: list[StairsSpec]) -> None:
+    edits = build_mine(mine, Palette.load("mine_stone"))
+    index = WorldIndex.load()
+    index.register(edits.extras["locations"], edits.extras["regions"], replace=True)
+    (spec,) = [c for c in load_checks() if c.kind == "warp_safe" and c.zone == zone]
+    region = _built(mine, legs)
+    x, y, z = _spawn(mine)
+    assert region.get(x, y, z + 1).startswith("minecraft:stone_brick_stairs")
+    found = run_one(RunContext({zone: region}), index, spec)
+    assert found.ok, f"{found.detail} {found.coords}"
+
+
 def test_the_stairs_leave_the_sell_and_rankup_signs_standing(mine: MineSpec, legs: list[StairsSpec]) -> None:
     locations = build_mine(mine, Palette.load("mine_stone")).extras["locations"]
-    signs = [tuple(l["pos"]) for l in locations if l["name"] in ("sell_npc_a", "rankup_npc_a")]
+    signs = [tuple(l["pos"]) for l in locations if l["name"] in (f"sell_npc_{mine.name[-1]}", f"rankup_npc_{mine.name[-1]}")]
     alone, built = _built(mine, legs, with_legs=False), _built(mine, legs)
     assert len(signs) == 2
     assert all(alone.get(*s) not in (AIR, STONE) and built.get(*s) == alone.get(*s) for s in signs)
 
 
-def test_the_committed_surface_check_ends_where_the_stairs_do(mine: MineSpec, legs: list[StairsSpec]) -> None:
-    entry = next(c for c in yaml.safe_load(CHECKS.read_text(encoding="utf-8"))["checks"] if c.get("id") == "mine_a_spawn_to_surface")
-    assert (entry["check"], entry["zone"], entry["world"], entry["from"]) == ("path_exists", "mine_a", "mine_a", "mine_a_spawn")
+def test_the_committed_surface_check_ends_where_the_stairs_do(zone: str, legs: list[StairsSpec]) -> None:
+    entry = next(c for c in yaml.safe_load(CHECKS.read_text(encoding="utf-8"))["checks"] if c.get("id") == f"{zone}_spawn_to_surface")
+    assert (entry["check"], entry["zone"], entry["world"], entry["from"]) == ("path_exists", zone, zone, f"{zone}_spawn")
     assert tuple(int(v) for v in entry["to"].split(",")) == _goal(legs)
 
 
-def test_every_check_naming_a_mine_a_location_runs_in_the_mine_a_build(mine: MineSpec) -> None:
+def test_every_check_naming_a_mine_location_runs_in_its_build(mine: MineSpec) -> None:
     names = {l["name"] for l in build_mine(mine, Palette.load("mine_stone")).extras["locations"]}
     checks = yaml.safe_load(CHECKS.read_text(encoding="utf-8"))["checks"]
     naming = [c for c in checks if names & {c.get(key) for key in ("from", "to", "at")}]
     assert {c["check"] for c in naming} >= {"travel_time", "warp_safe", "path_exists", "entity_clear"}
-    assert {c["at"] for c in naming if c["check"] == "entity_clear"} == {"sell_npc_a", "rankup_npc_a"}
-    unzoned = [c for c in naming if c.get("zone") != "mine_a"]
+    assert {c["at"] for c in naming if c["check"] == "entity_clear"} == {f"sell_npc_{mine.name[-1]}", f"rankup_npc_{mine.name[-1]}"}
+    unzoned = [c for c in naming if c.get("zone") != mine.name]
     assert unzoned == []

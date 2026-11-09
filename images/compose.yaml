@@ -63,6 +63,7 @@ services:
       # /data, for the same root-mountpoint reason as above.
       - riftal_smoke_level_lumber:/etc/riftal/levels/lumber:ro
       - riftal_smoke_level_mine_a:/etc/riftal/levels/mine_a:ro
+      - riftal_smoke_level_mine_b:/etc/riftal/levels/mine_b:ro
     # RiftalMines resets the worlds this instance hosts and no others, and
     # RiftalRanks is wanted on this instance alone (riftal-infra#558), so
     # instance-b holds neither login. RiftalEconomy loads on both
@@ -113,7 +114,7 @@ services:
       # The zones seed-levels.sh puts on /data/worlds before PocketMine starts,
       # each from /etc/riftal/levels/<zone>. instance-b sets none and mounts no
       # level.
-      RIFTAL_LEVEL_ZONES: lumber mine_a
+      RIFTAL_LEVEL_ZONES: lumber mine_a mine_b
       # RiftalMines connects as the mines login (ADR 008), and riftal-game's
       # DatabaseSettings reads its password from here, never from a file on
       # the volume. The migration runner provisions the login from the same
@@ -346,4 +347,7 @@ volumes:
     external: true
   riftal_smoke_level_mine_a:
     name: riftal_smoke_level_mine_a
+    external: true
+  riftal_smoke_level_mine_b:
+    name: riftal_smoke_level_mine_b
     external: true

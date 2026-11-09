@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Self-test for restore.sh, against real, throwaway mysql:8 containers and
-# real, throwaway world volumes. Calls `docker` directly, as
+# Self-test for restore.sh, against a real, throwaway mysql:8 container and
+# real, throwaway world volumes. restore.sh itself runs in a build of
+# ../images/backup, because it tests server.lock with flock, which mysql:8
+# does not carry. Calls `docker` directly, as
 # ../deploy/selftest.sh and ../migrations/selftest.sh do, so it runs on the
 # self-hosted CI runner and, on Nasir's Windows machine, under the WSL
 # fallback engine:
@@ -27,6 +29,7 @@ BACKUPS_VOL="riftal_smoke_restore_backups_$SUFFIX"
 WORLD_A_VOL="riftal_smoke_restore_world_a_$SUFFIX"
 WORLD_B_VOL="riftal_smoke_restore_world_b_$SUFFIX"
 BACKUP_PW=selftestPasswordBackupLogin01
+RESTORE_IMG="riftal_smoke_restore_img:$SUFFIX"
 
 # Per run, so two runs sharing a host, as the self-hosted CI runners do,
 # never read each other's logs.
@@ -37,10 +40,12 @@ cleanup() {
   docker rm -f -v "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" >/dev/null 2>&1 || true
+  docker image rm "$RESTORE_IMG" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
 }
 trap cleanup EXIT
 
+docker build -q -t "$RESTORE_IMG" "$SCRIPT_DIR/../images/backup" >/dev/null
 docker network create "$NETWORK" >/dev/null
 # Created before any `run -v` names them, so CI's label shim stamps them for
 # the job's sweep, which is all that removes them when a cancel skips the trap.
@@ -98,7 +103,7 @@ docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=32
+EXPECTED_ASSERTIONS=51
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -110,7 +115,7 @@ run_backup() {
     -v "$WORLD_A_VOL:/worlds/world-a:ro" -v "$WORLD_B_VOL:/worlds/world-b:ro" \
     -e MYSQL_HOST=mysql -e MYSQL_PASSWORD="$BACKUP_PW" \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION=10 \
-    mysql:8 bash /deploy/backup.sh
+    "$RESTORE_IMG" bash /deploy/backup.sh
 }
 
 provision_backup_login() {
@@ -129,12 +134,13 @@ run_restore() {
   local backup_set="$1" user="${2:-root}" rc=0
   timeout -k 5 60 docker run --rm -m 1g --cpus 1 --name "$RESTORE_CONTAINER" --network "$NETWORK" \
     -v "${RESTORE_SCRIPT:-$SCRIPT_DIR/restore.sh}:/deploy/restore.sh:ro" \
-    -e ALLOW_UNFENCED_SET="${ALLOW_UNFENCED_SET:-}" \
+    -e ALLOW_UNFENCED_SET="${ALLOW_UNFENCED_SET:-}" -e ALLOW_UNCAPTURED_SET="${ALLOW_UNCAPTURED_SET:-}" \
+    ${RESTORE_TAR_SHIM:+-v "$RESTORE_TAR_SHIM:/usr/local/bin/tar:ro"} \
     -v "$BACKUPS_VOL:/backups:ro" \
     -v "$WORLD_A_VOL:/worlds/world-a" -v "$WORLD_B_VOL:/worlds/world-b" \
     -e MYSQL_HOST=mysql -e MYSQL_USER="$user" -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_SET="$backup_set" \
-    mysql:8 bash /deploy/restore.sh || rc=$?
+    "$RESTORE_IMG" bash -c "${RESTORE_PRELUDE:-}bash /deploy/restore.sh" || rc=$?
   docker rm -f -v "$RESTORE_CONTAINER" >/dev/null 2>&1 || true
   return "$rc"
 }
@@ -377,6 +383,140 @@ else
   fail "expected the unfenced set to restore with ALLOW_UNFENCED_SET=1"; cat "$LOGS"/out-allowed.log
 fi
 
+section "a set with no capture mode for some volume is refused unless allowed, and a held server.lock is refused"
+[ "$(backups "grep -c '^capture_mode\\.world-[ab]: ' /backups/$dir1/manifest.txt")" = "2" ] \
+  && pass "the set the earlier restores used records a mode for both volumes, so it restored with no override" \
+  || fail "expected backup.sh to record a capture_mode line for both volumes"
+exec_sql 'UPDATE riftal_selftest.accounts SET balance = 777 WHERE id = 1'
+world_a 'echo 777 > /world/blocks_broken_mine_a.txt'
+
+dir4="uncaptured-$SUFFIX"
+dir5="one-mode-$SUFFIX"
+dir6="no-manifest-$SUFFIX"
+backups "cp -r /backups/$dir1 /backups/$dir4 && sed -i '/^capture_mode\\./d' /backups/$dir4/manifest.txt \
+  && cp -r /backups/$dir1 /backups/$dir5 && sed -i '/^capture_mode\\.world-b:/d' /backups/$dir5/manifest.txt \
+  && cp -r /backups/$dir1 /backups/$dir6 && rm /backups/$dir6/manifest.txt"
+refused_unchanged uncaptured-set "no valid capture_mode line" root "/backups/$dir4"
+refused_unchanged one-volume-mode "no valid capture_mode line" root "/backups/$dir5"
+refused_unchanged no-manifest "no valid capture_mode line" root "/backups/$dir6"
+if ALLOW_UNCAPTURED_SET=1 run_restore "/backups/$dir4" >"$LOGS"/out-uncaptured-allowed.log 2>&1 \
+  && grep -q 'WARNING: ALLOW_UNCAPTURED_SET=1' "$LOGS"/out-uncaptured-allowed.log \
+  && [ "$(query riftal_selftest 'SELECT balance FROM accounts WHERE id = 1')" = "500" ]; then
+  pass "with ALLOW_UNCAPTURED_SET=1 the uncaptured set restores to the backup-time balance and warns"
+else
+  fail "expected the uncaptured set to restore with a warning under ALLOW_UNCAPTURED_SET=1"; cat "$LOGS"/out-uncaptured-allowed.log
+fi
+
+exec_sql 'UPDATE riftal_selftest.accounts SET balance = 777 WHERE id = 1'
+world_a 'echo 777 > /world/blocks_broken_mine_a.txt'
+# A shared flock on a descriptor of its own, as core holds server.lock while it runs.
+RESTORE_PRELUDE='exec 9>>/worlds/world-a/server.lock; flock -s 9; '
+refused_unchanged held-lock "server.lock of volume world-a is held" root
+RESTORE_PRELUDE=
+
+# A set taken from a held volume carries the server.lock core held at the tick.
+dir7="stale-lock-$SUFFIX"
+backups "cp -r /backups/$dir1 /backups/$dir7 && d=\$(mktemp -d) && tar -xzf /backups/$dir7/worlds/world-a.tar.gz -C \$d \
+  && echo from-the-set > \$d/server.lock && tar -czf /backups/$dir7/worlds/world-a.tar.gz -C \$d . && rm -rf \$d"
+if run_restore "/backups/$dir7" >"$LOGS"/out-stale-lock.log 2>&1 \
+  && [ "$(query riftal_selftest 'SELECT balance FROM accounts WHERE id = 1')" = "500" ]; then
+  pass "a volume whose server.lock is free restores to the backup-time balance"
+else
+  fail "expected a free server.lock not to refuse the restore"; cat "$LOGS"/out-stale-lock.log
+fi
+if world_a 'test -f /world/server.lock && ! grep -q from-the-set /world/server.lock'; then
+  pass "the volume's own server.lock was kept, not replaced by the one in the tar"
+else
+  fail "expected the volume's server.lock to survive the extract unreplaced"
+fi
+
+section "after the extract, server.lock has the owner of its volume directory, whoever made it"
+# Core runs as uid 1000 and opens server.lock for writing. Both tars carry a ./
+# entry owned by 1000:1000. world-b's directory is root-owned until the extract
+# gives it that owner, so a chown of server.lock before the extract copies root.
+dir8="owned-$SUFFIX"
+backups "cp -r /backups/$dir1 /backups/$dir8 && d=\$(mktemp -d) && for v in world-a world-b; do \
+  mkdir \$d/\$v && tar -xzf /backups/$dir8/worlds/\$v.tar.gz -C \$d/\$v \
+  && tar -czf /backups/$dir8/worlds/\$v.tar.gz --owner=1000 --group=1000 -C \$d/\$v . || exit 1; done && rm -rf \$d"
+vol_owner() { docker run --rm -m 1g --cpus 1 -v "$1:/world" mysql:8 stat -c '%u:%g' "/world$2"; }
+vol_inode() { docker run --rm -m 1g --cpus 1 -v "$1:/world" mysql:8 stat -c '%i' /world/server.lock; }
+# world-a keeps a server.lock root made, as an earlier restore that failed partway would leave.
+docker run --rm -m 1g --cpus 1 -v "$WORLD_A_VOL:/world" mysql:8 bash -c \
+  'chown 1000:1000 /world && touch /world/server.lock && chown 0:0 /world/server.lock' >/dev/null
+docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
+  'chown 0:0 /world && rm -f /world/server.lock' >/dev/null
+inode_a_before="$(vol_inode "$WORLD_A_VOL")"
+if run_restore "/backups/$dir8" >"$LOGS"/out-owner.log 2>&1; then
+  pass "a restore of volumes whose directories core's user owns exits 0"
+else
+  fail "expected the restore to exit 0"; cat "$LOGS"/out-owner.log
+fi
+dir_b="$(vol_owner "$WORLD_B_VOL" '')"
+lock_b="$(vol_owner "$WORLD_B_VOL" /server.lock)"
+if [ "$dir_b" = "1000:1000" ] && [ "$lock_b" = "$dir_b" ]; then
+  pass "a server.lock the restore created takes the owner of the volume directory"
+else
+  fail "expected world-b's server.lock owned by 1000:1000 like its directory, got '$lock_b' under '$dir_b'"
+fi
+dir_a="$(vol_owner "$WORLD_A_VOL" '')"
+lock_a="$(vol_owner "$WORLD_A_VOL" /server.lock)"
+if [ "$dir_a" = "1000:1000" ] && [ "$lock_a" = "$dir_a" ] && [ "$(vol_inode "$WORLD_A_VOL")" = "$inode_a_before" ]; then
+  pass "a root-owned server.lock already in the volume takes the directory's owner and stays the same file"
+else
+  fail "expected world-a's server.lock owned by 1000:1000 like its directory, same inode, got '$lock_a' under '$dir_a'"
+fi
+
+# This case runs as root. The chown stub stands in for a run as a user who cannot
+# give the file away, and the restore must not report complete.
+RESTORE_PRELUDE='chown() { return 1; }; export -f chown; '
+if run_restore "/backups/$dir8" >"$LOGS"/out-chown-fails.log 2>&1; then
+  fail "a restore that cannot set the server.lock owner should exit nonzero"; cat "$LOGS"/out-chown-fails.log
+else
+  pass "a restore that cannot set the server.lock owner exits nonzero"
+fi
+RESTORE_PRELUDE=
+if grep -q 'cannot give the server.lock of volume world-a' "$LOGS"/out-chown-fails.log \
+  && ! grep -q ': complete,' "$LOGS"/out-chown-fails.log; then
+  pass "the failure names the volume and never prints complete"
+else
+  fail "expected a message naming world-a and no complete line"; cat "$LOGS"/out-chown-fails.log
+fi
+
+section "every volume's server.lock is held at each extract, one the volume had and one the restore created"
+# Stands in for an instance starting mid-restore: at each extract it tries a shared
+# lock on every server.lock, as core does, and reports whether it was refused.
+shim="$LOGS/tar-lock-probe"
+cat >"$shim" <<'SHIM'
+#!/bin/bash
+case " $* " in
+  *" -xzf "*)
+    for dir in /worlds/*; do
+      lock="$dir/server.lock"
+      if [ -e "$lock" ] && exec 8<"$lock"; then
+        if flock -sn 8; then echo "PROBE $lock free"; else echo "PROBE $lock held"; fi
+        exec 8<&-
+      else
+        echo "PROBE $lock absent"
+      fi
+    done ;;
+esac
+exec /usr/bin/tar "$@"
+SHIM
+chmod +x "$shim"
+docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c 'rm -f /world/server.lock' >/dev/null
+if RESTORE_TAR_SHIM="$shim" run_restore "/backups/$dir1" >"$LOGS"/out-probe.log 2>&1; then
+  pass "a restore of volumes with and without a server.lock exits 0"
+else
+  fail "expected the restore to exit 0 with the tar probe in place"; cat "$LOGS"/out-probe.log
+fi
+# Two volumes, two extracts, each probing both locks.
+if [ "$(grep -c '^PROBE .* held$' "$LOGS"/out-probe.log)" = "4" ] \
+  && [ "$(grep -c '^PROBE ' "$LOGS"/out-probe.log)" = "4" ]; then
+  pass "all four probes found the lock held: no instance can start while the volumes are rewritten"
+else
+  fail "expected each server.lock held at both extracts"; grep '^PROBE ' "$LOGS"/out-probe.log || true
+fi
+
 printf '\n'
 ran=$((PASSES + FAILURES))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
@@ -388,4 +528,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1, and refusal, with nothing changed, of a set with no valid capture_mode line for every volume unless ALLOW_UNCAPTURED_SET=1, and of a volume whose server.lock is held, with a free server.lock kept through the extract, every server.lock held at each extract, including one the restore itself creates, and every server.lock given the owner of its volume directory after the extract or the restore failing loudly.\n' "$PASSES"
