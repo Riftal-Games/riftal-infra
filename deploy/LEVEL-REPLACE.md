@@ -346,10 +346,10 @@ live server holds the folder open, and a later save writes into whatever is at t
     -v "$INFRA/deploy:/deploy:ro" -v "$SETS":/backups:ro -v "$VOL":/worlds/"$VOL" \
     -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
     -e MYSQL_DATABASE="$DB" -e BACKUP_SET="/backups/$SET" \
-    mysql:8 bash /deploy/restore.sh
+    riftal-backup bash /deploy/restore.sh
   ```
 
-  Add a `-v` line for each volume in the set. Observed in CI run 41706915821: it ended
+  Add a `-v` line for each volume in the set. Observed in CI run 41939966057: it ended
   `complete, database ... and 1 world volume(s) rebuilt` (`restore-complete-line`), a
   table row written after the set read its set value again (`restore-row-at-set`),
   `worlds/` held only the zone (`restore-volume-rebuilt`), and the level folder's tree

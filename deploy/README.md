@@ -287,8 +287,40 @@ cannot see every session:
 | `refused: <n> other session(s) are connected to <host>:<port>; close every other connection, instances first` | Another connection is open. Close it and run again |
 | `refused: <user> lacks PROCESS, directly or through an active role, so it cannot see every session` | Without `PROCESS` the account sees only its own threads, so a count of 0 proves nothing. Use the admin account |
 | `refused: the processlist does not show this session, so it cannot see the others; is performance_schema off?` | The count is not trusted until it includes the script's own connection |
+| `refused: the manifest has no valid capture_mode line for every world volume, so the volumes may not share one tick; set ALLOW_UNCAPTURED_SET=1 to restore it anyway` | See below. A missing `manifest.txt` is the same refusal |
+| `refused: the manifest has no capture_fence line, ...` | See below |
+| `refused: the server.lock of volume <name> is held, so its instance is running; stop it first` | An instance on this host has that volume mounted and running. Stop it. There is no override |
+| `cannot give the server.lock of volume <name> the owner of <dir>, so core could not open it; run this as root` | Raised after the database is rebuilt. The restore was not run as root, so it could not give `server.lock` the directory's owner. Run it again as root; it is not reported complete |
+| `refused: flock is not installed, so a running instance cannot be detected; run this in the backup image` | `mysql:8` has no `flock`. Run `restore.sh` in the `riftal-backup` image |
 
 The check reads the moment it runs. A session opened afterwards is not seen.
+
+`restore.sh` runs in the `riftal-backup` image (`../images/backup`), because it
+tests each target volume's `server.lock` with `flock`. The processlist sees the
+session of an instance on any host, but not an instance that has not connected
+yet. The lock sees an instance on this host even before it connects, and an
+instance on another host cannot mount these volumes, so both refusals stand.
+In two passes, all before the database is touched, it takes an exclusive
+`flock -xn` on the `server.lock` of every target volume: the first pass tries each file that exists and writes nothing if one is
+held, the second creates and locks the file of each volume that has none. The
+locks are held until the script exits. A core start meanwhile opens no world:
+it blocks in its own `flock`, or fails to open a file created as root. Each
+volume's `server.lock` is left out of the clearing and out of the extract, since
+replacing the file would swap the locked inode for one nothing holds. After the
+extract the file is given the owner and group of the volume directory, as
+extracted, because core opens it for writing as its own user. `chown` keeps the
+inode, so the lock still guards it. An instance that was down leaves a free
+`server.lock` behind after a crash, which does not refuse. A restore that fails
+after the second pass, for example on the database load, can leave a root-owned
+`server.lock` in each volume it created one in and the extract has not reached.
+Run the restore again as root: the extract gives each the directory's owner.
+
+Before the tars are listed, `restore.sh` refuses a set whose `manifest.txt`
+lacks a `capture_mode.<volume>: held <request id>` or
+`capture_mode.<volume>: stopped` line for any world tar's volume. That is every
+set written before capture modes, and such a set was not taken at one tick.
+`ALLOW_UNCAPTURED_SET=1` restores it anyway and prints a warning; reserve it
+for a disaster with nothing better.
 
 `restore.sh` also refuses a set whose `manifest.txt` has no `capture_fence:`
 line, before it touches anything: `refused: the manifest has no capture_fence
@@ -622,6 +654,7 @@ image on the daemon.
 | `CAPTURE_TEST_REQUEST_ID` | no | the run's timestamp | The request id. Set only by the self-tests |
 | `FENCE_TEST_STALL_SECONDS` | no | `0` | Seconds a run stalls between its dump and its capture request. Set only by the self-tests |
 | `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
+| `ALLOW_UNCAPTURED_SET` | no, `restore.sh` only | | `1` lets `restore.sh` restore a set whose manifest lacks a valid `capture_mode.<volume>:` line for some volume, with a warning. Any other value refuses it |
 | `ALLOW_UNFENCED_SET` | no, `restore.sh` only | | `1` lets `restore.sh` restore a set whose manifest has no `capture_fence:` line. Any other value refuses it |
 | `WIPE_BACKUP_MAX_AGE_MINUTES` | no, `wipe.sh` only | `60` | Age past which `wipe.sh` refuses its `BACKUP_SET`, read from the manifest's `timestamp:` line. The set is taken with every instance stopped, just before the wipe, so an older one was likely taken while they still wrote |
 
@@ -701,7 +734,7 @@ wslc run --rm --network riftal-dev \
   -v riftal-world-b:/worlds/riftal-world-b \
   -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
   -e MYSQL_DATABASE=riftal_dev -e BACKUP_SET=/backups/<timestamp> \
-  mysql:8 bash /deploy/restore.sh
+  riftal-backup bash /deploy/restore.sh
 ```
 
 Wrap either in `timeout 120` when running unattended.
