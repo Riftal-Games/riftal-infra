@@ -45,6 +45,18 @@ checks:
     zone: mine_b
     at: rankup_npc_b
   - check: path_exists
+    id: mine_c_spawn_to_surface
+    zone: mine_c
+    world: mine_c
+    from: mine_c_spawn
+    to: "13,64,36"
+  - check: entity_clear
+    zone: mine_c
+    at: sell_npc_c
+  - check: entity_clear
+    zone: mine_c
+    at: rankup_npc_c
+  - check: path_exists
     id: mine_a_spawn_to_surface
     zone: mine_a
     world: mine_a
