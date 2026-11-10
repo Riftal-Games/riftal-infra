@@ -8,9 +8,9 @@
 # (riftal-game/mines/resources/config.yml), which selftest.sh compares to that
 # file. The plugin throws without any of the scalars, and reads a missing
 # join_teleport section as switched off, so that one would drift in silence
-# were it not carried here. `worlds` names lumber and mine_b, the seeded zones
-# RiftalMines loads for travel and resets; mine_a is the default level and
-# mine_c has no built level yet. The schema is the one
+# were it not carried here. `worlds` names lumber, mine_b and mine_c, the seeded
+# zones RiftalMines loads for travel and resets; mine_a is the default level.
+# The schema is the one
 # compose creates, riftal_dev (images/compose.yaml), not the shipped riftal.
 # The login is the mines user of ADR 008, never root, and the password stays
 # empty: RiftalGames\Lib\Database\DatabaseSettings reads it from
@@ -30,6 +30,7 @@ database:
 worlds:
   lumber: "worlds/lumber.json"
   mine_b: "worlds/mine_b.json"
+  mine_c: "worlds/mine_c.json"
 
 default_reset_percent: 60
 
@@ -51,8 +52,9 @@ join_teleport:
 
 # A destination whose location is missing from the delivered index, or whose
 # world is not loaded, is answered "not open" at the command and never stops
-# the plugin enabling or the other destinations, so c carries mine_c_spawn
-# while mine_c has no built level.
+# the plugin enabling or the other destinations. Each destination names a
+# spawn in the delivered index whose world seed-levels.sh seeds from a built
+# level.
 travel:
   world_index: "world_index.json"
   destinations:
