@@ -3,10 +3,11 @@
 # mounted read-only at /etc/riftal, into the data folder of every plugin that
 # consumes it, then execs the command it was given. The index names worlds and
 # never instances, so every instance gets the same file and a split changes no
-# map data (riftal-infra#293). RiftalRanks and RiftalRiots read their bundled
-# resources/world_index.json until riftal-game#208 points them at their data
-# folder; from then this copy is the one they read. RiftalEconomy bundles none:
-# its sell shop reads its sell locations from this copy alone (spec 003).
+# map data (riftal-infra#293). RiftalRanks and RiftalRiots bundle none: Ranks
+# gates mine entry and finds its rank-up markers in this copy, Riots reads its
+# safe zones from it, and each refuses to enable if it is missing.
+# RiftalEconomy bundles none either: its sell shop reads its sell locations
+# from this copy alone (spec 003).
 # RiftalMines bundles none either: with join_teleport switched on it reads the
 # join location from this copy alone and rejects every join if it is missing
 # (spec 006). It loads on instance only, so on instance-b the copy sits unread.

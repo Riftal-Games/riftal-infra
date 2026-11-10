@@ -1075,3 +1075,16 @@ The platform and the stairs are outside it, so `mine_a_spawn_to_surface` (`path_
 and `warp_safe` carry `zone: mine_a` and gate the build too, as do `entity_clear` on `sell_npc_a` and
 `rankup_npc_a`: the mine builder carves the whole exit platform to head height, so the cells beside the
 lane that hold the signs are open and not stone (#1395).
+
+## 2026-11-05 `mine_b` takes `mine_a`'s siting, and `mine_c` waits on its ore name
+
+`mine_b` has the same geometry as `mine_a`, so on seed 23 it takes the same two legs from `(0, 39, 23)`
+and `(0, 52, 36)` and the same surface goal `(13, 64, 36)`. Its recipe, `mine_b_spawn_to_surface` and
+`entity_clear` on its two signs mirror `mine_a`'s, and `tests/test_mine_a_access.py` runs over both. That
+file also reads `warp_safe` at the spawn on a region with the stairs built, so the ring row at z 24 holds
+the first tread and not the stone a mine-only box ends in front of (#1407).
+
+`mine_c` has no recipe yet. Its mine spec names lapis by the Bedrock id `minecraft:lapis_ore`, its
+RiftalMines fragment by the item alias `minecraft:lapis_lazuli_ore`, and the ore gate refuses the build
+on that difference. The fragment is riftal-game#560's to correct, and a build with the fragment edited
+only for this run would gate nothing. `mine_c`'s index seed stays 20260907 until its level builds.

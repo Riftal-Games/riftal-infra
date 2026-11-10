@@ -80,7 +80,9 @@ name is never `riftal_dev`: see the section "`riftal_dev` and the wipe's
 Every instance has stopped cleanly: `stop` on stdin, then its shutdown line.
 
 1. Run `backup.sh` once, with one read-only mount per instance world volume,
-   the same list the `backup` service mounts in `../images/compose.yaml`:
+   the same list the `backup` service mounts in `../images/compose.yaml`. The
+   image is `riftal-backup` (`README.md`, Running it locally), because
+   `backup.sh` takes `flock` on a `server.lock`, which `mysql:8` does not carry:
 
    ```sh
    timeout 120 wslc run --rm --network riftal-dev \
@@ -90,7 +92,7 @@ Every instance has stopped cleanly: `stop` on stdin, then its shutdown line.
      -v riftal-world-b:/worlds/riftal-world-b:ro \
      -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
      -e MYSQL_DATABASE=riftal_dev -e BACKUP_RETENTION="${BACKUP_RETENTION:-10}" \
-     mysql:8 bash /deploy/backup.sh
+     riftal-backup bash /deploy/backup.sh
    ```
 
 2. Read its log. Success is `backup <ts>: complete at <set>`, for example
@@ -144,7 +146,7 @@ Before it:
    service.
 2. Run `restore.sh` with `BACKUP_SET` the recorded set, as in `README.md`,
    Running it locally. Success is `restore <set>: complete, database <db> and
-   <n> world volume(s) rebuilt` (`restore.sh:124`), `<n>` the count in the
+   <n> world volume(s) rebuilt` (`restore.sh:183`), `<n>` the count in the
    manifest's `world_volumes:`.
 3. Run `../migrations/run-migrations.sh`, which every restore needs for its
    grants and logins (`README.md`, Restore). The directories it is given
@@ -526,7 +528,7 @@ it:
 - Serial: nothing runs against the server, so every role, grant, login and
   password stays as that run left it.
 - By restore onto the same server: `restore.sh` drops and recreates only the
-  database (`restore.sh:94-96`). Roles, logins and their grants live in the
+  database (`restore.sh:147-149`). Roles, logins and their grants live in the
   `mysql` schema and stay, procedure grants included: on mysql:8 8.4.11,
   `mysql.tables_priv`, `columns_priv` and `procs_priv` held 12, 30 and 6 rows
   for the schema before the drop and the same after it. The pre-#454

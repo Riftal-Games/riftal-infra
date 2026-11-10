@@ -15,6 +15,35 @@ checks:
   - check: warp_safe
     zone: mine_a
     at: mine_a_spawn
+  - check: travel_time
+    zone: mine_b
+    from: mine_b_spawn
+    to: mine_b_exit
+  - check: warp_safe
+    zone: mine_b
+    at: mine_b_spawn
+  - check: travel_time
+    zone: mine_c
+    from: mine_c_spawn
+    to: mine_c_exit
+  - check: warp_safe
+    zone: mine_c
+    at: mine_c_spawn
+  - check: warp_safe
+    zone: lumber
+    at: lumber_spawn
+  - check: path_exists
+    id: mine_b_spawn_to_surface
+    zone: mine_b
+    world: mine_b
+    from: mine_b_spawn
+    to: "13,64,36"
+  - check: entity_clear
+    zone: mine_b
+    at: sell_npc_b
+  - check: entity_clear
+    zone: mine_b
+    at: rankup_npc_b
   - check: path_exists
     id: mine_a_spawn_to_surface
     zone: mine_a

@@ -33,7 +33,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=97
+EXPECTED_ASSERTIONS=101
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -417,8 +417,8 @@ levelled() {
       or (.value.environment.RIFTAL_LEVEL_ZONES // "") != "")
     | "\(.key)=\(.value.environment.RIFTAL_LEVEL_ZONES // "")"' <<<"$1"
 }
-check "only instance lists a zone or mounts a level, lumber and mine_a, and it runs the seed step beside the delivery" \
-  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a" ]'
+check "only instance lists a zone or mounts a level, lumber, mine_a and mine_b, and it runs the seed step beside the delivery" \
+  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a mine_b" ]'
 check "an instance without the seed step is caught" \
   '[ "$(unseeded "$(edited "/- \/plugins\/seed-levels.sh/{N;d}")")" = instance ]'
 check "a level mount that lost :ro is caught" \
@@ -429,8 +429,12 @@ check "a listed zone with no level mount is caught" \
   '[ "$(unseeded "$(edited "/riftal_smoke_level_mine_a:\/etc/d")")" = instance ]'
 check "a listed zone whose volume compose would create itself is caught" \
   '[ "$(unseeded "$(edited "/^  riftal_smoke_level_mine_a:/,/external/{/external/d}")")" = instance ]'
+check "a last listed zone with no level mount is caught" \
+  '[ "$(unseeded "$(edited "/riftal_smoke_level_mine_b:[/]etc/d")")" = instance ]'
+check "a last listed zone whose volume compose would create itself is caught" \
+  '[ "$(unseeded "$(edited "/^  riftal_smoke_level_mine_b:/,/external/{/external/d}")")" = instance ]'
 check "a zone list on instance-b is caught" \
-  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a
+  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a mine_b
 instance-b=lumber" ]'
 
 printf '\n== link-replaced.sh gives pharynx the folder a virion requires (riftal-infra#579)\n'
@@ -551,6 +555,18 @@ drift "a shipped join_teleport enabled switch is not compared" \
     ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" = "$(sections "$TEMPLATE")" ]'
 check "the template switches the join teleport on" \
   '[ "$(awk "/^join_teleport:/ { s = 1; next } /^[^[:space:]#]/ { s = 0 } s && /^  enabled:/ { print \$2 }" "$TEMPLATE")" = true ]'
+drift "a shipped travel destination the template does not carry is caught" \
+  'sed "s/^    b: .*/    b: \"elsewhere\"/" "$SHIPPED" > "$mutated" &&
+    ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" != "$(sections "$TEMPLATE")" ]'
+# Every location the template names for the join or for travel, as a line of
+# names, which the delivered designer index has to hold.
+named_locations() {
+  awk '/^[^[:space:]#]/ { section = $1 }
+    section == "join_teleport:" && /^  location:/ || section == "travel:" && /^    [a-z]+: "/ { gsub(/"/, "", $2); print $2 }' "$1" | sort -u
+}
+check "the delivered world index holds every location the template names for the join and travel" \
+  'names="$(named_locations "$TEMPLATE")" && [ "$(wc -l <<<"$names")" -eq 4 ] &&
+    [ -z "$(comm -23 <(printf "%s\n" "$names") <(jq -r ".locations[].name" "$INDEX" | sort -u))" ]'
 drift "a shipped value the template does not carry is caught" \
   'sed "s/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/" "$SHIPPED" > "$mutated" &&
     [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'
