@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Self-test for release-image.sh (riftal-infra#1251): the tag follows spec 016's
-# naming. Malformed tag input, each phar when empty, a GAME_COMMIT that is not a
-# full lowercase sha, a GRANTS_SQL that is not a non-empty regular file and an
-# existing tag are refused. The image records GAME_COMMIT and the sha256 of
-# GRANTS_SQL in its labels and holds no grants.sql. The image it builds is on
+# Self-test for release-image.sh (riftal-infra#1251, #1422): the tag follows
+# spec 016's naming, <date>-core<7>-game<7>-infra<7>, and changes with the
+# riftal-game commit and the riftal-infra commit. Malformed tag input, each phar
+# when empty, a GAME_COMMIT that is not a full lowercase sha, a GRANTS_SQL that
+# is not a non-empty regular file, an INFRA_DIR that is not a git checkout or
+# has a tracked change, and an existing tag are refused. The image records
+# GAME_COMMIT, the riftal-infra commit and the sha256 of GRANTS_SQL in its
+# labels and holds no grants.sql. The image it builds is on
 # ubuntu:24.04 and the pinned core revision, holds the phars named in
 # REQUIRED_PHARS intact in /opt/riftal/plugins, owned by root, mode 0444 and in
 # a root-owned 0755 directory pocketmine cannot write, holds none in /plugins,
@@ -17,21 +20,28 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=40
+EXPECTED_ASSERTIONS=50
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
 sha="$(tr -d '[:space:]' < "$DIR/../images/core-image.sha")"
 image="riftal_smoke_release/pocketmine-mp"
-tag="core-2026-10-21-${sha:0:7}"
+GAME_COMMIT=0123456789abcdef0123456789abcdef01234567
 work="$(mktemp -d)"
+infra="$work/infra"
+git init -q "$infra"
+printf 'one\n' > "$infra/tracked"
+git -C "$infra" add tracked
+git -C "$infra" -c user.name=selftest -c user.email=selftest@example.invalid -c commit.gpgsign=false commit -q -m fixture
+infra_sha="$(git -C "$infra" rev-parse HEAD)"
+tag="2026-10-21-core${sha:0:7}-game${GAME_COMMIT:0:7}-infra${infra_sha:0:7}"
 cleanup() {
   docker image rm "$image:$tag" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT
 
-if [ "$(release_tag core 2026-10-21 "$sha")" = "$tag" ]; then
+if [ "$(release_tag 2026-10-21 "$sha" "$GAME_COMMIT" "$infra_sha")" = "$tag" ]; then
   pass "the tag is $tag"
 else
   fail "the tag was not $tag"
@@ -41,7 +51,21 @@ if [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ && "$tag" != latest ]]; then
 else
   fail "$tag is not an accepted image tag"
 fi
-for bad in "core 2026-10-2 $sha" "core 2026-10-21 ${sha:0:7}" "core 2026-10-21 latest" "Core 2026-10-21 $sha"; do
+other_game=fedcba9876543210fedcba9876543210fedcba98
+other_infra=89abcdef0123456789abcdef0123456789abcdef
+if [ "$(release_tag 2026-10-21 "$sha" "$other_game" "$infra_sha")" != "$tag" ]; then
+  pass "a different riftal-game commit gives a different tag"
+else
+  fail "a different riftal-game commit gave the same tag"
+fi
+if [ "$(release_tag 2026-10-21 "$sha" "$GAME_COMMIT" "$other_infra")" != "$tag" ]; then
+  pass "a different riftal-infra commit gives a different tag"
+else
+  fail "a different riftal-infra commit gave the same tag"
+fi
+for bad in "2026-10-2 $sha $GAME_COMMIT $infra_sha" "2026-10-21 ${sha:0:7} $GAME_COMMIT $infra_sha" \
+  "2026-10-21 $sha ${GAME_COMMIT:0:7} $infra_sha" "2026-10-21 $sha $GAME_COMMIT latest" \
+  "2026-10-21 $sha ${GAME_COMMIT^^} $infra_sha"; do
   # shellcheck disable=SC2086
   if release_tag $bad >/dev/null 2>&1; then
     fail "release_tag accepted: $bad"
@@ -52,7 +76,7 @@ done
 
 phars="$work/phars"
 mkdir "$phars"
-export GAME_COMMIT=0123456789abcdef0123456789abcdef01234567
+export GAME_COMMIT INFRA_DIR="$infra"
 export GRANTS_SQL="$work/grants.sql"
 printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\n' > "$GRANTS_SQL"
 for name in "${REQUIRED_PHARS[@]}"; do
@@ -90,6 +114,35 @@ for bad in "" "$work/gone.sql" "$work/empty.sql" "$work"; do
     fail "GRANTS_SQL '$bad' was refused without naming it: $out"
   fi
 done
+
+# $1 the INFRA_DIR to build from, $2 the message the refusal must carry, $3 the case.
+refuses_infra() {
+  local out
+  if out="$(INFRA_DIR=$1 RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
+    fail "$3 was accepted"
+  elif grep -qF "$2" <<<"$out" && ! docker image inspect "$image:$tag" >/dev/null 2>&1; then
+    pass "$3 is refused before a build"
+  else
+    fail "$3 was refused without saying why: $out"
+  fi
+}
+mkdir "$work/plain"
+refuses_infra "$work/plain" "is not a git checkout with a commit" "an INFRA_DIR that is not a git checkout"
+refuses_infra "$work/gone" "is not a git checkout with a commit" "an INFRA_DIR that does not exist"
+git init -q "$work/unborn"
+refuses_infra "$work/unborn" "is not a git checkout with a commit" "an INFRA_DIR with no commit"
+printf 'two\n' > "$infra/tracked"
+refuses_infra "$infra" "has tracked changes since $infra_sha" "an INFRA_DIR with a modified tracked file"
+git -C "$infra" checkout -q -- tracked
+printf 'new\n' > "$infra/added"
+git -C "$infra" add added
+refuses_infra "$infra" "has tracked changes since $infra_sha" "an INFRA_DIR with a staged new file"
+git -C "$infra" reset -q
+if [ "$(infra_commit "$infra" 2>&1)" = "$infra_sha" ]; then
+  pass "an INFRA_DIR with only an untracked file is named by its HEAD"
+else
+  fail "an INFRA_DIR with only an untracked file was not named by $infra_sha"
+fi
 
 if out="$(RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
   pass "the release image builds"
@@ -150,6 +203,12 @@ else
     pass "the image names the riftal-game commit in org.riftal.game-commit"
   else
     fail "org.riftal.game-commit is '$label_game', not $GAME_COMMIT"
+  fi
+  label_infra="$(docker image inspect --format '{{index .Config.Labels "org.riftal.infra-commit"}}' "$image:$tag")"
+  if [ "$label_infra" = "$infra_sha" ]; then
+    pass "the image names the riftal-infra commit in org.riftal.infra-commit"
+  else
+    fail "org.riftal.infra-commit is '$label_infra', not $infra_sha"
   fi
   label_grants="$(docker image inspect --format '{{index .Config.Labels "org.riftal.grants-sha256"}}' "$image:$tag")"
   if [ "$label_grants" = "$(sha256sum "$GRANTS_SQL" | cut -d' ' -f1)" ]; then
