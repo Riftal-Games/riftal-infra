@@ -168,7 +168,7 @@ jobs:
         run: bash deploy/release-image-selftest.sh
 
       # Two image builds and three boots of a few seconds each. The bound
-      # keeps one wedged boot from spending the rest of the job's 15 minutes.
+      # keeps one wedged boot from spending the rest of the job's 45 minutes.
       - name: Release image start command self-test
         timeout-minutes: 8
         run: bash deploy/release-start-selftest.sh
