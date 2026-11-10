@@ -4,7 +4,7 @@
 # there.
 #
 # Every value below except the database section, `worlds` and
-# join_teleport.enabled is the plugin's own shipped default
+# join_teleport.enabled is the plugin's own shipped default, travel included
 # (riftal-game/mines/resources/config.yml), which selftest.sh compares to that
 # file. The plugin throws without any of the scalars, and reads a missing
 # join_teleport section as switched off, so that one would drift in silence
@@ -49,3 +49,15 @@ join_teleport:
   enabled: true
   location: "mine_a_spawn"
   world_index: "world_index.json"
+
+# A destination whose location is missing from the delivered index, or whose
+# world is not loaded, is answered "not open" at the command and never stops
+# the plugin enabling or the other destinations, so c carries mine_c_spawn
+# while mine_c has no built level.
+travel:
+  world_index: "world_index.json"
+  destinations:
+    lumber: "lumber_spawn"
+    a: "mine_a_spawn"
+    b: "mine_b_spawn"
+    c: "mine_c_spawn"
