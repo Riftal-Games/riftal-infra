@@ -23,6 +23,13 @@ rank_order: ["A", "B", "C"]
 # less than this many milliseconds does not count toward the milestone.
 anti_afk_min_break_interval_ms: 100
 
+# riftal-game#206. A login in a mine above the first rank waits this long for
+# its own rank to load (ranks/docs/tuning-numbers.md) before it is refused:
+# sent to this world_index location, the one mines' join teleport ships with,
+# or disconnected when the location is missing, gated or not loaded here.
+login_hold_seconds: 10
+login_refusal_location: "mine_a_spawn"
+
 # docs/tuning-numbers.md's rank-up money cost and blocks-mined milestone, per
 # rank, design plan §4.2, keyed by the rank reached. Every rank but the first.
 rankup:

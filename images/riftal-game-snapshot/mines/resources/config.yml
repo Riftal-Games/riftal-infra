@@ -70,3 +70,14 @@ join_teleport:
   enabled: false
   location: "mine_a_spawn"
   world_index: "world_index.json"
+
+# docs/specs/023-zone-travel.md: /lumber goes to the lumber destination, /mine
+# <target> to any other, each a location in world_index, the delivered index in
+# this plugin's data folder that the join teleport reads, read at enable.
+travel:
+  world_index: "world_index.json"
+  destinations:
+    lumber: "lumber_spawn"
+    a: "mine_a_spawn"
+    b: "mine_b_spawn"
+    c: "mine_c_spawn"
