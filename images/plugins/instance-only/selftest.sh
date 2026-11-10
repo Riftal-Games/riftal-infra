@@ -33,7 +33,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=97
+EXPECTED_ASSERTIONS=99
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -550,6 +550,18 @@ check "a shipped join_teleport enabled switch is not compared" \
     ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" = "$(sections "$TEMPLATE")" ]'
 check "the template switches the join teleport on" \
   '[ "$(awk "/^join_teleport:/ { s = 1; next } /^[^[:space:]#]/ { s = 0 } s && /^  enabled:/ { print \$2 }" "$TEMPLATE")" = true ]'
+check "a shipped travel destination the template does not carry is caught" \
+  'sed "s/^    b: .*/    b: \"elsewhere\"/" "$SHIPPED" > "$mutated" &&
+    ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" != "$(sections "$TEMPLATE")" ]'
+# Every location the template names for the join or for travel, as a line of
+# names, which the delivered designer index has to hold.
+named_locations() {
+  awk '/^[^[:space:]#]/ { section = $1 }
+    section == "join_teleport:" && /^  location:/ || section == "travel:" && /^    [a-z]+: "/ { gsub(/"/, "", $2); print $2 }' "$1" | sort -u
+}
+check "the delivered world index holds every location the template names for the join and travel" \
+  'names="$(named_locations "$TEMPLATE")" && [ "$(wc -l <<<"$names")" -eq 4 ] &&
+    [ -z "$(comm -23 <(printf "%s\n" "$names") <(jq -r ".locations[].name" "$INDEX" | sort -u))" ]'
 check "a shipped value the template does not carry is caught" \
   'sed "s/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/" "$SHIPPED" > "$mutated" &&
     [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'
