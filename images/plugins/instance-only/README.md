@@ -157,6 +157,32 @@ only the copy here: a phar older than its plugin's resources fails at
 enable, as a `RiftalMines.phar` built before `quarry` was registered does
 with `cannot read registered ... resource quarry.json` (riftal-infra#1062).
 
+## The riftal-game snapshot
+
+`selftest.sh` compares this folder's configs and `RiftalMines.config.yml.template`
+with riftal-game's shipped `mines`, `ranks`, `accounts` and `economy` configs.
+CI cannot read the private riftal-game, and a sibling checkout is whatever
+another job last left there, so the comparison reads
+`../../riftal-game-snapshot`: a copy of those four files, with the riftal-game
+commit it came from in `SOURCE`. It runs on every checkout and skips nothing.
+
+A riftal-game change to one of those configs reaches this repository in one
+PR: `../../refresh-riftal-game-snapshot.sh <riftal-game checkout>` (the
+checkout at the commit with the change, nothing uncommitted in those files),
+plus the template or config edit the self-test then asks for. Merge that PR
+before the riftal-game one, or with it; the snapshot may name a commit
+riftal-game's `main` does not carry yet.
+
+`RIFTAL_GAME_DIR=<riftal-game checkout> bash selftest.sh` adds four checks
+that the snapshot equals that checkout's configs. A riftal-game PR author runs
+it to learn the snapshot is behind; an unset `RIFTAL_GAME_DIR` reads no
+checkout at all.
+
+riftal-infra CI does not see riftal-game's `main` moving past the snapshot:
+it compares the template and these configs to the snapshot alone. The nightly
+check in riftal-pm#1946 compares the snapshot to the pinned riftal-game `main`
+and files an issue here when they differ.
+
 ## The config override
 
 With `RiftalMines.phar` present, `start-instance.sh` runs `render-config.sh`
