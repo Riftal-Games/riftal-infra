@@ -25,7 +25,7 @@ def _json(*parts: str) -> dict:
     return json.loads(PROJECT_ROOT.joinpath(*parts).read_text(encoding="utf-8"))
 
 
-@pytest.fixture(params=["mine_a", "mine_b"])
+@pytest.fixture(params=["mine_a", "mine_b", "mine_c"])
 def zone(request: pytest.FixtureRequest) -> str:
     return request.param
 
