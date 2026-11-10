@@ -22,6 +22,9 @@ rank_order: ["A", "B", "C"]
 
 anti_afk_min_break_interval_ms: 100
 
+login_hold_seconds: 10
+login_refusal_location: "mine_a_spawn"
+
 rankup:
   B: {cost_minor_units: 100, blocks_mined: 50}
   C: {cost_minor_units: 100, blocks_mined: 50}
