@@ -615,10 +615,14 @@ the same day gets its own tag and two daemons cannot build one tag over
 different phars.
 
 The riftal-infra commit is the `HEAD` of the checkout holding the script, or of
-`INFRA_DIR` when set. The build is refused when that is not a git checkout with
-a commit, or when a tracked file differs from `HEAD`, since the commit would not
-describe what was built. Untracked files are not inputs and do not refuse it.
-Build from a committed, clean checkout of the commit being released.
+`INFRA_DIR` when set. `INFRA_DIR` is a test seam and a release never sets it:
+the Dockerfile and the core pin are always read from the checkout holding the
+script. The build is refused when that directory is not the top of a git work
+tree of its own with a commit (a subdirectory of another repository would name
+that repository's commit), when git cannot report its status, or when a tracked
+file differs from `HEAD`, since the commit would not describe what was built.
+Untracked files are not inputs and do not refuse it. Build from a committed,
+clean checkout of the commit being released.
 
 The image records what it holds in five labels: `org.riftal.core-image`,
 `org.riftal.phars` (each phar's sha256), `org.riftal.game-commit`,
@@ -630,7 +634,8 @@ phars yet.
 `release-image-selftest.sh` builds one under a `riftal_smoke_` name and checks
 the tag and that it changes with the riftal-game and riftal-infra commits, the
 refusal of each phar when empty, of an `INFRA_DIR` that is not a git checkout,
-has no commit or has a tracked change, the absence of a `latest` tag and the
+is a `.git` directory, is a subdirectory of a repository, has no commit, has a
+status git cannot report or has a tracked change, the absence of a `latest` tag and the
 refusal of an existing tag. In the image it checks each phar byte for byte,
 that `/opt/riftal/plugins` holds exactly the ten, that they are owned by
 root and mode 444, that their directories are root-owned and mode 755, that

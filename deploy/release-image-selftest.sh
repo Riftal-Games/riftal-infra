@@ -3,8 +3,9 @@
 # spec 016's naming, <date>-core<7>-game<7>-infra<7>, and changes with the
 # riftal-game commit and the riftal-infra commit. Malformed tag input, each phar
 # when empty, a GAME_COMMIT that is not a full lowercase sha, a GRANTS_SQL that
-# is not a non-empty regular file, an INFRA_DIR that is not a git checkout or
-# has a tracked change, and an existing tag are refused. The image records
+# is not a non-empty regular file, an INFRA_DIR that is not the top of a git
+# work tree of its own, whose status git cannot report or that has a tracked
+# change, and an existing tag are refused. The image records
 # GAME_COMMIT, the riftal-infra commit and the sha256 of GRANTS_SQL in its
 # labels and holds no grants.sql. The image it builds is on
 # ubuntu:24.04 and the pinned core revision, holds the phars named in
@@ -20,7 +21,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=50
+EXPECTED_ASSERTIONS=54
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -62,6 +63,12 @@ if [ "$(release_tag 2026-10-21 "$sha" "$GAME_COMMIT" "$other_infra")" != "$tag" 
   pass "a different riftal-infra commit gives a different tag"
 else
   fail "a different riftal-infra commit gave the same tag"
+fi
+other_core=76543210fedcba9876543210fedcba9876543210
+if [ "$(release_tag 2026-10-21 "$other_core" "$GAME_COMMIT" "$infra_sha")" != "$tag" ]; then
+  pass "a different core pin gives a different tag"
+else
+  fail "a different core pin gave the same tag"
 fi
 for bad in "2026-10-2 $sha $GAME_COMMIT $infra_sha" "2026-10-21 ${sha:0:7} $GAME_COMMIT $infra_sha" \
   "2026-10-21 $sha ${GAME_COMMIT:0:7} $infra_sha" "2026-10-21 $sha $GAME_COMMIT latest" \
@@ -131,6 +138,16 @@ refuses_infra "$work/plain" "is not a git checkout with a commit" "an INFRA_DIR 
 refuses_infra "$work/gone" "is not a git checkout with a commit" "an INFRA_DIR that does not exist"
 git init -q "$work/unborn"
 refuses_infra "$work/unborn" "is not a git checkout with a commit" "an INFRA_DIR with no commit"
+refuses_infra "$infra/.git" "is not the top of its own git work tree" "an INFRA_DIR that is a .git directory"
+mkdir "$infra/sub"
+refuses_infra "$infra/sub" "is not the top of its own git work tree" "an INFRA_DIR that is an untracked subdirectory of a repository"
+rmdir "$infra/sub"
+git init -q "$work/badindex"
+printf 'one\n' > "$work/badindex/tracked"
+git -C "$work/badindex" add tracked
+git -C "$work/badindex" -c user.name=selftest -c user.email=selftest@example.invalid -c commit.gpgsign=false commit -q -m fixture
+printf 'not an index\n' > "$work/badindex/.git/index"
+refuses_infra "$work/badindex" "git status failed in" "an INFRA_DIR whose status git cannot report"
 printf 'two\n' > "$infra/tracked"
 refuses_infra "$infra" "has tracked changes since $infra_sha" "an INFRA_DIR with a modified tracked file"
 git -C "$infra" checkout -q -- tracked

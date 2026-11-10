@@ -11,7 +11,9 @@
 #   GRANTS_SQL     required, the grants.sql of that commit
 #   RELEASE_IMAGE  image name without its tag, default riftal/pocketmine-mp
 #   RELEASE_DATE   UTC date in the tag, default today
-#   INFRA_DIR      the riftal-infra checkout whose commit is named, default
+#   INFRA_DIR      a test seam, never set for a release: the commit is read
+#                  from this checkout, default the one holding this script,
+#                  while the Dockerfile and the core pin are always read from
 #                  the one holding this script
 #
 # The image records GAME_COMMIT and the sha256 of GRANTS_SQL in the labels
@@ -22,9 +24,10 @@
 #
 # The tag is <date>-core<first 7 of the pinned pmmp-core sha>-game<first 7 of
 # GAME_COMMIT>-infra<first 7 of the riftal-infra HEAD>, so it follows every
-# input that changes the image. The build is refused when INFRA_DIR is not a
-# git checkout with a HEAD, or when a tracked file in it differs from HEAD:
-# the commit would not describe what was built. A tag that already exists is
+# input that changes the image. The build is refused when INFRA_DIR is not the
+# top of a git work tree of its own with a HEAD, when git cannot report its
+# status, or when a tracked file in it differs from HEAD: the commit would not
+# describe what was built. A tag that already exists is
 # refused, never rebuilt, so a tag names one image on the daemon that built it,
 # for as long as the tag exists there.
 #
@@ -48,39 +51,46 @@ REQUIRED_PHARS=(
 release_tag() {
   local date="$1" label sha
   if ! [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-    printf 'date "%s" is not YYYY-MM-DD
-' "$date" >&2
+    printf 'date "%s" is not YYYY-MM-DD\n' "$date" >&2
     return 1
   fi
   for label in core:"$2" game:"$3" infra:"$4"; do
     sha="${label#*:}"
     if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
-      printf '%s sha "%s" is not a full 40-character sha
-' "${label%%:*}" "$sha" >&2
+      printf '%s sha "%s" is not a full 40-character sha\n' "${label%%:*}" "$sha" >&2
       return 1
     fi
   done
-  printf '%s-core%s-game%s-infra%s
-' "$date" "${2:0:7}" "${3:0:7}" "${4:0:7}"
+  printf '%s-core%s-game%s-infra%s\n' "$date" "${2:0:7}" "${3:0:7}" "${4:0:7}"
 }
 
 # $1 the riftal-infra checkout. Prints its HEAD sha, or a message on stderr and
-# returns 1 when it is not a git checkout with a commit or a tracked file
-# differs from that commit. Untracked files are not inputs to the build.
+# returns 1 when it is not the top of its own git work tree with a commit, when
+# git cannot report its status, or when a tracked file differs from that commit.
+# Git looks in parent directories, so a directory inside another repository
+# would otherwise name that repository's commit. Untracked files are not inputs
+# to the build.
 infra_commit() {
-  local dir="$1" sha
+  local dir="$1" sha top real status
   if ! sha="$(git -C "$dir" rev-parse --verify HEAD 2>/dev/null)"; then
-    printf '%s is not a git checkout with a commit; the riftal-infra commit cannot be named
-' "$dir" >&2
+    printf '%s is not a git checkout with a commit; the riftal-infra commit cannot be named\n' "$dir" >&2
     return 1
   fi
-  if [ -n "$(git -C "$dir" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
-    printf '%s has tracked changes since %s; commit them before building
-' "$dir" "$sha" >&2
+  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || top=""
+  real="$(cd "$dir" && pwd -P)"
+  if [ -z "$top" ] || [ "$(cd "$top" && pwd -P)" != "$real" ]; then
+    printf '%s is not the top of its own git work tree; the riftal-infra commit cannot be named\n' "$dir" >&2
     return 1
   fi
-  printf '%s
-' "$sha"
+  if ! status="$(git -C "$dir" status --porcelain --untracked-files=no 2>&1)"; then
+    printf 'git status failed in %s, so it cannot be shown clean: %s\n' "$dir" "$status" >&2
+    return 1
+  fi
+  if [ -n "$status" ]; then
+    printf '%s has tracked changes since %s; commit them before building\n' "$dir" "$sha" >&2
+    return 1
+  fi
+  printf '%s\n' "$sha"
 }
 
 main() {
@@ -108,8 +118,7 @@ main() {
   grants_sha="$(sha256sum "$grants" | cut -d' ' -f1)"
 
   infra="$(infra_commit "${INFRA_DIR:-$SCRIPT_DIR/..}" 2>&1)" || {
-    printf '::error::%s
-' "$infra"
+    printf '::error::%s\n' "$infra"
     return 1
   }
 
@@ -137,7 +146,8 @@ main() {
     --build-arg "CORE_TAG=${CORE_IMAGE##*:}" \
     --label "org.riftal.core-image=$CORE_IMAGE" \
     --label "org.riftal.phars=$sums" \
-    --label "org.riftal.game-commit=$commit"     --label "org.riftal.infra-commit=$infra" \
+    --label "org.riftal.game-commit=$commit" \
+    --label "org.riftal.infra-commit=$infra" \
     --label "org.riftal.grants-sha256=$grants_sha" \
     -t "$ref" "$ctx" || return 1
 
