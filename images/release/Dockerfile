@@ -10,15 +10,20 @@ FROM ${CORE_REPO}:${CORE_TAG}
 
 # The base declares /data and /plugins as VOLUMEs, and a mount or a reused
 # volume there hides or outlives what the image holds, so the phars live
-# outside both. Everything under /opt/riftal belongs to root and has no write
-# bit, so the process that loads the phars cannot replace one or add another.
-# start-release.sh builds the instance's roster from this path and passes it to
-# PocketMine, which makes the image tag decide which build runs.
+# outside both. start-release.sh builds the instance's roster from this path
+# and passes it to PocketMine, which makes the image tag decide which build
+# runs; core's start-pocketmine hard-codes --plugins=/plugins and is not used.
+# The runtime user pocketmine owns neither the phars, the configs, the start
+# script nor their directories, so it can replace none of them: a replacement
+# would survive a restart in the container's writable layer and the tag would
+# stop deciding which build runs. The file modes are set in the build context by
+# deploy/release-image.sh, and the directory modes are set here so the umask
+# of whoever built the image does not decide them.
+COPY --chown=0:0 plugins/ /opt/riftal/plugins/
+COPY --chown=0:0 plugin_data/ /opt/riftal/plugin_data/
+COPY --chown=0:0 start-release.sh /opt/riftal/start-release.sh
 USER root
-COPY plugins/ /opt/riftal/plugins/
-COPY plugin_data/ /opt/riftal/plugin_data/
-COPY start-release.sh /opt/riftal/start-release.sh
-RUN chmod -R a-w /opt/riftal && chmod a+x /opt/riftal/start-release.sh
+RUN chmod 0755 /opt/riftal /opt/riftal/plugins /opt/riftal/plugin_data /opt/riftal/plugin_data/*
 USER pocketmine
 
 CMD ["/opt/riftal/start-release.sh"]

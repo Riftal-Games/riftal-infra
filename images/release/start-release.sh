@@ -12,6 +12,10 @@
 # comes only from RIFTAL_DB_PASSWORD_<PLUGIN> (ADR 008) and a missing one stops
 # the boot here, because a plugin that fails to enable takes the whole server
 # down. /data is untouched until every check has passed.
+#
+# The image also carries RiftalGangs, RiftalRiots, RiftalPlots and RiftalAnvil.
+# The dev stack's start scripts give them no login and no config, so none is
+# offered here.
 set -euo pipefail
 
 ROOT=/opt/riftal

@@ -88,7 +88,9 @@ A migration that creates a procedure, such as riftal-game's
 runner connected as: `MYSQL_USER`, which defaults to `root`, reached over the
 container network, so `root`@`%`. Three things follow. `selftest.sh` proves
 each against a fixture procedure, and `../deploy/restore-selftest.sh` proves
-the third through the real backup and restore scripts.
+the third through the real backup and restore scripts. The same script seeds
+a trigger and a view beside the procedure and checks both come back, which
+fails if the backup login loses `TRIGGER` or `SHOW VIEW`.
 
 **A login needs only `EXECUTE`.** The procedure body runs with the definer's
 privileges, so a plugin role holds `EXECUTE` on the procedure and nothing on

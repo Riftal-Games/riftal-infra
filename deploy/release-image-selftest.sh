@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Self-test for release-image.sh (riftal-infra#1251): the tag follows spec 016's
-# naming. Malformed tag input, each phar when empty and an existing tag are
-# refused. The image it builds is on ubuntu:24.04 and the pinned core revision,
-# holds the phars named in REQUIRED_PHARS intact in /opt/riftal/plugins, owned
-# by root and read-only, holds none in /plugins, runs unprivileged and is
-# never tagged latest. Builds on the local daemon under a riftal_smoke_ name and
-# removes it. Needs the core image pinned in images/core-image.sha.
+# naming. Malformed tag input, each phar when empty, a GAME_COMMIT that is not a
+# full lowercase sha, a GRANTS_SQL that is not a non-empty regular file and an
+# existing tag are refused. The image records GAME_COMMIT and the sha256 of
+# GRANTS_SQL in its labels and holds no grants.sql. The image it builds is on
+# ubuntu:24.04 and the pinned core revision, holds the phars named in
+# REQUIRED_PHARS intact in /opt/riftal/plugins, owned by root, mode 0444 and in
+# a root-owned 0755 directory pocketmine cannot write, holds none in /plugins,
+# has pocketmine as its configured user and is never tagged latest. Builds on
+# the local daemon under a riftal_smoke_ name and removes it. Needs the core
+# image pinned in images/core-image.sha.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,7 +17,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=23
+EXPECTED_ASSERTIONS=40
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -48,6 +52,9 @@ done
 
 phars="$work/phars"
 mkdir "$phars"
+export GAME_COMMIT=0123456789abcdef0123456789abcdef01234567
+export GRANTS_SQL="$work/grants.sql"
+printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\n' > "$GRANTS_SQL"
 for name in "${REQUIRED_PHARS[@]}"; do
   printf 'phar %s\n' "$name" > "$phars/$name"
 done
@@ -62,6 +69,26 @@ for name in "${REQUIRED_PHARS[@]}"; do
     fail "an empty $name was refused without naming it: $out"
   fi
   printf 'phar %s\n' "$name" > "$phars/$name"
+done
+
+for bad in "" 0123456789abcdef 0123456789ABCDEF0123456789ABCDEF01234567 "${GAME_COMMIT}0"; do
+  if out="$(GAME_COMMIT=$bad RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
+    fail "GAME_COMMIT '$bad' was accepted"
+  elif grep -qF "GAME_COMMIT \"$bad\" is not a full 40-character" <<<"$out"; then
+    pass "GAME_COMMIT '$bad' is refused by value"
+  else
+    fail "GAME_COMMIT '$bad' was refused without naming it: $out"
+  fi
+done
+: > "$work/empty.sql"
+for bad in "" "$work/gone.sql" "$work/empty.sql" "$work"; do
+  if out="$(GRANTS_SQL=$bad RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
+    fail "GRANTS_SQL '$bad' was accepted"
+  elif grep -qF "GRANTS_SQL \"$bad\" is not a non-empty regular file" <<<"$out"; then
+    pass "GRANTS_SQL '$bad' is refused by value"
+  else
+    fail "GRANTS_SQL '$bad' was refused without naming it: $out"
+  fi
 done
 
 if out="$(RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
@@ -105,7 +132,7 @@ else
   fi
   user="$(docker image inspect --format '{{.Config.User}}' "$image:$tag")"
   if [ "$user" = pocketmine ]; then
-    pass "the image runs as pocketmine"
+    pass "the image's configured user is pocketmine"
   else
     fail "the image runs as '$user'"
   fi
@@ -118,11 +145,42 @@ else
   else
     fail "the image is built on core revision '$revision', not the pinned $sha"
   fi
+  label_game="$(docker image inspect --format '{{index .Config.Labels "org.riftal.game-commit"}}' "$image:$tag")"
+  if [ "$label_game" = "$GAME_COMMIT" ]; then
+    pass "the image names the riftal-game commit in org.riftal.game-commit"
+  else
+    fail "org.riftal.game-commit is '$label_game', not $GAME_COMMIT"
+  fi
+  label_grants="$(docker image inspect --format '{{index .Config.Labels "org.riftal.grants-sha256"}}' "$image:$tag")"
+  if [ "$label_grants" = "$(sha256sum "$GRANTS_SQL" | cut -d' ' -f1)" ]; then
+    pass "the image records the sha256 of grants.sql in org.riftal.grants-sha256"
+  else
+    fail "org.riftal.grants-sha256 is '$label_grants', not the sha256 of the given grants.sql"
+  fi
+  grants_files="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find / -xdev -name grants.sql 2>/dev/null; true')"
+  if [ -z "$grants_files" ]; then
+    pass "the image holds no grants.sql"
+  else
+    fail "grants.sql in the image: $grants_files"
+  fi
   unowned="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -type f \( ! -user root -o ! -perm 444 \)')"
   if [ -z "$unowned" ]; then
-    pass "every phar in /opt/riftal/plugins is owned by root and read-only"
+    pass "every phar in /opt/riftal/plugins is owned by root and mode 444"
   else
     fail "phar(s) not owned by root or not mode 444: $unowned"
+  fi
+  dirs="$(docker run --rm -m 1g --cpus 1 --entrypoint stat "$image:$tag" -c '%n %U %a' /opt/riftal /opt/riftal/plugins)"
+  want_dirs="$(printf '%s\n' '/opt/riftal root 755' '/opt/riftal/plugins root 755')"
+  if [ "$dirs" = "$want_dirs" ]; then
+    pass "/opt/riftal and /opt/riftal/plugins are owned by root and mode 755"
+  else
+    fail "the directories are: $dirs"
+  fi
+  writable="$(docker run --rm -m 1g --cpus 1 --user pocketmine --entrypoint sh "$image:$tag" -c 'for p in /opt/riftal /opt/riftal/plugins /opt/riftal/plugins/*; do [ -w "$p" ] && echo "$p"; done; true')"
+  if [ -z "$writable" ]; then
+    pass "pocketmine can write none of /opt/riftal, /opt/riftal/plugins or a phar in it"
+  else
+    fail "pocketmine can write: $writable"
   fi
   # A phar under /plugins would be hidden by a mount or outlived by a reused
   # volume, so the tag would not decide which build runs.

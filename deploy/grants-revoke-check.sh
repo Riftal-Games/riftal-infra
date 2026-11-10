@@ -8,11 +8,17 @@
 #   grants-revoke-check.sh <new-grants.sql> <release-tag> [<tag>=<grants.sql> ...]
 #
 # Each <tag>=<file> names the grants.sql that tag's plugins were built from.
-# Nothing records that mapping yet, so the operator supplies it, and a tag in
-# use with no mapping is a refusal, never a pass. Every tag in use other than
-# <release-tag> is checked against its own file. A tag is in use when a running
-# container, a stopped container, an instance definition's image file or any
-# other file under INSTANCES_DIR names it (ADR 006's balance snapshot "When").
+# The operator supplies it, and a tag in use with no mapping is a refusal, never
+# a pass. A release image carries the sha256 of that file in the label
+# org.riftal.grants-sha256 (deploy/release-image.sh), read with
+# `<runtime> image inspect`. The label holds the hash and not the file, so a
+# labelled tag still needs its <tag>=<file>, and a file whose sha256 differs
+# from the label is refused. A tag whose image carries no label, or is not on
+# the runtime or cannot be inspected, is checked against the supplied file
+# alone. Every tag in use other than <release-tag> is checked against its own
+# file. A tag is in use when a running container, a stopped container, an
+# instance definition's image file or any other file under INSTANCES_DIR names
+# it (ADR 006's balance snapshot "When").
 #
 # An instance's tag is recorded in instances/<id>/image, one line
 # <INSTANCE_IMAGE>:<tag>. Each immediate subdirectory of INSTANCES_DIR is an
@@ -29,7 +35,8 @@
 # new REVOKE and tag; 2 usage, an unreadable file or instance definition, an
 # instance definition with no valid image file, a failed definition scan, a file
 # outside the dialect below, a failed runtime, an image whose tag cannot be read,
-# or a tag in use with no grants.sql. Never a pass on 2.
+# a tag in use with no grants.sql, a label that is not a sha256, or a supplied
+# file whose sha256 differs from its tag's label. Never a pass on 2.
 #
 # The reader accepts one dialect, the one riftal-game lib/resources/sql/
 # grants.sql is written in, and exits 2 naming the file and line on anything
@@ -109,6 +116,17 @@ revokes() {
       }
     }
     END { finish(); if (failed) exit 2 }' "$1"
+}
+
+# image_label <tag> prints the grants.sql sha256 label of INSTANCE_IMAGE:<tag>,
+# or nothing when the image is unlabelled, is not on the runtime or cannot be
+# inspected.
+image_label() {
+  local out
+  out="$("${runtime[@]}" image inspect --format '{{index .Config.Labels "org.riftal.grants-sha256"}}' \
+    "$INSTANCE_IMAGE:$1" 2>/dev/null)" || return 0
+  [ "$out" != '<no value>' ] || out=
+  printf '%s' "$out"
 }
 
 declare -A used=()
@@ -203,11 +221,22 @@ checked=0
 missing=0
 for tag in "${!used[@]}"; do
   [ "$tag" != "$release_tag" ] || continue
-  if [ -z "${baseline[$tag]:-}" ]; then
-    echo "grants-revoke-check.sh: tag $tag (${used[$tag]}) has no <tag>=<grants.sql>, so what it ran against cannot be determined" >&2
+  want="$(image_label "$tag")"
+  if [ -n "$want" ] && ! [[ $want =~ ^[0-9a-f]{64}$ ]]; then
+    echo "grants-revoke-check.sh: tag $tag (${used[$tag]}) carries org.riftal.grants-sha256 '$want', which is not a sha256" >&2
+    missing=1
+  elif [ -z "${baseline[$tag]:-}" ]; then
+    if [ -n "$want" ]; then
+      echo "grants-revoke-check.sh: tag $tag (${used[$tag]}) is labelled with grants.sql sha256 $want, which verifies a file but does not hold one; supply <tag>=<grants.sql>" >&2
+    else
+      echo "grants-revoke-check.sh: tag $tag (${used[$tag]}) has no <tag>=<grants.sql>, so what it ran against cannot be determined" >&2
+    fi
     missing=1
   elif ! readable "${baseline[$tag]}"; then
     echo "grants-revoke-check.sh: cannot read ${baseline[$tag]} for tag $tag" >&2
+    missing=1
+  elif [ -n "$want" ] && [ "$(sha256sum <"${baseline[$tag]}" | cut -d' ' -f1)" != "$want" ]; then
+    echo "grants-revoke-check.sh: ${baseline[$tag]} for tag $tag does not match the image's grants.sql sha256 $want" >&2
     missing=1
   else
     old_revokes[$tag]="$(revokes "${baseline[$tag]}")" || missing=1

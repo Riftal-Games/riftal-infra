@@ -2,6 +2,92 @@
   "default_world": "design",
   "locations": [
     {
+      "name": "lumber_spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        40,
+        16
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "lumber",
+      "yaw": 180
+    },
+    {
+      "name": "mine_a_spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        40,
+        23
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "mine_a",
+      "yaw": 180
+    },
+    {
+      "name": "mine_b_spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        40,
+        23
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "mine_b",
+      "yaw": 180
+    },
+    {
+      "name": "mine_c_spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        40,
+        23
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "mine_c",
+      "yaw": 180
+    },
+    {
+      "name": "rankup_npc_a",
+      "pitch": 0,
+      "pos": [
+        1,
+        40,
+        23
+      ],
+      "tags": [
+        "npc",
+        "rankup"
+      ],
+      "world": "mine_a",
+      "yaw": 0
+    },
+    {
+      "name": "sell_npc_a",
+      "pitch": 0,
+      "pos": [
+        -1,
+        40,
+        23
+      ],
+      "tags": [
+        "npc",
+        "sell"
+      ],
+      "world": "mine_a",
+      "yaw": 0
+    },
+    {
       "name": "spawn",
       "pitch": 0,
       "pos": [
@@ -35,9 +121,66 @@
         "safe_zone"
       ],
       "world": "lumber"
+    },
+    {
+      "max": [
+        15,
+        50,
+        15
+      ],
+      "meta": {},
+      "min": [
+        -16,
+        40,
+        -16
+      ],
+      "name": "mine_a_safe_zone",
+      "tags": [
+        "mine",
+        "safe_zone"
+      ],
+      "world": "mine_a"
+    },
+    {
+      "max": [
+        15,
+        50,
+        15
+      ],
+      "meta": {},
+      "min": [
+        -16,
+        40,
+        -16
+      ],
+      "name": "mine_b_safe_zone",
+      "tags": [
+        "mine",
+        "safe_zone"
+      ],
+      "world": "mine_b"
+    },
+    {
+      "max": [
+        15,
+        50,
+        15
+      ],
+      "meta": {},
+      "min": [
+        -16,
+        40,
+        -16
+      ],
+      "name": "mine_c_safe_zone",
+      "tags": [
+        "mine",
+        "safe_zone"
+      ],
+      "world": "mine_c"
     }
   ],
-  "updated": "2026-09-28T12:57:10+00:00",
+  "updated": "2026-11-04T06:30:00+00:00",
   "version": 1,
   "worlds": [
     {
@@ -62,21 +205,21 @@
       "generator": "normal",
       "name": "lumber",
       "role": "lumber",
-      "seed": 20260907
+      "seed": 23
     },
     {
       "generator": "normal",
       "name": "mine_a",
       "rank": "A",
       "role": "ore_mine",
-      "seed": 20260907
+      "seed": 23
     },
     {
       "generator": "normal",
       "name": "mine_b",
       "rank": "B",
       "role": "ore_mine",
-      "seed": 20260907
+      "seed": 23
     },
     {
       "generator": "normal",

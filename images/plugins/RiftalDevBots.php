@@ -31,6 +31,7 @@ use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\event\player\PlayerLoginEvent;
 use pocketmine\event\player\PlayerPreLoginEvent;
 use pocketmine\event\player\PlayerQuitEvent;
+use pocketmine\event\server\NetworkInterfaceRegisterEvent;
 use pocketmine\item\Item;
 use pocketmine\item\VanillaItems;
 use pocketmine\nbt\NBT;
@@ -43,6 +44,8 @@ use pocketmine\network\mcpe\protocol\types\camera\CameraSetInstruction;
 use pocketmine\network\mcpe\protocol\types\camera\CameraSetInstructionEase;
 use pocketmine\network\mcpe\protocol\types\camera\CameraSetInstructionEaseType;
 use pocketmine\network\mcpe\protocol\types\camera\CameraSetInstructionRotation;
+use pocketmine\network\mcpe\raklib\RakLibInterface;
+use pocketmine\network\NetworkInterface;
 use pocketmine\permission\DefaultPermissions;
 use pocketmine\permission\Permission;
 use pocketmine\permission\PermissionManager;
@@ -61,6 +64,7 @@ use function count;
 use function implode;
 use function is_string;
 use function preg_match;
+use function spl_object_id;
 use function strrchr;
 use function strtolower;
 use function substr;
@@ -115,6 +119,12 @@ final class Main extends PluginBase{
 
 	public const BOT_DEVICE_MODEL = "riftal-devbot";
 
+	// RakLib blocks a source address for 300 s once it sends the limit's worth
+	// of datagrams within one drain cycle, 200 by default, and every bot on a
+	// job network arrives from the one gateway address. 100 times the default
+	// keeps a fleet under it while a flood on a dev stack still trips it.
+	public const RAKLIB_PACKET_LIMIT = 20000;
+
 	private bool $admitting = false;
 
 	/**
@@ -166,6 +176,16 @@ final class Main extends PluginBase{
 		$manager->registerEvent(PlayerQuitEvent::class, $this->onQuit(...), EventPriority::MONITOR, $this);
 
 		if($this->admitting){
+			// Plugins enable before the network interfaces start, so
+			// Network::getInterfaces() is empty here and the register event is
+			// the only way to reach each RakLib interface.
+			$manager->registerEvent(
+				NetworkInterfaceRegisterEvent::class,
+				fn(NetworkInterfaceRegisterEvent $event) => $this->raisePacketLimit($event->getInterface()),
+				EventPriority::MONITOR,
+				$this
+			);
+
 			WatchCommand::registerPermission();
 			$this->watch = new WatchCommand($server, $this->getLogger(), $this->isBot(...));
 			$this->getScheduler()->scheduleRepeatingTask(new ClosureTask($this->watch->moveCameras(...)), 1);
@@ -177,6 +197,14 @@ final class Main extends PluginBase{
 				new ShulkerCommand($this->getLogger(), $this->isBot(...)),
 			]);
 		}
+	}
+
+	private function raisePacketLimit(NetworkInterface $interface) : void{
+		if(!$interface instanceof RakLibInterface){
+			return;
+		}
+		$interface->setPacketLimit(self::RAKLIB_PACKET_LIMIT);
+		$this->getLogger()->info("raklib packet limit " . self::RAKLIB_PACKET_LIMIT . " on interface " . spl_object_id($interface));
 	}
 
 	private function isBot(Player $player) : bool{

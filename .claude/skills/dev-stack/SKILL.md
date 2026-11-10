@@ -47,44 +47,33 @@ Tested on 2026-08-23, WSL 2.9.4.0. Do not re-derive these:
 
 ## Reaching the server from a phone or console
 
-Measured on 2026-09-12, WSL 2.9.4.0, `networkingMode=bridged`. Two separate
-things have to be right, and getting only the first is the failure that looks
-like the server is broken.
+The instance runs `--xbox-auth=false`, so it publishes on `127.0.0.1` only and
+nothing here moves it off loopback. `INSTANCE_BIND` stays `127.0.0.1` in
+`images/.env`, and `dev-stack.ps1 start` refuses an instance published on any
+other address (riftal-pm#534). No instance started with `--xbox-auth=false` is
+published by hand on any address but `127.0.0.1` (steward, riftal-pm#491).
 
-**One: the publish has to name `0.0.0.0`.** A bare `-p 19132:19132/udp` binds
-the Windows side to `127.0.0.1`, confirmed in `netstat -ano -p UDP`. A probe to
-the machine's own LAN address then comes back with an ICMP port unreachable.
-`-p 0.0.0.0:19132:19132/udp` binds `0.0.0.0:19132` and that probe pongs.
-`INSTANCE_BIND=0.0.0.0` in `images/.env` is how both paths are told to do it.
+Every client on this machine joins through the relay `dev-stack.ps1` starts on
+the wslc engine, `devtools/relay.js` on `127.0.0.1:19142`, which forwards to the
+instance's loopback publish. The relay binds `127.0.0.1` unless `RELAY_BIND` is
+set. Under `-Engine docker` no relay starts, so there is no phone path there
+(ADR 019).
 
-**Two: Windows Firewall has to allow inbound UDP 19132.** With the bind
-correct, a packet from another host on the LAN is still dropped in silence,
-while `ping` to the same address answers with no loss. Silence rather than an
-ICMP unreachable is the firewall signature.
+**A phone or console join is Nasir's own act at a play test**, never an agent's
+step (riftal-pm `CLAUDE.md`, Current state; steward, riftal-pm#491 and #771).
+He does all of it himself:
 
-**This rule is the one step nobody has watched work.** The drop was measured,
-the fix was not: `New-NetFirewallRule` has never been run here, and every probe
-came from a bridged WSL distro rather than a device. It opens an inbound UDP
-port to an offline-mode server, and the first phone to join is the first
-confirmation it was both needed and enough.
+1. Sets `RELAY_BIND` before `dev-stack.ps1 restart`.
+2. Adds an inbound UDP 19142 allow rule on the **Private** profile. None
+   exists. The only `node.exe` allow rules are on the Public profile, and
+   relying on them would hand the xbox-auth-off instance to any device on a
+   Public network, so he opts in only on his own Private network.
+3. Restarts without `RELAY_BIND` afterwards.
 
-One rule, once, in an **Administrator** PowerShell:
-
-```powershell
-New-NetFirewallRule -DisplayName "Riftal dev Bedrock 19132 UDP" `
-  -Direction Inbound -Action Allow -Protocol UDP -LocalPort 19132 `
-  -Profile Private
-```
-
-`-Profile Private` on purpose. The LAN adapter is on the Private profile, and a
-rule covering Public would follow this machine onto untrusted networks.
-
-The address a device connects to is the **Windows** LAN address, `ipconfig` on
-the `vEthernet (VM Lan Switch)` adapter. The WSL VM's own bridged address does
-not serve the published port; probing it gets nothing.
-
-The instance runs offline mode, so the LAN bind is for devices on this house's
-network only. Never forward this port on the router.
+No agent, script, skill, scenario or rig binds the relay off `127.0.0.1`, sets
+`RELAY_BIND`, adds that firewall rule or publishes the instance off loopback.
+A verdict earned through a relay bound elsewhere is not evidence. Never forward
+any of these ports on the router.
 
 ## Prerequisites, once
 
@@ -166,10 +155,10 @@ that look like schema bugs.
 ### 4. Instance
 
 `INSTANCE_BIND` comes from `images/.env` on both paths and falls back to
-`127.0.0.1` when unset. To let a device join, set it to `0.0.0.0` there,
-re-source the block above, then run this; the firewall rule has to be in place
-too. Editing `.env` without re-sourcing leaves the shell on `127.0.0.1`, which
-looks exactly like the bind not working.
+`127.0.0.1` when unset. It stays `127.0.0.1`: the instance runs
+`--xbox-auth=false`, and `dev-stack.ps1 start` refuses one published on any
+other address. A device joins through the relay, never this publish (see
+Reaching the server from a phone or console, above).
 
 ```sh
 wslc run -d -i --name riftal-instance --network riftal-dev \
@@ -260,12 +249,10 @@ so read `"Status"` and `"ExitCode"` from `inspect` before removing one.
 - [ ] The shutdown sequence reached the log: `Unloading world`, then
       `Stopping other threads`, and `inspect` shows exit code 0. Only then is
       the container safe to remove.
-- [ ] **Edit `INSTANCE_BIND` back to `127.0.0.1` in `images/.env`** if this
-      session set it to `0.0.0.0`, and drop the firewall rule if the LAN publish
-      is not wanted again soon, elevated:
-      `Remove-NetFirewallRule -DisplayName "Riftal dev Bedrock 19132 UDP"`.
-      `CLAUDE.md:62` says close it in the same session; the risk of a
-      LAN-published offline-mode server is that it outlives its reason.
+- [ ] `INSTANCE_BIND` reads `127.0.0.1` in `images/.env`, and the relay runs
+      without `RELAY_BIND`. After a play test, restarting without `RELAY_BIND`
+      is Nasir's own step, as is the firewall rule he added for it; no agent
+      changes either.
 - [ ] **Leave the named volumes.** `riftal-mysql` and `riftal-world` hold the
       dev database and world. Removing either is a reset, never the routine
       ending.
@@ -281,7 +268,7 @@ In this order, because each rules out the ones below it:
 3. MySQL exits immediately with `[ERROR] [Entrypoint]: Database is uninitialized and password option is not specified`. The shell never sourced `images/.env`, so `MYSQL_ROOT_PASSWORD` was empty. Re-run the export block and start the container again; nothing was written, so there is nothing to clean up.
 4. Instance cannot reach MySQL. Both on the same network? Using the container name, not `localhost`? `localhost` inside a container is that container.
 5. Client cannot join but the container looks healthy. Check that the publish is `/udp`. This is the most common single mistake in this stack.
-6. A phone or console cannot see the server while a client on this machine can. The bind, then the firewall, in that order. See the section above.
+6. A phone or console cannot see the server while a client on this machine can. That is the expected state: the instance and the relay are on `127.0.0.1`, and only Nasir opens a phone path, at a play test. See Reaching the server from a phone or console, above.
 7. Login fails with something that looks like a protocol error. Check `xbox-auth=false`. Behind a proxy `player.verify-xuid: false` is required too, and missing either produces exactly that symptom and it is not a protocol bug. Direct, there is no proxy stripping the XUID, so the default stays.
 8. Build fails in the first stage. `build/php` submodule is empty. See prerequisites.
 

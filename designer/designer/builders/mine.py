@@ -6,7 +6,7 @@ import numpy as np
 
 from designer.blocks import AIR, format_name, parse_name
 from designer.builders.base import Palette, facing_state, opposite
-from designer.builders.mine_spec import SIDES, MineGeometry, MineSpec
+from designer.builders.mine_spec import FARMLAND, FULL_WETNESS, SIDES, WETNESS_STATE, MineGeometry, MineSpec
 from designer.edits import EditList, Fill, SetBlock
 from designer.region import Bounds
 from designer.reset_states import RESET_STATES
@@ -98,18 +98,19 @@ def build_mine(spec: MineSpec, palette: Palette) -> EditList:
     floor_row = Bounds((geo.interior.min[0], spec.floor_y - 1, geo.interior.min[2]), (geo.interior.max[0], spec.floor_y - 1, geo.interior.max[2]))
     ceiling_row = Bounds((geo.interior.min[0], geo.interior.max[1] + 1, geo.interior.min[2]), (geo.interior.max[0], geo.interior.max[1] + 1, geo.interior.max[2]))
 
-    ops: list[Fill | SetBlock] = [Fill(geo.outer, palette.block("wall")), Fill(floor_row, floor), Fill(ceiling_row, ceiling)]
+    mine_floor = format_name(FARMLAND, {WETNESS_STATE: FULL_WETNESS}) if spec.has_crop else floor
+    ops: list[Fill | SetBlock] = [Fill(geo.outer, palette.block("wall")), Fill(floor_row, mine_floor), Fill(ceiling_row, ceiling)]
     ops.extend(_trim_ring(geo, spec.floor_y, palette.block("wall_trim")))
-    if spec.fill == "hollow":
+    if spec.fill == "hollow" or spec.has_crop:
         ops.append(Fill(geo.interior, AIR))
-    else:
-        ops.extend(_ore_ops(spec, geo.interior))
+    if spec.fill == "solid":
+        ops.extend(_ore_ops(spec, spec.reset_interior()))
     ops.append(Fill(geo.entrance, AIR))
     ops.append(Fill(geo.exit_platform, floor))
-    # Terrain the mine is dug into would bury the walking lane, the platform's centre line, so it is carved to a
-    # player's feet and head height.
-    far = point(spec.exit_path.length)
-    ops.append(Fill(Bounds(point(1), (far[0], far[1] + 1, far[2])), AIR))
+    # Terrain the mine is dug into would bury the platform, so all of its width is carved to a player's feet and
+    # head height: the walking line, and the sign cells the NPCs stand in beside it.
+    platform = geo.exit_platform
+    ops.append(Fill(Bounds((platform.min[0], spec.floor_y, platform.min[2]), (platform.max[0], spec.floor_y + 1, platform.max[2])), AIR))
     ops.extend(SetBlock(*point(d, edge), light) for d in _light_distances(spec.exit_path.length, spec.lights_every))
 
     suffix = spec.name.rsplit("_", 1)[-1]
@@ -132,7 +133,7 @@ def build_mine(spec: MineSpec, palette: Palette) -> EditList:
     ]
 
     mine_reset = {
-        "interior": geo.interior.to_json(), "floor_y": spec.floor_y, "ores": dict(spec.ores),
+        "interior": spec.reset_interior().to_json(), "floor_y": spec.reset_floor_y(), "ores": dict(spec.ores),
         "ore_layers": [{"y_from": l.y_from, "y_to": l.y_to, "ores": dict(l.ores)} for l in spec.ore_layers],
         "reset_percent": spec.reset_percent,
     }

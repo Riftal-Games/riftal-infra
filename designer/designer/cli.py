@@ -12,14 +12,16 @@ from typing import Any
 from designer import __version__
 from designer import checks as checks_mod
 from designer import config
+from designer import level_engine
 from designer import snapshot as snapshots
 from designer import stack as stack_mod
 from designer import terrain as terrain_mod
-from designer.bridge import Bridge, BridgeError
+from designer.bridge import Bridge, BridgeError, BridgeOpError
 from designer.builders import BUILDERS
 from designer.builders.base import Palette, opt
 from designer.builders.mine_spec import MineSpec
 from designer.config import ConfigError, load_settings
+from designer.level import LevelError, refuse_name
 from designer.palettes import load_palettes
 from designer.region import Bounds, Bounds2D, Heightmap, Region, fetch_heightmap, fetch_region
 from designer.render import Marker, ascii_heightmap, isometric_png, markers_from_index, slice_png, summary, topdown_png
@@ -126,6 +128,21 @@ def build_parser() -> argparse.ArgumentParser:
     console_cmd.add_argument("line", help="The command to send, e.g. 'say hello'.")
     stacks.add_parser("build-image", help="Build the local-pocketmine-mp image from the pmmp-core sibling repo.")
     stacks.add_parser("build-devtools", help="Build DevTools.phar from pmmp-core's DevTools plugin.")
+
+    level = commands.add_parser("level", help="Build zone levels from their committed recipes in levels/.")
+    levels = level.add_subparsers(dest="level")
+    levels.required = True
+    level_build = levels.add_parser("build", help="Build ZONE on a fresh riftal_smoke_levelbuild_<zone> volume, publish it to riftal_smoke_level_<zone> and write levels/<zone>.lock.json.")
+    level_build.add_argument("zone")
+    default_bridge = stack_mod.STACK_DIR.parent.parent.parent / "riftal-game" / "designbridge"
+    level_build.add_argument("--designbridge", type=Path, default=default_bridge, metavar="PATH", help="DesignBridge source folder.")
+    level_build.add_argument("--plugins", type=Path, default=stack_mod.STACK_DIR / "plugins", metavar="PATH", help="Folder holding DevTools.phar.")
+    level_build.add_argument("--bridge-port", type=int, default=level_engine.DEFAULT_BRIDGE_PORT, metavar="PORT", help="Loopback port the build's bridge publishes on.")
+    limits = level_engine.Limits()
+    level_build.add_argument("--memory", default=limits.memory, metavar="SIZE", help="Memory cap of the build server; 0 for none.")
+    level_build.add_argument("--cpus", default=limits.cpus, metavar="N", help="CPU cap of the build server; 0 for none.")
+    level_build.add_argument("--tool-memory", default=limits.tool_memory, metavar="SIZE", help="Memory cap of each one-shot tool container; 0 for none.")
+    level_build.add_argument("--tool-cpus", default=limits.tool_cpus, metavar="N", help="CPU cap of each one-shot tool container; 0 for none.")
     return parser
 
 
@@ -150,13 +167,28 @@ def _render(bridge: Bridge, options: argparse.Namespace) -> str:
     return f"{path}\n" + " ".join(f"{k}={v}" for k, v in stats.items())
 
 
+def _fetch_slice(bridge: Bridge, world: str, bounds: Bounds) -> Region:
+    """``bounds`` is the slice layer and the one beneath it; at the world's floor, only the slice layer.
+
+    The toolkit holds no world height range, so the bridge's ``OUT_OF_WORLD`` is what marks the
+    floor. A slice layer that is itself outside the world is refused by the second fetch.
+    """
+    try:
+        return fetch_region(bridge, world, bounds)
+    except BridgeOpError as exc:
+        if exc.code != "OUT_OF_WORLD":
+            raise
+    (x0, _, z0), (x1, y, z1) = bounds.min, bounds.max
+    return fetch_region(bridge, world, Bounds((x0, y, z0), (x1, y, z1)))
+
+
 def _render_slice(bridge: Bridge, options: argparse.Namespace) -> str:
     index = WorldIndex.load()
     world, (x, _, z) = resolve_at(index, options.at, options.world)
     bounds2d = Bounds2D.from_center((x, z), (options.size, options.size))
     markers = markers_from_index(index, world, bounds2d)
     (x0, z0), (x1, z1) = bounds2d.min, bounds2d.max
-    region = fetch_region(bridge, world, Bounds((x0, options.y - 1, z0), (x1, options.y, z1)))
+    region = _fetch_slice(bridge, world, Bounds((x0, options.y - 1, z0), (x1, options.y, z1)))
     path = slice_png(region, options.y, load_palettes()["colors"], markers, scale=options.scale, out=options.out)
     return f"{path}\n" + " ".join(f"{k}={v}" for k, v in region.counts().items())
 
@@ -311,6 +343,18 @@ def _stack(options: argparse.Namespace) -> str:
     return "built DevTools.phar"
 
 
+def _level(options: argparse.Namespace) -> str:
+    refuse_name(options.zone)
+    if not options.designbridge.is_dir():
+        raise LevelError(f"no DesignBridge source at {options.designbridge}; pass --designbridge")
+    if not (options.plugins / "DevTools.phar").is_file():
+        raise LevelError(f"{options.plugins} holds no DevTools.phar, which loads DesignBridge from source; run 'designer stack build-devtools'")
+    sources = level_engine.Sources(options.designbridge.resolve(), options.plugins.resolve(), options.bridge_port)
+    limits = level_engine.Limits(options.memory, options.cpus, options.tool_memory, options.tool_cpus)
+    lock = level_engine.build(options.zone, stack_mod.runtime_name(), sources, limits=limits)
+    return f"{lock}\ncontent_sha256={json.loads(lock.read_text(encoding='utf-8'))['content_sha256']}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     options = parser.parse_args(argv)
@@ -319,10 +363,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if options.command == "index":
         return _run_index(options)
-    if options.command == "stack":
+    if options.command in ("stack", "level"):
         try:
-            print(_stack(options))
-        except stack_mod.StackError as exc:
+            print(_stack(options) if options.command == "stack" else _level(options))
+        except (stack_mod.StackError, LevelError, BridgeError) as exc:
             print(f"designer: {exc}", file=sys.stderr)
             return 1
         return 0

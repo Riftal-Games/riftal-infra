@@ -27,6 +27,82 @@ subdirectories `WORLDS_DIR` holds. What appears there is decided by
 instance world volume. Splitting a world onto a new instance (`/add-instance`)
 adds one line there; the script needs no change, per `CLAUDE.md` hard rule 5.
 
+## The capture fence
+
+A flow that commits a removal in MySQL and only then hands the item to a
+player would be copied by a restore if the dump fell before the commit and an
+instance's held tick after the delivery. So the run raises the one row of
+`capture_fence` before `mysqldump` and lowers it only after the last volume is
+verified (riftal-pm ADR 027 item 5). While it is raised, every commit-first
+procedure answers `capture_fenced` and the item waits.
+
+The order of a run: take the lock, raise the fence under the run's request id
+for `CAPTURE_FENCE_MAX_SECONDS`, dump, write the capture request, wait for the
+acks, tar and verify each volume, check that the run's own lease is still live,
+delete the request, lower the fence, write the manifest. The check is what
+makes a set safe: a lease that lapsed mid-run fails the run with `capture
+fence lapsed` and no set is produced. The manifest gains `capture_fence:
+<request id>`.
+
+- A raise answering `busy`, or failing, fails the run before the dump. `busy`
+  means another run's lease is live.
+- The EXIT trap deletes the request and lowers the fence by id on every exit.
+  A lower that fails is logged and the lease ends the fence. After a killed
+  run, commit-first flows stay refused for the rest of the lease, up to
+  `CAPTURE_FENCE_MAX_SECONDS`.
+- `backup.sh` refuses to start unless `CAPTURE_FENCE_MAX_SECONDS` is above
+  `CAPTURE_HOLD_MAX_SECONDS` and at most 3600, `capture_fence_raise`'s bound.
+- The fence is written through `capture_fence_raise` and `capture_fence_lower`,
+  which riftal-game's migration 0027 creates and its `grants.sql` grants to
+  the dump login's role. The `dump-login` compose service applies no grants
+  file (`../images/compose.yaml`), so on a stack where only it has run, the
+  role lacks `EXECUTE` on `capture_fence_raise` and every run fails at the
+  raise, before the dump. That fails safe: no set is written and no fence is
+  left raised. Apply the migrations and grants (`../migrations/README.md`)
+  before the first scheduled run.
+- `deploy/fence-fixture.sql` is a copy of the table and the two procedures that
+  the self-tests load into their throwaway databases.
+
+## The held capture
+
+`backup.sh` never tars a running instance live (riftal-pm ADR 015). After the
+dump it writes `/capture/request` on the `riftal-capture` volume, holding a
+request id and a lease deadline of `CAPTURE_HOLD_MAX_SECONDS`, and
+`RiftalCapture` on each instance holds one tick for it: it saves, stages its
+`players/` under `.capture/<request id>/` on the instance's own volume and
+writes `.capture/<request id>/ack` there. Per volume under `WORLDS_DIR`, the
+run tests `server.lock` with `flock -xn` on the read-only mount:
+
+- **Held.** The instance is running and must ack within
+  `CAPTURE_ACK_TIMEOUT_SECONDS`. One that does not, because it lacks the
+  plugin, is hung, or only left an ack for another request id, fails the run
+  naming the volume. The volume's tar leaves out `players/` and `.capture/` and
+  stores the staged copy as `players/`. The manifest says
+  `capture_mode.<volume>: held <request id>`.
+- **Free, or `server.lock` absent.** The instance is down. The tar is the volume
+  as it lies and the manifest says `capture_mode.<volume>: stopped`.
+
+Each volume is listed by name, size and mtime before and after its tar. A
+listing that differs, or a `tar` exit that counts as a change, discards the tar
+and tars the volume once more under the same request. A second change fails the
+run and writes no set. The log names every entry in one listing and not the
+other, and each volume's `tar` exit status.
+
+Both modes need util-linux `flock`, which `mysql:8` does not carry, so the
+`backup` service runs in the image built from `../images/backup`
+(`ubuntu:24.04` plus the MySQL client), tagged `riftal-backup`.
+
+`selftest.sh` builds that image and runs `backup.sh` in it. Its holder
+container takes a shared `flock` on `server.lock` as core does, and a shell
+responder plays `RiftalCapture`. It covers a held volume with and without an
+ack, an ack for another request id or with another id inside it, a free lock and
+an absent one. A `tar` shim first on `PATH` runs the image's own `tar`, then
+waits until the test has made one write to the volume, then exits with a chosen
+status. That fixes both the write and the exit status, so no timing is left to
+chance: item-free writes on a held volume, a level file written on a held
+volume, `server.log` and `plugin_data/` writes on a down volume, exit 2 and a
+signal. Each of five mutants of `backup.sh` must turn its case red.
+
 ## The dump login
 
 `backup.sh` dumps as the login `backup`, whose password is
@@ -40,11 +116,15 @@ them `mysqldump` still exits 0 and silently leaves every trigger or stored
 procedure out of the set. `../migrations/selftest.sh` proves `backup` is
 denied `INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`, `ALTER TABLE`,
 `DROP TABLE`, `LOCK TABLES`, `CREATE EVENT`, `CREATE USER` and `GRANT`.
-MySQL ties seeing a trigger to creating and dropping
-one, so `TRIGGER` lets `backup` drop any existing trigger in the schema,
-whatever the binlog setting, and with it whatever that trigger enforces. With
-the binlog on, as `binlog-check.sh` requires, MySQL refuses only
-`CREATE TRIGGER` to a login without `SUPER`. With the binlog off, or
+The login writes no table directly. Apart from the password and locks below,
+it has two exceptions. The first is the capture fence, which it changes only
+through `EXECUTE` on `capture_fence_raise` and `capture_fence_lower`; the
+procedures run as their definer, so the login holds no `UPDATE` on the table. The second
+is trigger DDL. MySQL ties seeing a trigger to creating and dropping one, so
+`TRIGGER` lets `backup` drop any existing trigger in the schema, whatever the
+binlog setting, and with it whatever that trigger enforces. With the binlog
+on, as `binlog-check.sh` requires, MySQL refuses only `CREATE TRIGGER` to a
+login without `SUPER`. With the binlog off, or
 `log_bin_trust_function_creators` set, `backup` can create triggers too, and
 a `SIGNAL` trigger can block writers. `../migrations/selftest.sh` pins each
 of these: the refused create, the accepted drop, and the create once the
@@ -207,13 +287,63 @@ cannot see every session:
 | `refused: <n> other session(s) are connected to <host>:<port>; close every other connection, instances first` | Another connection is open. Close it and run again |
 | `refused: <user> lacks PROCESS, directly or through an active role, so it cannot see every session` | Without `PROCESS` the account sees only its own threads, so a count of 0 proves nothing. Use the admin account |
 | `refused: the processlist does not show this session, so it cannot see the others; is performance_schema off?` | The count is not trusted until it includes the script's own connection |
+| `refused: the manifest has no valid capture_mode line for every world volume, so the volumes may not share one tick; set ALLOW_UNCAPTURED_SET=1 to restore it anyway` | See below. A missing `manifest.txt` is the same refusal |
+| `refused: the manifest has no capture_fence line, ...` | See below |
+| `refused: the server.lock of volume <name> is held, so its instance is running; stop it first` | An instance on this host has that volume mounted and running. Stop it. There is no override |
+| `cannot give the server.lock of volume <name> the owner of <dir>, so core could not open it; run this as root` | Raised after the database is rebuilt. The restore was not run as root, so it could not give `server.lock` the directory's owner. Run it again as root; it is not reported complete |
+| `refused: flock is not installed, so a running instance cannot be detected; run this in the backup image` | `mysql:8` has no `flock`. Run `restore.sh` in the `riftal-backup` image |
 
 The check reads the moment it runs. A session opened afterwards is not seen.
+
+`restore.sh` runs in the `riftal-backup` image (`../images/backup`), because it
+tests each target volume's `server.lock` with `flock`. The processlist sees the
+session of an instance on any host, but not an instance that has not connected
+yet. The lock sees an instance on this host even before it connects, and an
+instance on another host cannot mount these volumes, so both refusals stand.
+In two passes, all before the database is touched, it takes an exclusive
+`flock -xn` on the `server.lock` of every target volume: the first pass tries each file that exists and writes nothing if one is
+held, the second creates and locks the file of each volume that has none. The
+locks are held until the script exits. A core start meanwhile opens no world:
+it blocks in its own `flock`, or fails to open a file created as root. Each
+volume's `server.lock` is left out of the clearing and out of the extract, since
+replacing the file would swap the locked inode for one nothing holds. After the
+extract the file is given the owner and group of the volume directory, as
+extracted, because core opens it for writing as its own user. `chown` keeps the
+inode, so the lock still guards it. An instance that was down leaves a free
+`server.lock` behind after a crash, which does not refuse. A restore that fails
+after the second pass, for example on the database load, can leave a root-owned
+`server.lock` in each volume it created one in and the extract has not reached.
+Run the restore again as root: the extract gives each the directory's owner.
+
+Before the tars are listed, `restore.sh` refuses a set whose `manifest.txt`
+lacks a `capture_mode.<volume>: held <request id>` or
+`capture_mode.<volume>: stopped` line for any world tar's volume. That is every
+set written before capture modes, and such a set was not taken at one tick.
+`ALLOW_UNCAPTURED_SET=1` restores it anyway and prints a warning; reserve it
+for a disaster with nothing better.
+
+`restore.sh` also refuses a set whose `manifest.txt` has no `capture_fence:`
+line, before it touches anything: `refused: the manifest has no capture_fence
+line, so this set may hold an item twice; set ALLOW_UNFENCED_SET=1 to restore it
+anyway`. Such a set predates the capture fence, so its dump can hold a
+commit-first delivery that a held volume also holds. `ALLOW_UNFENCED_SET=1`
+accepts that copy and restores the set as is, without lowering the fence.
+
+After it loads `mysql.sql` from a set that has the line, `restore.sh` runs
+`UPDATE capture_fence SET request_id = NULL, raised_until = NULL WHERE id = 1`
+as the admin account. The dump holds the row raised by the run that took the
+set, and until its lease ended every commit-first flow would answer
+`capture_fenced` and the next `backup.sh` run would answer `busy`.
 
 Wiping between MVPs is its own runbook, [`WIPE.md`](WIPE.md). It drops and
 recreates the database and clears the levels, `players/` and `plugin_data/`
 on every instance volume, and its rollback is this restore with the backup
 set taken just before the wipe. Every wipe of alpha or production data is Nasir's.
+
+Replacing one zone's level on a volume that already holds it is
+[`LEVEL-REPLACE.md`](LEVEL-REPLACE.md). Its first rollback is a rename of the old folder
+back, which touches nothing else; this restore is its fallback and discards the database
+and every volume with it. Every swap of alpha or production data is Nasir's.
 
 ## Binary log retention
 
@@ -338,10 +468,21 @@ skill does not run it yet; until the skill's wiring lands, whoever runs stage 1
 runs the check by hand and does not start the migrations on a refusal.
 
 Each `<tag>=<file>` names the `grants.sql` that tag's plugins were built from.
-Nothing records that mapping yet, so the operator supplies it from the
-riftal-game commit the tag was built at, and it stays manual until the image
-that carries the plugins records that commit. A tag in use with no mapping is a
-refusal, never a pass.
+The operator supplies it from the riftal-game commit the tag was built at. A tag
+in use with no mapping is a refusal, never a pass.
+
+A release image (see Release image below) carries the sha256 of that file in the
+label `org.riftal.grants-sha256`, and the commit in `org.riftal.game-commit`. The
+check reads the sha256 with `<runtime> image inspect` for every tag in use other
+than `<release-tag>`. The label holds the hash and not the file, and the image
+holds no `grants.sql`, so a labelled tag still needs its `<tag>=<file>`: the
+check cannot derive the file locally, and fetching it from a network or a
+registry is out of scope. What the label adds is that a supplied file whose
+sha256 differs from it exits 2, so a file from another commit exits 2 even when
+it is valid. A tag whose image has no label, or cannot be inspected on the
+runtime, is checked against the supplied file alone. A label that is not 64
+lowercase hex digits exits 2. Baking `grants.sql` into the image is tracked in
+riftal-infra#1272.
 
 `instances/<id>/image` records the tag an instance runs: one line,
 `<INSTANCE_IMAGE>:<tag>`, with an optional final LF. The tag matches
@@ -371,7 +512,7 @@ undoes with a GRANT of the same privilege: it counts as carried.
 |---|---|
 | 0 | One `GRANTS REVOKE OK:` line: the REVOKE count, the file, the older tags checked, the tags in use, the runtime, the instance definitions read |
 | 1 | One `GRANTS REVOKE REFUSED:` line per new REVOKE and tag, each naming the container or definition that holds the tag |
-| 2 | Usage, an unreadable file or instance definition, a definition with no valid `image` file, a top-level entry that is not a directory, a failed definition scan, a failed runtime, an image whose tag cannot be read, a tag in use with no `grants.sql`, or a file outside the dialect below |
+| 2 | Usage, an unreadable file or instance definition, a definition with no valid `image` file, a top-level entry that is not a directory, a failed definition scan, a failed runtime, an image whose tag cannot be read, a tag in use with no `grants.sql`, a supplied file whose sha256 differs from the tag's label, a label that is not a sha256, or a file outside the dialect below |
 
 Exit 2 is never a pass. The reader accepts the one dialect riftal-game's
 `lib/resources/sql/grants.sql` is written in, and exits 2 naming the file and
@@ -412,21 +553,23 @@ INSTANCE_IMAGE=registry.example/riftal/pocketmine-mp \
 ```
 
 `grants-revoke-check-selftest.sh` proves each rule in CI against a fake
-container runtime and fixture files, and starts no container.
+container runtime that serves labels, and fixture files, and starts no container.
 
 ## Release image
 
-`release-image.sh <phars directory>` builds an image on top of the pinned core
+`GAME_COMMIT=<sha> GRANTS_SQL=<grants.sql> release-image.sh <phars directory>`
+builds an image on top of the pinned core
 image, `../images/core-image.sha`, which is `ubuntu:24.04` underneath and must
 already be on the daemon, since nothing here builds or pulls it. The image adds
-six production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
-`RiftalAccounts.phar`, `contracts.phar`, `RiftalMines.phar`, `RiftalRanks.phar`
-and `RiftalEconomy.phar`, from `../images/release/Dockerfile`. They are
-owned by `root` with no write bit, in directories with none either, so the server's
-user cannot replace or add one. They sit outside `/data` and `/plugins`,
-the base's two VOLUMEs, so a mount or a reused volume cannot hide them or keep
-an older tag's copies. `/plugins` in the image holds no phar. The script uses
-only the local Docker daemon and pushes nowhere. A registry is a separate
+ten production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
+`RiftalAccounts.phar`, `contracts.phar`, `RiftalMines.phar`, `RiftalRanks.phar`,
+`RiftalEconomy.phar`, `RiftalGangs.phar`, `RiftalRiots.phar`, `RiftalPlots.phar`
+and `RiftalAnvil.phar`, from `../images/release/Dockerfile`. They are
+mode 0444 and owned by root, in directories owned by root, so `pocketmine` can
+neither rewrite nor replace one. They sit outside `/data` and `/plugins`,
+the base's two VOLUMEs, so a mount or a reused volume cannot hide them there or
+keep an older tag's copies. `/plugins` in the image holds no phar. The script
+uses only the local Docker daemon and pushes nowhere. A registry is a separate
 decision, because a paid one costs money.
 
 The image's command is `/opt/riftal/start-release.sh` (`../images/release/`),
@@ -444,10 +587,35 @@ boot before PocketMine starts. A `--plugins` or `--data` in `POCKETMINE_ARGS` is
 refused. The script prints each roster phar's sha256 as a `roster` line, which
 is what the label can be compared with.
 
+`GAME_COMMIT` is the full lowercase 40-character riftal-game sha the phars and
+`GRANTS_SQL` were built from, and `GRANTS_SQL` is that commit's `grants.sql`.
+The script refuses a `GAME_COMMIT` that is unset or malformed and a `GRANTS_SQL`
+that is unset, missing, a directory or empty, and records them in the labels
+`org.riftal.game-commit` and `org.riftal.grants-sha256`. It is the operator's
+word that they match the phars, since nothing here builds
+riftal-game. The file itself is not put in the image.
+
 The phars come from riftal-game's build. The recipes are in
 `../images/README.md` (Custody, Accounts, contracts) and in
 `../images/plugins/instance-only/README.md` (Mines, Ranks, Economy). The script
 refuses a missing or empty one by name, and carries no dev-only plugin.
+
+Gangs, Riots, Plots and Anvil use the RiftalCustody recipe in
+`../images/README.md` with `gangs riots plots anvil contracts` added to its
+`git archive` paths, so `lib` and `contracts` sit beside them for their path
+repositories. `packages.sh phar` then builds a phar named after each folder, and
+each is copied to the name the script requires:
+
+```sh
+cp "$OUT/gangs.phar" RiftalGangs.phar
+cp "$OUT/riots.phar" RiftalRiots.phar
+cp "$OUT/plots.phar" RiftalPlots.phar
+cp "$OUT/anvil.phar" RiftalAnvil.phar
+```
+
+The image carries these four, but `start-release.sh` loads none of them: the
+dev stack's start scripts give them no roster entry, login or config, so
+`RIFTAL_PLUGINS` offers only Mines, Ranks and Economy.
 
 The tag is `core-<UTC date>-<first 7 characters of the pinned pmmp-core sha>`,
 for example `core-2026-10-21-971d10b`, under the name `riftal/pocketmine-mp`
@@ -456,20 +624,25 @@ An existing tag is refused rather than rebuilt, so a tag names one image on the
 daemon that built it, for as long as the tag exists there. Another daemon can
 build the same tag over different phars; riftal-pm#1622 tracks a composite tag.
 The tag carries no riftal-game commit, so the image records what it holds in
-two labels: `org.riftal.core-image` and `org.riftal.phars`, each phar's sha256.
-Recording the tag in `../instances/<id>/image` is a deploy,
-and an instance started from the image runs the image's own phars.
+four labels: `org.riftal.core-image`, `org.riftal.phars` (each phar's sha256),
+`org.riftal.game-commit` and `org.riftal.grants-sha256`.
+Recording the tag in `../instances/<id>/image` is a deploy, and an instance
+started from the image runs the image's own phars.
 
 `release-image-selftest.sh` builds one under a `riftal_smoke_` name and checks
 the tag, the refusal of each phar when empty, the absence of a `latest` tag and
 the refusal of an existing tag. In the image it checks each phar byte for byte,
-that `/opt/riftal/plugins` holds exactly the six, that they are owned by
-`root` and mode 444, that `/plugins` holds no phar, the Ubuntu 24.04
-release file, the `pocketmine` user and the pinned core revision label. It needs
-the pinned core image on the daemon.
+that `/opt/riftal/plugins` holds exactly the ten, that they are owned by
+root and mode 444, that their directories are root-owned and mode 755, that
+`pocketmine` can write none of them, that `/plugins` holds no phar, the Ubuntu
+24.04 release file, the `pocketmine` user and the pinned core revision label. It
+refuses a malformed `GAME_COMMIT` and a `GRANTS_SQL` that is not a non-empty
+file, checks `org.riftal.game-commit` and `org.riftal.grants-sha256` against
+the inputs and that the image holds no `grants.sql`. It needs the pinned core
+image on the daemon.
 
-`release-start-selftest.sh` builds two tags over stub plugins that differ in
-version, then boots tag N, N+1 and N on one named `/data` volume and one reused
+`release-start-selftest.sh` builds two tags over stub plugins, ten of them as in
+`REQUIRED_PHARS`, that differ in version, then boots tag N, N+1 and N on one named `/data` volume and one reused
 `/plugins` volume that holds stale copies. Each boot must report the sha256s its
 own image's `org.riftal.phars` label names and enable exactly its roster at its
 tag's version. It also checks the refusals above, the rendered configs and that
@@ -490,7 +663,16 @@ the server's user cannot add a file to `/opt/riftal/plugins`.
 | `BACKUP_INTERVAL_SECONDS` | no | `21600` | `backup-loop.sh` only |
 | `PARTIAL_MAX_AGE_MINUTES` | no | `360` | Age past which a leftover `.partial` is swept |
 | `LOCK_MAX_AGE_MINUTES` | no | `90` | Age past which a held `.lock` is presumed abandoned and swept |
+| `CAPTURE_FENCE_MAX_SECONDS` | no | `1800` | The capture fence's lease, from before the dump until every volume is verified. Must be above `CAPTURE_HOLD_MAX_SECONDS` and at most `3600`, or the run refuses to start |
+| `CAPTURE_DIR` | no | `/capture` | Where the capture request is written: the `riftal-capture` volume, read-write here and read-only in every instance |
+| `CAPTURE_ACK_TIMEOUT_SECONDS` | no | `60` | How long a held volume has to ack before the run fails |
+| `CAPTURE_HOLD_MAX_SECONDS` | no | `900` | The request's lease. Must cover the longest tar, retry included |
+| `CAPTURE_TEST_STALL_SECONDS` | no | `0` | Seconds a run stalls between the acks and the tars. Set only by the self-tests and proof runs |
+| `CAPTURE_TEST_REQUEST_ID` | no | the run's timestamp | The request id. Set only by the self-tests |
+| `FENCE_TEST_STALL_SECONDS` | no | `0` | Seconds a run stalls between its dump and its capture request. Set only by the self-tests |
 | `BACKUP_SET` | yes, `restore.sh` only | | Path to the one backup set directory to restore from |
+| `ALLOW_UNCAPTURED_SET` | no, `restore.sh` only | | `1` lets `restore.sh` restore a set whose manifest lacks a valid `capture_mode.<volume>:` line for some volume, with a warning. Any other value refuses it |
+| `ALLOW_UNFENCED_SET` | no, `restore.sh` only | | `1` lets `restore.sh` restore a set whose manifest has no `capture_fence:` line. Any other value refuses it |
 | `WIPE_BACKUP_MAX_AGE_MINUTES` | no, `wipe.sh` only | `60` | Age past which `wipe.sh` refuses its `BACKUP_SET`, read from the manifest's `timestamp:` line. The set is taken with every instance stopped, just before the wipe, so an older one was likely taken while they still wrote |
 
 ## Concurrency
@@ -530,22 +712,31 @@ MSYS_NO_PATHCONV=1 wsl -d Ubuntu-26.04 -u runner --exec bash \
 Each selftest run writes its logs to its own
 `mktemp -d` directory and removes it on exit, so concurrent runs on one host
 do not clobber each other. One backup run by hand, against the dev
-stack's own throwaway data, after `riftal-mysql` is up:
+stack's own throwaway data, after `riftal-mysql` is up. It runs in the
+`riftal-backup` image, which `mysql:8` cannot stand in for, and mounts
+`riftal-capture` read-write, since the run writes its request there. Build the
+image once, from `images/backup`, if the stack has not:
 
 ```sh
 export MSYS_NO_PATHCONV=1
 INFRA=C:/Users/nasir/riftal-games/riftal-infra
 set -a; . "$INFRA/images/.env"; set +a
 
-wslc run --rm --network riftal-dev \
+timeout 300 wslc build -t riftal-backup "$INFRA/images/backup"
+
+timeout 120 wslc run --rm --network riftal-dev \
   -v "$INFRA/deploy:/deploy:ro" \
   -v riftal-backups:/backups \
+  -v riftal-capture:/capture \
   -v riftal-world:/worlds/riftal-world:ro \
   -v riftal-world-b:/worlds/riftal-world-b:ro \
   -e MYSQL_HOST=mysql -e MYSQL_USER=backup -e MYSQL_PASSWORD="$RIFTAL_DB_PASSWORD_BACKUP" \
   -e MYSQL_DATABASE=riftal_dev -e BACKUP_RETENTION="${BACKUP_RETENTION:-10}" \
-  mysql:8 bash /deploy/backup.sh
+  riftal-backup bash /deploy/backup.sh
 ```
+
+An instance running without `RiftalCapture` fails this run after
+`CAPTURE_ACK_TIMEOUT_SECONDS`, which is the intended failure.
 
 And the matching restore, naming one backup set directory that run produced
 (list `riftal-backups` to find one, or read the loop's own log). Note the
@@ -560,7 +751,7 @@ wslc run --rm --network riftal-dev \
   -v riftal-world-b:/worlds/riftal-world-b \
   -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
   -e MYSQL_DATABASE=riftal_dev -e BACKUP_SET=/backups/<timestamp> \
-  mysql:8 bash /deploy/restore.sh
+  riftal-backup bash /deploy/restore.sh
 ```
 
 Wrap either in `timeout 120` when running unattended.

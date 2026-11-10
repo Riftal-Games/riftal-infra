@@ -53,6 +53,10 @@ $files = [
   'RiftalMines.phar' => ['RiftalMines', 'RiftalContracts'],
   'RiftalRanks.phar' => ['RiftalRanks', 'RiftalContracts'],
   'RiftalEconomy.phar' => ['RiftalEconomy', 'RiftalContracts'],
+  'RiftalGangs.phar' => ['RiftalGangs', 'RiftalContracts'],
+  'RiftalRiots.phar' => ['RiftalRiots', 'RiftalContracts'],
+  'RiftalPlots.phar' => ['RiftalPlots', 'RiftalContracts'],
+  'RiftalAnvil.phar' => ['RiftalAnvil', 'RiftalContracts'],
 ];
 foreach ($files as $file => [$name, $depend]) {
   $phar = new Phar("$out/$file");
@@ -62,6 +66,10 @@ foreach ($files as $file => [$name, $depend]) {
     "<?php\nnamespace Stub\\$name;\nclass Main extends \\pocketmine\\plugin\\PluginBase {}\n");
 }
 PHP
+
+export GAME_COMMIT=0123456789abcdef0123456789abcdef01234567
+export GRANTS_SQL="$work/grants.sql"
+printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\n' > "$GRANTS_SQL"
 
 core_image
 for version in 1.0.0 2.0.0 0.0.1; do

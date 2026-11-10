@@ -8,7 +8,7 @@ the edit outright regardless of what this repo's own `.claude/settings.json`
 or agent definitions say. **A human needs to fold this into
 `.claude/skills/dev-stack/SKILL.md` by hand.**
 
-Three corrections to the current SKILL.md text:
+Four corrections to the current SKILL.md text:
 
 1. The "Bring it up" section's opening line still reads "one core
    `instance`". Since riftal-infra#129, `images/compose.yaml` defines two:
@@ -38,6 +38,24 @@ Three corrections to the current SKILL.md text:
    A `riftal-instance` container created without the flag reports crashes
    until it is recreated: `stop` on stdin, wait for the shutdown line, remove,
    and a fresh `wslc run` against the same `riftal-world` volume.
+4. Step 4's command also lacks `RIFTAL_DEV_ENV=1`, which
+   `images/plugins/RiftalDevBots.php` requires for bot admission alongside
+   `--riftal-dev-bots=on` and `--xbox-auth=false` (riftal-infra#113, closed by
+   PR #176; `images/compose.yaml`'s `instance` service sets it). Without it
+   the plugin still enables and logs a boot `WARNING`, `riftal-dev-bots is on
+   but xbox-auth is on or RIFTAL_DEV_ENV=1 is not set; dev bots will be
+   refused`, which step 4's severity check does not catch because it matches
+   only `EMERGENCY`, `ALERT`, `CRITICAL` and `ERROR`. It then logs
+   `dev bots refused` and kicks every bot at pre-login with `dev bots are
+   disabled on this server`. Add this line to step 4's `wslc run`, above the
+   `POCKETMINE_ARGS` line:
+
+   ```sh
+     -e "RIFTAL_DEV_ENV=1" \
+   ```
+
+   A `riftal-instance` created without it refuses bots until it is recreated,
+   as in correction 3.
 
 ## 5. Second instance (`instance-b`)
 
@@ -55,6 +73,7 @@ wslc run -d -i --name riftal-instance-b --network riftal-dev \
   --memory 2G --cpus 2 \
   -p "${INSTANCE_B_BIND:-127.0.0.1}:19133:19132/udp" \
   -v riftal-world-b:/data -v "$INFRA/images/plugins:/plugins" \
+  -v riftal-capture:/capture:ro \
   -v "$INFRA/designer/world_index.json:/etc/riftal/world_index.json:ro" \
   -e "INSTANCE_ID=${INSTANCE_B_ID}" \
   -e "RIFTAL_DEV_ENV=1" \

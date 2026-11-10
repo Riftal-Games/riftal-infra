@@ -46,7 +46,7 @@ def test_the_box_mine_is_valid(box_mine_region: Fixture) -> None:
     assert found.ok and found.detail == "mine valid" and found.coords == [] and found.leaks == []
     assert found.entrances_found == 1
     assert found.data == {
-        "undeclared": [], "wall_unmapped": 0, "floor_missing": 0, "floor_unmapped": 0, "platform_missing": 0, "platform_unmapped": 0,
+        "undeclared": [], "wall_unmapped": 0, "floor_missing": 0, "floor_unmapped": 0, "crop_floor_dry": 0, "platform_missing": 0, "platform_unmapped": 0,
         "platform_blocked": 0,
     }
     assert set(found.composition) == set(found.deviations) == set(spec.ores)
