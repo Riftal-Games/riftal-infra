@@ -606,7 +606,8 @@ cp "$OUT/anvil.phar" RiftalAnvil.phar
 The image carries these four, but the per-instance roster does not offer them
 yet: nothing loads Gangs, Riots, Plots or Anvil from the image.
 
-The tag is `<UTC date>-core<7 of the pinned pmmp-core sha>-game<7 of GAME_COMMIT>-infra<7 of the riftal-infra commit>`,
+The tag is
+`<UTC date>-core<7 of the pinned pmmp-core sha>-game<7 of GAME_COMMIT>-infra<7 of the riftal-infra commit>`,
 for example `2026-11-10-core971d10b-gamefcf772f-infra4f183d3`, under the name
 `riftal/pocketmine-mp` (`RELEASE_IMAGE` overrides it, `RELEASE_DATE` the date).
 There is no `latest`. An existing tag is refused rather than rebuilt. The tag
@@ -614,15 +615,14 @@ follows every input that changes the image, so a riftal-game-only release on
 the same day gets its own tag and two daemons cannot build one tag over
 different phars.
 
-The riftal-infra commit is the `HEAD` of the checkout holding the script, or of
-`INFRA_DIR` when set. `INFRA_DIR` is a test seam and a release never sets it:
-the Dockerfile and the core pin are always read from the checkout holding the
-script. The build is refused when that directory is not the top of a git work
-tree of its own with a commit (a subdirectory of another repository would name
-that repository's commit), when git cannot report its status, or when a tracked
-file differs from `HEAD`, since the commit would not describe what was built.
-Untracked files are not inputs and do not refuse it. Build from a committed,
-clean checkout of the commit being released.
+The riftal-infra commit is the `HEAD` of the checkout holding the script, the
+same checkout the Dockerfile and the core pin are read from. The build is
+refused when that checkout is not the top of a git work tree of its own with a
+commit (a subdirectory of another repository would name that repository's
+commit), when git cannot report its status, or when a tracked file differs from
+`HEAD`, since the commit would not describe what was built. Untracked files are
+not inputs and do not refuse it. Build from a committed, clean checkout of the
+commit being released.
 
 The image records what it holds in five labels: `org.riftal.core-image`,
 `org.riftal.phars` (each phar's sha256), `org.riftal.game-commit`,
@@ -633,18 +633,21 @@ phars yet.
 
 `release-image-selftest.sh` builds one under a `riftal_smoke_` name and checks
 the tag and that it changes with the riftal-game and riftal-infra commits, the
-refusal of each phar when empty, of an `INFRA_DIR` that is not a git checkout,
-is a `.git` directory, is a subdirectory of a repository, has no commit, has a
-status git cannot report or has a tracked change, the absence of a `latest` tag and the
-refusal of an existing tag. In the image it checks each phar byte for byte,
+refusal of each phar when empty, and of a checkout with no `.git`, with no
+commit, inside a `.git` directory, in a subdirectory of a repository, with a
+status git cannot report, with a modified tracked file or with a staged new
+file, the absence of a `latest` tag and the refusal of an existing tag. It runs
+a committed copy of the release files in a temporary repository, from another
+repository's directory, so the commit it checks is the one read from beside the
+script. In the image it checks each phar byte for byte,
 that `/opt/riftal/plugins` holds exactly the ten, that they are owned by
 root and mode 444, that their directories are root-owned and mode 755, that
 `pocketmine` can write none of them, that `/plugins` holds no phar, the Ubuntu
 24.04 release file, the `pocketmine` user and the pinned core revision label. It
 refuses a malformed `GAME_COMMIT` and a `GRANTS_SQL` that is not a non-empty
 file, checks `org.riftal.game-commit`, `org.riftal.infra-commit` and
-`org.riftal.grants-sha256` against the inputs and that the image holds no `grants.sql`. It needs the pinned core
-image on the daemon.
+`org.riftal.grants-sha256` against the inputs and that the image holds no
+`grants.sql`. It needs the pinned core image on the daemon.
 
 ## Environment
 

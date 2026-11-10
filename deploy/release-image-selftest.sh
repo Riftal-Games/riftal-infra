@@ -1,41 +1,66 @@
 #!/usr/bin/env bash
 # Self-test for release-image.sh (riftal-infra#1251, #1422): the tag follows
 # spec 016's naming, <date>-core<7>-game<7>-infra<7>, and changes with the
-# riftal-game commit and the riftal-infra commit. Malformed tag input, each phar
-# when empty, a GAME_COMMIT that is not a full lowercase sha, a GRANTS_SQL that
-# is not a non-empty regular file, an INFRA_DIR that is not the top of a git
+# riftal-game commit and the riftal-infra commit. Malformed tag input, each
+# phar when empty, a GAME_COMMIT that is not a full lowercase sha, a GRANTS_SQL
+# that is not a non-empty regular file, a checkout that is not the top of a git
 # work tree of its own, whose status git cannot report or that has a tracked
-# change, and an existing tag are refused. The image records
-# GAME_COMMIT, the riftal-infra commit and the sha256 of GRANTS_SQL in its
-# labels and holds no grants.sql. The image it builds is on
-# ubuntu:24.04 and the pinned core revision, holds the phars named in
-# REQUIRED_PHARS intact in /opt/riftal/plugins, owned by root, mode 0444 and in
-# a root-owned 0755 directory pocketmine cannot write, holds none in /plugins,
-# has pocketmine as its configured user and is never tagged latest. Builds on
-# the local daemon under a riftal_smoke_ name and removes it. Needs the core
-# image pinned in images/core-image.sha.
+# change, and an existing tag are refused. Every case runs a copy of the
+# release files committed in a temporary repository, started from another
+# repository's directory, so the commit it names is the one read from beside
+# the script. The image records GAME_COMMIT, the riftal-infra commit and the
+# sha256 of GRANTS_SQL in its labels and holds no grants.sql. The image it
+# builds is on ubuntu:24.04 and the pinned core revision, holds the phars named
+# in REQUIRED_PHARS intact in /opt/riftal/plugins, owned by root, mode 0444 and
+# in a root-owned 0755 directory pocketmine cannot write, holds none in
+# /plugins, has pocketmine as its configured user and is never tagged latest.
+# Builds on the local daemon under a riftal_smoke_ name and removes it. Needs
+# the core image pinned in images/core-image.sha.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-. "$DIR/release-image.sh"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=54
+EXPECTED_ASSERTIONS=52
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
+
+git_fixture() {
+  git -c user.name=selftest -c user.email=selftest@example.invalid -c commit.gpgsign=false "$@"
+}
+# $1 the root to lay the release files out under, at their repository paths.
+copy_release_files() {
+  mkdir -p "$1/deploy" "$1/images/release"
+  cp "$DIR/release-image.sh" "$1/deploy/"
+  cp "$DIR/../images/core-image.sh" "$DIR/../images/core-image.sha" "$1/images/"
+  cp "$DIR/../images/release/Dockerfile" "$1/images/release/"
+}
+# $1 a new repository root holding one commit of the release files.
+commit_checkout() {
+  copy_release_files "$1"
+  git init -q "$1"
+  git_fixture -C "$1" add -A
+  git_fixture -C "$1" commit -q -m fixture
+}
 
 sha="$(tr -d '[:space:]' < "$DIR/../images/core-image.sha")"
 image="riftal_smoke_release/pocketmine-mp"
 GAME_COMMIT=0123456789abcdef0123456789abcdef01234567
 work="$(mktemp -d)"
 infra="$work/infra"
-git init -q "$infra"
-printf 'one\n' > "$infra/tracked"
-git -C "$infra" add tracked
-git -C "$infra" -c user.name=selftest -c user.email=selftest@example.invalid -c commit.gpgsign=false commit -q -m fixture
+commit_checkout "$infra"
 infra_sha="$(git -C "$infra" rev-parse HEAD)"
 tag="2026-10-21-core${sha:0:7}-game${GAME_COMMIT:0:7}-infra${infra_sha:0:7}"
+# A different repository with a commit of its own, as the working directory of
+# every run, so a commit read from the working directory names the wrong one.
+elsewhere="$work/elsewhere"
+commit_checkout "$elsewhere"
+printf 'marker\n' > "$elsewhere/marker"
+git_fixture -C "$elsewhere" add marker
+git_fixture -C "$elsewhere" commit -q -m marker
+cd "$elsewhere"
+. "$infra/deploy/release-image.sh"
 cleanup() {
   docker image rm "$image:$tag" >/dev/null 2>&1 || true
   rm -rf "$work"
@@ -83,8 +108,13 @@ done
 
 phars="$work/phars"
 mkdir "$phars"
-export GAME_COMMIT INFRA_DIR="$infra"
+export GAME_COMMIT
 export GRANTS_SQL="$work/grants.sql"
+# $1 the root of a checkout of the release files, whose script is run as a
+# release runs it.
+release_from() {
+  RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 bash "$1/deploy/release-image.sh" "$phars"
+}
 printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\n' > "$GRANTS_SQL"
 for name in "${REQUIRED_PHARS[@]}"; do
   printf 'phar %s\n' "$name" > "$phars/$name"
@@ -92,7 +122,7 @@ done
 
 for name in "${REQUIRED_PHARS[@]}"; do
   : > "$phars/$name"
-  if out="$(RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
+  if out="$(release_from "$infra" 2>&1)"; then
     fail "an empty $name was accepted"
   elif grep -qF "$name is missing or empty" <<<"$out"; then
     pass "an empty $name is refused by name"
@@ -103,7 +133,7 @@ for name in "${REQUIRED_PHARS[@]}"; do
 done
 
 for bad in "" 0123456789abcdef 0123456789ABCDEF0123456789ABCDEF01234567 "${GAME_COMMIT}0"; do
-  if out="$(GAME_COMMIT=$bad RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
+  if out="$(GAME_COMMIT=$bad release_from "$infra" 2>&1)"; then
     fail "GAME_COMMIT '$bad' was accepted"
   elif grep -qF "GAME_COMMIT \"$bad\" is not a full 40-character" <<<"$out"; then
     pass "GAME_COMMIT '$bad' is refused by value"
@@ -113,7 +143,7 @@ for bad in "" 0123456789abcdef 0123456789ABCDEF0123456789ABCDEF01234567 "${GAME_
 done
 : > "$work/empty.sql"
 for bad in "" "$work/gone.sql" "$work/empty.sql" "$work"; do
-  if out="$(GRANTS_SQL=$bad RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
+  if out="$(GRANTS_SQL=$bad release_from "$infra" 2>&1)"; then
     fail "GRANTS_SQL '$bad' was accepted"
   elif grep -qF "GRANTS_SQL \"$bad\" is not a non-empty regular file" <<<"$out"; then
     pass "GRANTS_SQL '$bad' is refused by value"
@@ -122,47 +152,41 @@ for bad in "" "$work/gone.sql" "$work/empty.sql" "$work"; do
   fi
 done
 
-# $1 the INFRA_DIR to build from, $2 the message the refusal must carry, $3 the case.
+# $1 the checkout to run, $2 the message the refusal must carry, $3 the case.
 refuses_infra() {
   local out
-  if out="$(INFRA_DIR=$1 RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
+  if out="$(release_from "$1" 2>&1)"; then
     fail "$3 was accepted"
-  elif grep -qF "$2" <<<"$out" && ! docker image inspect "$image:$tag" >/dev/null 2>&1; then
+  elif grep -qF "$2" <<<"$out" && [ -z "$(docker image ls -q "$image")" ]; then
     pass "$3 is refused before a build"
   else
     fail "$3 was refused without saying why: $out"
   fi
 }
-mkdir "$work/plain"
-refuses_infra "$work/plain" "is not a git checkout with a commit" "an INFRA_DIR that is not a git checkout"
-refuses_infra "$work/gone" "is not a git checkout with a commit" "an INFRA_DIR that does not exist"
+copy_release_files "$work/plain"
+refuses_infra "$work/plain" "is not a git checkout with a commit" "a checkout with no .git"
+copy_release_files "$work/unborn"
 git init -q "$work/unborn"
-refuses_infra "$work/unborn" "is not a git checkout with a commit" "an INFRA_DIR with no commit"
-refuses_infra "$infra/.git" "is not the top of its own git work tree" "an INFRA_DIR that is a .git directory"
-mkdir "$infra/sub"
-refuses_infra "$infra/sub" "is not the top of its own git work tree" "an INFRA_DIR that is an untracked subdirectory of a repository"
-rmdir "$infra/sub"
-git init -q "$work/badindex"
-printf 'one\n' > "$work/badindex/tracked"
-git -C "$work/badindex" add tracked
-git -C "$work/badindex" -c user.name=selftest -c user.email=selftest@example.invalid -c commit.gpgsign=false commit -q -m fixture
+refuses_infra "$work/unborn" "is not a git checkout with a commit" "a checkout with no commit"
+copy_release_files "$infra/.git"
+refuses_infra "$infra/.git" "is not the top of its own git work tree" "release files inside a .git directory"
+rm -rf "$infra/.git/deploy" "$infra/.git/images"
+copy_release_files "$infra/sub"
+refuses_infra "$infra/sub" "is not the top of its own git work tree" "release files in an untracked subdirectory of a repository"
+rm -rf "$infra/sub"
+commit_checkout "$work/badindex"
 printf 'not an index\n' > "$work/badindex/.git/index"
-refuses_infra "$work/badindex" "git status failed in" "an INFRA_DIR whose status git cannot report"
-printf 'two\n' > "$infra/tracked"
-refuses_infra "$infra" "has tracked changes since $infra_sha" "an INFRA_DIR with a modified tracked file"
-git -C "$infra" checkout -q -- tracked
+refuses_infra "$work/badindex" "git status failed in" "a checkout whose status git cannot report"
+printf '\n' >> "$infra/images/release/Dockerfile"
+refuses_infra "$infra" "has tracked changes since $infra_sha" "a checkout with a modified tracked file"
+git -C "$infra" checkout -q -- images/release/Dockerfile
 printf 'new\n' > "$infra/added"
 git -C "$infra" add added
-refuses_infra "$infra" "has tracked changes since $infra_sha" "an INFRA_DIR with a staged new file"
+refuses_infra "$infra" "has tracked changes since $infra_sha" "a checkout with a staged new file"
 git -C "$infra" reset -q
-if [ "$(infra_commit "$infra" 2>&1)" = "$infra_sha" ]; then
-  pass "an INFRA_DIR with only an untracked file is named by its HEAD"
-else
-  fail "an INFRA_DIR with only an untracked file was not named by $infra_sha"
-fi
 
-if out="$(RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
-  pass "the release image builds"
+if out="$(release_from "$infra" 2>&1)"; then
+  pass "the release image builds from a checkout with an untracked file"
 else
   fail "the build failed: $out"
 fi
@@ -268,7 +292,7 @@ else
   fi
 fi
 
-if out="$(RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 main "$phars" 2>&1)"; then
+if out="$(release_from "$infra" 2>&1)"; then
   fail "a second build of the same tag was accepted"
 elif grep -qF "is immutable" <<<"$out"; then
   pass "a tag that exists is refused"

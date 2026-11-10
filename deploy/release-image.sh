@@ -11,10 +11,6 @@
 #   GRANTS_SQL     required, the grants.sql of that commit
 #   RELEASE_IMAGE  image name without its tag, default riftal/pocketmine-mp
 #   RELEASE_DATE   UTC date in the tag, default today
-#   INFRA_DIR      a test seam, never set for a release: the commit is read
-#                  from this checkout, default the one holding this script,
-#                  while the Dockerfile and the core pin are always read from
-#                  the one holding this script
 #
 # The image records GAME_COMMIT and the sha256 of GRANTS_SQL in the labels
 # org.riftal.game-commit and org.riftal.grants-sha256, which
@@ -24,12 +20,13 @@
 #
 # The tag is <date>-core<first 7 of the pinned pmmp-core sha>-game<first 7 of
 # GAME_COMMIT>-infra<first 7 of the riftal-infra HEAD>, so it follows every
-# input that changes the image. The build is refused when INFRA_DIR is not the
-# top of a git work tree of its own with a HEAD, when git cannot report its
-# status, or when a tracked file in it differs from HEAD: the commit would not
-# describe what was built. A tag that already exists is
-# refused, never rebuilt, so a tag names one image on the daemon that built it,
-# for as long as the tag exists there.
+# input that changes the image. The commit, the Dockerfile and the core pin
+# are all read from the checkout holding this script. The build is refused
+# when that checkout is not the top of a git work tree of its own with a HEAD,
+# when git cannot report its status, or when a tracked file in it differs from
+# HEAD: the commit would not describe what was built. A tag that already
+# exists is refused, never rebuilt, so a tag names one image on the daemon
+# that built it, for as long as the tag exists there.
 #
 # Sourcing this file sets errexit, nounset and pipefail in the caller, sources
 # images/core-image.sh and defines SCRIPT_DIR, release_tag, infra_commit,
@@ -73,7 +70,8 @@ release_tag() {
 infra_commit() {
   local dir="$1" sha top real status
   if ! sha="$(git -C "$dir" rev-parse --verify HEAD 2>/dev/null)"; then
-    printf '%s is not a git checkout with a commit; the riftal-infra commit cannot be named\n' "$dir" >&2
+    printf '%s is not a git checkout with a commit; the riftal-infra commit cannot be named: %s\n' \
+      "$dir" "$(git -C "$dir" rev-parse --verify HEAD 2>&1 >/dev/null)" >&2
     return 1
   fi
   top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || top=""
@@ -82,8 +80,9 @@ infra_commit() {
     printf '%s is not the top of its own git work tree; the riftal-infra commit cannot be named\n' "$dir" >&2
     return 1
   fi
-  if ! status="$(git -C "$dir" status --porcelain --untracked-files=no 2>&1)"; then
-    printf 'git status failed in %s, so it cannot be shown clean: %s\n' "$dir" "$status" >&2
+  if ! status="$(git -C "$dir" status --porcelain --untracked-files=no 2>/dev/null)"; then
+    printf 'git status failed in %s, so it cannot be shown clean: %s\n' \
+      "$dir" "$(git -C "$dir" status --porcelain --untracked-files=no 2>&1 >/dev/null)" >&2
     return 1
   fi
   if [ -n "$status" ]; then
@@ -117,7 +116,7 @@ main() {
   fi
   grants_sha="$(sha256sum "$grants" | cut -d' ' -f1)"
 
-  infra="$(infra_commit "${INFRA_DIR:-$SCRIPT_DIR/..}" 2>&1)" || {
+  infra="$(infra_commit "$SCRIPT_DIR/.." 2>&1)" || {
     printf '::error::%s\n' "$infra"
     return 1
   }
