@@ -22,7 +22,7 @@ MINES = "worlds:\n  lumber: worlds/lumber.json\n  mine_a: worlds/mine_a.json\n  
 MINE_A_INTERIOR_CELL = [0, 45, 0]
 LOG = "minecraft:oak_log[pillar_axis=y]"
 ZONES = ["mine_a", "mine_b", "mine_c", "lumber"]
-STAIRS_ZONES = ["mine_a", "mine_b", "lumber"]
+STAIRS_ZONES = ["mine_a", "mine_b", "mine_c", "lumber"]
 # The committed checks less the zoned ones that need the stairs and the ground the mine-only recipes here lack, and
 # the NPC clearance, since test_stone makes each sign a stone block that fills the cell the NPC stands in.
 TERRAIN_CHECKS = ("path_exists", "warp_safe", "entity_clear")
