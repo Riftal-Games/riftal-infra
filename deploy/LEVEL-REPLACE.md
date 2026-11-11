@@ -133,7 +133,8 @@ docker run --rm -m 1g --cpus 1 -v "$SETS":/backups:ro -e SET -e VOL -e ZONE mysq
   [ -s mysql.sql ] || { echo "mysql.sql is missing or empty"; exit 1; }
   grep -q "^  - $VOL:" manifest.txt || { echo "manifest.txt does not list $VOL"; exit 1; }
   for t in worlds/*.tar.gz; do tar -tzf "$t" >/dev/null; echo "ok $t"; done
-  tar -tzf "worlds/$VOL.tar.gz" | grep -qx "./worlds/$ZONE/level.dat" || { echo "the tar holds no $ZONE"; exit 1; }
+  # No -q: grep reads the whole listing, so tar never takes SIGPIPE under pipefail.
+  tar -tzf "worlds/$VOL.tar.gz" | grep -x "./worlds/$ZONE/level.dat" >/dev/null || { echo "the tar holds no $ZONE"; exit 1; }
   echo "set $SET verified"'
 ```
 
@@ -248,7 +249,7 @@ container's own command. Read the log from this start only, never the exit code:
 T0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 docker start "$INSTANCE"
 for _ in $(seq 60); do sleep 5
-  docker logs --since "$T0" "$INSTANCE" 2>&1 | grep -q '\]: Done (' && break; done
+  docker logs --since "$T0" "$INSTANCE" 2>&1 | grep '\]: Done (' >/dev/null && break; done
 docker logs --since "$T0" "$INSTANCE" > boot.log 2>&1
 grep -c '\]: Done (' boot.log
 grep -cE '/(EMERGENCY|ALERT|CRITICAL|ERROR)\]' boot.log
@@ -327,7 +328,7 @@ live server holds the folder open, and a later save writes into whatever is at t
     set -euo pipefail
     cd /data/worlds
     [ ! -e ".rejected-$ZONE-$STAMP" ] || { echo "a leftover name exists"; exit 1; }
-    tar -tzf "/backups/$SET/worlds/$VOL.tar.gz" | grep -qx "./worlds/$ZONE/level.dat" || { echo "the tar holds no $ZONE"; exit 1; }
+    tar -tzf "/backups/$SET/worlds/$VOL.tar.gz" | grep -x "./worlds/$ZONE/level.dat" >/dev/null || { echo "the tar holds no $ZONE"; exit 1; }
     mv "$ZONE" ".rejected-$ZONE-$STAMP"
     tar -xzf "/backups/$SET/worlds/$VOL.tar.gz" -C /data "./worlds/$ZONE"
     echo "extracted $ZONE from set $SET"'
