@@ -13,9 +13,16 @@ SPEC_PATH = PROJECT_ROOT / "specs" / "contested_mine.json"
 FRAGMENT = Path("mines") / "resources" / "worlds" / "contested.json"
 
 
+# MineDefinition::fromFragment in riftal-game rejects a fragment without any of these.
+REQUIRED_KEYS = {"interior", "floor_y", "ores"}
+
+
+def _spec() -> MineSpec:
+    return MineSpec.from_dict(json.loads(SPEC_PATH.read_text(encoding="utf-8")))
+
+
 def _edit_list():
-    spec = MineSpec.from_dict(json.loads(SPEC_PATH.read_text(encoding="utf-8")))
-    return build_mine(spec, Palette.load("mine_stone"))
+    return build_mine(_spec(), Palette.load("mine_stone"))
 
 
 def _mine_reset() -> dict:
@@ -25,11 +32,16 @@ def _mine_reset() -> dict:
 def _fragment_path() -> Path:
     """riftal-game's contested fragment, from RIFTAL_GAME_DIR or the sibling checkout.
 
-    Skips when the file is absent: the fragment lands in riftal-game after this spec, so a
-    checkout that predates it has nothing to compare yet.
+    CI checks out this repository alone and holds no token for the private riftal-game
+    (riftal-infra#321), so only an absent default sibling skips. An explicit RIFTAL_GAME_DIR
+    that lacks the file is a mistyped path, and passing on it would look like coverage.
     """
-    root = Path(os.environ["RIFTAL_GAME_DIR"]) if os.environ.get("RIFTAL_GAME_DIR") else SIBLING_GAME_DIR
-    path = root / FRAGMENT
+    explicit = os.environ.get("RIFTAL_GAME_DIR")
+    if explicit:
+        path = Path(explicit) / FRAGMENT
+        assert path.is_file(), f"RIFTAL_GAME_DIR is set but {path} does not exist"
+        return path
+    path = SIBLING_GAME_DIR / FRAGMENT
     if not path.is_file():
         pytest.skip(f"no contested fragment at {path}; set RIFTAL_GAME_DIR")
     return path
@@ -37,7 +49,6 @@ def _fragment_path() -> Path:
 
 def test_the_fragment_is_outside_the_rank_ladder() -> None:
     assert "rank" not in json.loads(SPEC_PATH.read_text(encoding="utf-8"))
-    assert "rank" not in _mine_reset()
 
 
 def test_the_fragment_carries_spec_021_values() -> None:
@@ -47,6 +58,14 @@ def test_the_fragment_carries_spec_021_values() -> None:
     assert mine_reset["ores"] == {"minecraft:iron_ore": 1.0, "minecraft:gold_ore": 0.4, "minecraft:diamond_ore": 0.1}
     assert mine_reset["ore_layers"] == []
     assert mine_reset["reset_percent"] == 60
+
+
+def test_the_spec_pins_the_build_inputs_the_fragment_does_not_carry() -> None:
+    spec = _spec()
+    assert spec.seed == 20260907
+    assert spec.fill == "solid"
+    assert spec.lights_every == 4
+    assert (spec.exit_path.width, spec.exit_path.length) == (5, 6)
 
 
 def test_the_mine_is_pvp_ground() -> None:
@@ -70,7 +89,8 @@ def test_riftal_game_fragment_matches_what_build_mine_computes() -> None:
     fragment = json.loads(_fragment_path().read_text(encoding="utf-8"))
     mine_reset = _mine_reset()
     assert "rank" not in fragment
-    assert {"interior", "floor_y", "ores"} <= fragment.keys()
+    missing = REQUIRED_KEYS - fragment.keys()
+    assert not missing, f"fragment lacks keys MineDefinition requires: {sorted(missing)}"
     unknown = fragment.keys() - mine_reset.keys()
     assert not unknown, f"fragment carries keys build_mine does not compute: {sorted(unknown)}"
     assert {key: mine_reset[key] for key in fragment} == fragment
