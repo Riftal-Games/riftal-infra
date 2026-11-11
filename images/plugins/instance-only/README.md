@@ -26,7 +26,9 @@ this script's copy of that behaviour. `check-start-sh.sh` hashes the image's
 the version recorded in `start-sh.sha256`; carry the change into
 `start-instance.sh` by hand, then record the new hash and pmmp-core commit.
 `boot-selftest.sh` boots the pinned core image with the script as it ships,
-with the phar unbuilt, built with no password, and built with one. Nothing is
+with the Mines phar unbuilt, built with no password, and built with one, and
+with a Gangs stand-in that loads with a delivered world index and refuses
+without one. Nothing is
 bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
 mountpoint as root: a stray in `./plugins` that `instance-b` then fails to
 load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
@@ -34,10 +36,10 @@ fails on either.
 
 `*.phar` is gitignored by the repo root's `.gitignore`, and
 `RiftalMines.config.yml` by this folder's own, so a copy edited by hand to
-hold a database password is never committed. Three config files are tracked:
-`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml` and
-`RiftalEconomy.config.yml`, which hold no password because each login's
-comes from the environment (see below).
+hold a database password is never committed. Four config files are tracked:
+`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml`,
+`RiftalEconomy.config.yml` and `RiftalGangs.config.yml`, which hold no
+password because each login's comes from the environment (see below).
 
 ## Build `RiftalMines.phar` and `contracts.phar`
 
@@ -146,8 +148,8 @@ cp ../RiftalAccounts.phar RiftalAccounts.phar
 ```
 
 `start-instance.sh` copies only `RiftalMines.phar`, `RiftalRanks.phar`,
-`RiftalEconomy.phar` and `RiftalGangs.phar` into the roster, so `instance` still loads
-`RiftalContracts` and `RiftalAccounts` once each, from the top of
+`RiftalEconomy.phar` and `RiftalGangs.phar` into the roster, so `instance`
+still loads `RiftalContracts` and `RiftalAccounts` once each, from the top of
 `plugins/`.
 
 Rebuild `RiftalMines.phar`, `RiftalRanks.phar`, `RiftalEconomy.phar`,
@@ -264,7 +266,10 @@ puts in the same folder.
 ## `RiftalGangs` and the `gangs` login
 
 `RiftalGangs.phar`, gang founding, levels, the vault and the contested mine's
-break gate, loads on `instance` alone, like `RiftalRanks`. Build it with the
+break gate, loads on `instance` alone, like `RiftalRanks`. `instance` seeds
+the mine levels (`RIFTAL_LEVEL_ZONES` in `compose.yaml`) while `instance-b`
+runs only the flat `plots_b` world, and `designer/world_index.json` lists
+`contested` as a world beside the mines. Build it with the
 recipe above, `gangs` in place of `mines` in the copy loop and
 `gangs:instance-only/RiftalGangs` in place of the `mines` pair. It declares
 `depend: [RiftalContracts]` and `softdepend: [RiftalCustody]`, both met at the

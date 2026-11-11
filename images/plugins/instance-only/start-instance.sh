@@ -5,8 +5,9 @@
 # /plugins is the ./plugins bind instance-b shares, so the roster is
 # assembled in the container's own disposable filesystem: every plugin at the
 # top of /plugins, plus RiftalMines.phar, RiftalRanks.phar,
-# RiftalEconomy.phar and RiftalGangs.phar once built. It mounts nothing and runs as uid 1000, so
-# /data/plugin_data on a fresh volume stays writable by PocketMine.
+# RiftalEconomy.phar and RiftalGangs.phar once built. It mounts nothing and
+# runs as uid 1000, so /data/plugin_data on a fresh volume stays writable by
+# PocketMine.
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
 # docker/start.sh), which cannot be reused here because it hard-codes

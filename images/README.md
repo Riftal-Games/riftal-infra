@@ -114,8 +114,8 @@ failed durable chunk save is `devfaults-chunk-save-fail` above.
 read-only at `/etc/riftal/world_index.json` and start through
 `plugins/deliver-world-index.sh`, which copies it to
 `/data/plugin_data/RiftalRanks/`, `/data/plugin_data/RiftalRiots/`,
-`/data/plugin_data/RiftalEconomy/`, `/data/plugin_data/RiftalMines/`, `/data/plugin_data/RiftalGangs/` and
-`/data/plugin_data/RiftalPlots/` on every
+`/data/plugin_data/RiftalEconomy/`, `/data/plugin_data/RiftalMines/`,
+`/data/plugin_data/RiftalGangs/` and `/data/plugin_data/RiftalPlots/` on every
 boot, as uid 1000, before handing over to the instance's own start script.
 The designer file is the deploy's index. RiftalRanks and RiftalRiots bundle none;
 Ranks gates mine entry and finds its rank-up markers in the delivered copy, Riots

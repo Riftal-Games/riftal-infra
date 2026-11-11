@@ -7,14 +7,15 @@
 # covers deliver-world-index.sh and the index mount both instances boot with
 # (riftal-infra#293), the memory and CPU limits on mysql and both
 # instances (riftal-infra#460), and the seed step and lumber level mount that
-# `instance` alone carries (riftal-infra#1324).
+# `instance` alone carries (riftal-infra#1324). RiftalGangs (riftal-infra#697)
+# loads the way RiftalRanks does.
 #
 # It reads the compose model docker compose resolves, renders the config into
 # a scratch directory, and runs start-instance.sh there with php and wget
 # stubbed. It also covers link-replaced.sh, which it runs against scratch
 # fixtures in a throwaway php:8.3-cli-alpine container, so it needs Docker and
 # that image, but neither the dev stack nor a built RiftalMines.phar,
-# RiftalRanks.phar or RiftalEconomy.phar.
+# RiftalRanks.phar, RiftalEconomy.phar or RiftalGangs.phar.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
