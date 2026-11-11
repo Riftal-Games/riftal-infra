@@ -10,12 +10,13 @@
 # repository's directory, so the commit it names is the one read from beside
 # the script. The image records GAME_COMMIT, the riftal-infra commit and the
 # sha256 of GRANTS_SQL in its labels and holds no grants.sql. The image it
-# builds is on ubuntu:24.04 and the pinned core revision, holds the files named
-# in REQUIRED_PHARS and SHIPPED_PLUGINS intact in /opt/riftal/plugins, owned by
-# root, mode 0444 and in a root-owned 0755 directory pocketmine cannot write,
-# holds no phar in /plugins, has pocketmine as its configured user and is never
-# tagged latest. Builds on the local daemon under a riftal_smoke_ name and
-# removes it. Needs the core image pinned in images/core-image.sha.
+# builds is on ubuntu:24.04 and the pinned core revision, holds the phars named
+# in REQUIRED_PHARS intact in /opt/riftal/plugins, owned by root, mode 0444 and
+# in a root-owned 0755 directory pocketmine cannot write, holds none in
+# /plugins, has pocketmine as its configured user and is never tagged latest.
+# Each file of SHIPPED_PLUGINS is held in /opt/riftal/plugins likewise.
+# Builds on the local daemon under a riftal_smoke_ name and removes it. Needs
+# the core image pinned in images/core-image.sha.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

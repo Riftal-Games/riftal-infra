@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the release image (spec 016, acceptance criterion 3): the core image
-# pinned by images/core-image.sha plus the ten production phars and the script
-# plugins of SHIPPED_PLUGINS in /opt/riftal/plugins, under an immutable tag on
-# the local daemon. Nothing is pushed anywhere.
+# pinned by images/core-image.sha plus the ten production phars in
+# /opt/riftal/plugins, under an immutable tag on the local daemon. Nothing is
+# pushed anywhere. The script plugins of SHIPPED_PLUGINS go in the same place.
 #
 #   release-image.sh <directory holding the built phars>
 #

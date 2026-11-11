@@ -13,6 +13,9 @@
 # the boot here, because a plugin that fails to enable takes the whole server
 # down. /data is untouched until every check has passed.
 #
+# Every script plugin in SCRIPTS loads on every instance, and a missing one
+# stops the boot. It gates itself on the instance's flags.
+#
 # The image also carries RiftalGangs, RiftalRiots, RiftalPlots and RiftalAnvil.
 # The dev stack's start scripts give them no login and no config, so none is
 # offered here.
@@ -21,6 +24,7 @@ set -euo pipefail
 ROOT=/opt/riftal
 ALWAYS=(RiftalCustody RiftalAccounts contracts)
 OPTIONAL=(RiftalMines RiftalRanks RiftalEconomy)
+SCRIPTS=(RiftalDownstreamLimit.php)
 
 refuse() {
 	echo "start-release.sh: $1" >&2
@@ -67,7 +71,13 @@ for name in "${ALWAYS[@]}" "${selected[@]}"; do
 	fi
 	cp "$ROOT/plugins/$name.phar" "$roster/"
 done
-(cd "$roster" && sha256sum -- *.phar | sed 's/^/roster /')
+for name in "${SCRIPTS[@]}"; do
+	if [ ! -s "$ROOT/plugins/$name" ]; then
+		refuse "$ROOT/plugins/$name is missing from this image"
+	fi
+	cp "$ROOT/plugins/$name" "$roster/"
+done
+(cd "$roster" && sha256sum -- *.phar *.php | sed 's/^/roster /')
 
 for name in "${with_login[@]}"; do
 	mkdir -p "/data/plugin_data/$name"

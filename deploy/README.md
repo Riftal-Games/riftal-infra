@@ -577,7 +577,7 @@ The image's command is `/opt/riftal/start-release.sh` (`../images/release/`),
 not core's `start-pocketmine`, which passes `--plugins=/plugins`. It builds the
 roster from `/opt/riftal/plugins` into a `mktemp -d` copy and passes PocketMine that
 copy alone, so a mount or a reused volume on `/plugins` is never read. RiftalCustody,
-RiftalAccounts and contracts load everywhere. `RIFTAL_PLUGINS` adds
+RiftalAccounts, contracts and `RiftalDownstreamLimit.php` load everywhere, and a missing one stops the boot. `RIFTAL_PLUGINS` adds
 `RiftalMines`, `RiftalRanks` and `RiftalEconomy`, space or comma separated, and
 a name outside those three stops the boot. The instance sets `RIFTAL_DB_HOST`
 and `RIFTAL_DB_SCHEMA`, which the script writes into each loaded plugin's
