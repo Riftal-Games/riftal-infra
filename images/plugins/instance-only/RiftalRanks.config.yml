@@ -3,10 +3,9 @@
 # never overwrites a file that already exists there.
 #
 # Everything below except the schema is the plugin's own shipped default
-# (riftal-game/ranks/resources/config.yml). selftest.sh compares to that file
-# every line inside database but the schema, and every top-level key and
-# top-level scalar; comments are not compared. It checks the schema against
-# the one compose creates, riftal_dev. The password stays
+# (images/riftal-game-snapshot/ranks/resources/config.yml). selftest.sh
+# compares every line to that file but comments, blanks and the schema, which
+# it checks against the one compose creates, riftal_dev. The password stays
 # empty: RiftalGames\Lib\Database\DatabaseSettings reads the ranks login's
 # password from RIFTAL_DB_PASSWORD_RANKS in the instance's environment, and
 # throws if this file holds one too (ADR 008 item 5).
@@ -18,9 +17,14 @@ database:
   port: 3306
   worker-limit: 1
 
+world_index: "world_index.json"
+
 rank_order: ["A", "B", "C"]
 
 anti_afk_min_break_interval_ms: 100
+
+login_hold_seconds: 10
+login_refusal_location: "mine_a_spawn"
 
 rankup:
   B: {cost_minor_units: 100, blocks_mined: 50}

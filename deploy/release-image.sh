@@ -15,16 +15,22 @@
 # The image records GAME_COMMIT and the sha256 of GRANTS_SQL in the labels
 # org.riftal.game-commit and org.riftal.grants-sha256, which
 # grants-revoke-check.sh reads to verify the file an operator supplies for the
-# tag. The file itself is not in the image.
+# tag, and the riftal-infra commit in org.riftal.infra-commit. The file itself
+# is not in the image.
 #
-# The tag is core-<date>-<first 7 of the pinned pmmp-core sha>. A tag that
-# already exists is refused, never rebuilt, so a tag names one image on the
-# daemon that built it, for as long as the tag exists there. Two builds of the
-# same core sha on one date therefore need the date or the pin to differ.
+# The tag is <date>-core<first 7 of the pinned pmmp-core sha>-game<first 7 of
+# GAME_COMMIT>-infra<first 7 of the riftal-infra HEAD>, so it follows every
+# input that changes the image. The commit, the Dockerfile and the core pin
+# are all read from the checkout holding this script. The build is refused
+# when that checkout is not the top of a git work tree of its own with a HEAD,
+# when git cannot report its status, or when a tracked file in it differs from
+# HEAD: the commit would not describe what was built. A tag that already
+# exists is refused, never rebuilt, so a tag names one image on the daemon
+# that built it, for as long as the tag exists there.
 #
 # Sourcing this file sets errexit, nounset and pipefail in the caller, sources
-# images/core-image.sh and defines SCRIPT_DIR, release_tag, REQUIRED_PHARS,
-# SHIPPED_PLUGINS and main. It builds nothing.
+# images/core-image.sh and defines SCRIPT_DIR, release_tag, infra_commit,
+# REQUIRED_PHARS, SHIPPED_PLUGINS, plugin_config and main. It builds nothing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,24 +46,65 @@ REQUIRED_PHARS=(
 # from riftal-game; these are riftal-infra's own.
 SHIPPED_PLUGINS=(RiftalDownstreamLimit.php)
 
-# $1 repo, $2 UTC date as YYYY-MM-DD, $3 the full 40-character sha. Prints the
+# $1 UTC date as YYYY-MM-DD, $2 the pinned pmmp-core sha, $3 the riftal-game
+# commit, $4 the riftal-infra commit, each a full 40-character sha. Prints the
 # tag, or a message on stderr and returns 1.
 release_tag() {
-  local repo="$1" date="$2" sha="$3" tag
-  if ! [[ "$repo" =~ ^[a-z][a-z0-9-]*$ ]]; then
-    printf 'repo "%s" is not lowercase letters, digits and hyphens\n' "$repo" >&2
-    return 1
-  fi
+  local date="$1" label sha
   if ! [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
     printf 'date "%s" is not YYYY-MM-DD\n' "$date" >&2
     return 1
   fi
-  if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
-    printf 'sha "%s" is not a full 40-character sha\n' "$sha" >&2
+  for label in core:"$2" game:"$3" infra:"$4"; do
+    sha="${label#*:}"
+    if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+      printf '%s sha "%s" is not a full 40-character sha\n' "${label%%:*}" "$sha" >&2
+      return 1
+    fi
+  done
+  printf '%s-core%s-game%s-infra%s\n' "$date" "${2:0:7}" "${3:0:7}" "${4:0:7}"
+}
+
+# $1 the riftal-infra checkout. Prints its HEAD sha, or a message on stderr and
+# returns 1 when it is not the top of its own git work tree with a commit, when
+# git cannot report its status, or when a tracked file differs from that commit.
+# Git looks in parent directories, so a directory inside another repository
+# would otherwise name that repository's commit. Untracked files are not inputs
+# to the build.
+infra_commit() {
+  local dir="$1" sha top real status
+  if ! sha="$(git -C "$dir" rev-parse --verify HEAD 2>/dev/null)"; then
+    printf '%s is not a git checkout with a commit; the riftal-infra commit cannot be named: %s\n' \
+      "$dir" "$(git -C "$dir" rev-parse --verify HEAD 2>&1 >/dev/null)" >&2
     return 1
   fi
-  tag="$repo-$date-${sha:0:7}"
-  printf '%s\n' "$tag"
+  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || top=""
+  real="$(cd "$dir" && pwd -P)"
+  if [ -z "$top" ] || [ "$(cd "$top" && pwd -P)" != "$real" ]; then
+    printf '%s is not the top of its own git work tree; the riftal-infra commit cannot be named\n' "$dir" >&2
+    return 1
+  fi
+  if ! status="$(git -C "$dir" status --porcelain --untracked-files=no 2>/dev/null)"; then
+    printf 'git status failed in %s, so it cannot be shown clean: %s\n' \
+      "$dir" "$(git -C "$dir" status --porcelain --untracked-files=no 2>&1 >/dev/null)" >&2
+    return 1
+  fi
+  if [ -n "$status" ]; then
+    printf '%s has tracked changes since %s; commit them before building\n' "$dir" "$sha" >&2
+    return 1
+  fi
+  printf '%s\n' "$sha"
+}
+
+# $1 a plugin name. Prints the dev stack's config for it, which start-release.sh
+# renders the database host and schema of.
+plugin_config() {
+  local images="$SCRIPT_DIR/../images/plugins"
+  case "$1" in
+    RiftalAccounts) printf '%s\n' "$images/RiftalAccounts.config.yml" ;;
+    RiftalMines) printf '%s\n' "$images/instance-only/RiftalMines.config.yml.template" ;;
+    *) printf '%s\n' "$images/instance-only/$1.config.yml" ;;
+  esac
 }
 
 main() {
@@ -65,7 +112,7 @@ main() {
   local image="${RELEASE_IMAGE:-riftal/pocketmine-mp}"
   local date="${RELEASE_DATE:-$(date -u +%F)}"
   local name tag ref ctx sums="" scripts="" id
-  local commit="${GAME_COMMIT:-}" grants="${GRANTS_SQL:-}" grants_sha
+  local commit="${GAME_COMMIT:-}" grants="${GRANTS_SQL:-}" grants_sha infra
 
   for name in "${REQUIRED_PHARS[@]}"; do
     if [ ! -s "$phars/$name" ]; then
@@ -84,8 +131,13 @@ main() {
   fi
   grants_sha="$(sha256sum "$grants" | cut -d' ' -f1)"
 
+  infra="$(infra_commit "$SCRIPT_DIR/.." 2>&1)" || {
+    printf '::error::%s\n' "$infra"
+    return 1
+  }
+
   core_image || return 1
-  tag="$(release_tag core "$date" "${CORE_IMAGE#*:}")" || return 1
+  tag="$(release_tag "$date" "${CORE_IMAGE#*:}" "$commit" "$infra")" || return 1
   ref="$image:$tag"
 
   if docker image inspect "$ref" >/dev/null 2>&1; then
@@ -109,6 +161,14 @@ main() {
     scripts+="${scripts:+,}$name=$(sha256sum "$ctx/plugins/$name" | cut -d' ' -f1)"
   done
 
+  cp "$SCRIPT_DIR/../images/release/start-release.sh" "$ctx/start-release.sh"
+  chmod 0555 "$ctx/start-release.sh"
+  for name in RiftalAccounts RiftalMines RiftalRanks RiftalEconomy; do
+    mkdir -p "$ctx/plugin_data/$name"
+    cp "$(plugin_config "$name")" "$ctx/plugin_data/$name/config.yml"
+    chmod 0444 "$ctx/plugin_data/$name/config.yml"
+  done
+
   docker build \
     --build-arg "CORE_REPO=${CORE_IMAGE%:*}" \
     --build-arg "CORE_TAG=${CORE_IMAGE##*:}" \
@@ -116,6 +176,7 @@ main() {
     --label "org.riftal.phars=$sums" \
     --label "org.riftal.script-plugins=$scripts" \
     --label "org.riftal.game-commit=$commit" \
+    --label "org.riftal.infra-commit=$infra" \
     --label "org.riftal.grants-sha256=$grants_sha" \
     -t "$ref" "$ctx" || return 1
 

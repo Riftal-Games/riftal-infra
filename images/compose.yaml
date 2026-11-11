@@ -58,10 +58,13 @@ services:
       # Outside /data for the same root-mountpoint reason given below;
       # deliver-world-index.sh copies it into each consuming plugin's folder.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
-      # The built lumber level, which seed-levels.sh copies onto riftal-world
-      # when worlds/lumber is absent (ADR 009 items 5 and 6). Read-only and
-      # outside /data, for the same root-mountpoint reason as above.
+      # The built levels, which seed-levels.sh copies onto riftal-world when
+      # worlds/<zone> is absent (ADR 009 items 5 and 6). Read-only and outside
+      # /data, for the same root-mountpoint reason as above.
       - riftal_smoke_level_lumber:/etc/riftal/levels/lumber:ro
+      - riftal_smoke_level_mine_a:/etc/riftal/levels/mine_a:ro
+      - riftal_smoke_level_mine_b:/etc/riftal/levels/mine_b:ro
+      - riftal_smoke_level_mine_c:/etc/riftal/levels/mine_c:ro
     # RiftalMines resets the worlds this instance hosts and no others, and
     # RiftalRanks is wanted on this instance alone (riftal-infra#558), so
     # instance-b holds neither login. RiftalEconomy loads on both
@@ -112,7 +115,7 @@ services:
       # The zones seed-levels.sh puts on /data/worlds before PocketMine starts,
       # each from /etc/riftal/levels/<zone>. instance-b sets none and mounts no
       # level.
-      RIFTAL_LEVEL_ZONES: lumber
+      RIFTAL_LEVEL_ZONES: lumber mine_a mine_b mine_c
       # RiftalMines connects as the mines login (ADR 008), and riftal-game's
       # DatabaseSettings reads its password from here, never from a file on
       # the volume. The migration runner provisions the login from the same
@@ -334,7 +337,7 @@ volumes:
   # name keeps a wslc bring-up and compose on the same volume.
   riftal-capture:
     name: riftal-capture
-  # Filled by `designer level build lumber` (designer/levels/README.md), never
+  # Filled by `designer level build <zone>` (designer/levels/README.md), never
   # by compose: a volume compose created itself would be empty, and `up` would
   # carry on with nothing to seed. External, so `up` stops naming the volume
   # when it is missing, and an unbuilt one is refused by seed-levels.sh.
@@ -342,4 +345,13 @@ volumes:
   # that reason.
   riftal_smoke_level_lumber:
     name: riftal_smoke_level_lumber
+    external: true
+  riftal_smoke_level_mine_a:
+    name: riftal_smoke_level_mine_a
+    external: true
+  riftal_smoke_level_mine_b:
+    name: riftal_smoke_level_mine_b
+    external: true
+  riftal_smoke_level_mine_c:
+    name: riftal_smoke_level_mine_c
     external: true

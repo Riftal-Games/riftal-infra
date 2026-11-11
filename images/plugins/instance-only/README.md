@@ -157,6 +157,32 @@ only the copy here: a phar older than its plugin's resources fails at
 enable, as a `RiftalMines.phar` built before `quarry` was registered does
 with `cannot read registered ... resource quarry.json` (riftal-infra#1062).
 
+## The riftal-game snapshot
+
+`selftest.sh` compares this folder's configs and `RiftalMines.config.yml.template`
+with riftal-game's shipped `mines`, `ranks`, `accounts` and `economy` configs.
+CI cannot read the private riftal-game, and a sibling checkout is whatever
+another job last left there, so the comparison reads
+`../../riftal-game-snapshot`: a copy of those four files, with the riftal-game
+commit it came from in `SOURCE`. It runs on every checkout and skips nothing.
+
+A riftal-game change to one of those configs reaches this repository in one
+PR: `../../refresh-riftal-game-snapshot.sh <riftal-game checkout>` (the
+checkout at the commit with the change, nothing uncommitted in those files),
+plus the template or config edit the self-test then asks for. Merge that PR
+before the riftal-game one, or with it; the snapshot may name a commit
+riftal-game's `main` does not carry yet.
+
+`RIFTAL_GAME_DIR=<riftal-game checkout> bash selftest.sh` adds four checks
+that the snapshot equals that checkout's configs. A riftal-game PR author runs
+it to learn the snapshot is behind; an unset `RIFTAL_GAME_DIR` reads no
+checkout at all.
+
+riftal-infra CI does not see riftal-game's `main` moving past the snapshot:
+it compares the template and these configs to the snapshot alone. The nightly
+check in riftal-pm#1946 compares the snapshot to the pinned riftal-game `main`
+and files an issue here when they differ.
+
 ## The config override
 
 With `RiftalMines.phar` present, `start-instance.sh` runs `render-config.sh`
@@ -279,7 +305,7 @@ normally. It is a warning because a boot log check fails on any ERROR line
 such as an interrupted build with no `level.dat`, is a fault and is logged
 as an ERROR.
 
-A built `lumber` reaches `worlds/lumber` through `../seed-levels.sh`
+A built zone (`lumber`, `mine_a`, `mine_b`, `mine_c`) reaches `worlds/<zone>` through `../seed-levels.sh`
 (ADR 009 item 5), not by hand. For each zone in `RIFTAL_LEVEL_ZONES` whose
 folder is absent from `/data/worlds`, it checks the file tree mounted
 read-only at `/etc/riftal/levels/<zone>` against the `level-manifest.json` at
@@ -287,7 +313,8 @@ that folder's root, copies it into a temporary directory on the volume as the
 server's user, and renames it into place. It never touches a folder that
 exists, and it exits non-zero, before PocketMine starts, on a missing source or
 a failed check. `compose.yaml` runs it on `instance` alone, which mounts
-`riftal_smoke_level_lumber` for it (`../../README.md`, "The lumber level"), so
+`riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`, `riftal_smoke_level_mine_b` and `riftal_smoke_level_mine_c` for it
+(`../../README.md`, "The built levels"), so
 `instance` on a fresh `riftal-world` boots with the folder and logs no such
 line. The build that fills that
 source is `designer level build`, which needs the DesignBridge ops `pregen`
