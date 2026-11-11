@@ -292,6 +292,8 @@ cannot see every session:
 | `refused: the server.lock of volume <name> is held, so its instance is running; stop it first` | An instance on this host has that volume mounted and running. Stop it. There is no override |
 | `cannot give the server.lock of volume <name> the owner of <dir>, so core could not open it; run this as root` | Raised after the database is rebuilt. The restore was not run as root, so it could not give `server.lock` the directory's owner. Run it again as root; it is not reported complete |
 | `refused: flock is not installed, so a running instance cannot be detected; run this in the backup image` | `mysql:8` has no `flock`. Run `restore.sh` in the `riftal-backup` image |
+| `refused: volume(s) <names> not mounted under <WORLDS_DIR>, so the database would be rebuilt without its level; add a -v line for each` | The run has no mount at `WORLDS_DIR/<name>` for a volume in the set. Raised right after the tars list, before the database is read or any `server.lock` is made. Without it the tar would extract into the container's own filesystem and be lost while the database rolled back. Add the `-v` line |
+| `refused: mountpoint is not installed, ...` | Run `restore.sh` in the `riftal-backup` image |
 
 The check reads the moment it runs. A session opened afterwards is not seen.
 
