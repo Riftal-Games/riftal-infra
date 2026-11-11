@@ -604,7 +604,9 @@ cp "$OUT/anvil.phar" RiftalAnvil.phar
 ```
 
 The image carries these four, but the per-instance roster does not offer them
-yet: nothing loads Gangs, Riots, Plots or Anvil from the image.
+yet: nothing loads Gangs, Riots, Plots or Anvil from the image. The dev stack's
+`instance` loads Gangs from `../images/plugins/instance-only/` (riftal-infra#697),
+not from the image.
 
 The tag is
 `<UTC date>-core<7 of the pinned pmmp-core sha>-game<7 of GAME_COMMIT>-infra<7 of the riftal-infra commit>`,

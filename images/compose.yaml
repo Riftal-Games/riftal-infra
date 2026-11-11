@@ -127,6 +127,9 @@ services:
       # the volume. The migration runner provisions the login from the same
       # images/.env value. instance-b loads no ranks and is not given it.
       RIFTAL_DB_PASSWORD_RANKS: ${RIFTAL_DB_PASSWORD_RANKS}
+      # RiftalGangs connects as the gangs login the same way. instance-b
+      # loads no gangs and is not given it.
+      RIFTAL_DB_PASSWORD_GANGS: ${RIFTAL_DB_PASSWORD_GANGS}
       # RiftalEconomy connects as the economy login the same way, on this
       # instance and on instance-b.
       RIFTAL_DB_PASSWORD_ECONOMY: ${RIFTAL_DB_PASSWORD_ECONOMY}

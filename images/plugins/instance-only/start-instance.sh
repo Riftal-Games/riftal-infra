@@ -4,8 +4,8 @@
 # alone beside it. PocketMine loads plugins from one flat directory and
 # /plugins is the ./plugins bind instance-b shares, so the roster is
 # assembled in the container's own disposable filesystem: every plugin at the
-# top of /plugins, plus RiftalMines.phar, RiftalRanks.phar and
-# RiftalEconomy.phar once built. It mounts nothing and runs as uid 1000, so
+# top of /plugins, plus RiftalMines.phar, RiftalRanks.phar,
+# RiftalEconomy.phar and RiftalGangs.phar once built. It mounts nothing and runs as uid 1000, so
 # /data/plugin_data on a fresh volume stays writable by PocketMine.
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
@@ -105,6 +105,20 @@ if [ -f "$here/RiftalEconomy.phar" ]; then
 	mkdir -p /data/plugin_data/RiftalEconomy
 	cp "$here/RiftalEconomy.config.yml" /data/plugin_data/RiftalEconomy/config.yml
 	cp "$here/RiftalEconomy.phar" "$roster/"
+fi
+
+if [ -f "$here/RiftalGangs.phar" ]; then
+	# RiftalGangs declares depend: [RiftalContracts], met by contracts.phar as
+	# for RiftalMines above, and fails its enable without a password for the
+	# same reason as RiftalRanks. It also refuses to enable without the
+	# world_index.json deliver-world-index.sh puts in its data folder.
+	if [ -z "${RIFTAL_DB_PASSWORD_GANGS:-}" ]; then
+		echo "start-instance.sh: RiftalGangs.phar is built and RIFTAL_DB_PASSWORD_GANGS is not set; the instance takes it from images/.env" >&2
+		exit 1
+	fi
+	mkdir -p /data/plugin_data/RiftalGangs
+	cp "$here/RiftalGangs.config.yml" /data/plugin_data/RiftalGangs/config.yml
+	cp "$here/RiftalGangs.phar" "$roster/"
 fi
 
 cd /opt/pocketmine

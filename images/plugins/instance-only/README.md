@@ -73,7 +73,7 @@ docker run --rm \
     set -e
     for pair in contracts:contracts mines:instance-only/RiftalMines; do
       cd "/build/${pair%%:*}"
-      php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev
+      php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev \n        --ignore-platform-req=ext-webrtc
       sh /out/instance-only/link-replaced.sh
       php -dphar.readonly=0 /pharynx.phar -i . -c "-p=/out/${pair#*:}.phar"
     done
@@ -144,8 +144,8 @@ cp ../contracts.phar RiftalContracts.phar
 cp ../RiftalAccounts.phar RiftalAccounts.phar
 ```
 
-`start-instance.sh` copies only `RiftalMines.phar`, `RiftalRanks.phar` and
-`RiftalEconomy.phar` into the roster, so `instance` still loads
+`start-instance.sh` copies only `RiftalMines.phar`, `RiftalRanks.phar`,
+`RiftalEconomy.phar` and `RiftalGangs.phar` into the roster, so `instance` still loads
 `RiftalContracts` and `RiftalAccounts` once each, from the top of
 `plugins/`.
 
@@ -160,10 +160,10 @@ with `cannot read registered ... resource quarry.json` (riftal-infra#1062).
 ## The riftal-game snapshot
 
 `selftest.sh` compares this folder's configs and `RiftalMines.config.yml.template`
-with riftal-game's shipped `mines`, `ranks`, `accounts` and `economy` configs.
-CI cannot read the private riftal-game, and a sibling checkout is whatever
+with riftal-game's shipped `mines`, `ranks`, `accounts`, `economy` and `gangs`
+configs. CI cannot read the private riftal-game, and a sibling checkout is whatever
 another job last left there, so the comparison reads
-`../../riftal-game-snapshot`: a copy of those four files, with the riftal-game
+`../../riftal-game-snapshot`: a copy of those five files, with the riftal-game
 commit it came from in `SOURCE`. It runs on every checkout and skips nothing.
 
 A riftal-game change to one of those configs reaches this repository in one
@@ -173,7 +173,7 @@ plus the template or config edit the self-test then asks for. Merge that PR
 before the riftal-game one, or with it; the snapshot may name a commit
 riftal-game's `main` does not carry yet.
 
-`RIFTAL_GAME_DIR=<riftal-game checkout> bash selftest.sh` adds four checks
+`RIFTAL_GAME_DIR=<riftal-game checkout> bash selftest.sh` adds five checks
 that the snapshot equals that checkout's configs. A riftal-game PR author runs
 it to learn the snapshot is behind; an unset `RIFTAL_GAME_DIR` reads no
 checkout at all.
@@ -259,6 +259,39 @@ when it is unset, and
 the migration runner provisions `economy` with `riftal_role_economy`. Its
 sell locations come from the `world_index.json` `deliver-world-index.sh`
 puts in the same folder.
+
+## `RiftalGangs` and the `gangs` login
+
+`RiftalGangs.phar`, gang founding, levels, the vault and the contested mine's
+break gate, loads on `instance` alone, like `RiftalRanks`. Build it with the
+recipe above, `gangs` in place of `mines` in the copy loop and
+`gangs:instance-only/RiftalGangs` in place of the `mines` pair. It declares
+`depend: [RiftalContracts]` and `softdepend: [RiftalCustody]`, both met at the
+top of `plugins/`.
+
+The plugin reads one config file and adds no default for a key it lacks, so
+`RiftalGangs.config.yml` carries every key. `start-instance.sh` copies it to
+`/data/plugin_data/RiftalGangs/config.yml` on every boot. It differs from the
+shipped one only in its schema, `riftal_dev`, and holds no password: the gangs
+login's comes from `RIFTAL_DB_PASSWORD_GANGS`, which compose passes `instance`
+from `images/.env`. Unset, the boot stops before PocketMine starts and names the
+variable. The migration runner provisions `gangs` with `riftal_role_gangs`, as
+for `ranks`.
+
+It finds the contested mine in `/data/plugin_data/RiftalGangs/world_index.json`,
+which `../deliver-world-index.sh` copies there. Missing, it logs an ERROR and
+disables itself, and PocketMine stops the server before `Done`. Verified
+2026-11-11 against riftal-game `ce3965d`, the compose command chain on a fresh
+`/data` and a migrated MySQL. With the index delivered, the log reaches `Done`
+and carries `[RiftalGangs] contested-mine sweep flagged 0 gangs already at the
+eligibility level`. With none mounted and no delivery step:
+
+```
+[RiftalGangs] disabling, config or environment error: gangs: cannot read world index "/data/plugin_data/RiftalGangs/world_index.json"
+```
+
+`boot-selftest.sh` repeats both outcomes in CI with a stand-in phar, since CI
+cannot read riftal-game.
 
 ## Why an override is required, not optional
 

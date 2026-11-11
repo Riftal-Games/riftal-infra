@@ -125,7 +125,8 @@ RiftalMines bundles none either; its join teleport, which the instance's
 rendered config switches on, reads the delivered copy and rejects every join
 without it. RiftalMines loads on `instance` alone, so on `instance-b` that copy
 sits unread. RiftalGangs bundles none; it finds the contested mine in the
-delivered copy and refuses to enable without it. RiftalPlots reads its
+delivered copy and refuses to enable without it. It loads on `instance` alone
+(riftal-infra#697), so on `instance-b` that copy sits unread. RiftalPlots reads its
 `plots_grid` region from the delivered copy (riftal-game#1657). It
 names worlds, never instances, so every instance gets the same one and a split
 changes no map data. An

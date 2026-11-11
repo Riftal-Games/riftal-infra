@@ -27,13 +27,14 @@ trap 'rm -rf "$work"' EXIT
 ACCOUNTS_PW=selftestAccountsPassword01
 RANKS_PW=selftestRanksPassword0001
 ECONOMY_PW=selftestEconomyPassword01
+GANGS_PW=selftestGangsPassword0001
 MINES_PW=selftestMinesPassword0001
-printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\n' \
-  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" > "$work/env"
+printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\nRIFTAL_DB_PASSWORD_GANGS=%s\n' \
+  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" "$GANGS_PW" > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=99
+EXPECTED_ASSERTIONS=105
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -144,7 +145,8 @@ printf '\n== start-instance.sh keeps what start-pocketmine does\n'
 # With MINES set, RiftalMines.phar is built, contracts.phar sits at the top of
 # /plugins as on the real stack, a config rendered by hand sits next to it, and
 # the volume holds one an earlier boot rendered as root. With RANKS set,
-# RiftalRanks.phar is built, and with ECONOMY set, RiftalEconomy.phar.
+# RiftalRanks.phar is built, with ECONOMY set, RiftalEconomy.phar, and with
+# GANGS set, RiftalGangs.phar.
 ROOT_PW=rootPasswordFromAnEarlierBoot
 boot() {
   local owner="$1" root="$work/boot"
@@ -153,7 +155,7 @@ boot() {
   mkdir -p "$root/plugins" "$root/data" "$root/pm" "$root/bin"
   : > "$root/plugins/Cached.phar"
   cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$DIR/RiftalRanks.config.yml" \
-    "$DIR/RiftalEconomy.config.yml" "$root/"
+    "$DIR/RiftalEconomy.config.yml" "$DIR/RiftalGangs.config.yml" "$root/"
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
     : > "$root/plugins/contracts.phar"
@@ -166,6 +168,9 @@ boot() {
   fi
   if [ -n "${ECONOMY:-}" ]; then
     : > "$root/RiftalEconomy.phar"
+  fi
+  if [ -n "${GANGS:-}" ]; then
+    : > "$root/RiftalGangs.phar"
   fi
   # A source folder DevTools would load, and two it would refuse.
   if [ -n "${FOLDERS:-}" ]; then
@@ -262,6 +267,22 @@ check "with RiftalRanks.phar built, an unset RIFTAL_DB_PASSWORD_RANKS stops the 
   '! RANKS=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_RANKS is not set" "$b/out"'
 check "without RiftalRanks.phar, no ranks config lands and no ranks password is needed" \
   'boot "$me" && [ ! -e "$ranks_on_volume" ] && ! grep -q RiftalRanks "$b/roster"'
+
+printf '\n== RiftalGangs connects as the gangs login, its password only in the environment (riftal-infra#697)\n'
+GANGS_CONFIG="$DIR/RiftalGangs.config.yml"
+gangs_on_volume="$b/data/plugin_data/RiftalGangs/config.yml"
+check "the gangs config names the compose mysql, its schema and the gangs login, with no password" \
+  '[ "$(db host "$GANGS_CONFIG")" = mysql ] && [ "$(db username "$GANGS_CONFIG")" = gangs ] &&
+    [ "$(db schema "$GANGS_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
+    grep -qx "  password: \"\"" "$GANGS_CONFIG"'
+check "instance gets RIFTAL_DB_PASSWORD_GANGS from images/.env and instance-b gets none" \
+  'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_GANGS == \"$GANGS_PW\"
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_GANGS == null" <<<"$real" >/dev/null'
+check "with RiftalGangs.phar built, the tracked config lands on the volume and the phar joins the roster" \
+  'GANGS=1 boot "$me" RIFTAL_DB_PASSWORD_GANGS="$GANGS_PW" &&
+    cmp -s "$GANGS_CONFIG" "$gangs_on_volume" && grep -qx RiftalGangs.phar "$b/roster"'
+check "with RiftalGangs.phar built, an unset RIFTAL_DB_PASSWORD_GANGS stops the boot before php, naming it" \
+  '! GANGS=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_GANGS is not set" "$b/out"'
 
 printf '\n== RiftalEconomy connects as the economy login, its password only in the environment (riftal-infra#887)\n'
 ECONOMY_CONFIG="$DIR/RiftalEconomy.config.yml"
@@ -489,9 +510,10 @@ SHIPPED="$SNAPSHOT/mines/resources/config.yml"
 RANKS_SHIPPED="$SNAPSHOT/ranks/resources/config.yml"
 ACCOUNTS_SHIPPED="$SNAPSHOT/accounts/resources/config.yml"
 ECONOMY_SHIPPED="$SNAPSHOT/economy/resources/config.yml"
+GANGS_SHIPPED="$SNAPSHOT/gangs/resources/config.yml"
 check "the snapshot names the riftal-game commit it was taken from" \
   '[ "$(wc -l < "$SNAPSHOT/SOURCE")" -eq 1 ] && grep -qE "^[0-9a-f]{40}$" "$SNAPSHOT/SOURCE"'
-# Compares the snapshot with the four configs under $1, a riftal-game checkout.
+# Compares the snapshot with the five configs under $1, a riftal-game checkout.
 # It runs only when RIFTAL_GAME_DIR names one, so a CI run with no checkout
 # takes the snapshot alone. LIVE counts these checks apart from the expected
 # total, which holds with or without a checkout.
@@ -499,7 +521,7 @@ LIVE=0
 live_drift() {
   local plugin
   local checkout="$1"
-  for plugin in mines ranks accounts economy; do
+  for plugin in mines ranks accounts economy gangs; do
     LIVE=$((LIVE + 1))
     check "the snapshot's $plugin config is the one in riftal-game at $checkout" \
       'cmp -s "$SNAPSHOT/$plugin/resources/config.yml" "$checkout/$plugin/resources/config.yml"'
@@ -507,12 +529,12 @@ live_drift() {
 }
 if [ -n "${RIFTAL_GAME_DIR:-}" ]; then live_drift "$RIFTAL_GAME_DIR"; fi
 game="$work/game"
-for plugin in mines ranks accounts economy; do
+for plugin in mines ranks accounts economy gangs; do
   mkdir -p "$game/$plugin/resources"
   cp "$SNAPSHOT/$plugin/resources/config.yml" "$game/$plugin/resources/config.yml"
 done
 check "a checkout equal to the snapshot passes the live comparison" \
-  '[ "$(LIVE=0; FAILURES=0; live_drift "$game" >/dev/null; echo "$FAILURES $LIVE")" = "0 4" ]'
+  '[ "$(LIVE=0; FAILURES=0; live_drift "$game" >/dev/null; echo "$FAILURES $LIVE")" = "0 5" ]'
 sed 's/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/' "$SHIPPED" > "$game/mines/resources/config.yml"
 check "a checkout whose mines config differs from the snapshot fails the live comparison" \
   '! cmp -s "$SHIPPED" "$game/mines/resources/config.yml" &&
@@ -603,6 +625,11 @@ check "every line in riftal-game's economy config.yml but the schema matches the
 check "a shipped sell shop price the economy config does not carry is caught" \
   'sed "s/^    \"minecraft:coal\": .*/    \"minecraft:coal\": 6/" "$ECONOMY_SHIPPED" > "$mutated" &&
     [ "$(settings "$mutated")" != "$(settings "$ECONOMY_CONFIG")" ]'
+check "every line in riftal-game's gangs config.yml but the schema matches the gangs config" \
+  '[ -n "$(settings "$GANGS_SHIPPED")" ] && [ "$(settings "$GANGS_SHIPPED")" = "$(settings "$GANGS_CONFIG")" ]'
+check "a shipped gang level threshold the gangs config does not carry is caught" \
+  'sed "s/^  - {threshold: 1000,/  - {threshold: 1001,/" "$GANGS_SHIPPED" > "$mutated" &&
+    ! cmp -s "$GANGS_SHIPPED" "$mutated" && [ "$(settings "$mutated")" != "$(settings "$GANGS_CONFIG")" ]'
 printf '\n'
 ran=$((PASSES + FAILURES - LIVE))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
