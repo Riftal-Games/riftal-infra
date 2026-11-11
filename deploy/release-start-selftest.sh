@@ -8,7 +8,8 @@
 # roster's plugins at the tag's version, and no stale copy is touched. Also
 # checks the refusals that stop a boot before PocketMine, the rendered configs
 # and that /opt/riftal/plugins cannot be written by the server's user.
-# Needs the core image pinned in images/core-image.sha. Everything it creates
+# Needs the core image pinned in images/core-image.sha and a committed, clean
+# checkout, since the tags name the riftal-infra commit. Everything it creates
 # is named riftal_smoke_ and removed on exit.
 set -euo pipefail
 
@@ -23,8 +24,10 @@ fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
 sha="$(tr -d '[:space:]' < "$DIR/../images/core-image.sha")"
 image="riftal_smoke_start/pocketmine-mp"
-tag_n="core-2026-10-20-${sha:0:7}"
-tag_m="core-2026-10-21-${sha:0:7}"
+GAME_COMMIT=0123456789abcdef0123456789abcdef01234567
+infra_sha="$(infra_commit "$DIR/..")"
+tag_n="$(release_tag 2026-10-20 "$sha" "$GAME_COMMIT" "$infra_sha")"
+tag_m="$(release_tag 2026-10-21 "$sha" "$GAME_COMMIT" "$infra_sha")"
 data_vol="riftal_smoke_start_$$_data"
 plugins_vol="riftal_smoke_start_$$_plugins"
 cname="riftal_smoke_start_$$"
@@ -67,7 +70,7 @@ foreach ($files as $file => [$name, $depend]) {
 }
 PHP
 
-export GAME_COMMIT=0123456789abcdef0123456789abcdef01234567
+export GAME_COMMIT
 export GRANTS_SQL="$work/grants.sql"
 printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\n' > "$GRANTS_SQL"
 

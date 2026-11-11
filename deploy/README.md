@@ -557,8 +557,8 @@ container runtime that serves labels, and fixture files, and starts no container
 
 ## Release image
 
-`GAME_COMMIT=<sha> GRANTS_SQL=<grants.sql> release-image.sh <phars directory>`
-builds an image on top of the pinned core
+`GAME_COMMIT=<sha> GRANTS_SQL=<grants.sql> release-image.sh <phars directory>`,
+run from a clean checkout of riftal-infra, builds an image on top of the pinned core
 image, `../images/core-image.sha`, which is `ubuntu:24.04` underneath and must
 already be on the daemon, since nothing here builds or pulls it. The image adds
 ten production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
@@ -617,29 +617,47 @@ The image carries these four, but `start-release.sh` loads none of them: the
 dev stack's start scripts give them no roster entry, login or config, so
 `RIFTAL_PLUGINS` offers only Mines, Ranks and Economy.
 
-The tag is `core-<UTC date>-<first 7 characters of the pinned pmmp-core sha>`,
-for example `core-2026-10-21-971d10b`, under the name `riftal/pocketmine-mp`
-(`RELEASE_IMAGE` overrides it, `RELEASE_DATE` the date). There is no `latest`.
-An existing tag is refused rather than rebuilt, so a tag names one image on the
-daemon that built it, for as long as the tag exists there. Another daemon can
-build the same tag over different phars; riftal-pm#1622 tracks a composite tag.
-The tag carries no riftal-game commit, so the image records what it holds in
-four labels: `org.riftal.core-image`, `org.riftal.phars` (each phar's sha256),
-`org.riftal.game-commit` and `org.riftal.grants-sha256`.
+The tag is
+`<UTC date>-core<7 of the pinned pmmp-core sha>-game<7 of GAME_COMMIT>-infra<7 of the riftal-infra commit>`,
+for example `2026-11-10-core971d10b-gamefcf772f-infra4f183d3`, under the name
+`riftal/pocketmine-mp` (`RELEASE_IMAGE` overrides it, `RELEASE_DATE` the date).
+There is no `latest`. An existing tag is refused rather than rebuilt. The tag
+follows every input that changes the image, so a riftal-game-only release on
+the same day gets its own tag and two daemons cannot build one tag over
+different phars.
+
+The riftal-infra commit is the `HEAD` of the checkout holding the script, the
+same checkout the Dockerfile and the core pin are read from. The build is
+refused when that checkout is not the top of a git work tree of its own with a
+commit (a subdirectory of another repository would name that repository's
+commit), when git cannot report its status, or when a tracked file differs from
+`HEAD`, since the commit would not describe what was built. Untracked files are
+not inputs and do not refuse it. Build from a committed, clean checkout of the
+commit being released.
+
+The image records what it holds in five labels: `org.riftal.core-image`,
+`org.riftal.phars` (each phar's sha256), `org.riftal.game-commit`,
+`org.riftal.infra-commit` and `org.riftal.grants-sha256`.
 Recording the tag in `../instances/<id>/image` is a deploy, and an instance
 started from the image runs the image's own phars.
 
 `release-image-selftest.sh` builds one under a `riftal_smoke_` name and checks
-the tag, the refusal of each phar when empty, the absence of a `latest` tag and
-the refusal of an existing tag. In the image it checks each phar byte for byte,
+the tag and that it changes with the riftal-game and riftal-infra commits, the
+refusal of each phar when empty, and of a checkout with no `.git`, with no
+commit, inside a `.git` directory, in a subdirectory of a repository, with a
+status git cannot report, with a modified tracked file or with a staged new
+file, the absence of a `latest` tag and the refusal of an existing tag. It runs
+a committed copy of the release files in a temporary repository, from another
+repository's directory, so the commit it checks is the one read from beside the
+script. In the image it checks each phar byte for byte,
 that `/opt/riftal/plugins` holds exactly the ten, that they are owned by
 root and mode 444, that their directories are root-owned and mode 755, that
 `pocketmine` can write none of them, that `/plugins` holds no phar, the Ubuntu
 24.04 release file, the `pocketmine` user and the pinned core revision label. It
 refuses a malformed `GAME_COMMIT` and a `GRANTS_SQL` that is not a non-empty
-file, checks `org.riftal.game-commit` and `org.riftal.grants-sha256` against
-the inputs and that the image holds no `grants.sql`. It needs the pinned core
-image on the daemon.
+file, checks `org.riftal.game-commit`, `org.riftal.infra-commit` and
+`org.riftal.grants-sha256` against the inputs and that the image holds no
+`grants.sql`. It needs the pinned core image on the daemon.
 
 `release-start-selftest.sh` builds two tags over stub plugins, ten of them as in
 `REQUIRED_PHARS`, that differ in version, then boots tag N, N+1 and N on one named `/data` volume and one reused
