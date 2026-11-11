@@ -73,7 +73,8 @@ docker run --rm \
     set -e
     for pair in contracts:contracts mines:instance-only/RiftalMines; do
       cd "/build/${pair%%:*}"
-      php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev \n        --ignore-platform-req=ext-webrtc
+      php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev \
+        --ignore-platform-req=ext-webrtc
       sh /out/instance-only/link-replaced.sh
       php -dphar.readonly=0 /pharynx.phar -i . -c "-p=/out/${pair#*:}.phar"
     done
