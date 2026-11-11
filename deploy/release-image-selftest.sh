@@ -14,6 +14,7 @@
 # in REQUIRED_PHARS intact in /opt/riftal/plugins, owned by root, mode 0444 and
 # in a root-owned 0755 directory pocketmine cannot write, holds none in
 # /plugins, has pocketmine as its configured user and is never tagged latest.
+# Each file of SHIPPED_PLUGINS is held in /opt/riftal/plugins likewise.
 # Builds on the local daemon under a riftal_smoke_ name and removes it. Needs
 # the core image pinned in images/core-image.sha.
 set -euo pipefail
@@ -35,7 +36,7 @@ copy_release_files() {
   cp "$DIR/release-image.sh" "$1/deploy/"
   cp "$DIR/../images/core-image.sh" "$DIR/../images/core-image.sha" "$1/images/"
   cp "$DIR/../images/release/Dockerfile" "$DIR/../images/release/start-release.sh" "$1/images/release/"
-  cp "$DIR/../images/plugins/RiftalAccounts.config.yml" "$1/images/plugins/"
+  cp "$DIR/../images/plugins/RiftalAccounts.config.yml" "$DIR/../images/plugins/RiftalDownstreamLimit.php" "$1/images/plugins/"
   cp "$DIR/../images/plugins/instance-only/RiftalMines.config.yml.template"     "$DIR/../images/plugins/instance-only/RiftalRanks.config.yml"     "$DIR/../images/plugins/instance-only/RiftalEconomy.config.yml"     "$1/images/plugins/instance-only/"
 }
 # $1 a new repository root holding one commit of the release files.
@@ -203,20 +204,22 @@ else
     pass "no latest tag exists"
   fi
   mismatch=0
-  for name in "${REQUIRED_PHARS[@]}"; do
-    want="$(sha256sum "$phars/$name" | cut -d' ' -f1)"
+  for name in "${REQUIRED_PHARS[@]}" "${SHIPPED_PLUGINS[@]}"; do
+    src="$phars/$name"
+    [ -f "$src" ] || src="$DIR/../images/plugins/$name"
+    want="$(sha256sum "$src" | cut -d' ' -f1)"
     got="$(docker run --rm -m 1g --cpus 1 --entrypoint sha256sum "$image:$tag" "/opt/riftal/plugins/$name" | cut -d' ' -f1 || true)"
     [ "$got" = "$want" ] || mismatch=$((mismatch + 1))
   done
   if [ "$mismatch" -eq 0 ]; then
-    pass "every phar in /opt/riftal/plugins matches its source sha256"
+    pass "every phar and script plugin in /opt/riftal/plugins matches its source sha256"
   else
-    fail "$mismatch phar(s) in /opt/riftal/plugins are not the ones given"
+    fail "$mismatch file(s) in /opt/riftal/plugins are not the ones given"
   fi
-  want_list="$(printf '/opt/riftal/plugins/%s\n' "${REQUIRED_PHARS[@]}" | sort)"
+  want_list="$(printf '/opt/riftal/plugins/%s\n' "${REQUIRED_PHARS[@]}" "${SHIPPED_PLUGINS[@]}" RiftalDownstreamLimit.php | sort -u)"
   got_list="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -mindepth 1 | sort')"
   if [ "$got_list" = "$want_list" ]; then
-    pass "/opt/riftal/plugins holds exactly the required phars"
+    pass "/opt/riftal/plugins holds exactly the required phars and script plugins"
   else
     fail "/opt/riftal/plugins holds: $got_list"
   fi
@@ -267,9 +270,9 @@ else
   fi
   unowned="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c 'find /opt/riftal/plugins -type f \( ! -user root -o ! -perm 444 \)')"
   if [ -z "$unowned" ]; then
-    pass "every phar in /opt/riftal/plugins is owned by root and mode 444"
+    pass "every file in /opt/riftal/plugins is owned by root and mode 444"
   else
-    fail "phar(s) not owned by root or not mode 444: $unowned"
+    fail "file(s) not owned by root or not mode 444: $unowned"
   fi
   dirs="$(docker run --rm -m 1g --cpus 1 --entrypoint stat "$image:$tag" -c '%n %U %a' /opt/riftal /opt/riftal/plugins)"
   want_dirs="$(printf '%s\n' '/opt/riftal root 755' '/opt/riftal/plugins root 755')"
@@ -280,7 +283,7 @@ else
   fi
   writable="$(docker run --rm -m 1g --cpus 1 --user pocketmine --entrypoint sh "$image:$tag" -c 'for p in /opt/riftal /opt/riftal/plugins /opt/riftal/plugins/*; do [ -w "$p" ] && echo "$p"; done; true')"
   if [ -z "$writable" ]; then
-    pass "pocketmine can write none of /opt/riftal, /opt/riftal/plugins or a phar in it"
+    pass "pocketmine can write none of /opt/riftal, /opt/riftal/plugins or a file in it"
   else
     fail "pocketmine can write: $writable"
   fi

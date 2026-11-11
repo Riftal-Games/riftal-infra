@@ -4,7 +4,7 @@
 # tag N, then N+1, then N again on one named /data volume and one reused
 # /plugins volume that holds stale copies of two phars. Each boot must load the
 # phars of its own tag: the sha256 the start command reports for every roster
-# phar equals the image's org.riftal.phars label, the log enables exactly the
+# file equals its entry in the image's labels, the log enables exactly the
 # roster's plugins at the tag's version, and no stale copy is touched. Also
 # checks the refusals that stop a boot before PocketMine, the rendered configs
 # and that /opt/riftal/plugins cannot be written by the server's user.
@@ -165,20 +165,20 @@ boot() {
 # $1 tag, $2 RIFTAL_PLUGINS, $3 version the tag's stub phars carry.
 check_boot() {
   local tag="$1" plugins="$2" version="$3" log="$work/boot-$1-$$.log"
-  local label want_roster got_roster want_enabled got_enabled files=(RiftalCustody.phar RiftalAccounts.phar contracts.phar) p
+  local label want_roster got_roster want_enabled got_enabled files=(RiftalCustody.phar RiftalAccounts.phar contracts.phar "${SHIPPED_PLUGINS[@]}") p
   for p in ${plugins//,/ }; do files+=("$p.phar"); done
   boot "$tag" "$plugins" "$log"
 
-  label="$(docker image inspect --format '{{index .Config.Labels "org.riftal.phars"}}' "$image:$tag")"
+  label="$(docker image inspect --format '{{index .Config.Labels "org.riftal.phars"}},{{index .Config.Labels "org.riftal.script-plugins"}}' "$image:$tag")"
   want_roster="$(for p in "${files[@]}"; do tr , '\n' <<<"$label" | grep "^$p=" | sed 's/^\(.*\)=\(.*\)$/\2  \1/'; done | sort)"
   got_roster="$(sed -n 's/^roster //p' "$log" | sort)"
-  if [ -n "$want_roster" ] && [ "$got_roster" = "$want_roster" ]; then
+  if [ "$(wc -l <<<"$want_roster")" -eq "${#files[@]}" ] && [ "$got_roster" = "$want_roster" ]; then
     pass "$tag loaded the roster phars its label names, ${#files[@]} of them"
   else
     fail "$tag roster differs from its label. label: $want_roster / loaded: $got_roster"
   fi
 
-  want_enabled="$(for p in "${files[@]}"; do n="${p%.phar}"; [ "$n" = contracts ] && n=RiftalContracts; echo "$n v$version"; done | sort)"
+  want_enabled="$(for p in "${files[@]}"; do n="${p%.*}"; v="$version"; [[ $p = *.php ]] && v="$(sed -n 's/^ \* @version //p' "$DIR/../images/plugins/$p")"; [ "$n" = contracts ] && n=RiftalContracts; echo "$n v$v"; done | sort)"
   got_enabled="$(sed -n 's/.*Enabling \([A-Za-z]* v[0-9.]*\).*/\1/p' "$log" | sort)"
   if [ "$got_enabled" = "$want_enabled" ]; then
     pass "$tag enabled exactly its roster at version $version"

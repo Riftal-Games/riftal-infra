@@ -564,7 +564,8 @@ already be on the daemon, since nothing here builds or pulls it. The image adds
 ten production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
 `RiftalAccounts.phar`, `contracts.phar`, `RiftalMines.phar`, `RiftalRanks.phar`,
 `RiftalEconomy.phar`, `RiftalGangs.phar`, `RiftalRiots.phar`, `RiftalPlots.phar`
-and `RiftalAnvil.phar`, from `../images/release/Dockerfile`. They are
+and `RiftalAnvil.phar`, from `../images/release/Dockerfile`, and the script
+plugin `RiftalDownstreamLimit.php` from `../images/plugins`. They are
 mode 0444 and owned by root, in directories owned by root, so `pocketmine` can
 neither rewrite nor replace one. They sit outside `/data` and `/plugins`,
 the base's two VOLUMEs, so a mount or a reused volume cannot hide them there or
@@ -576,7 +577,7 @@ The image's command is `/opt/riftal/start-release.sh` (`../images/release/`),
 not core's `start-pocketmine`, which passes `--plugins=/plugins`. It builds the
 roster from `/opt/riftal/plugins` into a `mktemp -d` copy and passes PocketMine that
 copy alone, so a mount or a reused volume on `/plugins` is never read. RiftalCustody,
-RiftalAccounts and contracts load everywhere. `RIFTAL_PLUGINS` adds
+RiftalAccounts, contracts and `RiftalDownstreamLimit.php` load everywhere, and a missing one stops the boot. `RIFTAL_PLUGINS` adds
 `RiftalMines`, `RiftalRanks` and `RiftalEconomy`, space or comma separated, and
 a name outside those three stops the boot. The instance sets `RIFTAL_DB_HOST`
 and `RIFTAL_DB_SCHEMA`, which the script writes into each loaded plugin's
@@ -586,6 +587,14 @@ dev stack uses. The password of Accounts and of each added plugin comes from
 boot before PocketMine starts. A `--plugins` or `--data` in `POCKETMINE_ARGS` is
 refused. The script prints each roster phar's sha256 as a `roster` line, which
 is what the label can be compared with.
+
+`RiftalDownstreamLimit.php` turns RakLib's per-address packet limit off on
+every RakLib interface, because behind the proxy all players share the proxy's
+address. It acts only when the instance's service definition passes
+`--riftal-downstream=on` (or a `riftal-downstream=on` line in
+`server.properties`) and `xbox-auth` is off; otherwise it makes no call and
+logs why. No instance sets the option today, and a downstream must publish no
+port (spec 016). `images/plugins/downstream-limit/selftest.sh` holds it.
 
 `GAME_COMMIT` is the full lowercase 40-character riftal-game sha the phars and
 `GRANTS_SQL` were built from, and `GRANTS_SQL` is that commit's `grants.sql`.
