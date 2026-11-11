@@ -30,7 +30,7 @@
 #
 # Sourcing this file sets errexit, nounset and pipefail in the caller, sources
 # images/core-image.sh and defines SCRIPT_DIR, release_tag, infra_commit,
-# REQUIRED_PHARS and main. It builds nothing.
+# REQUIRED_PHARS, plugin_config and main. It builds nothing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -92,6 +92,17 @@ infra_commit() {
   printf '%s\n' "$sha"
 }
 
+# $1 a plugin name. Prints the dev stack's config for it, which start-release.sh
+# renders the database host and schema of.
+plugin_config() {
+  local images="$SCRIPT_DIR/../images/plugins"
+  case "$1" in
+    RiftalAccounts) printf '%s\n' "$images/RiftalAccounts.config.yml" ;;
+    RiftalMines) printf '%s\n' "$images/instance-only/RiftalMines.config.yml.template" ;;
+    *) printf '%s\n' "$images/instance-only/$1.config.yml" ;;
+  esac
+}
+
 main() {
   local phars="${1:?usage: release-image.sh <directory holding the built phars>}"
   local image="${RELEASE_IMAGE:-riftal/pocketmine-mp}"
@@ -138,6 +149,14 @@ main() {
     cp "$phars/$name" "$ctx/plugins/$name"
     chmod 0444 "$ctx/plugins/$name"
     sums+="${sums:+,}$name=$(sha256sum "$ctx/plugins/$name" | cut -d' ' -f1)"
+  done
+
+  cp "$SCRIPT_DIR/../images/release/start-release.sh" "$ctx/start-release.sh"
+  chmod 0555 "$ctx/start-release.sh"
+  for name in RiftalAccounts RiftalMines RiftalRanks RiftalEconomy; do
+    mkdir -p "$ctx/plugin_data/$name"
+    cp "$(plugin_config "$name")" "$ctx/plugin_data/$name/config.yml"
+    chmod 0444 "$ctx/plugin_data/$name/config.yml"
   done
 
   docker build \
