@@ -25,7 +25,19 @@
 # /etc/riftal/levels holds the locked zones and no other, each hashing to its
 # manifest, the digest list checks and the labels record them, and pocketmine
 # can write nothing under /etc/riftal or /opt/riftal/boot.
-# Builds on the local daemon under a riftal_smoke_ name and removes it. Needs
+# The ops image built beside it (ADR 045 item 1) is inspected only by running
+# explicit harmless commands in it, never its own command, which is the backup
+# loop. Its ops.sha256 lists the checkout's host files, the zone locks, the
+# MIGRATIONS_DIR files and GRANTS_SQL byte for byte and verifies in it, nothing
+# else is under /opt/riftal, root owns it all with files 0444, scripts 0555 and
+# directories 0755, its labels equal the release image's and record the
+# migrations and ops.sha256, the release image's org.riftal.backup-image is its
+# id, and its command is backup-loop.sh. Every top-level .sh of deploy/,
+# migrations/ and images/ is on exactly one of the two lists, a fixture script on
+# neither or on both fails the build naming it, as does a host script missing
+# from the checkout, a MIGRATIONS_DIR with no .sql file and one holding a file
+# that cannot be copied, and an existing ops image tag is refused.
+# Builds on the local daemon under riftal_smoke_ names and removes them. Needs
 # the core image pinned in images/core-image.sha.
 set -euo pipefail
 
@@ -34,7 +46,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=68
+EXPECTED_ASSERTIONS=87
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -50,7 +62,12 @@ copy_release_files() {
   cp "$DIR/../designer/world_index.json" "$1/designer/"
   for name in "${boot_scripts[@]}"; do cp "$DIR/../images/plugins/$name" "$1/images/plugins/"; done
   cp "$DIR/../images/core-image.sh" "$DIR/../images/core-image.sha" "$1/images/"
-  cp "$DIR/../images/release/Dockerfile" "$DIR/../images/release/start-release.sh" "$1/images/release/"
+  cp "$DIR/../images/release/Dockerfile" "$DIR/../images/release/Dockerfile.backup" "$DIR/../images/release/start-release.sh" "$1/images/release/"
+  mkdir -p "$1/migrations" "$1/images/backup"
+  cp "$DIR"/*.sh "$DIR"/*.md "$DIR/write-latency-probe.php" "$1/deploy/"
+  cp "$DIR"/../migrations/*.sh "$DIR/../migrations/README.md" "$1/migrations/"
+  cp "$DIR"/../images/*.sh "$DIR/../images/README.md" "$1/images/"
+  cp "$DIR/../images/backup/Dockerfile" "$1/images/backup/"
   cp "$DIR/../images/plugins/RiftalAccounts.config.yml" "$DIR/../images/plugins/RiftalDownstreamLimit.php" "$1/images/plugins/"
   cp "$DIR/../images/plugins/instance-only/RiftalMines.config.yml.template"     "$DIR/../images/plugins/instance-only/RiftalRanks.config.yml"     "$DIR/../images/plugins/instance-only/RiftalEconomy.config.yml"     "$1/images/plugins/instance-only/"
 }
@@ -64,6 +81,7 @@ commit_checkout() {
 
 sha="$(tr -d '[:space:]' < "$DIR/../images/core-image.sha")"
 image="riftal_smoke_release/pocketmine-mp"
+bimage="riftal_smoke_release/backup"
 GAME_COMMIT=0123456789abcdef0123456789abcdef01234567
 work="$(mktemp -d)"
 infra="$work/infra"
@@ -82,7 +100,7 @@ cd "$elsewhere"
 level_prefix="riftal_smoke_rel_$$_level_"
 level_vols=()
 cleanup() {
-  docker image rm "$image:$tag" >/dev/null 2>&1 || true
+  docker image rm "$image:$tag" "$bimage:$tag" "$bimage-base:$tag" >/dev/null 2>&1 || true
   docker volume rm "${level_vols[@]}" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -150,10 +168,17 @@ phars="$work/phars"
 mkdir "$phars"
 export GAME_COMMIT
 export GRANTS_SQL="$work/grants.sql"
+migrations="$work/migrations"
+mkdir "$migrations" "$work/nosql"
+printf 'CREATE TABLE smoke_a (id INT);\n' > "$migrations/0001_a.sql"
+printf 'CREATE TABLE smoke_b (id INT);\n' > "$migrations/0002_b.sql"
+printf 'not a migration\n' > "$migrations/notes.txt"
+cp "$migrations/notes.txt" "$work/nosql/"
+export MIGRATIONS_DIR="$migrations"
 # $1 the root of a checkout of the release files, whose script is run as a
 # release runs it.
 release_from() {
-  RELEASE_IMAGE=$image RELEASE_DATE=2026-10-21 bash "$1/deploy/release-image.sh" "$phars"
+  RELEASE_IMAGE=$image BACKUP_IMAGE=$bimage RELEASE_DATE=2026-10-21 bash "$1/deploy/release-image.sh" "$phars"
 }
 printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\n' > "$GRANTS_SQL"
 for name in "${REQUIRED_PHARS[@]}"; do
@@ -191,6 +216,26 @@ for bad in "" "$work/gone.sql" "$work/empty.sql" "$work"; do
     fail "GRANTS_SQL '$bad' was refused without naming it: $out"
   fi
 done
+for bad in "" "$work/gone" "$work/nosql" "$GRANTS_SQL"; do
+  if out="$(MIGRATIONS_DIR=$bad release_from "$infra" 2>&1)"; then
+    fail "MIGRATIONS_DIR '$bad' was accepted"
+  elif grep -qF "MIGRATIONS_DIR \"$bad\" is not a directory holding a .sql file" <<<"$out"; then
+    pass "MIGRATIONS_DIR '$bad' is refused by value"
+  else
+    fail "MIGRATIONS_DIR '$bad' was refused without naming it: $out"
+  fi
+done
+mkdir "$work/dangling"
+cp "$migrations/0001_a.sql" "$migrations/0002_b.sql" "$work/dangling/"
+ln -s "$work/gone.sql" "$work/dangling/0003_c.sql"
+if out="$(MIGRATIONS_DIR=$work/dangling release_from "$infra" 2>&1)"; then
+  fail "a migration that cannot be copied was accepted"
+  docker image rm "$image:$tag" "$bimage:$tag" >/dev/null 2>&1 || true
+elif grep -qF "0003_c.sql" <<<"$out" && [ -z "$(docker image ls -q "$image")$(docker image ls -q "$bimage")" ]; then
+  pass "a migration that cannot be copied is refused by name, leaving no image"
+else
+  fail "a migration that cannot be copied was refused without naming it or left an image: $out"
+fi
 
 # $1 the checkout to run, $2 the message the refusal must carry, $3 the case.
 refuses_infra() {
@@ -224,6 +269,28 @@ printf 'new\n' > "$infra/added"
 git -C "$infra" add added
 refuses_infra "$infra" "has tracked changes since $infra_sha" "a checkout with a staged new file"
 git -C "$infra" reset -q
+
+if out="$(classify_scripts "$infra")"; then
+  pass "every top-level .sh of deploy, migrations and images is on exactly one list"
+else
+  fail "the lists do not sort every script: $out"
+fi
+commit_checkout "$work/unclassified"
+printf '#!/bin/sh\n' > "$work/unclassified/deploy/new-tool.sh"
+git_fixture -C "$work/unclassified" add -A
+git_fixture -C "$work/unclassified" commit -q -m unclassified
+refuses_infra "$work/unclassified" "deploy/new-tool.sh is on neither" "a script on neither list"
+commit_checkout "$work/nohost"
+git_fixture -C "$work/nohost" rm -q deploy/restore.sh
+git_fixture -C "$work/nohost" commit -q -m nohost
+refuses_infra "$work/nohost" "deploy/restore.sh is on the host list and is not in the checkout" "a host script missing from the checkout"
+if out="$(NOT_CARRIED_SCRIPTS+=(deploy/backup.sh); classify_scripts "$infra")"; then
+  fail "a script on both lists was accepted"
+elif grep -qF "deploy/backup.sh is on both" <<<"$out"; then
+  pass "a script on both lists is refused by name"
+else
+  fail "a script on both lists was refused without naming it: $out"
+fi
 
 # $1 a locks directory, $2 the zone the refusal must name, $3 the message it
 # must carry, $4 the case. A refused build leaves no image.
@@ -461,12 +528,93 @@ else
   fi
 fi
 
+if ! docker image inspect "$bimage:$tag" >/dev/null 2>&1; then
+  fail "$bimage:$tag is not on the daemon"
+else
+  pass "$bimage:$tag is on the daemon, under the release image's tag"
+  # $1 a command to run in the ops image in place of its own command, which is
+  # the backup loop.
+  in_b() { docker run --rm -m 1g --cpus 1 --network none --entrypoint "$1" "$bimage:$tag" "${@:2}"; }
+  label_of() { docker image inspect --format "{{index .Config.Labels \"$2\"}}" "$1"; }
+  sums_of() { local f; for f in "$@"; do printf '%s  %s\n' "$(sha256sum "${f%%:*}" | cut -d' ' -f1)" "${f#*:}"; done; }
+  want_src=()
+  for rel in "${HOST_SCRIPTS[@]}" deploy/write-latency-probe.php migrations/README.md images/README.md; do
+    want_src+=("$infra/$rel:ops/$rel")
+  done
+  for f in "$infra"/deploy/*.md; do want_src+=("$f:ops/deploy/${f##*/}"); done
+  for f in "$locks"/*.lock.json; do want_src+=("$f:ops/designer/levels/${f##*/}"); done
+  for f in "$migrations"/*.sql; do want_src+=("$f:sql/migrations/${f##*/}"); done
+  want_src+=("$GRANTS_SQL:sql/grants.sql")
+  want_sums="$(sums_of "${want_src[@]}" | LC_ALL=C sort -k2)"
+  got_sums="$(in_b cat /opt/riftal/ops.sha256)"
+  got_files="$(in_b find /opt/riftal -type f | LC_ALL=C sort)"
+  want_files="$({ sed 's|^[0-9a-f]*  |/opt/riftal/|' <<<"$want_sums"; echo /opt/riftal/ops.sha256; } | LC_ALL=C sort)"
+  if [ "$got_sums" = "$want_sums" ] && [ "$got_files" = "$want_files" ]; then
+    pass "ops.sha256 holds the sha256 of each source file and covers every file under /opt/riftal"
+  else
+    fail "ops.sha256 holds: $got_sums"
+  fi
+  if in_b sh -c 'cd /opt/riftal && sha256sum -c --quiet ops.sha256' >/dev/null 2>&1; then
+    pass "ops.sha256 verifies the tree and the SQL in the image"
+  else
+    fail "ops.sha256 does not verify in the image"
+  fi
+  odd_files="$(in_b find /opt/riftal -type f \( ! -user root -o ! -group root -o \( ! -name '*.sh' ! -perm 444 \) -o \( -name '*.sh' ! -perm 555 \) \))"
+  odd_dirs="$(in_b find /opt/riftal -type d \( ! -user root -o ! -group root -o ! -perm 755 \))"
+  if [ -z "$odd_files$odd_dirs" ]; then
+    pass "everything under /opt/riftal in the ops image is root-owned, files 444, scripts 555, directories 755"
+  else
+    fail "not root-owned or not the expected mode: $odd_files $odd_dirs"
+  fi
+  same=1
+  for name in infra-commit game-commit grants-sha256; do
+    got="$(label_of "$bimage:$tag" "org.riftal.$name")"
+    [ -n "$got" ] && [ "$got" = "$(label_of "$image:$tag" "org.riftal.$name")" ] || same=$name
+  done
+  if [ "$same" = 1 ]; then
+    pass "the ops image's infra-commit, game-commit and grants-sha256 labels equal the release image's"
+  else
+    fail "the ops image's org.riftal.$same differs from the release image's"
+  fi
+  want_migrations="$(cd "$migrations" && sha256sum -- *.sql | sha256sum | cut -d' ' -f1)"
+  if [ "$(label_of "$bimage:$tag" org.riftal.migrations-sha256)" = "$want_migrations" ]; then
+    pass "org.riftal.migrations-sha256 is the sha256 of the sorted sha256sum list of the migrations"
+  else
+    fail "org.riftal.migrations-sha256 is not $want_migrations"
+  fi
+  if [ "$(label_of "$bimage:$tag" org.riftal.ops-sha256)" = "$(sha256sum <<<"$got_sums" | cut -d' ' -f1)" ]; then
+    pass "org.riftal.ops-sha256 is the sha256 of ops.sha256"
+  else
+    fail "org.riftal.ops-sha256 is not the sha256 of ops.sha256"
+  fi
+  bid="$(docker image inspect --format '{{.Id}}' "$bimage:$tag")"
+  if [ "$(label_of "$image:$tag" org.riftal.backup-image)" = "$bid" ]; then
+    pass "the release image's org.riftal.backup-image is the ops image's id"
+  else
+    fail "org.riftal.backup-image is not $bid"
+  fi
+  cmd="$(docker image inspect --format '{{json .Config.Cmd}} {{json .Config.Entrypoint}}' "$bimage:$tag")"
+  if [ "$cmd" = '["/opt/riftal/ops/deploy/backup-loop.sh"] null' ]; then
+    pass "the ops image's command is backup-loop.sh and it sets no entrypoint"
+  else
+    fail "the ops image's command and entrypoint are: $cmd"
+  fi
+fi
+
 if out="$(release_from "$infra" 2>&1)"; then
   fail "a second build of the same tag was accepted"
 elif grep -qF "is immutable" <<<"$out"; then
   pass "a tag that exists is refused"
 else
   fail "a repeated tag was refused without saying why: $out"
+fi
+docker image rm "$image:$tag" >/dev/null 2>&1 || true
+if out="$(release_from "$infra" 2>&1)"; then
+  fail "a build over an existing ops image tag was accepted"
+elif grep -qF "$bimage:$tag already exists" <<<"$out" && [ -z "$(docker image ls -q "$image")" ]; then
+  pass "an ops image tag that exists is refused before a build"
+else
+  fail "an existing ops image tag was refused without saying why: $out"
 fi
 
 printf '\n'
