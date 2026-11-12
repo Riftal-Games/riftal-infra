@@ -61,8 +61,8 @@
 # Sourcing this file sets errexit, nounset and pipefail in the caller, sources
 # images/core-image.sh and defines SCRIPT_DIR, release_tag, infra_commit,
 # REQUIRED_PHARS, SHIPPED_PLUGINS, BOOT_SCRIPTS, HOST_SCRIPTS,
-# NOT_CARRIED_SCRIPTS, plugin_config, classify_scripts, bake_levels, bake_ops and
-# main. It builds nothing.
+# NOT_CARRIED_SCRIPTS, plugin_config, classify_scripts, bake_levels, bake_ops,
+# build_ops_image and main. It builds nothing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -96,7 +96,7 @@ HOST_SCRIPTS=(
 # per-definition rule from level-args.sh in the release image.
 NOT_CARRIED_SCRIPTS=(
   deploy/bot-proofs.sh deploy/capture-proofs.sh deploy/instance-levels-check.sh
-  deploy/release-image.sh deploy/release-fixture.sh
+  deploy/ops-image-selftest.sh deploy/release-image.sh deploy/release-fixture.sh
   deploy/binlog-selftest.sh deploy/custody-alert-check-selftest.sh
   deploy/grants-revoke-check-selftest.sh deploy/instance-levels-check-selftest.sh
   deploy/level-replace-selftest.sh deploy/release-image-selftest.sh
@@ -334,13 +334,19 @@ classify_scripts() {
 # $1 the ops image's build context, $2 MIGRATIONS_DIR, $3 GRANTS_SQL. Lays out
 # ops/, sql/ and ops.sha256 in it, files 0444, scripts 0555 and directories
 # 0755, and sets MIGRATIONS_SHA and OPS_SHA to what the labels hold. The locks
-# are those of the levels bake_levels baked. The caller tests this function's
-# status, which turns errexit off inside it, so every command checks its own.
+# are those of the levels bake_levels baked. The runbooks are the tracked
+# deploy/*.md, so an untracked file never rides under a commit that lacks it.
+# The caller tests this function's status, which turns errexit off inside it,
+# so every command checks its own.
 bake_ops() {
-  local ctx="$1" migrations="$2" grants="$3" root="$SCRIPT_DIR/.." src rel
+  local ctx="$1" migrations="$2" grants="$3" root="$SCRIPT_DIR/.." src rel tracked doc docs=()
   local locks="${LEVEL_LOCKS_DIR:-$SCRIPT_DIR/../designer/levels}"
+  tracked="$(git -C "$root" -c core.quotePath=false ls-files -- 'deploy/*.md')" || return 1
+  while IFS= read -r doc; do
+    case "$doc" in deploy/*/*) ;; deploy/*.md) docs+=("$doc") ;; esac
+  done <<<"$tracked"
   mkdir -p "$ctx/ops/designer/levels" "$ctx/sql/migrations" || return 1
-  for src in "${HOST_SCRIPTS[@]/#/$root/}" "$root/deploy/write-latency-probe.php" "$root"/deploy/*.md \
+  for src in "${HOST_SCRIPTS[@]/#/$root/}" "$root/deploy/write-latency-probe.php" "${docs[@]/#/$root/}" \
     "$root/migrations/README.md" "$root/images/README.md"; do
     rel="${src#"$root"/}"
     mkdir -p "$ctx/ops/${rel%/*}" || return 1
@@ -358,12 +364,41 @@ bake_ops() {
   OPS_SHA="$(sha256sum "$ctx/ops.sha256" | cut -d' ' -f1)" || return 1
 }
 
+# $1 the ops image's ref, $2 the ref its base is built under, $3 an empty build
+# context, $4 MIGRATIONS_DIR, $5 GRANTS_SQL, $6 the riftal-infra commit, $7 the
+# riftal-game commit. Builds the base from images/backup and the ops image on
+# it, and sets BID to the ops image's id. Leaves neither the base nor, on a
+# failure, the ops image on the daemon. The caller tests this function's
+# status, so every command checks its own.
+build_ops_image() {
+  local bref="$1" base="$2" bctx="$3" migrations="$4" grants="$5" infra="$6" commit="$7" grants_sha
+  grants_sha="$(sha256sum "$grants" | cut -d' ' -f1)" || return 1
+  bake_ops "$bctx" "$migrations" "$grants" || return 1
+  cp "$SCRIPT_DIR/../images/release/Dockerfile.backup" "$bctx/Dockerfile" || return 1
+  docker build -t "$base" "$SCRIPT_DIR/../images/backup" || return 1
+  if ! docker build \
+    --build-arg "BACKUP_BASE=$base" \
+    --label "org.riftal.infra-commit=$infra" \
+    --label "org.riftal.game-commit=$commit" \
+    --label "org.riftal.grants-sha256=$grants_sha" \
+    --label "org.riftal.migrations-sha256=$MIGRATIONS_SHA" \
+    --label "org.riftal.ops-sha256=$OPS_SHA" \
+    -t "$bref" "$bctx"; then
+    docker image rm "$base" >/dev/null 2>&1
+    return 1
+  fi
+  if ! docker image rm "$base" >/dev/null || ! BID="$(docker image inspect --format '{{.Id}}' "$bref")"; then
+    docker image rm "$bref" >/dev/null 2>&1
+    return 1
+  fi
+}
+
 main() {
   local phars="${1:?usage: release-image.sh <directory holding the built phars>}"
   local image="${RELEASE_IMAGE:-riftal/pocketmine-mp}"
   local backup_image="${BACKUP_IMAGE:-riftal/backup}"
   local date="${RELEASE_DATE:-$(date -u +%F)}"
-  local name tag ref bref base ctx bctx sums="" scripts="" id bid
+  local name tag ref bref ctx bctx sums="" scripts="" id bid
   local commit="${GAME_COMMIT:-}" grants="${GRANTS_SQL:-}" migrations="${MIGRATIONS_DIR:-}" grants_sha infra
 
   for name in "${REQUIRED_PHARS[@]}"; do
@@ -431,21 +466,8 @@ main() {
   done
 
   bake_levels "$ctx" || return 1
-  bake_ops "$bctx" "$migrations" "$grants" || return 1
-  cp "$SCRIPT_DIR/../images/release/Dockerfile.backup" "$bctx/Dockerfile"
-
-  base="$backup_image-base:$tag"
-  docker build -t "$base" "$SCRIPT_DIR/../images/backup" || return 1
-  docker build \
-    --build-arg "BACKUP_BASE=$base" \
-    --label "org.riftal.infra-commit=$infra" \
-    --label "org.riftal.game-commit=$commit" \
-    --label "org.riftal.grants-sha256=$grants_sha" \
-    --label "org.riftal.migrations-sha256=$MIGRATIONS_SHA" \
-    --label "org.riftal.ops-sha256=$OPS_SHA" \
-    -t "$bref" "$bctx" || return 1
-  docker image rm "$base" >/dev/null
-  bid="$(docker image inspect --format '{{.Id}}' "$bref")" || return 1
+  build_ops_image "$bref" "$backup_image-base:$tag" "$bctx" "$migrations" "$grants" "$infra" "$commit" || return 1
+  bid="$BID"
 
   docker build \
     --build-arg "CORE_REPO=${CORE_IMAGE%:*}" \

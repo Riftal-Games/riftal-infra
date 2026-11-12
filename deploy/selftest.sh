@@ -6,6 +6,10 @@
 # on Nasir's Windows machine, under the WSL fallback engine:
 #   wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/.../deploy/selftest.sh
 # ../deploy/README.md shows a manual backup run under wslc.
+#
+# OPS_IMAGE names an ops image (release-image.sh's), which then stands in for
+# the image built here. backup.sh runs from that image's own tree, and only a
+# mutant of it is bind-mounted over its place there.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,12 +33,18 @@ cleanup() {
   docker rm -f -v "$MYSQL_CONTAINER" "$HOLDER" "$RUN_NAME_SHIM" "$RUN_NAME_KILLED" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" "$CAPTURE_VOL" >/dev/null 2>&1 || true
-  docker image rm "$BACKUP_IMG" >/dev/null 2>&1 || true
+  [ -n "${OPS_IMAGE:-}" ] || docker image rm "$BACKUP_IMG" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
 }
 trap cleanup EXIT
 
-docker build -q -t "$BACKUP_IMG" "$SCRIPT_DIR/../images/backup" >/dev/null
+BACKUP_BIN=/deploy/backup.sh
+if [ -n "${OPS_IMAGE:-}" ]; then
+  BACKUP_IMG="$OPS_IMAGE"
+  BACKUP_BIN=/opt/riftal/ops/deploy/backup.sh
+else
+  docker build -q -t "$BACKUP_IMG" "$SCRIPT_DIR/../images/backup" >/dev/null
+fi
 docker network create "$NETWORK" >/dev/null
 # Created before any `run -v` names them, so CI's label shim stamps them for
 # the job's sweep, which is all that removes them when a cancel skips the trap.
@@ -84,11 +94,15 @@ section() { printf '\n== %s\n' "$1"; }
 # points (riftal-infra#173) instead of always running the full script.
 run_backup() {
   local retention="$1" host="$2" password="$3" partial_max_age="${4:-360}" lock_max_age="${5:-90}"
+  local script="${BACKUP_SCRIPT:-$SCRIPT_DIR/backup.sh}" mount=()
+  if [ -z "${OPS_IMAGE:-}" ] || [ "$script" != "$SCRIPT_DIR/backup.sh" ]; then
+    mount=(-v "$script:$BACKUP_BIN:ro")
+  fi
   if [ "$#" -gt 5 ]; then shift 5; else shift "$#"; fi
   timeout 60 docker run --rm -m 1g --cpus 1 --network "$NETWORK" ${RUN_NAME:+--name "$RUN_NAME"} \
     ${TAR_SHIM:+-v "$TAR_SHIM:/shim/tar:ro" -e PATH=/shim:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin} \
     -e SHIM_VOL="${SHIM_VOL:-}" -e SHIM_EXIT="${SHIM_EXIT:-0}" -e SHIM_CALLS="${SHIM_CALLS:-first}" \
-    -v "${BACKUP_SCRIPT:-$SCRIPT_DIR/backup.sh}:/deploy/backup.sh:ro" \
+    "${mount[@]}" \
     -v "$BACKUPS_VOL:/backups" -v "$CAPTURE_VOL:/capture" \
     -v "$WORLD_A_VOL:/worlds/world-a:ro" -v "$WORLD_B_VOL:/worlds/world-b:ro" \
     -e MYSQL_HOST="$host" -e MYSQL_USER=root -e MYSQL_PASSWORD="$password" \
@@ -103,7 +117,7 @@ run_backup() {
     -e CAPTURE_TEST_REQUEST_ID="${CAPTURE_TEST_REQUEST_ID:-}" \
     -e FENCE_TEST_STALL_SECONDS="${FENCE_TEST_STALL_SECONDS:-0}" \
     -e CAPTURE_TEST_STALL_SECONDS="${CAPTURE_TEST_STALL_SECONDS:-0}" \
-    "$BACKUP_IMG" bash /deploy/backup.sh "$@"
+    "$BACKUP_IMG" bash "$BACKUP_BIN" "$@"
 }
 
 backups() {
