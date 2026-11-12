@@ -163,7 +163,7 @@ def mysql_image_readable(image):
     not an image ID."""
     if not isinstance(image, str) or "$" in image:
         return False
-    if re.fullmatch(r"(sha256:)?[0-9a-fA-F]{12,}", image):
+    if image.startswith("sha256:") or re.fullmatch(r"[0-9a-fA-F]{12,}", image):
         return False
     if "@" in image:
         return bool(image.partition("@")[2])

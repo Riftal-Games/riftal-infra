@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=288
+EXPECTED_ASSERTIONS=289
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -949,6 +949,7 @@ alpha_case ALPHA_OPS_ON_RELEASE_IMAGE spell_release_image_with_registry
 alpha_case ALPHA_OPS_ON_RELEASE_IMAGE set_mysql_image docker.io/riftal/pocketmine-mp@sha256:0000000000000000000000000000000000000000000000000000000000000000
 alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image '${M:-riftal/pocketmine-mp:2026.11.12-a}'
 alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image sha256:1111111111111111111111111111111111111111111111111111111111111111
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image sha256:0123456789
 alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE sed -i '/^  mysql:/,/^  instance:/{/^    image:/d}' "$ALPHA_COMPOSE"
 alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image mysql
 alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image mysql:latest
