@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=279
+EXPECTED_ASSERTIONS=288
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -726,12 +726,26 @@ add_unreferenced_unreadable_definition() {
   add_definition mines-c latest
 }
 
-# backup on the release image's repository, with the command and the mount
-# that image's rules would have refused.
+# backup on the release image's repository, under the spelling given or the
+# bare one, with the command and the mount that image's rules would have
+# refused.
 put_backup_on_release_image() {
-  sed -i '/^  backup:/,/^  migrate:/s#riftal/backup:2026.11.12-a#riftal/pocketmine-mp:2026.11.12-a#' "$ALPHA_COMPOSE"
+  sed -i "/^  backup:/,/^  migrate:/s#riftal/backup:2026.11.12-a#${1:-riftal/pocketmine-mp:2026.11.12-a}#" "$ALPHA_COMPOSE"
   add_after "$ALPHA_COMPOSE" backup '^    image:' '    command: ["sleep", "infinity"]'
   add_after "$ALPHA_COMPOSE" backup '^      - riftal-backups' '      - /srv/boot:/opt/riftal:ro'
+}
+
+# set_mysql_image <image> replaces the mysql service's image: line.
+set_mysql_image() {
+  sed -i "/^  mysql:/,/^  instance:/s#^    image: .*#    image: $1#" "$ALPHA_COMPOSE"
+}
+
+# The release image spelled docker.io/riftal/pocketmine-mp in its definition and
+# in the instance, which backup then names bare.
+spell_release_image_with_registry() {
+  sed -i 's#^riftal/#docker.io/riftal/#' instances/mines/image
+  sed -i '/^  instance:/,/^  backup:/s#image: riftal/pocketmine-mp#image: docker.io/riftal/pocketmine-mp#' "$ALPHA_COMPOSE"
+  put_backup_on_release_image
 }
 
 add_second_publisher() {
@@ -929,6 +943,15 @@ alpha_case ALPHA_RELEASE_ENV_ARGS add_after "$ALPHA_COMPOSE" instance '^    envi
 alpha_case ALPHA_RELEASE_TAG_MISMATCH sed -i 's#riftal/pocketmine-mp:2026.11.12-a#riftal/pocketmine-mp:2026.11.12-b#' "$ALPHA_COMPOSE"
 alpha_case ALPHA_RELEASE_NO_DEFINITION point_at_stray_env
 alpha_case ALPHA_OPS_ON_RELEASE_IMAGE put_backup_on_release_image
+alpha_case ALPHA_OPS_ON_RELEASE_IMAGE put_backup_on_release_image docker.io/riftal/pocketmine-mp:2026.11.12-a
+alpha_case ALPHA_OPS_ON_RELEASE_IMAGE put_backup_on_release_image index.docker.io/riftal/pocketmine-mp:2026.11.12-a
+alpha_case ALPHA_OPS_ON_RELEASE_IMAGE spell_release_image_with_registry
+alpha_case ALPHA_OPS_ON_RELEASE_IMAGE set_mysql_image docker.io/riftal/pocketmine-mp@sha256:0000000000000000000000000000000000000000000000000000000000000000
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image '${M:-riftal/pocketmine-mp:2026.11.12-a}'
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image sha256:1111111111111111111111111111111111111111111111111111111111111111
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE sed -i '/^  mysql:/,/^  instance:/{/^    image:/d}' "$ALPHA_COMPOSE"
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image mysql
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image mysql:latest
 
 section "alpha lint, ADR 045 item 4 on tags, capture, backup and volumes"
 alpha_case ALPHA_BACKUP_MIGRATE_TAG_DIFFER sed -i '/^  backup:/,/^  migrate:/s#riftal/backup:2026.11.12-a#riftal/backup:2026.11.12-b#' "$ALPHA_COMPOSE"

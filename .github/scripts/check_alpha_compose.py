@@ -28,7 +28,9 @@ ADR 043 items 3 and 4, on a release-image service:
   ALPHA_RELEASE_TAG_MISMATCH    its image: is not its instances/<id>/image
   ALPHA_OPS_ON_RELEASE_IMAGE    a mysql, backup or migrate service whose image
                                 is the repository of an instances/<id>/image,
-                                which would sit outside every rule above
+                                which would sit outside every rule above. Both
+                                names are normalised as the engine does, so
+                                docker.io/ and index.docker.io/ spellings match
   ALPHA_RELEASE_ENV_FILE_EXTRA  an env_file: entry other than its definition's
                                 instance.env, a second source for the flags
 
@@ -72,6 +74,9 @@ What the rules above need to read, and refuse when they cannot:
                                  digest instead, or with interpolation in it
   ALPHA_RELEASE_NO_DEFINITION    no env_file: entry resolves to
                                  instances/<id>/instance.env
+  ALPHA_MYSQL_IMAGE_UNREADABLE   mysql's image: is missing, not a string,
+                                 interpolated, an image ID, or a name with no
+                                 tag and no digest or only latest
   ALPHA_DEFINITION_IMAGE_UNREADABLE  an instances/<id>/image file, named by a
                                  service or not, that is missing or does not
                                  hold one <image>:<tag> line
@@ -134,10 +139,35 @@ def canonical_path(path):
 
 
 def image_repository(image):
-    """An image reference without its tag or digest."""
-    image = str(image).split("@", 1)[0]
-    head, sep, tag = image.rpartition(":")
-    return head if sep and "/" not in tag else image
+    """An image reference as the engine names it without its tag or digest:
+    registry and path, docker.io and library/ filled in."""
+    name = str(image).split("@", 1)[0]
+    head, sep, tag = name.rpartition(":")
+    if sep and "/" not in tag:
+        name = head
+    first, slash, rest = name.partition("/")
+    if slash and ("." in first or ":" in first or first == "localhost"):
+        registry, path = first, rest
+    else:
+        registry, path = "docker.io", name
+    if registry == "index.docker.io":
+        registry = "docker.io"
+    if registry == "docker.io" and "/" not in path:
+        path = "library/" + path
+    return f"{registry}/{path}"
+
+
+def mysql_image_readable(image):
+    """Whether the lint can tell which image mysql runs: a string without
+    interpolation that is a tag other than latest, or carries a digest, and is
+    not an image ID."""
+    if not isinstance(image, str) or "$" in image:
+        return False
+    if re.fullmatch(r"(sha256:)?[0-9a-fA-F]{12,}", image):
+        return False
+    if "@" in image:
+        return bool(image.partition("@")[2])
+    return image_tag(image) is not None
 
 
 def tmpfs_entries(service):
@@ -458,6 +488,16 @@ def lint(path, alpha_root, document, findings):
             )
 
     repositories = definition_repositories(definitions)
+    if "mysql" in services and not mysql_image_readable(
+        services["mysql"].get("image")
+    ):
+        add(
+            "ALPHA_MYSQL_IMAGE_UNREADABLE",
+            "services.mysql",
+            f"image {services['mysql'].get('image')!r} is not a tag other than "
+            "latest or a digest, so this lint cannot tell it from the release "
+            "image.",
+        )
     for name in sorted(OPS_SERVICES & services.keys()):
         image = services[name].get("image")
         if isinstance(image, str) and image_repository(image) in repositories:
