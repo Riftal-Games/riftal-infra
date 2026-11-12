@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=252
+EXPECTED_ASSERTIONS=263
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -733,6 +733,42 @@ point_at_stray_env() {
   sed -i 's#../../instances/mines/instance.env#stray.env#' "$ALPHA_COMPOSE"
 }
 
+# add_top_level <file> <text> appends a top-level block after services:.
+add_top_level() {
+  printf '\n%b\n' "$2" >> "$1"
+}
+
+add_include() {
+  printf 'services:\n  extra:\n    image: riftal/pocketmine-mp:2026.11.12-a\n' > deploy/alpha/extra.yaml
+  sed -i '1i include:\n  - extra.yaml\n' "$ALPHA_COMPOSE"
+}
+
+add_second_env_file() {
+  printf 'EXTRA=1\n' > deploy/alpha/extra.env
+  add_after "$ALPHA_COMPOSE" instance '^      - ../../instances/mines/instance.env' '      - extra.env'
+}
+
+list_environment() {
+  sed -i '/^  instance:/,/^  backup:/s/^      \(RIFTAL_DB_PASSWORD_ACCOUNTS\): /      - \1=/' "$ALPHA_COMPOSE"
+}
+
+list_environment_with_zones() {
+  list_environment
+  add_after "$ALPHA_COMPOSE" instance '^    environment:' '      - RIFTAL_LEVEL_ZONES=mine_a'
+}
+
+add_config_target() {
+  add_top_level "$ALPHA_COMPOSE" 'configs:\n  boot:\n    content: boot'
+  add_after "$ALPHA_COMPOSE" instance '^    restart:' \
+    "    configs:\n      - source: boot\n        target: $1"
+}
+
+add_secret_target() {
+  add_top_level "$ALPHA_COMPOSE" 'secrets:\n  boot:\n    environment: BOOT_SECRET'
+  add_after "$ALPHA_COMPOSE" instance '^    restart:' \
+    "    secrets:\n      - source: boot\n        target: $1"
+}
+
 alpha_case() {
   local codes="$1" tree out status got want expected_status
   shift
@@ -766,7 +802,7 @@ alpha_case() {
 # Outside deploy/alpha/ the alpha rules do not apply, and neither do the
 # placeholders: spec 016's production compose, where only the proxy publishes, is
 # not judged by them, and a file that reads a secret it does not get fails
-# `docker compose config` as it always did.
+# `docker compose config`, on its missing secret.
 expect_alpha_scope() {
   local tree out status
   tree="$(mktemp -d)"
@@ -821,6 +857,8 @@ section "alpha compose, the good tree and a serial rollout on N and N-1"
 expect_scan_ok compose "$ALPHA_GOOD/$ALPHA_COMPOSE"
 expect_scan_ok ports "$ALPHA_GOOD/$ALPHA_COMPOSE"
 alpha_case "" add_second_instance
+alpha_case "" list_environment
+alpha_case "" sed -i '/^    env_file:$/{N;s#\n      - # #}' "$ALPHA_COMPOSE"
 expect_alpha_scope
 expect_real_alpha
 
@@ -844,7 +882,14 @@ alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^  
 alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - /srv/levels:/etc/riftal/levels:ro'
 alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - /srv/opt:/opt:ro'
 alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - type: bind\n        source: /srv/boot\n        target: /opt/riftal/boot/'
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^    restart:' '    tmpfs:\n      - /opt/riftal/boot'
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^    restart:' '    tmpfs: /opt'
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_config_target /etc/riftal/levels
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_secret_target /opt/riftal/boot
+alpha_case ALPHA_RELEASE_VOLUMES_FROM add_after "$ALPHA_COMPOSE" instance '^    restart:' '    volumes_from:\n      - backup'
+alpha_case ALPHA_RELEASE_ENV_FILE_EXTRA add_second_env_file
 alpha_case ALPHA_RELEASE_ENV_ZONES add_after "$ALPHA_COMPOSE" instance '^    environment:' '      RIFTAL_LEVEL_ZONES: mine_a'
+alpha_case ALPHA_RELEASE_ENV_ZONES list_environment_with_zones
 alpha_case ALPHA_RELEASE_ENV_ARGS add_after "$ALPHA_COMPOSE" instance '^    environment:' '      POCKETMINE_ARGS: --level-name=mine_a --xbox-auth=true --auto-report.enabled=0'
 alpha_case ALPHA_RELEASE_TAG_MISMATCH sed -i 's#riftal/pocketmine-mp:2026.11.12-a#riftal/pocketmine-mp:2026.11.12-b#' "$ALPHA_COMPOSE"
 alpha_case ALPHA_RELEASE_NO_DEFINITION point_at_stray_env
@@ -871,6 +916,8 @@ alpha_case ALPHA_RELEASE_BOOT_STARTS add_after "$ALPHA_COMPOSE" instance '^    e
 alpha_case ALPHA_RELEASE_BOOT_STARTS add_after instances/mines/instance.env "" '^POCKETMINE_ARGS=' 'RIFTAL_BOOT_STARTS=/tmp/starts'
 
 section "alpha lint, what it cannot read it refuses"
+alpha_case ALPHA_EXTENDS add_after "$ALPHA_COMPOSE" instance '^    restart:' '    extends:\n      service: backup'
+alpha_case ALPHA_INCLUDE add_include
 alpha_case ALPHA_SERVICE_MISSING sed -i '/^  migrate:/,$d' "$ALPHA_COMPOSE"
 alpha_case ALPHA_IMAGE_TAG_UNREADABLE sed -i 's#riftal/pocketmine-mp:2026.11.12-a#riftal/pocketmine-mp:latest#' "$ALPHA_COMPOSE"
 alpha_case "ALPHA_DEFINITION_IMAGE_UNREADABLE ALPHA_RELEASE_TAG_UNNAMED" sed -i 's#:.*#:latest#' instances/mines/image

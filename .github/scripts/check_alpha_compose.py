@@ -18,11 +18,16 @@ ADR 043 items 3 and 4, on a release-image service:
   ALPHA_RELEASE_COMMAND, ALPHA_RELEASE_ENTRYPOINT  sets command: or entrypoint:
   ALPHA_RELEASE_MOUNT_RESERVED  mounts at, below or above /etc/riftal or
                                 /opt/riftal, which would replace what the tag
-                                delivers
+                                delivers, through volumes:, tmpfs:, or the
+                                target: of a configs: or secrets: entry
+  ALPHA_RELEASE_VOLUMES_FROM    volumes_from:, which takes another service's
+                                mounts past the rules on mounts
   ALPHA_RELEASE_ENV_ZONES, ALPHA_RELEASE_ENV_ARGS  sets RIFTAL_LEVEL_ZONES or
                                 POCKETMINE_ARGS in environment:, which overrides
                                 env_file: and boots what CI never read
   ALPHA_RELEASE_TAG_MISMATCH    its image: is not its instances/<id>/image
+  ALPHA_RELEASE_ENV_FILE_EXTRA  an env_file: entry other than its definition's
+                                instance.env, a second source for the flags
 
 ADR 045 item 4:
   ALPHA_BACKUP_MIGRATE_TAG_DIFFER  backup and migrate name different tags
@@ -49,6 +54,10 @@ Left to this lint by ADR 045 rows 17 and 18 and ADR 043 item 3:
                                 env_file: of a release-image service
 
 What the rules above need to read, and refuse when they cannot:
+  ALPHA_EXTENDS                  extends: on any service, which takes keys from
+                                 a service this lint never reads
+  ALPHA_INCLUDE                  a top-level include:, which adds services this
+                                 lint never judges
   ALPHA_SERVICE_MISSING          no backup, no migrate, or no release-image
                                  service
   ALPHA_IMAGE_TAG_UNREADABLE     an image: with no tag, with latest, with a
@@ -130,6 +139,42 @@ def mounts(service):
     return found
 
 
+def reserved_target(target):
+    """The reserved path a mount target is at, below or above, or None."""
+    for reserved in RESERVED_MOUNTS:
+        if (
+            target == reserved
+            or target.startswith(reserved + "/")
+            or reserved.startswith(target.rstrip("/") + "/")
+        ):
+            return reserved
+    return None
+
+
+def absolute_target(target, relative_base):
+    target = str(target)
+    if not target.startswith("/"):
+        target = posixpath.join(relative_base, target)
+    return posixpath.normpath(target)
+
+
+def extra_mount_targets(service):
+    """(key, target) of what tmpfs: and the long form of configs: and secrets:
+    mount, which volumes: does not cover."""
+    found = []
+    tmpfs = service.get("tmpfs") or []
+    if isinstance(tmpfs, str):
+        tmpfs = [tmpfs]
+    for entry in tmpfs:
+        if isinstance(entry, str):
+            found.append(("tmpfs", absolute_target(entry.split(":")[0], "/")))
+    for key, base in (("configs", "/"), ("secrets", "/run/secrets")):
+        for entry in service.get(key) or []:
+            if isinstance(entry, dict) and entry.get("target"):
+                found.append((key, absolute_target(entry["target"], base)))
+    return found
+
+
 def environment_keys(service):
     environment = service.get("environment")
     if isinstance(environment, dict):
@@ -200,10 +245,25 @@ def lint(path, alpha_root, document, findings):
     def add(code, where, detail):
         findings.append(Finding(code, path, where, detail))
 
+    if "include" in document:
+        add(
+            "ALPHA_INCLUDE",
+            "include",
+            "an include:, which adds services this lint does not read.",
+        )
+
     not_external = set()
     for name, service in services.items():
         where = f"services.{name}"
         service_mounts = mounts(service)
+
+        if "extends" in service:
+            add(
+                "ALPHA_EXTENDS",
+                where,
+                "an extends:, which takes keys from a service this lint does "
+                "not read.",
+            )
 
         if "build" in service:
             add("ALPHA_BUILD_KEY", where, "a build: key. An image is a tag.")
@@ -312,24 +372,21 @@ def lint(path, alpha_root, document, findings):
             ("command", "ALPHA_RELEASE_COMMAND"),
             ("entrypoint", "ALPHA_RELEASE_ENTRYPOINT"),
             ("healthcheck", "ALPHA_RELEASE_HEALTHCHECK"),
+            ("volumes_from", "ALPHA_RELEASE_VOLUMES_FROM"),
         ):
             if key in service:
                 add(code, where, f"sets {key}:, which the release image owns.")
 
-        for mount in service_mounts:
-            target = mount["target"]
-            for reserved in RESERVED_MOUNTS:
-                if (
-                    target == reserved
-                    or target.startswith(reserved + "/")
-                    or reserved.startswith(target.rstrip("/") + "/")
-                ):
-                    add(
-                        "ALPHA_RELEASE_MOUNT_RESERVED",
-                        where,
-                        f"mounts at {target}, which covers {reserved}.",
-                    )
-                    break
+        for key, target in [
+            ("volumes", m["target"]) for m in service_mounts
+        ] + extra_mount_targets(service):
+            reserved = reserved_target(target)
+            if reserved is not None:
+                add(
+                    "ALPHA_RELEASE_MOUNT_RESERVED",
+                    where,
+                    f"{key} puts a mount at {target}, which covers {reserved}.",
+                )
 
         keys = environment_keys(service)
         for key, code in (
@@ -388,10 +445,21 @@ def lint(path, alpha_root, document, findings):
                 "not a tag.",
             )
 
-        ident = None
-        for env_file in files:
-            if env_file.name == "instance.env" and env_file.parent.parent == definitions:
-                ident = env_file.parent.name
+        definition_files = [
+            f
+            for f in files
+            if f.name == "instance.env" and f.parent.parent == definitions
+        ]
+        ident = definition_files[0].parent.name if definition_files else None
+        if definition_files:
+            for env_file in files:
+                if env_file != definition_files[0]:
+                    add(
+                        "ALPHA_RELEASE_ENV_FILE_EXTRA",
+                        where,
+                        f"env_file: lists {env_file}, and its definition's "
+                        "instance.env is the only source of its flags.",
+                    )
         if ident is None:
             add(
                 "ALPHA_RELEASE_NO_DEFINITION",

@@ -28,7 +28,7 @@ alpha_root() {
 # The alpha compose refuses a secret that is missing or empty with ${NAME:?...},
 # so config needs a value for each one it names. A placeholder, never a real
 # value: nothing here reads a secret, and one in the environment is overridden.
-# Every other file gets exactly the environment it had.
+# Every other file gets the caller's environment, unchanged.
 docker_compose() {
   local file="$1" placeholders=()
   shift
