@@ -120,8 +120,9 @@ jobs:
         run: bash .github/scripts/scan.sh compose
 
       # The same discovery as the step above, so a compose file validated
-      # there is never one this policy skips.
-      - name: Compose port policy, 19132 as udp, binds on 127.0.0.1
+      # there is never one this policy skips. A compose under deploy/alpha/ is
+      # also judged by the alpha port policy and the alpha compose lint.
+      - name: Compose port policy, 19132 as udp, binds on 127.0.0.1, alpha compose lint
         run: bash .github/scripts/scan.sh ports
 
       - name: Every action is pinned by commit sha or image digest

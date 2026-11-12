@@ -17,3 +17,5 @@ Containerfile text eol=lf
 migrations/fixtures/lock-reads/mysql text eol=lf
 migrations/fixtures/lock-pipe/stdbuf text eol=lf
 images/riftal-game-snapshot/SOURCE text eol=lf
+.github/ci-fixtures/good/alpha/instances/*/image text eol=lf
+.github/ci-fixtures/good/alpha/instances/*/instance.env text eol=lf
