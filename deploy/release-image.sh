@@ -334,27 +334,28 @@ classify_scripts() {
 # $1 the ops image's build context, $2 MIGRATIONS_DIR, $3 GRANTS_SQL. Lays out
 # ops/, sql/ and ops.sha256 in it, files 0444, scripts 0555 and directories
 # 0755, and sets MIGRATIONS_SHA and OPS_SHA to what the labels hold. The locks
-# are those of the levels bake_levels baked.
+# are those of the levels bake_levels baked. The caller tests this function's
+# status, which turns errexit off inside it, so every command checks its own.
 bake_ops() {
   local ctx="$1" migrations="$2" grants="$3" root="$SCRIPT_DIR/.." src rel
   local locks="${LEVEL_LOCKS_DIR:-$SCRIPT_DIR/../designer/levels}"
-  mkdir -p "$ctx/ops/designer/levels" "$ctx/sql/migrations"
+  mkdir -p "$ctx/ops/designer/levels" "$ctx/sql/migrations" || return 1
   for src in "${HOST_SCRIPTS[@]/#/$root/}" "$root/deploy/write-latency-probe.php" "$root"/deploy/*.md \
     "$root/migrations/README.md" "$root/images/README.md"; do
     rel="${src#"$root"/}"
-    mkdir -p "$ctx/ops/${rel%/*}"
-    cp "$src" "$ctx/ops/$rel"
+    mkdir -p "$ctx/ops/${rel%/*}" || return 1
+    cp "$src" "$ctx/ops/$rel" || return 1
   done
-  cp "$locks"/*.lock.json "$ctx/ops/designer/levels/"
-  cp "$migrations"/*.sql "$ctx/sql/migrations/"
-  cp "$grants" "$ctx/sql/grants.sql"
-  find "$ctx" -type d -exec chmod 0755 {} +
-  find "$ctx" -type f -exec chmod 0444 {} +
-  find "$ctx/ops" -type f -name '*.sh' -exec chmod 0555 {} +
-  MIGRATIONS_SHA="$(tree_sha256 "$ctx/sql/migrations")"
-  (cd "$ctx" && find ops sql -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum -- >ops.sha256)
-  chmod 0444 "$ctx/ops.sha256"
-  OPS_SHA="$(sha256sum "$ctx/ops.sha256" | cut -d' ' -f1)"
+  cp "$locks"/*.lock.json "$ctx/ops/designer/levels/" || return 1
+  cp "$migrations"/*.sql "$ctx/sql/migrations/" || return 1
+  cp "$grants" "$ctx/sql/grants.sql" || return 1
+  find "$ctx" -type d -exec chmod 0755 {} + || return 1
+  find "$ctx" -type f -exec chmod 0444 {} + || return 1
+  find "$ctx/ops" -type f -name '*.sh' -exec chmod 0555 {} + || return 1
+  MIGRATIONS_SHA="$(tree_sha256 "$ctx/sql/migrations")" || return 1
+  (cd "$ctx" && find ops sql -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum -- >ops.sha256) || return 1
+  chmod 0444 "$ctx/ops.sha256" || return 1
+  OPS_SHA="$(sha256sum "$ctx/ops.sha256" | cut -d' ' -f1)" || return 1
 }
 
 main() {

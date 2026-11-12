@@ -34,8 +34,9 @@
 # migrations and ops.sha256, the release image's org.riftal.backup-image is its
 # id, and its command is backup-loop.sh. Every top-level .sh of deploy/,
 # migrations/ and images/ is on exactly one of the two lists, a fixture script on
-# neither or on both fails the build naming it, as does a MIGRATIONS_DIR with no
-# .sql file, and an existing ops image tag is refused.
+# neither or on both fails the build naming it, as does a host script missing
+# from the checkout, a MIGRATIONS_DIR with no .sql file and one holding a file
+# that cannot be copied, and an existing ops image tag is refused.
 # Builds on the local daemon under riftal_smoke_ names and removes them. Needs
 # the core image pinned in images/core-image.sha.
 set -euo pipefail
@@ -45,7 +46,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=85
+EXPECTED_ASSERTIONS=87
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -224,6 +225,17 @@ for bad in "" "$work/gone" "$work/nosql" "$GRANTS_SQL"; do
     fail "MIGRATIONS_DIR '$bad' was refused without naming it: $out"
   fi
 done
+mkdir "$work/dangling"
+cp "$migrations/0001_a.sql" "$migrations/0002_b.sql" "$work/dangling/"
+ln -s "$work/gone.sql" "$work/dangling/0003_c.sql"
+if out="$(MIGRATIONS_DIR=$work/dangling release_from "$infra" 2>&1)"; then
+  fail "a migration that cannot be copied was accepted"
+  docker image rm "$image:$tag" "$bimage:$tag" >/dev/null 2>&1 || true
+elif grep -qF "0003_c.sql" <<<"$out" && [ -z "$(docker image ls -q "$image")$(docker image ls -q "$bimage")" ]; then
+  pass "a migration that cannot be copied is refused by name, leaving no image"
+else
+  fail "a migration that cannot be copied was refused without naming it or left an image: $out"
+fi
 
 # $1 the checkout to run, $2 the message the refusal must carry, $3 the case.
 refuses_infra() {
@@ -268,6 +280,10 @@ printf '#!/bin/sh\n' > "$work/unclassified/deploy/new-tool.sh"
 git_fixture -C "$work/unclassified" add -A
 git_fixture -C "$work/unclassified" commit -q -m unclassified
 refuses_infra "$work/unclassified" "deploy/new-tool.sh is on neither" "a script on neither list"
+commit_checkout "$work/nohost"
+git_fixture -C "$work/nohost" rm -q deploy/restore.sh
+git_fixture -C "$work/nohost" commit -q -m nohost
+refuses_infra "$work/nohost" "deploy/restore.sh is on the host list and is not in the checkout" "a host script missing from the checkout"
 if out="$(NOT_CARRIED_SCRIPTS+=(deploy/backup.sh); classify_scripts "$infra")"; then
   fail "a script on both lists was accepted"
 elif grep -qF "deploy/backup.sh is on both" <<<"$out"; then
