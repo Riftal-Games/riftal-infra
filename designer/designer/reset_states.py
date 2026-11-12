@@ -17,6 +17,8 @@ from types import MappingProxyType
 
 RESET_STATES = MappingProxyType({
     "minecraft:stone": {},
+    "minecraft:cobblestone": {},
+    "minecraft:andesite": {},
     "minecraft:coal_ore": {},
     "minecraft:iron_ore": {},
     "minecraft:copper_ore": {},
