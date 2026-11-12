@@ -292,6 +292,8 @@ cannot see every session:
 | `refused: the server.lock of volume <name> is held, so its instance is running; stop it first` | An instance on this host has that volume mounted and running. Stop it. There is no override |
 | `cannot give the server.lock of volume <name> the owner of <dir>, so core could not open it; run this as root` | Raised after the database is rebuilt. The restore was not run as root, so it could not give `server.lock` the directory's owner. Run it again as root; it is not reported complete |
 | `refused: flock is not installed, so a running instance cannot be detected; run this in the backup image` | `mysql:8` has no `flock`. Run `restore.sh` in the `riftal-backup` image |
+| `refused: volume(s) <names> not mounted under <WORLDS_DIR>, so the database would be rebuilt without its level; add a -v line for each` | The run has no mount at `WORLDS_DIR/<name>` for a volume in the set. Raised right after the tars list, before the database is read or any `server.lock` is made. Without it the tar would extract into the container's own filesystem and be lost while the database rolled back. Add the `-v` line |
+| `refused: mountpoint is not installed, ...` | Run `restore.sh` in the `riftal-backup` image |
 
 The check reads the moment it runs. A session opened afterwards is not seen.
 
@@ -556,14 +558,15 @@ container runtime that serves labels, and fixture files, and starts no container
 
 ## Release image
 
-`GAME_COMMIT=<sha> GRANTS_SQL=<grants.sql> release-image.sh <phars directory>`
-builds an image on top of the pinned core
+`GAME_COMMIT=<sha> GRANTS_SQL=<grants.sql> release-image.sh <phars directory>`,
+run from a clean checkout of riftal-infra, builds an image on top of the pinned core
 image, `../images/core-image.sha`, which is `ubuntu:24.04` underneath and must
 already be on the daemon, since nothing here builds or pulls it. The image adds
 ten production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
 `RiftalAccounts.phar`, `contracts.phar`, `RiftalMines.phar`, `RiftalRanks.phar`,
 `RiftalEconomy.phar`, `RiftalGangs.phar`, `RiftalRiots.phar`, `RiftalPlots.phar`
-and `RiftalAnvil.phar`, from `../images/release/Dockerfile`. They are
+and `RiftalAnvil.phar`, from `../images/release/Dockerfile`, and the script
+plugin `RiftalDownstreamLimit.php` from `../images/plugins`. They are
 mode 0444 and owned by root, in directories owned by root, so `pocketmine` can
 neither rewrite nor replace one. They sit outside `/data` and `/plugins`,
 the base's two VOLUMEs, so a mount or a reused volume cannot hide them there or
@@ -571,10 +574,28 @@ keep an older tag's copies. `/plugins` in the image holds no phar. The script
 uses only the local Docker daemon and pushes nowhere. A registry is a separate
 decision, because a paid one costs money.
 
-This image does not yet start from `/opt/riftal/plugins`. Core's
-`start-pocketmine` passes `--plugins=/plugins`, and nothing in the image or in a
-deploy selects a per-instance roster from the image path, so no instance runs
-the image's own phars today. That start command is riftal-infra#1253.
+The image's command is `/opt/riftal/start-release.sh` (`../images/release/`),
+not core's `start-pocketmine`, which passes `--plugins=/plugins`. It builds the
+roster from `/opt/riftal/plugins` into a `mktemp -d` copy and passes PocketMine that
+copy alone, so a mount or a reused volume on `/plugins` is never read. RiftalCustody,
+RiftalAccounts, contracts and `RiftalDownstreamLimit.php` load everywhere, and a missing one stops the boot. `RIFTAL_PLUGINS` adds
+`RiftalMines`, `RiftalRanks` and `RiftalEconomy`, space or comma separated, and
+a name outside those three stops the boot. The instance sets `RIFTAL_DB_HOST`
+and `RIFTAL_DB_SCHEMA`, which the script writes into each loaded plugin's
+`/data/plugin_data/<Plugin>/config.yml` on every boot, from the configs the
+dev stack uses. The password of Accounts and of each added plugin comes from
+`RIFTAL_DB_PASSWORD_<ACCOUNTS|MINES|RANKS|ECONOMY>`, and a missing one stops the
+boot before PocketMine starts. A `--plugins` or `--data` in `POCKETMINE_ARGS` is
+refused. The script prints each roster phar's sha256 as a `roster` line, which
+is what the label can be compared with.
+
+`RiftalDownstreamLimit.php` turns RakLib's per-address packet limit off on
+every RakLib interface, because behind the proxy all players share the proxy's
+address. It acts only when the instance's service definition passes
+`--riftal-downstream=on` (or a `riftal-downstream=on` line in
+`server.properties`) and `xbox-auth` is off; otherwise it makes no call and
+logs why. No instance sets the option today, and a downstream must publish no
+port (spec 016). `images/plugins/downstream-limit/selftest.sh` holds it.
 
 `GAME_COMMIT` is the full lowercase 40-character riftal-game sha the phars and
 `GRANTS_SQL` were built from, and `GRANTS_SQL` is that commit's `grants.sql`.
@@ -602,33 +623,58 @@ cp "$OUT/plots.phar" RiftalPlots.phar
 cp "$OUT/anvil.phar" RiftalAnvil.phar
 ```
 
-The image carries these four, but the per-instance roster does not offer them
-yet: nothing loads Gangs, Riots, Plots or Anvil from the image.
+The image carries these four, but `start-release.sh` loads none of them: the
+dev stack's start scripts give them no roster entry, login or config, so
+`RIFTAL_PLUGINS` offers only Mines, Ranks and Economy.
 
-The tag is `core-<UTC date>-<first 7 characters of the pinned pmmp-core sha>`,
-for example `core-2026-10-21-971d10b`, under the name `riftal/pocketmine-mp`
-(`RELEASE_IMAGE` overrides it, `RELEASE_DATE` the date). There is no `latest`.
-An existing tag is refused rather than rebuilt, so a tag names one image on the
-daemon that built it, for as long as the tag exists there. Another daemon can
-build the same tag over different phars; riftal-pm#1622 tracks a composite tag.
-The tag carries no riftal-game commit, so the image records what it holds in
-four labels: `org.riftal.core-image`, `org.riftal.phars` (each phar's sha256),
-`org.riftal.game-commit` and `org.riftal.grants-sha256`.
-Do not record the tag in `../instances/<id>/image` until riftal-infra#1253
-lands: that one-line record is a deploy, and no instance runs the image's
-phars yet.
+The tag is
+`<UTC date>-core<7 of the pinned pmmp-core sha>-game<7 of GAME_COMMIT>-infra<7 of the riftal-infra commit>`,
+for example `2026-11-10-core971d10b-gamefcf772f-infra4f183d3`, under the name
+`riftal/pocketmine-mp` (`RELEASE_IMAGE` overrides it, `RELEASE_DATE` the date).
+There is no `latest`. An existing tag is refused rather than rebuilt. The tag
+follows every input that changes the image, so a riftal-game-only release on
+the same day gets its own tag and two daemons cannot build one tag over
+different phars.
+
+The riftal-infra commit is the `HEAD` of the checkout holding the script, the
+same checkout the Dockerfile and the core pin are read from. The build is
+refused when that checkout is not the top of a git work tree of its own with a
+commit (a subdirectory of another repository would name that repository's
+commit), when git cannot report its status, or when a tracked file differs from
+`HEAD`, since the commit would not describe what was built. Untracked files are
+not inputs and do not refuse it. Build from a committed, clean checkout of the
+commit being released.
+
+The image records what it holds in five labels: `org.riftal.core-image`,
+`org.riftal.phars` (each phar's sha256), `org.riftal.game-commit`,
+`org.riftal.infra-commit` and `org.riftal.grants-sha256`.
+Recording the tag in `../instances/<id>/image` is a deploy, and an instance
+started from the image runs the image's own phars.
 
 `release-image-selftest.sh` builds one under a `riftal_smoke_` name and checks
-the tag, the refusal of each phar when empty, the absence of a `latest` tag and
-the refusal of an existing tag. In the image it checks each phar byte for byte,
+the tag and that it changes with the riftal-game and riftal-infra commits, the
+refusal of each phar when empty, and of a checkout with no `.git`, with no
+commit, inside a `.git` directory, in a subdirectory of a repository, with a
+status git cannot report, with a modified tracked file or with a staged new
+file, the absence of a `latest` tag and the refusal of an existing tag. It runs
+a committed copy of the release files in a temporary repository, from another
+repository's directory, so the commit it checks is the one read from beside the
+script. In the image it checks each phar byte for byte,
 that `/opt/riftal/plugins` holds exactly the ten, that they are owned by
 root and mode 444, that their directories are root-owned and mode 755, that
 `pocketmine` can write none of them, that `/plugins` holds no phar, the Ubuntu
 24.04 release file, the `pocketmine` user and the pinned core revision label. It
 refuses a malformed `GAME_COMMIT` and a `GRANTS_SQL` that is not a non-empty
-file, checks `org.riftal.game-commit` and `org.riftal.grants-sha256` against
-the inputs and that the image holds no `grants.sql`. It needs the pinned core
-image on the daemon.
+file, checks `org.riftal.game-commit`, `org.riftal.infra-commit` and
+`org.riftal.grants-sha256` against the inputs and that the image holds no
+`grants.sql`. It needs the pinned core image on the daemon.
+
+`release-start-selftest.sh` builds two tags over stub plugins, ten of them as in
+`REQUIRED_PHARS`, that differ in version, then boots tag N, N+1 and N on one named `/data` volume and one reused
+`/plugins` volume that holds stale copies. Each boot must report the sha256s its
+own image's `org.riftal.phars` label names and enable exactly its roster at its
+tag's version. It also checks the refusals above, the rendered configs and that
+the server's user cannot add a file to `/opt/riftal/plugins`.
 
 ## Environment
 

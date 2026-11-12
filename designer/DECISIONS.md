@@ -1088,3 +1088,12 @@ the first tread and not the stone a mine-only box ends in front of (#1407).
 RiftalMines fragment by the item alias `minecraft:lapis_lazuli_ore`, and the ore gate refuses the build
 on that difference. The fragment is riftal-game#560's to correct, and a build with the fragment edited
 only for this run would gate nothing. `mine_c`'s index seed stays 20260907 until its level builds.
+
+## 2026-11-10 `mine_c` takes `mine_a`'s siting once its fragment names `minecraft:lapis_ore`
+
+riftal-game#560 corrected the RiftalMines `mine_c` fragment to the Bedrock id `minecraft:lapis_ore`, so the
+ore gate passes the unedited spec and the build runs against the fragment on riftal-game `main`. `mine_c`
+has the geometry of `mine_a` and `mine_b`, so it takes the same recipe on seed 23, the same two legs from
+`(0, 39, 23)` and `(0, 52, 36)` and the same surface goal `(13, 64, 36)`, and its index seed moves to 23 with
+it. `mine_c_spawn_to_surface` and `entity_clear` on `sell_npc_c` and `rankup_npc_c` mirror `mine_b`'s, and
+`tests/test_mine_a_access.py` runs over all three mines (#1412).

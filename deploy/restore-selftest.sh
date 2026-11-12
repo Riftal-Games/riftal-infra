@@ -103,7 +103,7 @@ docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=51
+EXPECTED_ASSERTIONS=55
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -131,13 +131,16 @@ provision_backup_login() {
 # PID 1 ignores it, so only the SIGKILL from -k ends the client, and that
 # leaves the container running. Removing it by name is what frees the runner.
 run_restore() {
-  local backup_set="$1" user="${2:-root}" rc=0
+  local backup_set="$1" user="${2:-root}" rc=0 mount_b=(-v "$WORLD_B_VOL:/worlds/world-b")
+  if [ -n "${RESTORE_OMIT_B:-}" ]; then
+    mount_b=()
+  fi
   timeout -k 5 60 docker run --rm -m 1g --cpus 1 --name "$RESTORE_CONTAINER" --network "$NETWORK" \
     -v "${RESTORE_SCRIPT:-$SCRIPT_DIR/restore.sh}:/deploy/restore.sh:ro" \
     -e ALLOW_UNFENCED_SET="${ALLOW_UNFENCED_SET:-}" -e ALLOW_UNCAPTURED_SET="${ALLOW_UNCAPTURED_SET:-}" \
     ${RESTORE_TAR_SHIM:+-v "$RESTORE_TAR_SHIM:/usr/local/bin/tar:ro"} \
     -v "$BACKUPS_VOL:/backups:ro" \
-    -v "$WORLD_A_VOL:/worlds/world-a" -v "$WORLD_B_VOL:/worlds/world-b" \
+    -v "$WORLD_A_VOL:/worlds/world-a" "${mount_b[@]}" \
     -e MYSQL_HOST=mysql -e MYSQL_USER="$user" -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_SET="$backup_set" \
     "$RESTORE_IMG" bash -c "${RESTORE_PRELUDE:-}bash /deploy/restore.sh" || rc=$?
@@ -414,6 +417,32 @@ RESTORE_PRELUDE='exec 9>>/worlds/world-a/server.lock; flock -s 9; '
 refused_unchanged held-lock "server.lock of volume world-a is held" root
 RESTORE_PRELUDE=
 
+section "a set whose volume is not mounted in the restore container is refused, and changes nothing"
+# A run missing one -v line. world-b's tar would be extracted into the container's
+# own filesystem and lost, while the database is rolled back to 500.
+RESTORE_OMIT_B=1
+refused_unchanged unmounted-volume "volume(s) world-b not mounted under /worlds" root
+
+unmounted_check="$LOGS/restore-skips-mount-check.sh"
+sed 's/^  mountpoint -q .* || unmounted=/  true || unmounted=/' "$SCRIPT_DIR/restore.sh" >"$unmounted_check"
+if [ "$(diff "$SCRIPT_DIR/restore.sh" "$unmounted_check" | grep -c '^<' || true)" != "1" ]; then
+  echo "the skips-mount-check mutant did not change exactly one line of restore.sh" >&2
+  exit 1
+fi
+if RESTORE_SCRIPT="$unmounted_check" run_restore "/backups/$dir1" >"$LOGS"/out-skips-mount-check.log 2>&1 \
+  && grep -q ': complete,' "$LOGS"/out-skips-mount-check.log; then
+  pass "mutant: with the mount check skipped the run reports complete with world-b unmounted"
+else
+  fail "expected the skips-mount-check mutant to report complete"; cat "$LOGS"/out-skips-mount-check.log
+fi
+[ "$(query riftal_selftest 'SELECT balance FROM accounts WHERE id = 1')" = "500" ] \
+  && pass "mutant: the database was rolled back to 500 although world-b was not restored" \
+  || fail "expected the skips-mount-check mutant to roll the database back to 500"
+RESTORE_OMIT_B=
+
+exec_sql 'UPDATE riftal_selftest.accounts SET balance = 777 WHERE id = 1'
+world_a 'echo 777 > /world/blocks_broken_mine_a.txt'
+
 # A set taken from a held volume carries the server.lock core held at the tick.
 dir7="stale-lock-$SUFFIX"
 backups "cp -r /backups/$dir1 /backups/$dir7 && d=\$(mktemp -d) && tar -xzf /backups/$dir7/worlds/world-a.tar.gz -C \$d \
@@ -528,4 +557,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1, and refusal, with nothing changed, of a set with no valid capture_mode line for every volume unless ALLOW_UNCAPTURED_SET=1, and of a volume whose server.lock is held, with a free server.lock kept through the extract, every server.lock held at each extract, including one the restore itself creates, and every server.lock given the owner of its volume directory after the extract or the restore failing loudly.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1, and refusal, with nothing changed, of a set with no valid capture_mode line for every volume unless ALLOW_UNCAPTURED_SET=1, and of a volume whose server.lock is held, and of a set with a volume not mounted in the restore container, with a free server.lock kept through the extract, every server.lock held at each extract, including one the restore itself creates, and every server.lock given the owner of its volume directory after the extract or the restore failing loudly.\n' "$PASSES"

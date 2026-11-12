@@ -3,10 +3,10 @@
 # never overwrites a file that already exists there.
 #
 # Everything below except the schema is the plugin's own shipped default
-# (riftal-game/economy/resources/config.yml), sell shop prices included.
-# selftest.sh compares every line to that file but comments, blanks and the
-# schema, which it checks against the one compose creates, riftal_dev. The
-# password stays empty: RiftalGames\Lib\Database\DatabaseSettings reads the
+# (images/riftal-game-snapshot/economy/resources/config.yml), sell shop
+# prices included. selftest.sh compares every line to that file but comments,
+# blanks and the schema, which it checks against the one compose creates,
+# riftal_dev. The password stays empty: RiftalGames\Lib\Database\DatabaseSettings reads the
 # economy login's password from RIFTAL_DB_PASSWORD_ECONOMY in the instance's
 # environment, and throws if this file holds one too (ADR 008 item 5).
 database:
@@ -24,8 +24,13 @@ sell-shop:
     "minecraft:coal": 5
     "minecraft:raw_copper": 5
     "minecraft:raw_iron": 5
+    "minecraft:raw_gold": 5
+    "minecraft:diamond": 5
     "minecraft:lapis_lazuli": 5
     "minecraft:oak_log": 5
     "minecraft:andesite": 5
     "minecraft:wheat": 5
     "minecraft:carrot": 5
+
+auction-house:
+  listing-tax-percent: 10
