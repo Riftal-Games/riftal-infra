@@ -575,6 +575,32 @@ keep an older tag's copies. `/plugins` in the image holds no phar. The script
 uses only the local Docker daemon and pushes nowhere. A registry is a separate
 decision, because a paid one costs money.
 
+The image also carries what an instance needs to join a level (ADR 043):
+
+- `/etc/riftal/world_index.json`, byte for byte `../designer/world_index.json` at
+  the infra commit in the tag.
+- `/etc/riftal/levels/<zone>/` for every zone with a committed
+  `../designer/levels/<zone>.lock.json`, and no other. Each is copied out of the
+  daemon's `riftal_smoke_level_<zone>` build volume through the pinned core image.
+  The build is refused before `docker build`, naming the zone, when that volume is
+  missing, when its `level-manifest.json` `content_sha256` is not the lock's, when its
+  file tree does not hash to the manifest's `tree_sha256`, or when the lock's
+  `core_image` is not the pinned core image's id on this daemon, so every zone is built
+  and locked on the daemon that builds the release, against the pinned tag. A build
+  with no lock at all is refused too. `LEVEL_LOCKS_DIR` and `LEVEL_VOLUME_PREFIX`
+  override the locks directory and the volume prefix, which the self-tests use to
+  build from volumes of their own.
+- `/opt/riftal/boot/deliver-world-index.sh`, `seed-levels.sh` and `level-args.sh`,
+  byte for byte the files in `../images/plugins`, so dev, CI and release run one copy,
+  and `/opt/riftal/boot/etc-riftal.sha256`, a `sha256sum` list of the index and of each
+  zone's `level-manifest.json`, the record of what the tag delivers.
+
+All of it is owned by root, files 0444, scripts 0555 and directories 0755, so
+`pocketmine` can replace none of it. Two labels join the five below:
+`org.riftal.world-index-sha256` and `org.riftal.levels`, each zone as
+`<zone>=<content_sha256>:<tree_sha256>`, comma separated. One image carries every zone
+and `RIFTAL_LEVEL_ZONES` selects, so one tag serves every instance.
+
 The image's command is `/opt/riftal/start-release.sh` (`../images/release/`),
 not core's `start-pocketmine`, which passes `--plugins=/plugins`. It builds the
 roster from `/opt/riftal/plugins` into a `mktemp -d` copy and passes PocketMine that
@@ -589,6 +615,30 @@ dev stack uses. The password of Accounts and of each added plugin comes from
 boot before PocketMine starts. A `--plugins` or `--data` in `POCKETMINE_ARGS` is
 refused. The script prints each roster phar's sha256 as a `roster` line, which
 is what the label can be compared with.
+
+Before it writes anything to `/data`, the script also refuses a `/etc/riftal` that
+fails `sha256sum -c /opt/riftal/boot/etc-riftal.sha256`, so a file or volume mounted
+over the index or over a zone's `level-manifest.json` cannot change what the tag
+delivers; a `RIFTAL_LEVEL_ZONES` zone the list does not hold; and every finding of
+`../images/plugins/level-args.sh` on `RIFTAL_LEVEL_ZONES` and `POCKETMINE_ARGS`. That
+file holds the rule `instance-levels-check.sh` applies in CI to each instance
+definition, so CI and boot read one copy: each value set, non-empty and made of letters,
+digits, space and `_ . , : = / @ + -`; each zone matching `[a-z0-9_]+` and listed once;
+every `POCKETMINE_ARGS` token one long option, since core stops reading options at the
+first token that is not; no `--worlds` token; exactly one `--level-name=<zone>`, never
+a bare `--level-name`; and that zone in the list. `instance-levels-check.sh` keeps the
+checks that need every definition or the locks: a zone two definitions list and a
+zone with no lock. Then, for each listed zone already under `/data/worlds`, it logs
+`LEVEL DIFFERS <zone> seeded=<sha|none> tag=<sha>` when the folder's
+`level-manifest.json` `content_sha256` is not the tag's, and does not refuse, since a
+rollback or a relock leaves the seeded level in place until `LEVEL-REPLACE.md`
+runs. It then runs `deliver-world-index.sh` and `seed-levels.sh` from
+`/opt/riftal/boot` with no arguments, stopping if either fails, and starts
+PocketMine. No variable the script reads skips or weakens any of these steps. An
+instance's `--level-name` comes from its `POCKETMINE_ARGS`. A release compose must
+set no `command:` or `entrypoint:` on a release-image service and mount nothing at
+or below `/etc/riftal` or `/opt/riftal`; a mount over `/opt/riftal/boot` replaces the
+digest list and the scripts it vouches for.
 
 `RiftalDownstreamLimit.php` turns RakLib's per-address packet limit off on
 every RakLib interface, because behind the proxy all players share the proxy's
@@ -646,9 +696,10 @@ commit), when git cannot report its status, or when a tracked file differs from
 not inputs and do not refuse it. Build from a committed, clean checkout of the
 commit being released.
 
-The image records what it holds in five labels: `org.riftal.core-image`,
+The image records what it holds in seven labels: `org.riftal.core-image`,
 `org.riftal.phars` (each phar's sha256), `org.riftal.game-commit`,
-`org.riftal.infra-commit` and `org.riftal.grants-sha256`.
+`org.riftal.infra-commit`, `org.riftal.grants-sha256`,
+`org.riftal.world-index-sha256` and `org.riftal.levels`.
 Recording the tag in `../instances/<id>/image` is a deploy, and an instance
 started from the image runs the image's own phars.
 
@@ -668,14 +719,39 @@ root and mode 444, that their directories are root-owned and mode 755, that
 refuses a malformed `GAME_COMMIT` and a `GRANTS_SQL` that is not a non-empty
 file, checks `org.riftal.game-commit`, `org.riftal.infra-commit` and
 `org.riftal.grants-sha256` against the inputs and that the image holds no
-`grants.sql`. It needs the pinned core image on the daemon.
+`grants.sql`. It bakes two fixture zones from volumes under its own
+`riftal_smoke_` prefix, locked against the pinned core image, never the dev
+stack's build volumes or the committed locks. It refuses, naming the zone, a lock
+with no volume (and leaves none created), a manifest whose `content_sha256` is not
+the lock's, a tree that is not its manifest's and a lock built on another core
+image, and refuses a locks directory with no lock, each before a build. In the
+image it checks that the index and the three boot scripts equal the checkout's
+files byte for byte, that `/etc/riftal/levels` holds exactly the locked zones and
+that each hashes to its manifest, that the two new labels match, that the digest
+list checks and lists the index and each manifest, that everything under
+`/etc/riftal` and `/opt/riftal/boot` is root-owned with the modes above, and that
+`pocketmine` can write none of it. It needs the pinned core image on the daemon.
 
 `release-start-selftest.sh` builds two tags over stub plugins, ten of them as in
 `REQUIRED_PHARS`, that differ in version, then boots tag N, N+1 and N on one named `/data` volume and one reused
 `/plugins` volume that holds stale copies. Each boot must report the sha256s its
 own image's `org.riftal.phars` label names and enable exactly its roster at its
 tag's version. It also checks the refusals above, the rendered configs and that
-the server's user cannot add a file to `/opt/riftal/plugins`.
+the server's user cannot add a file to `/opt/riftal/plugins`. The tags carry two
+zones copied from one level the core image generates into `riftal_smoke_`
+volumes of the self-test's own. The first boot, on an empty `/data`, must seed
+both with the tag's hashes and deliver the index to the six plugin folders, the
+second must seed nothing and log no `LEVEL DIFFERS`, and a third on a volume whose
+seeded zone has another `content_sha256` must boot and log it. Each boot
+refusal of the list above must stop the start command with its reason and leave
+the `/data` it was given empty: an index or a zone manifest mounted over the
+image's, a zone the image lacks, and every unset, empty or bad-character value of
+`RIFTAL_LEVEL_ZONES` and `POCKETMINE_ARGS`, a `--level-name` outside the list, two
+of them, none, a bare one, a `--worlds` token, a value token before it, a zone
+outside `[a-z0-9_]+` and a repeated zone. A volume over a zone whose manifest is
+the tag's and whose tree is not is refused by `seed-levels.sh` with nothing under
+`/data/worlds`. `instance-levels-check-selftest.sh` runs unchanged against the
+shared `level-args.sh`.
 
 ## Environment
 
