@@ -2,7 +2,7 @@
 # Builds the release image (spec 016, acceptance criterion 3): the core image
 # pinned by images/core-image.sha plus the ten production phars in
 # /opt/riftal/plugins, under an immutable tag on the local daemon. Nothing is
-# pushed anywhere.
+# pushed anywhere. The script plugins of SHIPPED_PLUGINS go in the same place.
 #
 #   release-image.sh <directory holding the built phars>
 #
@@ -30,7 +30,7 @@
 #
 # Sourcing this file sets errexit, nounset and pipefail in the caller, sources
 # images/core-image.sh and defines SCRIPT_DIR, release_tag, infra_commit,
-# REQUIRED_PHARS and main. It builds nothing.
+# REQUIRED_PHARS, SHIPPED_PLUGINS, plugin_config and main. It builds nothing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,6 +41,10 @@ REQUIRED_PHARS=(
   RiftalMines.phar RiftalRanks.phar RiftalEconomy.phar
   RiftalGangs.phar RiftalRiots.phar RiftalPlots.phar RiftalAnvil.phar
 )
+
+# Script plugins read from images/plugins in this repository. The phars come
+# from riftal-game; these are riftal-infra's own.
+SHIPPED_PLUGINS=(RiftalDownstreamLimit.php)
 
 # $1 UTC date as YYYY-MM-DD, $2 the pinned pmmp-core sha, $3 the riftal-game
 # commit, $4 the riftal-infra commit, each a full 40-character sha. Prints the
@@ -92,11 +96,22 @@ infra_commit() {
   printf '%s\n' "$sha"
 }
 
+# $1 a plugin name. Prints the dev stack's config for it, which start-release.sh
+# renders the database host and schema of.
+plugin_config() {
+  local images="$SCRIPT_DIR/../images/plugins"
+  case "$1" in
+    RiftalAccounts) printf '%s\n' "$images/RiftalAccounts.config.yml" ;;
+    RiftalMines) printf '%s\n' "$images/instance-only/RiftalMines.config.yml.template" ;;
+    *) printf '%s\n' "$images/instance-only/$1.config.yml" ;;
+  esac
+}
+
 main() {
   local phars="${1:?usage: release-image.sh <directory holding the built phars>}"
   local image="${RELEASE_IMAGE:-riftal/pocketmine-mp}"
   local date="${RELEASE_DATE:-$(date -u +%F)}"
-  local name tag ref ctx sums="" id
+  local name tag ref ctx sums="" scripts="" id
   local commit="${GAME_COMMIT:-}" grants="${GRANTS_SQL:-}" grants_sha infra
 
   for name in "${REQUIRED_PHARS[@]}"; do
@@ -140,11 +155,26 @@ main() {
     sums+="${sums:+,}$name=$(sha256sum "$ctx/plugins/$name" | cut -d' ' -f1)"
   done
 
+  for name in "${SHIPPED_PLUGINS[@]}"; do
+    cp "$SCRIPT_DIR/../images/plugins/$name" "$ctx/plugins/$name"
+    chmod 0444 "$ctx/plugins/$name"
+    scripts+="${scripts:+,}$name=$(sha256sum "$ctx/plugins/$name" | cut -d' ' -f1)"
+  done
+
+  cp "$SCRIPT_DIR/../images/release/start-release.sh" "$ctx/start-release.sh"
+  chmod 0555 "$ctx/start-release.sh"
+  for name in RiftalAccounts RiftalMines RiftalRanks RiftalEconomy; do
+    mkdir -p "$ctx/plugin_data/$name"
+    cp "$(plugin_config "$name")" "$ctx/plugin_data/$name/config.yml"
+    chmod 0444 "$ctx/plugin_data/$name/config.yml"
+  done
+
   docker build \
     --build-arg "CORE_REPO=${CORE_IMAGE%:*}" \
     --build-arg "CORE_TAG=${CORE_IMAGE##*:}" \
     --label "org.riftal.core-image=$CORE_IMAGE" \
     --label "org.riftal.phars=$sums" \
+    --label "org.riftal.script-plugins=$scripts" \
     --label "org.riftal.game-commit=$commit" \
     --label "org.riftal.infra-commit=$infra" \
     --label "org.riftal.grants-sha256=$grants_sha" \
