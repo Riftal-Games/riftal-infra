@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=263
+EXPECTED_ASSERTIONS=279
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -721,6 +721,19 @@ add_third_tag() {
   add_definition mines-c 2026.11.10-y
 }
 
+add_unreferenced_unreadable_definition() {
+  add_second_instance
+  add_definition mines-c latest
+}
+
+# backup on the release image's repository, with the command and the mount
+# that image's rules would have refused.
+put_backup_on_release_image() {
+  sed -i '/^  backup:/,/^  migrate:/s#riftal/backup:2026.11.12-a#riftal/pocketmine-mp:2026.11.12-a#' "$ALPHA_COMPOSE"
+  add_after "$ALPHA_COMPOSE" backup '^    image:' '    command: ["sleep", "infinity"]'
+  add_after "$ALPHA_COMPOSE" backup '^      - riftal-backups' '      - /srv/boot:/opt/riftal:ro'
+}
+
 add_second_publisher() {
   add_second_instance
   add_after "$ALPHA_COMPOSE" instance-b '^    image:' \
@@ -862,6 +875,26 @@ alpha_case "" sed -i '/^    env_file:$/{N;s#\n      - # #}' "$ALPHA_COMPOSE"
 expect_alpha_scope
 expect_real_alpha
 
+# expect_real_alpha_file <name> <content> <needle> plants one file under
+# deploy/alpha/ of the tree the no-argument scan reads, whatever it holds, and
+# expects the scan to list it, check it and fail with the needle in its output.
+expect_real_alpha_file() {
+  local name="$1" content="$2" needle="$3" out status
+  mkdir -p "$PLANTED_DIR/deploy/alpha"
+  printf '%b' "$content" > "$PLANTED_DIR/deploy/alpha/$name"
+  out="$(cd "$REPO_ROOT" && bash "$SCAN" ports 2>&1)"
+  status=$?
+  rm -rf "$PLANTED_DIR"
+  if [ "$status" -ne 0 ] \
+    && printf '%s' "$out" | grep -qF "checking ./.ci-realscan-planted/deploy/alpha/$name" \
+    && printf '%s' "$out" | grep -qF "$needle"; then
+    pass "the real ports invocation checks a planted deploy/alpha/$name and fails with '$needle'"
+  else
+    fail "expected the real ports invocation to check a planted deploy/alpha/$name and fail with '$needle', exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
 section "alpha port policy, a publishing service authenticates its own players"
 alpha_case ALPHA_PUBLISH_XBOX_AUTH sed -i 's/--xbox-auth=true/--xbox-auth=false/' instances/mines/instance.env
 alpha_case ALPHA_PUBLISH_XBOX_AUTH sed -i 's/ --xbox-auth=true//' instances/mines/instance.env
@@ -886,6 +919,8 @@ alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^  
 alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^    restart:' '    tmpfs: /opt'
 alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_config_target /etc/riftal/levels
 alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_secret_target /opt/riftal/boot
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - /srv/boot://opt/riftal:ro'
+alpha_case ALPHA_BACKUP_MISSING_RO_MOUNT sed -i -e 's#riftal-world:/data#riftal-world://data#' -e '/riftal-world:\/worlds\/riftal-world:ro/d' "$ALPHA_COMPOSE"
 alpha_case ALPHA_RELEASE_VOLUMES_FROM add_after "$ALPHA_COMPOSE" instance '^    restart:' '    volumes_from:\n      - backup'
 alpha_case ALPHA_RELEASE_ENV_FILE_EXTRA add_second_env_file
 alpha_case ALPHA_RELEASE_ENV_ZONES add_after "$ALPHA_COMPOSE" instance '^    environment:' '      RIFTAL_LEVEL_ZONES: mine_a'
@@ -893,6 +928,7 @@ alpha_case ALPHA_RELEASE_ENV_ZONES list_environment_with_zones
 alpha_case ALPHA_RELEASE_ENV_ARGS add_after "$ALPHA_COMPOSE" instance '^    environment:' '      POCKETMINE_ARGS: --level-name=mine_a --xbox-auth=true --auto-report.enabled=0'
 alpha_case ALPHA_RELEASE_TAG_MISMATCH sed -i 's#riftal/pocketmine-mp:2026.11.12-a#riftal/pocketmine-mp:2026.11.12-b#' "$ALPHA_COMPOSE"
 alpha_case ALPHA_RELEASE_NO_DEFINITION point_at_stray_env
+alpha_case ALPHA_OPS_ON_RELEASE_IMAGE put_backup_on_release_image
 
 section "alpha lint, ADR 045 item 4 on tags, capture, backup and volumes"
 alpha_case ALPHA_BACKUP_MIGRATE_TAG_DIFFER sed -i '/^  backup:/,/^  migrate:/s#riftal/backup:2026.11.12-a#riftal/backup:2026.11.12-b#' "$ALPHA_COMPOSE"
@@ -921,6 +957,19 @@ alpha_case ALPHA_INCLUDE add_include
 alpha_case ALPHA_SERVICE_MISSING sed -i '/^  migrate:/,$d' "$ALPHA_COMPOSE"
 alpha_case ALPHA_IMAGE_TAG_UNREADABLE sed -i 's#riftal/pocketmine-mp:2026.11.12-a#riftal/pocketmine-mp:latest#' "$ALPHA_COMPOSE"
 alpha_case "ALPHA_DEFINITION_IMAGE_UNREADABLE ALPHA_RELEASE_TAG_UNNAMED" sed -i 's#:.*#:latest#' instances/mines/image
+alpha_case ALPHA_DEFINITION_IMAGE_UNREADABLE add_unreferenced_unreadable_definition
+alpha_case ALPHA_MOUNT_INTERPOLATED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - riftal-data:${T:-/opt/riftal/boot}'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - ${S:-/srv}:/srv/boot:ro'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - type: bind\n        source: /srv/boot\n        target: ${T:-/etc/riftal}'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_after "$ALPHA_COMPOSE" instance '^    restart:' '    tmpfs: ${T:-/opt/riftal}'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_config_target '${T:-/etc/riftal}'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_secret_target '${T:-/opt/riftal/boot}'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_after "$ALPHA_COMPOSE" backup '^      - riftal-backups' '      - /srv/out:${T:-/opt/riftal}'
+alpha_case ALPHA_MOUNT_INTERPOLATED sed -i 's#riftal-world:/data#riftal-world:${T:-/data}#' "$ALPHA_COMPOSE"
+expect_real_alpha_file compose.yaml 'include:\n  - extra.yaml\n' ': ALPHA_INCLUDE: '
+expect_real_alpha_file compose.override.yaml 'services:\n  instance:\n    restart: always\n' ': ALPHA_COMPOSE_OVERRIDE: '
+expect_real_alpha_file notes.yaml '- not\n- a mapping\n' 'the compose file is not a mapping'
+expect_real_alpha_file quoted.yaml '"services":\n  mysql:\n    image: mysql\n' ': ALPHA_SERVICE_MISSING: '
 
 section "php lint, broken file at each position in a multi-file batch"
 expect_php_lint_clean "$FIXTURES/good/php-plugins"

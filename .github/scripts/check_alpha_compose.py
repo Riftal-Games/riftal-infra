@@ -26,6 +26,9 @@ ADR 043 items 3 and 4, on a release-image service:
                                 POCKETMINE_ARGS in environment:, which overrides
                                 env_file: and boots what CI never read
   ALPHA_RELEASE_TAG_MISMATCH    its image: is not its instances/<id>/image
+  ALPHA_OPS_ON_RELEASE_IMAGE    a mysql, backup or migrate service whose image
+                                is the repository of an instances/<id>/image,
+                                which would sit outside every rule above
   ALPHA_RELEASE_ENV_FILE_EXTRA  an env_file: entry other than its definition's
                                 instance.env, a second source for the flags
 
@@ -54,6 +57,11 @@ Left to this lint by ADR 045 rows 17 and 18 and ADR 043 item 3:
                                 env_file: of a release-image service
 
 What the rules above need to read, and refuse when they cannot:
+  ALPHA_MOUNT_INTERPOLATED       interpolation in any mount entry of any
+                                 service: volumes:, tmpfs:, or the target: of a
+                                 configs: or secrets: entry
+  ALPHA_COMPOSE_OVERRIDE         a compose override file, which compose merges
+                                 into a model this lint never judges merged
   ALPHA_EXTENDS                  extends: on any service, which takes keys from
                                  a service this lint never reads
   ALPHA_INCLUDE                  a top-level include:, which adds services this
@@ -64,8 +72,12 @@ What the rules above need to read, and refuse when they cannot:
                                  digest instead, or with interpolation in it
   ALPHA_RELEASE_NO_DEFINITION    no env_file: entry resolves to
                                  instances/<id>/instance.env
-  ALPHA_DEFINITION_IMAGE_UNREADABLE  that definition's image file is missing or
-                                 does not hold one <image>:<tag> line
+  ALPHA_DEFINITION_IMAGE_UNREADABLE  an instances/<id>/image file, named by a
+                                 service or not, that is missing or does not
+                                 hold one <image>:<tag> line
+
+Mount targets are collapsed to one canonical slash form before any path test, so
+//opt/riftal is /opt/riftal.
 
 Usage: check_alpha_compose.py --alpha-root DIR FILE
 Exit 0 when clean, 1 when there are findings, 2 when the input is unreadable.
@@ -93,6 +105,12 @@ RESERVED_MOUNTS = ("/etc/riftal", "/opt/riftal")
 CAPTURE_VOLUME = "riftal-capture"
 CAPTURE_TARGET = "/capture"
 INSTANCE_DATA_TARGET = "/data"
+OVERRIDE_NAMES = {
+    "compose.override.yml",
+    "compose.override.yaml",
+    "docker-compose.override.yml",
+    "docker-compose.override.yaml",
+}
 TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 
 
@@ -106,10 +124,46 @@ def image_tag(image):
     return tag
 
 
+def canonical_path(path):
+    """An absolute path with dot segments resolved and no doubled leading slash,
+    which normpath keeps."""
+    path = posixpath.normpath(str(path))
+    if path.startswith("//"):
+        path = "/" + path.lstrip("/")
+    return path
+
+
+def image_repository(image):
+    """An image reference without its tag or digest."""
+    image = str(image).split("@", 1)[0]
+    head, sep, tag = image.rpartition(":")
+    return head if sep and "/" not in tag else image
+
+
+def tmpfs_entries(service):
+    tmpfs = service.get("tmpfs") or []
+    return [tmpfs] if isinstance(tmpfs, str) else tmpfs
+
+
+def interpolated_mounts(service):
+    """(key, entry) of each mount entry with a $ in it. The lint reads the file
+    as written and cannot know what the value is."""
+    found = [("volumes", e) for e in service.get("volumes") or [] if "$" in str(e)]
+    found += [("tmpfs", e) for e in tmpfs_entries(service) if "$" in str(e)]
+    for key in ("configs", "secrets"):
+        for entry in service.get(key) or []:
+            if isinstance(entry, dict) and "$" in str(entry.get("target", "")):
+                found.append((key, entry))
+    return found
+
+
 def mounts(service):
-    """Every entry of volumes:, short or long syntax, as one shape."""
+    """Every entry of volumes: without interpolation, short or long syntax, as
+    one shape."""
     found = []
     for entry in service.get("volumes") or []:
+        if "$" in str(entry):
+            continue
         if isinstance(entry, str):
             parts = entry.split(":")
             source = parts[0] if len(parts) > 1 else None
@@ -131,7 +185,7 @@ def mounts(service):
         found.append(
             {
                 "source": source,
-                "target": posixpath.normpath(str(target)) if target else "",
+                "target": canonical_path(target) if target else "",
                 "read_only": read_only,
                 "bind": is_bind,
             }
@@ -155,22 +209,23 @@ def absolute_target(target, relative_base):
     target = str(target)
     if not target.startswith("/"):
         target = posixpath.join(relative_base, target)
-    return posixpath.normpath(target)
+    return canonical_path(target)
 
 
 def extra_mount_targets(service):
     """(key, target) of what tmpfs: and the long form of configs: and secrets:
     mount, which volumes: does not cover."""
     found = []
-    tmpfs = service.get("tmpfs") or []
-    if isinstance(tmpfs, str):
-        tmpfs = [tmpfs]
-    for entry in tmpfs:
-        if isinstance(entry, str):
+    for entry in tmpfs_entries(service):
+        if isinstance(entry, str) and "$" not in entry:
             found.append(("tmpfs", absolute_target(entry.split(":")[0], "/")))
     for key, base in (("configs", "/"), ("secrets", "/run/secrets")):
         for entry in service.get(key) or []:
-            if isinstance(entry, dict) and entry.get("target"):
+            if (
+                isinstance(entry, dict)
+                and entry.get("target")
+                and "$" not in str(entry["target"])
+            ):
                 found.append((key, absolute_target(entry["target"], base)))
     return found
 
@@ -226,6 +281,21 @@ def read_definition_image(definitions, ident):
     return lines[0]
 
 
+def definition_repositories(definitions):
+    """The image repository each instances/<id>/image names, readable or not."""
+    found = set()
+    if definitions.is_dir():
+        for entry in sorted(definitions.iterdir()):
+            try:
+                text = (entry / "image").read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            lines = text.splitlines()
+            if lines and lines[0].strip():
+                found.add(image_repository(lines[0].strip()))
+    return found
+
+
 def definition_images(definitions):
     images = {}
     if definitions.is_dir():
@@ -245,6 +315,14 @@ def lint(path, alpha_root, document, findings):
     def add(code, where, detail):
         findings.append(Finding(code, path, where, detail))
 
+    if Path(path).name.lower() in OVERRIDE_NAMES:
+        add(
+            "ALPHA_COMPOSE_OVERRIDE",
+            "file",
+            "a compose override file, which compose merges into a model this "
+            "lint does not judge merged.",
+        )
+
     if "include" in document:
         add(
             "ALPHA_INCLUDE",
@@ -263,6 +341,14 @@ def lint(path, alpha_root, document, findings):
                 where,
                 "an extends:, which takes keys from a service this lint does "
                 "not read.",
+            )
+
+        for key, entry in interpolated_mounts(service):
+            add(
+                "ALPHA_MOUNT_INTERPOLATED",
+                where,
+                f"{key} entry {entry!r} has interpolation, which this lint "
+                "cannot resolve to a path.",
             )
 
         if "build" in service:
@@ -360,6 +446,26 @@ def lint(path, alpha_root, document, findings):
                 "services",
                 f"definitions name {', '.join(others)} besides the release tag "
                 f"{release_tag}. One is the most a serial rollout leaves behind.",
+            )
+
+    for ident, image in images.items():
+        if image is None:
+            add(
+                "ALPHA_DEFINITION_IMAGE_UNREADABLE",
+                f"instances.{ident}",
+                f"instances/{ident}/image is missing or is not one "
+                "<image>:<tag> line.",
+            )
+
+    repositories = definition_repositories(definitions)
+    for name in sorted(OPS_SERVICES & services.keys()):
+        image = services[name].get("image")
+        if isinstance(image, str) and image_repository(image) in repositories:
+            add(
+                "ALPHA_OPS_ON_RELEASE_IMAGE",
+                f"services.{name}",
+                f"image {image} is the repository of an instances/<id>/image, "
+                "so the release-image rules would not judge it.",
             )
 
     backup_mounts = mounts(services["backup"]) if "backup" in services else []
@@ -467,14 +573,17 @@ def lint(path, alpha_root, document, findings):
                 "no env_file: entry is an instances/<id>/instance.env of this "
                 "tree, so its tag cannot be compared with a definition.",
             )
-        elif images.get(ident) is None:
+        elif ident not in images:
             add(
                 "ALPHA_DEFINITION_IMAGE_UNREADABLE",
                 where,
-                f"instances/{ident}/image is missing or is not one "
-                "<image>:<tag> line.",
+                f"instances/{ident}/image is missing.",
             )
-        elif image_tag(image) is not None and image != images[ident]:
+        elif (
+            images[ident] is not None
+            and image_tag(image) is not None
+            and image != images[ident]
+        ):
             add(
                 "ALPHA_RELEASE_TAG_MISMATCH",
                 where,
