@@ -1,0 +1,17 @@
+# The ops image: the image images/backup/Dockerfile builds (ubuntu:24.04 and the
+# MySQL client, hard rule 7) plus the host-side scripts, runbooks, SQL and zone
+# locks of one release tag (ADR 045). deploy/release-image.sh builds the base
+# and this image, and names the tag. The base is its own argument and its default
+# names an image that does not exist, so a build that is not given the base fails.
+#
+# Everything is owned by root and its modes are set in the build context by
+# deploy/release-image.sh. The image runs as root, which backup.sh, restore.sh
+# and run-migrations.sh need for the volumes and the database.
+ARG BACKUP_BASE=riftal-backup-base:base-required
+FROM ${BACKUP_BASE}
+
+COPY --chown=0:0 ops/ /opt/riftal/ops/
+COPY --chown=0:0 sql/ /opt/riftal/sql/
+COPY --chown=0:0 ops.sha256 /opt/riftal/ops.sha256
+
+CMD ["/opt/riftal/ops/deploy/backup-loop.sh"]

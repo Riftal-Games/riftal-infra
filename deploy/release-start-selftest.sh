@@ -56,6 +56,8 @@ cleanup() {
   docker rm -v "$cname" >/dev/null 2>&1 || true
   docker volume rm "$data_vol" "$plugins_vol" "$gen_vol" "$empty_vol" "$tree_vol" "${level_vols[@]}" >/dev/null 2>&1 || true
   docker image rm "$image:$tag_n" "$image:$tag_m" >/dev/null 2>&1 || true
+  docker image rm "riftal_smoke_start/backup:$tag_n" "riftal_smoke_start/backup:$tag_m" \
+    "riftal_smoke_start/backup-base:$tag_n" "riftal_smoke_start/backup-base:$tag_m" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -116,6 +118,9 @@ PHP
 export GAME_COMMIT
 export GRANTS_SQL="$work/grants.sql"
 printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\n' > "$GRANTS_SQL"
+mkdir "$work/migrations"
+printf 'CREATE TABLE smoke_start (id INT);\n' > "$work/migrations/0001_start.sql"
+export MIGRATIONS_DIR="$work/migrations" BACKUP_IMAGE="riftal_smoke_start/backup"
 
 core_image
 for version in 1.0.0 2.0.0 0.0.1; do

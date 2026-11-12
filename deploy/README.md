@@ -559,8 +559,8 @@ container runtime that serves labels, and fixture files, and starts no container
 
 ## Release image
 
-`GAME_COMMIT=<sha> GRANTS_SQL=<grants.sql> release-image.sh <phars directory>`,
-run from a clean checkout of riftal-infra, builds an image on top of the pinned core
+`GAME_COMMIT=<sha> GRANTS_SQL=<grants.sql> MIGRATIONS_DIR=<migrations directory>
+release-image.sh <phars directory>`, run from a clean checkout of riftal-infra, builds an image on top of the pinned core
 image, `../images/core-image.sha`, which is `ubuntu:24.04` underneath and must
 already be on the daemon, since nothing here builds or pulls it. The image adds
 ten production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
@@ -650,11 +650,15 @@ port (spec 016). `images/plugins/downstream-limit/selftest.sh` holds it.
 
 `GAME_COMMIT` is the full lowercase 40-character riftal-game sha the phars and
 `GRANTS_SQL` were built from, and `GRANTS_SQL` is that commit's `grants.sql`.
-The script refuses a `GAME_COMMIT` that is unset or malformed and a `GRANTS_SQL`
-that is unset, missing, a directory or empty, and records them in the labels
+`MIGRATIONS_DIR` is that commit's `lib/resources/sql/migrations/`.
+The script refuses a `GAME_COMMIT` that is unset or malformed, a `GRANTS_SQL`
+that is unset, missing, a directory or empty, and a `MIGRATIONS_DIR` that is not
+a directory holding a `.sql` file, and records them in the labels
 `org.riftal.game-commit` and `org.riftal.grants-sha256`. It is the operator's
 word that they match the phars, since nothing here builds
-riftal-game. The file itself is not put in the image.
+riftal-game. The file itself is not put in this image: the same run builds the
+ops image `riftal/backup:<tag>` first (ADR 045), which holds it with the
+migrations, the host scripts and their `ops.sha256`.
 
 The phars come from riftal-game's build. The recipes are in
 `../images/README.md` (Custody, Accounts, contracts) and in
