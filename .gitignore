@@ -23,6 +23,10 @@ CLAUDE.local.md
 !.claude/
 !.claude/**
 
+# The global ignore of `CLAUDE.md` would silently drop any nested one, such as
+# designer/CLAUDE.md. CLAUDE.local.md stays ignored by its own rule above.
+!CLAUDE.md
+
 # Must come after the negations above so it stays the last matching rule;
 # otherwise the broader !.claude/** re-includes this local, per-machine file.
 .claude/settings.local.json
