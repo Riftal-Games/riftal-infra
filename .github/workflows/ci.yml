@@ -33,13 +33,13 @@ jobs:
     # than its reap_after, as left by a run that has ended, and fails unless
     # every job here times out sooner. The capture proofs take four of these.
     #
-    # A run on an idle daemon takes about 22 minutes. Runners of every repo
+    # A run on an idle daemon takes about 30 minutes. Runners of every repo
     # share one docker daemon, and a single step there has run 1.3 to 2.6 times
-    # longer while another build runs. The steps do not all slow at once, so 45
+    # longer while another build runs. The steps do not all slow at once, so 60
     # covers twice the idle time of the whole job, not 2.6 times. A concurrency
     # group cannot serialise this job: it queues one pending run and cancels
     # the others, and it cannot see another repo's builds.
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       # actions/checkout v4.4.0, pinned by commit so a tag move cannot change
@@ -168,7 +168,7 @@ jobs:
         run: bash deploy/release-image-selftest.sh
 
       # Two image builds and three boots of a few seconds each. The bound
-      # keeps one wedged boot from spending the rest of the job's 45 minutes.
+      # keeps one wedged boot from spending the rest of the job's 60 minutes.
       - name: Release image start command self-test
         timeout-minutes: 8
         run: bash deploy/release-start-selftest.sh
@@ -204,7 +204,7 @@ jobs:
         run: bash images/plugins/join-order/selftest.sh
 
       # A healthy run takes under half a minute. The bound keeps one wedged
-      # boot from spending the rest of the job's 45 minutes.
+      # boot from spending the rest of the job's 60 minutes.
       - name: Dev bots watch camera self-test
         timeout-minutes: 10
         run: bash images/plugins/watch/selftest.sh
@@ -234,7 +234,7 @@ jobs:
         run: bash images/plugins/instance-only/boot-selftest.sh
 
       # Boots the pinned core image three times, the first to generate the fixture level.
-      # A healthy run takes under a minute; the bound stops one wedged boot spending the job's 45 minutes.
+      # A healthy run takes under a minute; the bound stops one wedged boot spending the job's 60 minutes.
       - name: Level seed step on the pinned core image self-test
         timeout-minutes: 10
         run: bash images/plugins/seed-levels-selftest.sh
@@ -271,8 +271,16 @@ jobs:
       - name: Restore drill self-test
         run: bash deploy/restore-selftest.sh
 
+      # Builds the ops image from this checkout and runs the three self-tests
+      # above again from its own tree. The migration runner's client there is
+      # Ubuntu's, not mysql:8's. They take about 8 minutes on an idle daemon, so
+      # 25 covers a step slowed by 2.6 times.
+      - name: Ops image runs the migration, dump and restore self-tests
+        timeout-minutes: 25
+        run: bash deploy/ops-image-selftest.sh
+
       # Each scenario has its own mysql:8, and they run seven at a time. The bound
-      # stops one wedged container spending the job's 45 minutes.
+      # stops one wedged container spending the job's 60 minutes.
       - name: Level replace runbook script exits self-test
         timeout-minutes: 10
         run: bash deploy/level-replace-selftest.sh

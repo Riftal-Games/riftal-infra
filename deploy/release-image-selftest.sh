@@ -30,13 +30,16 @@
 # loop. Its ops.sha256 lists the checkout's host files, the zone locks, the
 # MIGRATIONS_DIR files and GRANTS_SQL byte for byte and verifies in it, nothing
 # else is under /opt/riftal, root owns it all with files 0444, scripts 0555 and
-# directories 0755, its labels equal the release image's and record the
+# directories 0755, its labels equal the release image's, both grants-sha256
+# labels are the sha256 of the grants.sql inside it, and they record the
 # migrations and ops.sha256, the release image's org.riftal.backup-image is its
 # id, and its command is backup-loop.sh. Every top-level .sh of deploy/,
 # migrations/ and images/ is on exactly one of the two lists, a fixture script on
 # neither or on both fails the build naming it, as does a host script missing
 # from the checkout, a MIGRATIONS_DIR with no .sql file and one holding a file
-# that cannot be copied, and an existing ops image tag is refused.
+# that cannot be copied, and an existing ops image tag is refused. The ops image
+# is on ubuntu 24.04, carries the runbooks git tracks and no untracked one, and
+# HOST_SCRIPTS is ADR 045's list of 13.
 # Builds on the local daemon under riftal_smoke_ names and removes them. Needs
 # the core image pinned in images/core-image.sha.
 set -euo pipefail
@@ -46,7 +49,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=87
+EXPECTED_ASSERTIONS=91
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -87,6 +90,8 @@ work="$(mktemp -d)"
 infra="$work/infra"
 commit_checkout "$infra"
 infra_sha="$(git -C "$infra" rev-parse HEAD)"
+# Untracked, and not an input to the build, so no image may carry it.
+printf 'untracked\n' > "$infra/deploy/untracked-runbook.md"
 tag="2026-10-21-core${sha:0:7}-game${GAME_COMMIT:0:7}-infra${infra_sha:0:7}"
 # A different repository with a commit of its own, as the working directory of
 # every run, so a commit read from the working directory names the wrong one.
@@ -274,6 +279,15 @@ if out="$(classify_scripts "$infra")"; then
   pass "every top-level .sh of deploy, migrations and images is on exactly one list"
 else
   fail "the lists do not sort every script: $out"
+fi
+adr_host="deploy/backup.sh deploy/backup-loop.sh deploy/restore.sh deploy/wipe.sh deploy/wipe-volumes.sh
+  deploy/wipe-check.sh deploy/binlog-check.sh deploy/custody-alert-check.sh deploy/grants-revoke-check.sh
+  deploy/write-latency-probe.sh deploy/write-latency-check.sh migrations/run-migrations.sh images/loads-check.sh"
+# shellcheck disable=SC2086
+if [ "$(printf '%s\n' "${HOST_SCRIPTS[@]}" | LC_ALL=C sort)" = "$(printf '%s\n' $adr_host | LC_ALL=C sort)" ]; then
+  pass "HOST_SCRIPTS is the 13 scripts ADR 045 item 1 lists"
+else
+  fail "HOST_SCRIPTS is not ADR 045's list: ${HOST_SCRIPTS[*]}"
 fi
 commit_checkout "$work/unclassified"
 printf '#!/bin/sh\n' > "$work/unclassified/deploy/new-tool.sh"
@@ -541,7 +555,7 @@ else
   for rel in "${HOST_SCRIPTS[@]}" deploy/write-latency-probe.php migrations/README.md images/README.md; do
     want_src+=("$infra/$rel:ops/$rel")
   done
-  for f in "$infra"/deploy/*.md; do want_src+=("$f:ops/deploy/${f##*/}"); done
+  for f in $(git -C "$infra" ls-files -- 'deploy/*.md'); do want_src+=("$infra/$f:ops/$f"); done
   for f in "$locks"/*.lock.json; do want_src+=("$f:ops/designer/levels/${f##*/}"); done
   for f in "$migrations"/*.sql; do want_src+=("$f:sql/migrations/${f##*/}"); done
   want_src+=("$GRANTS_SQL:sql/grants.sql")
@@ -553,6 +567,17 @@ else
     pass "ops.sha256 holds the sha256 of each source file and covers every file under /opt/riftal"
   else
     fail "ops.sha256 holds: $got_sums"
+  fi
+  if [ -z "$(in_b find /opt/riftal -name untracked-runbook.md)" ]; then
+    pass "an untracked deploy/*.md is not in the ops image"
+  else
+    fail "the ops image carries an untracked deploy/*.md"
+  fi
+  bos="$(in_b sh -c '. /etc/os-release && echo "$ID $VERSION_ID"')"
+  if [ "$bos" = "ubuntu 24.04" ]; then
+    pass "the ops image is ubuntu 24.04"
+  else
+    fail "the ops image is $bos, not ubuntu 24.04"
   fi
   if in_b sh -c 'cd /opt/riftal && sha256sum -c --quiet ops.sha256' >/dev/null 2>&1; then
     pass "ops.sha256 verifies the tree and the SQL in the image"
@@ -575,6 +600,13 @@ else
     pass "the ops image's infra-commit, game-commit and grants-sha256 labels equal the release image's"
   else
     fail "the ops image's org.riftal.$same differs from the release image's"
+  fi
+  in_b_grants="$(in_b sha256sum /opt/riftal/sql/grants.sql | cut -d' ' -f1)"
+  if [ -n "$in_b_grants" ] && [ "$(label_of "$bimage:$tag" org.riftal.grants-sha256)" = "$in_b_grants" ] \
+    && [ "$(label_of "$image:$tag" org.riftal.grants-sha256)" = "$in_b_grants" ]; then
+    pass "both images' grants-sha256 label is the sha256 of the grants.sql inside the ops image"
+  else
+    fail "a grants-sha256 label is not the sha256 of the ops image's grants.sql, $in_b_grants"
   fi
   want_migrations="$(cd "$migrations" && sha256sum -- *.sql | sha256sum | cut -d' ' -f1)"
   if [ "$(label_of "$bimage:$tag" org.riftal.migrations-sha256)" = "$want_migrations" ]; then

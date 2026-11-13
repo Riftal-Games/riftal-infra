@@ -470,21 +470,22 @@ skill does not run it yet; until the skill's wiring lands, whoever runs stage 1
 runs the check by hand and does not start the migrations on a refusal.
 
 Each `<tag>=<file>` names the `grants.sql` that tag's plugins were built from.
-The operator supplies it from the riftal-game commit the tag was built at. A tag
-in use with no mapping is a refusal, never a pass.
+The operator supplies it out of that tag's ops image. A tag in use with no
+mapping is a refusal, never a pass.
 
-A release image (see Release image below) carries the sha256 of that file in the
-label `org.riftal.grants-sha256`, and the commit in `org.riftal.game-commit`. The
-check reads the sha256 with `<runtime> image inspect` for every tag in use other
-than `<release-tag>`. The label holds the hash and not the file, and the image
-holds no `grants.sql`, so a labelled tag still needs its `<tag>=<file>`: the
-check cannot derive the file locally, and fetching it from a network or a
-registry is out of scope. What the label adds is that a supplied file whose
-sha256 differs from it exits 2, so a file from another commit exits 2 even when
-it is valid. A tag whose image has no label, or cannot be inspected on the
-runtime, is checked against the supplied file alone. A label that is not 64
-lowercase hex digits exits 2. Baking `grants.sql` into the image is tracked in
-riftal-infra#1272.
+A release's two images (see Release image below) carry the sha256 of that file in
+the label `org.riftal.grants-sha256`, and the commit in `org.riftal.game-commit`.
+The check reads the sha256 with `<runtime> image inspect` of the release image
+for every tag in use other than `<release-tag>`. The file itself is in the ops
+image of that tag, `riftal/backup:<tag>`, at `/opt/riftal/sql/grants.sql`, and
+the operator takes each older tag's file out of that tag's ops image, not from a
+checkout, for the `<tag>=<file>` the check needs: it cannot derive the file
+itself, and fetching one from a network or a registry is out of scope. A
+supplied file whose sha256 differs from the label exits 2, so a file from
+another commit exits 2 even when it is valid, and a file taken from the wrong
+tag's ops image is refused the same way. A tag whose image has no label, or
+cannot be inspected on the runtime, is checked against the supplied file alone.
+A label that is not 64 lowercase hex digits exits 2.
 
 `instances/<id>/image` records the tag an instance runs: one line,
 `<INSTANCE_IMAGE>:<tag>`, with an optional final LF. The tag matches
@@ -560,9 +561,15 @@ container runtime that serves labels, and fixture files, and starts no container
 ## Release image
 
 `GAME_COMMIT=<sha> GRANTS_SQL=<grants.sql> MIGRATIONS_DIR=<migrations directory>
-release-image.sh <phars directory>`, run from a clean checkout of riftal-infra, builds an image on top of the pinned core
-image, `../images/core-image.sha`, which is `ubuntu:24.04` underneath and must
-already be on the daemon, since nothing here builds or pulls it. The image adds
+release-image.sh <phars directory>`, run from a clean checkout of riftal-infra,
+builds two images under one tag (ADR 045): the ops image `riftal/backup:<tag>`
+first, described under Ops image below, then the release image
+`riftal/pocketmine-mp:<tag>`, which runs the instances. The release image is
+built on top of the pinned core image, `../images/core-image.sha`, which is
+`ubuntu:24.04` underneath and must already be on the daemon, since nothing here
+builds or pulls it. The ops image is built from `../images/backup/Dockerfile`,
+which pulls `ubuntu:24.04` and its MySQL client packages, so that build needs the
+network or a warm cache. The release image adds
 ten production phars in `/opt/riftal/plugins`: `RiftalCustody.phar`,
 `RiftalAccounts.phar`, `contracts.phar`, `RiftalMines.phar`, `RiftalRanks.phar`,
 `RiftalEconomy.phar`, `RiftalGangs.phar`, `RiftalRiots.phar`, `RiftalPlots.phar`
@@ -596,7 +603,7 @@ The image also carries what an instance needs to join a level (ADR 043):
   zone's `level-manifest.json`, the record of what the tag delivers.
 
 All of it is owned by root, files 0444, scripts 0555 and directories 0755, so
-`pocketmine` can replace none of it. Two labels join the five below:
+`pocketmine` can replace none of it. Two labels join the others listed below:
 `org.riftal.world-index-sha256` and `org.riftal.levels`, each zone as
 `<zone>=<content_sha256>:<tree_sha256>`, comma separated. One image carries every zone
 and `RIFTAL_LEVEL_ZONES` selects, so one tag serves every instance.
@@ -656,9 +663,9 @@ that is unset, missing, a directory or empty, and a `MIGRATIONS_DIR` that is not
 a directory holding a `.sql` file, and records them in the labels
 `org.riftal.game-commit` and `org.riftal.grants-sha256`. It is the operator's
 word that they match the phars, since nothing here builds
-riftal-game. The file itself is not put in this image: the same run builds the
-ops image `riftal/backup:<tag>` first (ADR 045), which holds it with the
-migrations, the host scripts and their `ops.sha256`.
+riftal-game. The file itself is not put in this image: the ops image holds it at
+`/opt/riftal/sql/grants.sql`, with the migrations, the host scripts and their
+`ops.sha256` (Ops image, below).
 
 The phars come from riftal-game's build. The recipes are in
 `../images/README.md` (Custody, Accounts, contracts) and in
@@ -700,10 +707,14 @@ commit), when git cannot report its status, or when a tracked file differs from
 not inputs and do not refuse it. Build from a committed, clean checkout of the
 commit being released.
 
-The image records what it holds in seven labels: `org.riftal.core-image`,
-`org.riftal.phars` (each phar's sha256), `org.riftal.game-commit`,
+The release image records what it holds in nine labels: `org.riftal.core-image`,
+`org.riftal.phars` (each phar's sha256), `org.riftal.script-plugins` (each
+`SHIPPED_PLUGINS` file's sha256), `org.riftal.game-commit`,
 `org.riftal.infra-commit`, `org.riftal.grants-sha256`,
-`org.riftal.world-index-sha256` and `org.riftal.levels`.
+`org.riftal.world-index-sha256`, `org.riftal.levels` and
+`org.riftal.backup-image`, the id of the same tag's ops image. That id is what
+fixes the ops image's bytes, since its base is `ubuntu:24.04`, which floats, and
+the tag string alone does not.
 Recording the tag in `../instances/<id>/image` is a deploy, and an instance
 started from the image runs the image's own phars.
 
@@ -725,7 +736,16 @@ file, checks `org.riftal.game-commit`, `org.riftal.infra-commit` and
 `org.riftal.grants-sha256` against the inputs and that the image holds no
 `grants.sql`. It bakes two fixture zones from volumes under its own
 `riftal_smoke_` prefix, locked against the pinned core image, never the dev
-stack's build volumes or the committed locks. It refuses, naming the zone, a lock
+stack's build volumes or the committed locks. In the ops image it checks that
+`ops.sha256` lists each source file byte for byte and covers every file under
+`/opt/riftal`, that it verifies, that ownership and modes are as above, that the
+three labels equal the release image's and the two others match their forms,
+that the release image's `org.riftal.backup-image` is the ops image's id, that
+its command is `backup-loop.sh`, that it is `ubuntu:24.04`, that an untracked
+`deploy/*.md` is not in it, and that `HOST_SCRIPTS` is ADR 045's 13. It refuses
+a script on neither list or both, a host script missing from the checkout, a
+`MIGRATIONS_DIR` without a `.sql` file or with one that cannot be copied, and an
+existing ops image tag. It refuses, naming the zone, a lock
 with no volume (and leaves none created), a manifest whose `content_sha256` is not
 the lock's, a tree that is not its manifest's and a lock built on another core
 image, and refuses a locks directory with no lock, each before a build. In the
@@ -756,6 +776,65 @@ outside `[a-z0-9_]+` and a repeated zone. A volume over a zone whose manifest is
 the tag's and whose tree is not is refused by `seed-levels.sh` with nothing under
 `/data/worlds`. `instance-levels-check-selftest.sh` runs unchanged against the
 shared `level-args.sh`.
+
+## Ops image
+
+`riftal/backup:<tag>` is built first in the same run, from the same clean
+checkout, by `build_ops_image` in `release-image.sh`: the image
+`../images/backup/Dockerfile` builds (`ubuntu:24.04` and its MySQL client) plus
+the layer `../images/release/Dockerfile.backup`. It runs as root, holds the
+client and the scripts, and its command is `backup-loop.sh`, so a one-off
+container on it never runs without an explicit command, which replaces that
+default. All of it is owned by root,
+scripts 0555, other files 0444, directories 0755.
+
+- `/opt/riftal/ops/`, which mirrors this repository's paths: the 13 scripts of
+  `HOST_SCRIPTS` (`deploy/backup.sh`, `backup-loop.sh`, `restore.sh`, `wipe.sh`,
+  `wipe-volumes.sh`, `wipe-check.sh`, `binlog-check.sh`,
+  `custody-alert-check.sh`, `grants-revoke-check.sh`, `write-latency-probe.sh`,
+  `write-latency-check.sh`, `migrations/run-migrations.sh` and
+  `images/loads-check.sh`), `deploy/write-latency-probe.php`, every
+  `deploy/*.md` that git tracks at the commit (an untracked file is never
+  carried), `migrations/README.md`, `images/README.md` and
+  `designer/levels/<zone>.lock.json` for every lock.
+- `/opt/riftal/sql/migrations/*.sql` from `MIGRATIONS_DIR` and
+  `/opt/riftal/sql/grants.sql` from `GRANTS_SQL`.
+- `/opt/riftal/ops.sha256`, the `sha256sum` list of every file under
+  `/opt/riftal/ops` and `/opt/riftal/sql`, as `<hex>  ops/<path>` and
+  `<hex>  sql/<path>`, sorted by path in the C locale. It verifies with
+  `cd /opt/riftal && sha256sum -c ops.sha256`.
+
+The labels: `org.riftal.infra-commit`, `org.riftal.game-commit` and
+`org.riftal.grants-sha256`, each equal to the release image's, and two of its
+own.
+
+- `org.riftal.migrations-sha256` is the sha256 of the `sha256sum` list of the
+  files in `/opt/riftal/sql/migrations`, sorted by name in the C locale and named
+  without a directory. Recompute it with
+  `cd /opt/riftal/sql/migrations && find . -type f -printf '%P\0' | LC_ALL=C sort -z | xargs -0 -r sha256sum -- | sha256sum | cut -d' ' -f1`.
+- `org.riftal.ops-sha256` is the sha256 of the bytes of `/opt/riftal/ops.sha256`:
+  `sha256sum /opt/riftal/ops.sha256`.
+
+Which scripts a host receives is not decided by what is in the checkout. Every
+top-level `deploy/*.sh`, `migrations/*.sh` and `images/*.sh` must be on exactly
+one of `HOST_SCRIPTS`, which the ops image carries, and `NOT_CARRIED_SCRIPTS`,
+which reaches no host: CI self-tests, the proofs, and what runs on the building
+daemon. The build fails, naming the script, on a new one that is on neither
+list, on one on both, and on a `HOST_SCRIPTS` entry the checkout lacks, so a
+script added to one of the three directories is classified in the same change.
+Scripts in deeper directories are not governed by the rule.
+
+The self-tests start no container from the ops image's own command, since it
+runs `backup.sh` at once. `release-image-selftest.sh` reads the image only
+through commands it names. `ops-image-selftest.sh` builds the ops image from
+the checkout with `build_ops_image`, the same function the release build calls,
+with a fixture migration and grants file and none of the core image or levels,
+then runs `selftest.sh`, `restore-selftest.sh` and `../migrations/selftest.sh`
+with `OPS_IMAGE` set to it. They then run `backup.sh`, `restore.sh` and
+`run-migrations.sh` from `/opt/riftal/ops` in the image, and bind-mount only the
+mutants they test over the same path. The migration runner meets the Ubuntu
+client in place of `mysql:8`'s. MySQL itself stays `mysql:8`. CI runs the three on the dev image too, so a
+script that passes in one and fails in the other shows which side differs.
 
 ## Environment
 

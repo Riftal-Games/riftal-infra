@@ -4,10 +4,22 @@
 # "Lint PHP plugins" step does, so it runs on the self-hosted CI runner and, on
 # Nasir's Windows machine, under the WSL fallback engine:
 #   wsl -d Ubuntu-26.04 -u runner --exec bash /mnt/c/.../migrations/selftest.sh
+#
+# OPS_IMAGE names an ops image (release-image.sh's). The runner then runs from
+# that image's own tree, with the image's Ubuntu client, in place of the
+# checkout's copy in mysql:8. The databases stay on mysql:8.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER="$SCRIPT_DIR/run-migrations.sh"
+RUNNER_IMAGE=mysql:8
+RUNNER_MOUNT=(-v "$RUNNER:/run-migrations.sh:ro")
+RUNNER_BIN=/run-migrations.sh
+if [ -n "${OPS_IMAGE:-}" ]; then
+  RUNNER_IMAGE="$OPS_IMAGE"
+  RUNNER_MOUNT=()
+  RUNNER_BIN=/opt/riftal/ops/migrations/run-migrations.sh
+fi
 FIXTURES="$SCRIPT_DIR/fixtures"
 SUFFIX="$$-$(date +%s)"
 CONTAINER="riftal_smoke_migrations_$SUFFIX"
@@ -89,11 +101,11 @@ run_migrations() {
   local dir="$1" db="$2" lock="$3"
   shift 3
   docker run --rm "${LIMITS[@]}" --network "$NETWORK" \
-    -v "$RUNNER:/run-migrations.sh:ro" -v "$dir:/migrations:ro" \
+    "${RUNNER_MOUNT[@]}" -v "$dir:/migrations:ro" \
     -e MYSQL_HOST="${HOST_ALIAS:-mysql}" -e MYSQL_USER=root -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE="$db" -e MIGRATIONS_DIR=/migrations \
     -e MIGRATIONS_LOCK_NAME="$lock" "$@" \
-    mysql:8 bash /run-migrations.sh
+    "$RUNNER_IMAGE" bash "$RUNNER_BIN"
 }
 
 query() {

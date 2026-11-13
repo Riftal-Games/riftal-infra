@@ -16,6 +16,10 @@
 # file match the backup-time value, not the mutated one. A restore that
 # quietly no-ops, or that merges onto drifted state instead of replacing it,
 # passes a "the command exited 0" check and fails this one.
+#
+# OPS_IMAGE names an ops image (release-image.sh's), which then stands in for
+# the image built here. backup.sh and restore.sh run from that image's own
+# tree, and only a mutant of restore.sh is bind-mounted over its place there.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,12 +44,20 @@ cleanup() {
   docker rm -f -v "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker volume rm "$BACKUPS_VOL" "$WORLD_A_VOL" "$WORLD_B_VOL" >/dev/null 2>&1 || true
-  docker image rm "$RESTORE_IMG" >/dev/null 2>&1 || true
+  [ -n "${OPS_IMAGE:-}" ] || docker image rm "$RESTORE_IMG" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
 }
 trap cleanup EXIT
 
-docker build -q -t "$RESTORE_IMG" "$SCRIPT_DIR/../images/backup" >/dev/null
+BACKUP_BIN=/deploy/backup.sh
+RESTORE_BIN=/deploy/restore.sh
+if [ -n "${OPS_IMAGE:-}" ]; then
+  RESTORE_IMG="$OPS_IMAGE"
+  BACKUP_BIN=/opt/riftal/ops/deploy/backup.sh
+  RESTORE_BIN=/opt/riftal/ops/deploy/restore.sh
+else
+  docker build -q -t "$RESTORE_IMG" "$SCRIPT_DIR/../images/backup" >/dev/null
+fi
 docker network create "$NETWORK" >/dev/null
 # Created before any `run -v` names them, so CI's label shim stamps them for
 # the job's sweep, which is all that removes them when a cancel skips the trap.
@@ -109,13 +121,15 @@ fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
 
 run_backup() {
+  local mount=(-v "$SCRIPT_DIR/backup.sh:$BACKUP_BIN:ro")
+  [ -z "${OPS_IMAGE:-}" ] || mount=()
   docker run --rm -m 1g --cpus 1 --network "$NETWORK" \
-    -v "$SCRIPT_DIR/backup.sh:/deploy/backup.sh:ro" \
+    "${mount[@]}" \
     -v "$BACKUPS_VOL:/backups" \
     -v "$WORLD_A_VOL:/worlds/world-a:ro" -v "$WORLD_B_VOL:/worlds/world-b:ro" \
     -e MYSQL_HOST=mysql -e MYSQL_PASSWORD="$BACKUP_PW" \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_RETENTION=10 \
-    "$RESTORE_IMG" bash /deploy/backup.sh
+    "$RESTORE_IMG" bash "$BACKUP_BIN"
 }
 
 provision_backup_login() {
@@ -132,18 +146,22 @@ provision_backup_login() {
 # leaves the container running. Removing it by name is what frees the runner.
 run_restore() {
   local backup_set="$1" user="${2:-root}" rc=0 mount_b=(-v "$WORLD_B_VOL:/worlds/world-b")
+  local script="${RESTORE_SCRIPT:-$SCRIPT_DIR/restore.sh}" mount=(-v "$script:$RESTORE_BIN:ro")
   if [ -n "${RESTORE_OMIT_B:-}" ]; then
     mount_b=()
   fi
+  if [ -n "${OPS_IMAGE:-}" ] && [ "$script" = "$SCRIPT_DIR/restore.sh" ]; then
+    mount=()
+  fi
   timeout -k 5 60 docker run --rm -m 1g --cpus 1 --name "$RESTORE_CONTAINER" --network "$NETWORK" \
-    -v "${RESTORE_SCRIPT:-$SCRIPT_DIR/restore.sh}:/deploy/restore.sh:ro" \
+    "${mount[@]}" \
     -e ALLOW_UNFENCED_SET="${ALLOW_UNFENCED_SET:-}" -e ALLOW_UNCAPTURED_SET="${ALLOW_UNCAPTURED_SET:-}" \
     ${RESTORE_TAR_SHIM:+-v "$RESTORE_TAR_SHIM:/usr/local/bin/tar:ro"} \
     -v "$BACKUPS_VOL:/backups:ro" \
     -v "$WORLD_A_VOL:/worlds/world-a" "${mount_b[@]}" \
     -e MYSQL_HOST=mysql -e MYSQL_USER="$user" -e MYSQL_PASSWORD=selftest \
     -e MYSQL_DATABASE=riftal_selftest -e BACKUP_SET="$backup_set" \
-    "$RESTORE_IMG" bash -c "${RESTORE_PRELUDE:-}bash /deploy/restore.sh" || rc=$?
+    "$RESTORE_IMG" bash -c "${RESTORE_PRELUDE:-}bash $RESTORE_BIN" || rc=$?
   docker rm -f -v "$RESTORE_CONTAINER" >/dev/null 2>&1 || true
   return "$rc"
 }
