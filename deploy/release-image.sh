@@ -12,7 +12,9 @@
 #   RELEASE_IMAGE       image name without its tag, default riftal/pocketmine-mp
 #   RELEASE_DATE        UTC date in the tag, default today
 #   LEVEL_LOCKS_DIR     where the <zone>.lock.json files are read, default
-#                       designer/levels of the checkout
+#                       designer/levels of the checkout, where each lock must
+#                       be tracked at HEAD. A directory named here is read as
+#                       it is, for the self-tests, and is not checked.
 #   LEVEL_VOLUME_PREFIX prefix of the daemon's level build volumes, default
 #                       riftal_smoke_level_
 #
@@ -151,7 +153,7 @@ tree_sha256() {
 # ::error:: naming the zone, and returns 1. CORE_IMAGE is set.
 bake_level() {
   local zone="$1" lock="$2/$1.lock.json" vol="$3$1" dest="$4"
-  local named want_content want_core core_id content tree odd
+  local named want_content want_core core_id content tree odd got
 
   if ! [[ "$zone" =~ ^[a-z0-9_]+$ ]]; then
     printf '::error::zone %s: %s is not a name matching [a-z0-9_]+\n' "$zone" "$lock"
@@ -179,8 +181,14 @@ bake_level() {
     printf '::error::zone %s: copying build volume %s failed\n' "$zone" "$vol"
     return 1
   fi
-  chmod -R u+rwX "$dest"
-  odd="$(find "$dest" ! -type f ! -type d -print -quit)"
+  if ! chmod -R u+rwX "$dest"; then
+    printf '::error::zone %s: the copy of %s cannot be made readable\n' "$zone" "$vol"
+    return 1
+  fi
+  if ! odd="$(find "$dest" ! -type f ! -type d -print -quit)"; then
+    printf '::error::zone %s: the copy of %s cannot be listed\n' "$zone" "$vol"
+    return 1
+  fi
   if [ -n "$odd" ]; then
     printf '::error::zone %s: %s in %s is neither a regular file nor a directory\n' "$zone" "${odd#"$dest"/}" "$vol"
     return 1
@@ -195,20 +203,49 @@ bake_level() {
     printf '::error::zone %s: the manifest in %s holds content_sha256 %s and the lock holds %s\n' "$zone" "$vol" "$content" "$want_content"
     return 1
   fi
-  if [ "$(tree_sha256 "$dest")" != "$tree" ]; then
+  if ! got="$(tree_sha256 "$dest")"; then
+    printf '::error::zone %s: the file tree of %s cannot be hashed\n' "$zone" "$vol"
+    return 1
+  fi
+  if [ "$got" != "$tree" ]; then
     printf '::error::zone %s: the file tree of %s does not hash to the %s its manifest names\n' "$zone" "$vol" "$tree"
     return 1
   fi
   printf '%s:%s' "$content" "$tree"
 }
 
+# $1 the locks directory. Names each *.lock.json in it that the checkout's HEAD
+# does not hold, one ::error:: per lock, and returns 1 for any. A lock is taken
+# by glob, so an untracked one would otherwise ride under an infra-commit label
+# that does not contain it.
+tracked_locks() {
+  local dir="$1" root="$SCRIPT_DIR/.." tracked lock rel bad=0
+  if ! tracked="$(git -C "$root" -c core.quotePath=false ls-tree -r --name-only HEAD -- designer/levels)"; then
+    printf '::error::git cannot list designer/levels at HEAD, so no lock can be shown tracked\n'
+    return 1
+  fi
+  for lock in "$dir"/*.lock.json; do
+    [ -e "$lock" ] || break
+    rel="designer/levels/${lock##*/}"
+    if ! grep -qxF -- "$rel" <<<"$tracked"; then
+      printf '::error::%s is not tracked at the riftal-infra commit; commit it or remove it before building\n' "$rel"
+      bad=1
+    fi
+  done
+  return "$bad"
+}
+
 # $1 the build context. Lays out etc/ and boot/ in it: the world index, every
 # zone with a lock, the boot scripts and the digest list of the index and of
 # each zone's manifest. Sets INDEX_SHA and LEVELS_LABEL to what the labels hold.
+# The locks are those of designer/levels, each tracked at HEAD, unless
+# LEVEL_LOCKS_DIR names another directory, which is not checked against git.
+# The caller tests this function's status, which turns errexit off inside it,
+# so every command checks its own.
 bake_levels() {
   local ctx="$1" locks="${LEVEL_LOCKS_DIR:-$SCRIPT_DIR/../designer/levels}"
   local prefix="${LEVEL_VOLUME_PREFIX:-riftal_smoke_level_}" index="$SCRIPT_DIR/../designer/world_index.json"
-  local lock zone pair list name
+  local lock zone pair list name digest
   INDEX_SHA="" LEVELS_LABEL=""
 
   if ! command -v jq >/dev/null 2>&1; then
@@ -224,21 +261,26 @@ bake_levels() {
     return 1
   fi
 
-  mkdir -p "$ctx/etc/levels" "$ctx/boot"
-  cp "$index" "$ctx/etc/world_index.json"
-  INDEX_SHA="$(sha256sum "$ctx/etc/world_index.json" | cut -d' ' -f1)"
+  if [ -z "${LEVEL_LOCKS_DIR:-}" ]; then
+    tracked_locks "$locks" || return 1
+  fi
+
+  mkdir -p "$ctx/etc/levels" "$ctx/boot" || return 1
+  cp "$index" "$ctx/etc/world_index.json" || return 1
+  INDEX_SHA="$(sha256sum "$ctx/etc/world_index.json" | cut -d' ' -f1)" || return 1
   list="$INDEX_SHA  /etc/riftal/world_index.json"$'\n'
   for lock in "$locks"/*.lock.json; do
     [ -e "$lock" ] || break
     zone="${lock##*/}"
     zone="${zone%.lock.json}"
-    mkdir "$ctx/etc/levels/$zone"
+    mkdir "$ctx/etc/levels/$zone" || return 1
     pair="$(bake_level "$zone" "$locks" "$prefix" "$ctx/etc/levels/$zone")" || {
       printf '%s\n' "$pair"
       return 1
     }
     LEVELS_LABEL+="${LEVELS_LABEL:+,}$zone=$pair"
-    list+="$(sha256sum "$ctx/etc/levels/$zone/level-manifest.json" | cut -d' ' -f1)  /etc/riftal/levels/$zone/level-manifest.json"$'\n'
+    digest="$(sha256sum "$ctx/etc/levels/$zone/level-manifest.json" | cut -d' ' -f1)" || return 1
+    list+="$digest  /etc/riftal/levels/$zone/level-manifest.json"$'\n'
   done
   if [ -z "$LEVELS_LABEL" ]; then
     printf '::error::%s holds no <zone>.lock.json, and the image would carry no level\n' "$locks"
@@ -246,13 +288,13 @@ bake_levels() {
   fi
 
   for name in "${BOOT_SCRIPTS[@]}"; do
-    cp "$SCRIPT_DIR/../images/plugins/$name" "$ctx/boot/$name"
-    chmod 0555 "$ctx/boot/$name"
+    cp "$SCRIPT_DIR/../images/plugins/$name" "$ctx/boot/$name" || return 1
+    chmod 0555 "$ctx/boot/$name" || return 1
   done
-  printf '%s' "$list" >"$ctx/boot/etc-riftal.sha256"
-  chmod 0444 "$ctx/boot/etc-riftal.sha256"
-  find "$ctx/etc" -type d -exec chmod 0755 {} +
-  find "$ctx/etc" -type f -exec chmod 0444 {} +
+  printf '%s' "$list" >"$ctx/boot/etc-riftal.sha256" || return 1
+  chmod 0444 "$ctx/boot/etc-riftal.sha256" || return 1
+  find "$ctx/etc" -type d -exec chmod 0755 {} + || return 1
+  find "$ctx/etc" -type f -exec chmod 0444 {} + || return 1
 }
 
 main() {

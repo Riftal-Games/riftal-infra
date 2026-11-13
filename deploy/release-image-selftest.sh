@@ -20,7 +20,11 @@
 # stack's build volumes or the committed locks. A volume that is missing, a
 # manifest whose content_sha256 is not the lock's, a tree that is not its
 # manifest's and a lock built on another core image are each refused naming the
-# zone, and so is a locks directory with no lock, all before a build. In the
+# zone, and so is a locks directory with no lock, all before a build. A boot
+# script that cannot be copied fails the build with no image left. In a checkout
+# whose designer/levels holds committed locks, read with LEVEL_LOCKS_DIR unset,
+# a lock that is not tracked is refused by name and the tracked ones are baked.
+# In the
 # image, the world index and the three boot scripts equal the checkout's,
 # /etc/riftal/levels holds the locked zones and no other, each hashing to its
 # manifest, the digest list checks and the labels record them, and pocketmine
@@ -34,7 +38,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=68
+EXPECTED_ASSERTIONS=71
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -82,7 +86,7 @@ cd "$elsewhere"
 level_prefix="riftal_smoke_rel_$$_level_"
 level_vols=()
 cleanup() {
-  docker image rm "$image:$tag" >/dev/null 2>&1 || true
+  docker image ls --format '{{.Repository}}:{{.Tag}}' "$image" | xargs -r docker image rm >/dev/null 2>&1 || true
   docker volume rm "${level_vols[@]}" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -273,6 +277,57 @@ elif grep -qF "holds no <zone>.lock.json" <<<"$out" && [ -z "$(docker image ls -
   pass "a locks directory with no lock is refused before a build"
 else
   fail "a locks directory with no lock was refused without saying why: $out"
+fi
+
+# A boot script that cannot be copied leaves the build with a missing file the
+# digest list does not name, so the build must stop, with no image left. The
+# script is a committed symlink to nothing, so the checkout is clean and the
+# copy fails whoever runs the self-test.
+copy_release_files "$work/unread"
+ln -sf "$work/gone" "$work/unread/images/plugins/level-args.sh"
+git init -q "$work/unread"
+git_fixture -C "$work/unread" add -A
+git_fixture -C "$work/unread" commit -q -m fixture
+if out="$(release_from "$work/unread" 2>&1)"; then
+  fail "a boot script that cannot be copied was accepted"
+elif grep -qF "level-args.sh" <<<"$out" && [ -z "$(docker image ls -q "$image")" ]; then
+  pass "a boot script that cannot be copied fails the build, leaving no image"
+else
+  fail "a boot script that cannot be copied failed without saying which: $out"
+fi
+
+# $1 a checkout, built with the default locks directory.
+release_default_locks() {
+  (
+    unset LEVEL_LOCKS_DIR
+    release_from "$1"
+  )
+}
+commit_checkout "$work/tracked"
+mkdir "$work/tracked/designer/levels"
+cp "$locks"/*.lock.json "$work/tracked/designer/levels/"
+git_fixture -C "$work/tracked" add -A
+git_fixture -C "$work/tracked" commit -q -m locks
+fixture_lock "$work/tracked/designer/levels" smoke_z "$content_a" "$core_id"
+if out="$(release_default_locks "$work/tracked" 2>&1)"; then
+  fail "a lock that is not tracked was accepted"
+elif grep -qF "designer/levels/smoke_z.lock.json is not tracked" <<<"$out" && [ -z "$(docker image ls -q "$image")" ]; then
+  pass "an untracked lock in designer/levels is refused by name, before a build"
+else
+  fail "an untracked lock was refused without naming it: $out"
+fi
+rm "$work/tracked/designer/levels/smoke_z.lock.json"
+if ! out="$(release_default_locks "$work/tracked" 2>&1)"; then
+  fail "the build with the committed locks of the default directory failed: $out"
+else
+  ref="$(sed -n 's/^release image \([^ ]*\) (.*/\1/p' <<<"$out")"
+  tracked_levels="$(docker image inspect --format '{{index .Config.Labels "org.riftal.levels"}}' "$ref")"
+  if [[ "$tracked_levels" == smoke_a=$content_a:*,smoke_b=$content_b:* ]]; then
+    pass "the locks committed in designer/levels are baked when the default directory is read"
+  else
+    fail "the build from the default directory labels its levels '$tracked_levels'"
+  fi
+  docker image rm "$ref" >/dev/null
 fi
 
 if out="$(release_from "$infra" 2>&1)"; then
