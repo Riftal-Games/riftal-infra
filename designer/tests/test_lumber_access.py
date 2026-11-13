@@ -57,7 +57,7 @@ def _built(mine: MineSpec, legs: list[StairsSpec], with_legs: bool = True) -> Re
     palette = Palette.load("mine_stone")
     recipe = Bounds.from_json(_json("levels", f"{mine.world}.json")["bounds"])
     area = pregen_bounds(recipe)
-    region = Region.empty(mine.world,Bounds((area.min[0], recipe.min[1], area.min[1]), (area.max[0], EXIT_GROUND_Y + 3, area.max[1])))
+    region = Region.empty(mine.world, Bounds((area.min[0], recipe.min[1], area.min[1]), (area.max[0], EXIT_GROUND_Y + 3, area.max[1])))
     region.fill(Bounds(region.bounds.min, (region.bounds.max[0], EXIT_GROUND_Y, region.bounds.max[2])), STONE)
     region = build_mine(mine, palette).to_region(region)
     for leg in legs if with_legs else ():
