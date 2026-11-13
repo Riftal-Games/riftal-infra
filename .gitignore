@@ -4,6 +4,8 @@
 .env
 # A fixture definition carries flags and zone names, never a credential.
 !.github/ci-fixtures/good/alpha/instances/*/instance.env
+# Instance definitions hold no secret and are the record of what an instance runs.
+!instances/*/instance.env
 secrets/
 *.key
 *.pem
