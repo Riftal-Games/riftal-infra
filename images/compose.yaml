@@ -52,9 +52,19 @@ services:
     volumes:
       - riftal-world:/data
       - ./plugins:/plugins
+      # Read-only: RiftalCapture only reads the backup's request here, and
+      # stages its answer on /data (ADR 015 item 2).
+      - riftal-capture:/capture:ro
       # Outside /data for the same root-mountpoint reason given below;
       # deliver-world-index.sh copies it into each consuming plugin's folder.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
+      # The built levels, which seed-levels.sh copies onto riftal-world when
+      # worlds/<zone> is absent (ADR 009 items 5 and 6). Read-only and outside
+      # /data, for the same root-mountpoint reason as above.
+      - riftal_smoke_level_lumber:/etc/riftal/levels/lumber:ro
+      - riftal_smoke_level_mine_a:/etc/riftal/levels/mine_a:ro
+      - riftal_smoke_level_mine_b:/etc/riftal/levels/mine_b:ro
+      - riftal_smoke_level_mine_c:/etc/riftal/levels/mine_c:ro
     # RiftalMines resets the worlds this instance hosts and no others, and
     # RiftalRanks is wanted on this instance alone (riftal-infra#558), so
     # instance-b holds neither login. RiftalEconomy and RiftalPlots load on
@@ -75,6 +85,8 @@ services:
       - /plugins/restart/boot-gate.sh
       - bash
       - /plugins/deliver-world-index.sh
+      - bash
+      - /plugins/seed-levels.sh
       - bash
       - /plugins/require-accounts.sh
       - bash
@@ -101,6 +113,10 @@ services:
       # fromEnvironment() in riftal-game's shared lib throws on a missing or
       # empty value rather than guess an identity.
       INSTANCE_ID: ${INSTANCE_ID}
+      # The zones seed-levels.sh puts on /data/worlds before PocketMine starts,
+      # each from /etc/riftal/levels/<zone>. instance-b sets none and mounts no
+      # level.
+      RIFTAL_LEVEL_ZONES: lumber mine_a mine_b mine_c
       # RiftalMines connects as the mines login (ADR 008), and riftal-game's
       # DatabaseSettings reads its password from here, never from a file on
       # the volume. The migration runner provisions the login from the same
@@ -186,6 +202,8 @@ services:
     volumes:
       - riftal-world-b:/data
       - ./plugins:/plugins
+      # See riftal-capture on `instance`, above.
+      - riftal-capture:/capture:ro
       # The same file `instance` gets. It names worlds, never instances.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
     # See RiftalCustody on `instance`, above. instance-b/start.sh loads
@@ -228,19 +246,19 @@ services:
 
   # A coordinated MySQL dump plus a tar of every world volume, on a schedule,
   # pruned to a retention count (docs/specs/008-backup-and-restore.md).
-  # `mysql:8` is reused rather than a new image, same as
-  # ../migrations/run-migrations.sh: it already has mysqldump, bash and tar.
+  # Its own image, because backup.sh needs flock beside mysqldump and mysql:8
+  # has no flock; see backup/Dockerfile.
   backup:
-    image: mysql:8
-    # docker-entrypoint.sh execs a non-mysqld command straight through, so
-    # this skips mysql:8's own init logic and its MYSQL_ROOT_PASSWORD checks
-    # entirely; only the real mysqld in the `mysql` service needs those.
+    build: ./backup
+    image: riftal-backup
     command: ["bash", "/deploy/backup-loop.sh"]
     environment:
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
       # See ../deploy/README.md, The dump login. `dump-login` creates this
-      # login from the same variable before this service may start.
+      # login from the same variable before this service may start. It writes
+      # no table directly; the fence procedures and trigger DDL are the
+      # exceptions listed there.
       MYSQL_USER: backup
       MYSQL_PASSWORD: ${RIFTAL_DB_PASSWORD_BACKUP}
       MYSQL_DATABASE: riftal_dev
@@ -248,8 +266,15 @@ services:
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-21600}
       PARTIAL_MAX_AGE_MINUTES: ${PARTIAL_MAX_AGE_MINUTES:-360}
       LOCK_MAX_AGE_MINUTES: ${LOCK_MAX_AGE_MINUTES:-90}
+      CAPTURE_ACK_TIMEOUT_SECONDS: ${CAPTURE_ACK_TIMEOUT_SECONDS:-60}
+      CAPTURE_HOLD_MAX_SECONDS: ${CAPTURE_HOLD_MAX_SECONDS:-900}
+      CAPTURE_FENCE_MAX_SECONDS: ${CAPTURE_FENCE_MAX_SECONDS:-1800}
+      FENCE_TEST_STALL_SECONDS: ${FENCE_TEST_STALL_SECONDS:-0}
     volumes:
       - riftal-backups:/backups
+      # The one read-write mount of riftal-capture: backup.sh writes the
+      # request, and each instance answers on its own volume below.
+      - riftal-capture:/capture
       # One read-only mount per instance world volume. Adding an instance
       # (/add-instance) adds its line here; backup.sh enumerates whatever it
       # finds under /worlds rather than assuming this list's length.
@@ -317,3 +342,25 @@ volumes:
   # about: a container being replaced must never take a backup set with it.
   riftal-backups:
     name: riftal-backups
+  # Holds only the backup's capture request, never durable state, but a fixed
+  # name keeps a wslc bring-up and compose on the same volume.
+  riftal-capture:
+    name: riftal-capture
+  # Filled by `designer level build <zone>` (designer/levels/README.md), never
+  # by compose: a volume compose created itself would be empty, and `up` would
+  # carry on with nothing to seed. External, so `up` stops naming the volume
+  # when it is missing, and an unbuilt one is refused by seed-levels.sh.
+  # A cache, rebuilt by one build run; its name is a riftal_smoke_ name for
+  # that reason.
+  riftal_smoke_level_lumber:
+    name: riftal_smoke_level_lumber
+    external: true
+  riftal_smoke_level_mine_a:
+    name: riftal_smoke_level_mine_a
+    external: true
+  riftal_smoke_level_mine_b:
+    name: riftal_smoke_level_mine_b
+    external: true
+  riftal_smoke_level_mine_c:
+    name: riftal_smoke_level_mine_c
+    external: true

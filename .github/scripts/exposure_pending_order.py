@@ -59,16 +59,17 @@ The harness step after the pending step is read further, because outputs.exposur
 trusts it ahead of pending. It must be a run step, never uses, with no key but
 name, id, if and run: shell would replace the interpreter that runs the write,
 and env can set BASH_ENV or ENV, which run a script before the run does, so both
-are refused with the rest. Its run is read line by line. A line formed by joining
-backslash-newline is refused when it mentions exposure, GITHUB_OUTPUT or
-set-output, since bash keeps the backslash-newline inside single quotes and the
-joined text is not what is written. A line that mentions exposure, GITHUB_OUTPUT
-or set-output in any case must be exactly one of HARNESS_WRITES, a printf or echo
-of exposure=<value> appended to "$GITHUB_OUTPUT", and the value must be found or
-none. Anything else on such a line is refused, as is any other value, no-bots
-and pending included. A harness run that writes no exposure value is accepted: outputs.exposure then falls through to pending, which is the value
-ADR 024 item 3 gives to a run that ended before every listing was judged, so
-bots-stopped-file files it.
+are refused with the rest. Its whole run, once spaces and newlines around it are
+dropped, must be HARNESS_RUN, the one fixed form: the script runs with
+GITHUB_OUTPUT unset, so it writes no exposure value; exit 0 and exit 4 write
+none, exit 3 writes found, any other status writes nothing, and the step exits
+with the script's status. A run that writes nothing falls through to pending,
+the value ADR 024 item 3 gives to a run that ended before every listing was
+judged, so bots-stopped-file files it.
+
+The workflow's concurrency.cancel-in-progress, when it has one, must be a plain
+false, and the check ends otherwise: a newer run cancels an older run and every
+job in it, bot-proofs included, before that job's exposure is filed.
 
 A step after the pending step may carry an if only when its run, once spaces and
 newlines around it are dropped, is in TEARDOWN_RUNS and it has no key but name,
@@ -81,22 +82,19 @@ passes when every step is on the allowlist; no operand is judged.
 
 Limits: PyYAML stands in for GitHub's parser and is not compared with it. Not
 read: the contents of other jobs, whose ids are read as keys of jobs; the values
-under workflow name, on, permissions and concurrency and of workflow env
-variables; a job's name, needs, if, runs-on, timeout-minutes and permissions;
-the values of outputs keys other than exposure; if values on any step, ahead
-of the pending step or after it, and the continue-on-error value of a step
-ahead of it unless its run is PENDING_WRITE and it has an id; a script a step
-calls. A step after the pending step is read as a mapping and its id meets the
-id rules above. Only whether it has an if is read, never the value. Its keys
-are judged only when it has an if, and then its run is read and it may hold
-only name, if and run. Without an if its run, env, with and continue-on-error
-are not read, nor is what it writes to its outputs, except for the harness step
-above. For the harness, the order and count of writes are not judged, so found
-then none, and none before the first bot starts, are accepted; nor is a function
-or alias that redefines printf or echo, which gives the two write forms another
-meaning. What a script the harness calls writes, and a write spelled so that no
-line names exposure, GITHUB_OUTPUT or set-output, are not seen (riftal-infra#1240,
-riftal-infra#1259).
+under workflow name, on, permissions and concurrency, bar cancel-in-progress,
+and of workflow env variables; a job's name, needs, if, runs-on, timeout-minutes
+and permissions; the values of outputs keys other than exposure; if values on
+any step, ahead of the pending step or after it, and the continue-on-error value
+of a step ahead of it unless its run is PENDING_WRITE and it has an id; a script
+a step calls. A step after the pending step is read as a mapping and its id
+meets the id rules above. Only whether it has an if is read, never the value.
+Its keys are judged only when it has an if, and then its run is read and it may
+hold only name, if and run. Without an if its run, env, with and
+continue-on-error are not read, nor is what it writes to its outputs, except for
+the harness step above. What deploy/bot-proofs.sh does is not read, and the form
+above only withholds GITHUB_OUTPUT from it (riftal-infra#1240,
+riftal-infra#1259, riftal-infra#1262).
 """
 
 import re
@@ -121,17 +119,22 @@ printf 'address=%s\n' "$address" >> "$GITHUB_OUTPUT"
 bash .github/scripts/ci-docker-label.sh
 . images/devtools-image.sh
 devtools_extract "$RUNNER_TEMP/riftal-devtools"
+bash .github/scripts/rig-lock.sh take
+bash .github/scripts/rig-lock.sh rig-up-check
 bash .github/scripts/ci-container-sweep.sh
+bash .github/scripts/rig-lock.sh release
 """.split("\n")
 )
-TEARDOWN_RUNS = frozenset({"bash .github/scripts/ci-container-sweep.sh"})
+TEARDOWN_RUNS = frozenset({"bash .github/scripts/ci-container-sweep.sh", "bash .github/scripts/rig-lock.sh release"})
 TEARDOWN_KEYS = {"name", "if", "run"}
-HARNESS_MENTION = re.compile(r"exposure|github_output|set-output", re.I)
-HARNESS_WRITES = (
-    re.compile(r"printf 'exposure=(?P<value>[A-Za-z0-9_-]*)\\n' >> \"\$GITHUB_OUTPUT\""),
-    re.compile(r"echo (['\"])exposure=(?P<value>[A-Za-z0-9_-]*)\1 >> \"\$GITHUB_OUTPUT\""),
-)
-HARNESS_VALUES = {"found", "none"}
+HARNESS_RUN = r"""status=0
+env -u GITHUB_OUTPUT bash deploy/bot-proofs.sh || status=$?
+case "$status" in
+  0|4) printf 'exposure=none\n' >> "$GITHUB_OUTPUT" ;;
+  3) printf 'exposure=found\n' >> "$GITHUB_OUTPUT" ;;
+esac
+exit "$status"
+""".strip()
 HARNESS_ID = "harness"
 HARNESS_KEYS = {"name", "id", "if", "run"}
 WORKFLOW_KEYS = {"name", "on", "permissions", "concurrency", "env", "jobs"}
@@ -236,37 +239,14 @@ def after_problem(step):
     return stray(step, TEARDOWN_KEYS)
 
 
-def logical_lines(run):
-    lines, current, joined = [], "", False
-    for physical in run.split("\n"):
-        current += physical
-        if physical.endswith("\\"):
-            current, joined = current[:-1], True
-            continue
-        lines.append((current, joined))
-        current, joined = "", False
-    if joined:
-        lines.append((current, joined))
-    return lines
-
-
 def harness_problem(step):
     if "uses" in step:
         return f"it is the {HARNESS_ID} step and uses an action, whose outputs are not read"
     if why := stray(step, HARNESS_KEYS):
         return f"it is the {HARNESS_ID} step and {why}"
     run = scalar(step["run"], "run") if "run" in step else ""
-    for line, joined in logical_lines(run):
-        text = line.strip(" ")
-        if not HARNESS_MENTION.search(text):
-            continue
-        if joined:
-            return f"it is the {HARNESS_ID} step and the run line '{text}' mentions exposure or the step outputs and is joined from lines ending in a backslash"
-        write = next((m for m in (p.fullmatch(text) for p in HARNESS_WRITES) if m), None)
-        if write is None:
-            return f"it is the {HARNESS_ID} step and the run line '{text}' names exposure or the step outputs in a form the check does not read"
-        if write["value"] not in HARNESS_VALUES:
-            return f"it is the {HARNESS_ID} step and writes exposure={write['value']}, where only found or none are allowed"
+    if run.strip(" \n") != HARNESS_RUN:
+        return f"it is the {HARNESS_ID} step and its run is not the one fixed form: {HARNESS_RUN!r}"
     return None
 
 
@@ -275,6 +255,9 @@ def judge(path, job):
     with open(path, encoding="utf-8", newline="") as handle:
         top = mapping(parse(handle.read()), "the workflow")
     allow(top, WORKFLOW_KEYS, "top-level key")
+    cancel = submap(top, "concurrency").get("cancel-in-progress")
+    if cancel is not None and (scalar(cancel, "cancel-in-progress") != "false" or cancel.style is not None):
+        raise Refuse("concurrency.cancel-in-progress is not a plain false, so a newer run cancels this one before its exposure is filed")
     allow(submap(top, "env"), {"HADOLINT_VERSION", "HADOLINT_SHA256"}, "workflow env variable")
     jobs = submap(top, "jobs")
     if job not in jobs:

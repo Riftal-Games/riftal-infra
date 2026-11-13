@@ -2,6 +2,8 @@
 # access live in the deployment secret store, not in git.
 *.env
 .env
+# Instance definitions hold no secret and are the record of what an instance runs.
+!instances/*/instance.env
 secrets/
 *.key
 *.pem

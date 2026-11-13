@@ -73,6 +73,7 @@ wslc run -d -i --name riftal-instance-b --network riftal-dev \
   --memory 2G --cpus 2 \
   -p "${INSTANCE_B_BIND:-127.0.0.1}:19133:19132/udp" \
   -v riftal-world-b:/data -v "$INFRA/images/plugins:/plugins" \
+  -v riftal-capture:/capture:ro \
   -v "$INFRA/designer/world_index.json:/etc/riftal/world_index.json:ro" \
   -e "INSTANCE_ID=${INSTANCE_B_ID}" \
   -e "RIFTAL_DEV_ENV=1" \

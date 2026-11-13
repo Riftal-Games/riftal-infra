@@ -11,7 +11,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=30
+EXPECTED_ASSERTIONS=35
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -106,6 +106,34 @@ fake curl <<'EOF'
 exit 22
 EOF
 expect "an unreadable issue list" refused "cannot read the open" bots_stopped_clear
+
+head_sha=fedcba9876543210fedcba9876543210fedcba98
+base=89abcdef0123456789abcdef0123456789abcdef
+export FAKE_CURL_LOG="$work/curl.log"
+fake curl <<'EOF'
+url="" out=""
+while [ $# -gt 0 ]; do
+  case "$1" in http*) url="$1" ;; -o) out="$2" ;; esac
+  shift
+done
+printf '%s\n' "$url" >> "$FAKE_CURL_LOG"
+case "$url" in
+  */compare/*) [ -z "${FAKE_NO_COMPARE:-}" ] || exit 22; printf '%s' "$FAKE_COMPARE" ;;
+  */contents/*) printf '%s' "${FAKE_FILE:-}" > "$out" ;;
+esac
+EOF
+export FAKE_COMPARE="{\"merge_base_commit\":{\"sha\":\"$base\"}}" FAKE_FILE=body
+expect "a merge base with a script" ok "is $base, 4 bytes" merge_base_script "$head_sha" "$work/m1"
+if [ "$(cat "$work/m1/backup.sh")" = body ] && [ "$(cat "$work/m1/sha")" = "$base" ] \
+    && grep -qxF "https://api.github.com/repos/$GITHUB_REPOSITORY/compare/main...$head_sha?per_page=1" "$FAKE_CURL_LOG" \
+    && grep -qxF "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/deploy/backup.sh?ref=$base" "$FAKE_CURL_LOG"; then
+  pass "the script is read at the merge base of main with the head"
+else
+  fail "the requests were not main...head and the script at its merge base: $(cat "$FAKE_CURL_LOG")"
+fi
+FAKE_NO_COMPARE=1 expect "an unreadable comparison" refused "cannot read the merge base" merge_base_script "$head_sha" "$work/m2"
+FAKE_COMPARE='{"merge_base_commit":{"sha":"main"}}' expect "a merge base that is not a sha" refused "cannot read the merge base" merge_base_script "$head_sha" "$work/m3"
+FAKE_FILE='' expect "an empty script" refused "cannot read deploy/backup.sh at $base" merge_base_script "$head_sha" "$work/m4"
 
 sha=0123456789abcdef0123456789abcdef01234567
 printf '%s\n' "$sha" > "$work/pin.sha"
