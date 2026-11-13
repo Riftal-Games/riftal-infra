@@ -54,7 +54,7 @@ join_teleport:
 # world is not loaded, is answered "not open" at the command and never stops
 # the plugin enabling or the other destinations. quarry_spawn and farm_spawn
 # are named because the shipped mines config names them; the delivered index
-# has neither, so /mine quarry and /mine farm answer "not open".
+# holds neither location, so /mine quarry and /mine farm answer "not open".
 travel:
   world_index: "world_index.json"
   destinations:

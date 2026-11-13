@@ -27,9 +27,9 @@ the version recorded in `start-sh.sha256`; carry the change into
 `start-instance.sh` by hand, then record the new hash and pmmp-core commit.
 `boot-selftest.sh` boots the pinned core image with the script as it ships,
 with the Mines phar unbuilt, built with no password, and built with one, and
-with a Gangs stand-in that loads with a delivered world index and refuses
-without one. Nothing is
-bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
+with a Gangs stand-in that loads with a delivered world index, refuses
+without one, and refuses to boot with no `RIFTAL_DB_PASSWORD_GANGS`. Nothing
+is bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
 mountpoint as root: a stray in `./plugins` that `instance-b` then fails to
 load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
 fails on either.
@@ -153,11 +153,11 @@ still loads `RiftalContracts` and `RiftalAccounts` once each, from the top of
 `plugins/`.
 
 Rebuild `RiftalMines.phar`, `RiftalRanks.phar`, `RiftalEconomy.phar`,
-`contracts.phar` and `RiftalAccounts.phar` whenever riftal-game's `main`
-moves past them, then run both `cp` lines again. Every top-level phar a rig
-loads has to be copied in again after each rebuild, because a rig reads
-only the copy here: a phar older than its plugin's resources fails at
-enable, as a `RiftalMines.phar` built before `quarry` was registered does
+`RiftalGangs.phar`, `contracts.phar` and `RiftalAccounts.phar` whenever
+riftal-game's `main` moves past them, then run both `cp` lines again. Every
+top-level phar a rig loads has to be copied in again after each rebuild,
+because a rig reads only the copy here: a phar older than its plugin's
+resources fails at enable, as a `RiftalMines.phar` built before `quarry` was registered does
 with `cannot read registered ... resource quarry.json` (riftal-infra#1062).
 
 ## The riftal-game snapshot
@@ -296,8 +296,8 @@ eligibility level`. With none mounted and no delivery step:
 [RiftalGangs] disabling, config or environment error: gangs: cannot read world index "/data/plugin_data/RiftalGangs/world_index.json"
 ```
 
-`boot-selftest.sh` repeats both outcomes in CI with a stand-in phar, since CI
-cannot read riftal-game.
+`boot-selftest.sh` repeats both outcomes, and the unset-password refusal, in CI
+with a stand-in phar, since CI cannot read riftal-game.
 
 ## Why an override is required, not optional
 

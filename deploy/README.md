@@ -632,8 +632,8 @@ cp "$OUT/anvil.phar" RiftalAnvil.phar
 
 The image carries these four, but `start-release.sh` loads none of them: it
 gives them no roster entry, login or config, so `RIFTAL_PLUGINS` offers only
-Mines, Ranks and Economy. The dev stack's `instance` loads Gangs from `../images/plugins/instance-only/`
-(riftal-infra#697), not from the image.
+Mines, Ranks and Economy. The dev stack's `instance` loads Gangs from
+`../images/plugins/instance-only/` (riftal-infra#697), not from the image.
 
 The tag is
 `<UTC date>-core<7 of the pinned pmmp-core sha>-game<7 of GAME_COMMIT>-infra<7 of the riftal-infra commit>`,

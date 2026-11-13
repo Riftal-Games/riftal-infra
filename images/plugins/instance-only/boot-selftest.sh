@@ -129,10 +129,11 @@ fi
 printf '{"worlds":[{"name":"contested","role":"contested"}]}\n' > "$work/world_index.json"
 INDEX_MOUNT=(-v "$work/world_index.json:/etc/riftal/world_index.json:ro")
 
-# $1 the phars to put beside start-instance.sh: "unbuilt" for none, "built" for
-# RiftalMines, "gangs" for RiftalGangs with its config. $2 "deliver" to run
-# deliver-world-index.sh ahead of it, as compose does, the rest docker run
-# flags. Sets LOG to the container's output and RC to its exit code.
+# $1 the phar to put beside start-instance.sh: "unbuilt" for none, "built" for
+# RiftalMines, "gangs" for RiftalGangs. Every boot copies RiftalGangs.config.yml
+# beside it, built or not. $2 "deliver" to run deliver-world-index.sh ahead of
+# it, as compose does, or "direct" to run start-instance.sh alone. The rest are
+# docker run flags. Sets LOG to the container's output and RC to its exit code.
 boot() {
   local plugins="$work/plugins-$RANDOM" name="riftal_selftest_instance_boot_$$_$RANDOM"
   local chain=(bash /plugins/instance-only/start-instance.sh) built="$1"

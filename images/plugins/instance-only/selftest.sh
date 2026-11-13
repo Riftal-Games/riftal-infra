@@ -578,9 +578,9 @@ check "a shipped travel destination the template does not carry is caught" \
     ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" != "$(sections "$TEMPLATE")" ]'
 # Every location the template names for the join or for travel, as a line of
 # names, which the delivered designer index has to hold. quarry_spawn and
-# farm_spawn are left out: the designer index has no quarry or farm yet and
-# this instance seeds neither level, so those two destinations answer "not
-# open".
+# farm_spawn are left out: the designer index holds quarry and farm as levels
+# but has no quarry_spawn or farm_spawn location, and this instance seeds
+# neither level, so those two destinations answer "not open".
 named_locations() {
   awk '/^[^[:space:]#]/ { section = $1 }
     section == "join_teleport:" && /^  location:/ || section == "travel:" && /^    [a-z]+: "/ { gsub(/"/, "", $2); print $2 }' "$1" |

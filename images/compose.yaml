@@ -66,12 +66,12 @@ services:
       - riftal_smoke_level_mine_b:/etc/riftal/levels/mine_b:ro
       - riftal_smoke_level_mine_c:/etc/riftal/levels/mine_c:ro
     # RiftalMines resets the worlds this instance hosts and no others, and
-    # RiftalRanks is wanted on this instance alone (riftal-infra#558), so
-    # instance-b holds neither login. RiftalEconomy loads on both
-    # (riftal-infra#887, #348). start-instance.sh adds all four to this
-    # container's own copy of the plugin roster rather than mounting a file
-    # into ./plugins or /data,
-    # where Docker would create the mountpoint as root: in the ./plugins that
+    # RiftalRanks (riftal-infra#558) and RiftalGangs (riftal-infra#697) are
+    # wanted on this instance alone, so instance-b holds none of the three
+    # logins. RiftalEconomy loads on both (riftal-infra#887, #348).
+    # start-instance.sh adds all four to this container's own copy of the
+    # plugin roster rather than mounting a file into ./plugins or /data, where
+    # Docker would create the mountpoint as root: in the ./plugins that
     # instance-b loads from, or as a /data/plugin_data PocketMine then cannot
     # write to. See plugins/instance-only/README.md.
     #

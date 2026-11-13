@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Copies riftal-game's shipped mines, ranks, accounts, economy and gangs configs from
-# the checkout in $1 into images/riftal-game-snapshot and records the commit in
-# SOURCE. Run it in the same PR as the riftal-infra template change that
+# Copies riftal-game's shipped mines, ranks, accounts, economy and gangs
+# configs from the checkout in $1 into images/riftal-game-snapshot and records
+# the commit in SOURCE. Run it in the same PR as the riftal-infra template change that
 # follows a riftal-game config change, then run
 # plugins/instance-only/selftest.sh, which compares the template to the copy.
 # Refuses a checkout with uncommitted changes to those files, so SOURCE names
