@@ -333,11 +333,13 @@ classify_scripts() {
 
 # $1 the ops image's build context, $2 MIGRATIONS_DIR, $3 GRANTS_SQL. Lays out
 # ops/, sql/ and ops.sha256 in it, files 0444, scripts 0555 and directories
-# 0755, and sets MIGRATIONS_SHA and OPS_SHA to what the labels hold. The locks
+# 0755, and sets MIGRATIONS_SHA, GRANTS_SHA and OPS_SHA to what the labels
+# hold. GRANTS_SHA is the hash of the copy in the context, so both images carry
+# the one value and the ops image's label describes its own bytes. The locks
 # are those of the levels bake_levels baked. The runbooks are the tracked
 # deploy/*.md, so an untracked file never rides under a commit that lacks it.
-# The caller tests this function's status, which turns errexit off inside it,
-# so every command checks its own.
+# Every command checks its own status, so the function fails the same way
+# whether or not the caller tests it.
 bake_ops() {
   local ctx="$1" migrations="$2" grants="$3" root="$SCRIPT_DIR/.." src rel tracked doc docs=()
   local locks="${LEVEL_LOCKS_DIR:-$SCRIPT_DIR/../designer/levels}"
@@ -355,6 +357,7 @@ bake_ops() {
   cp "$locks"/*.lock.json "$ctx/ops/designer/levels/" || return 1
   cp "$migrations"/*.sql "$ctx/sql/migrations/" || return 1
   cp "$grants" "$ctx/sql/grants.sql" || return 1
+  GRANTS_SHA="$(sha256sum "$ctx/sql/grants.sql" | cut -d' ' -f1)" || return 1
   find "$ctx" -type d -exec chmod 0755 {} + || return 1
   find "$ctx" -type f -exec chmod 0444 {} + || return 1
   find "$ctx/ops" -type f -name '*.sh' -exec chmod 0555 {} + || return 1
@@ -367,12 +370,12 @@ bake_ops() {
 # $1 the ops image's ref, $2 the ref its base is built under, $3 an empty build
 # context, $4 MIGRATIONS_DIR, $5 GRANTS_SQL, $6 the riftal-infra commit, $7 the
 # riftal-game commit. Builds the base from images/backup and the ops image on
-# it, and sets BID to the ops image's id. Leaves neither the base nor, on a
-# failure, the ops image on the daemon. The caller tests this function's
-# status, so every command checks its own.
+# it, and sets BID to the ops image's id and GRANTS_SHA as bake_ops does. Leaves
+# neither the base nor, on a failure, the ops image on the daemon. Every command
+# checks its own status, so the function fails the same way whether or not the
+# caller tests it.
 build_ops_image() {
-  local bref="$1" base="$2" bctx="$3" migrations="$4" grants="$5" infra="$6" commit="$7" grants_sha
-  grants_sha="$(sha256sum "$grants" | cut -d' ' -f1)" || return 1
+  local bref="$1" base="$2" bctx="$3" migrations="$4" grants="$5" infra="$6" commit="$7"
   bake_ops "$bctx" "$migrations" "$grants" || return 1
   cp "$SCRIPT_DIR/../images/release/Dockerfile.backup" "$bctx/Dockerfile" || return 1
   docker build -t "$base" "$SCRIPT_DIR/../images/backup" || return 1
@@ -380,7 +383,7 @@ build_ops_image() {
     --build-arg "BACKUP_BASE=$base" \
     --label "org.riftal.infra-commit=$infra" \
     --label "org.riftal.game-commit=$commit" \
-    --label "org.riftal.grants-sha256=$grants_sha" \
+    --label "org.riftal.grants-sha256=$GRANTS_SHA" \
     --label "org.riftal.migrations-sha256=$MIGRATIONS_SHA" \
     --label "org.riftal.ops-sha256=$OPS_SHA" \
     -t "$bref" "$bctx"; then
@@ -399,7 +402,7 @@ main() {
   local backup_image="${BACKUP_IMAGE:-riftal/backup}"
   local date="${RELEASE_DATE:-$(date -u +%F)}"
   local name tag ref bref ctx bctx sums="" scripts="" id bid
-  local commit="${GAME_COMMIT:-}" grants="${GRANTS_SQL:-}" migrations="${MIGRATIONS_DIR:-}" grants_sha infra
+  local commit="${GAME_COMMIT:-}" grants="${GRANTS_SQL:-}" migrations="${MIGRATIONS_DIR:-}" infra
 
   for name in "${REQUIRED_PHARS[@]}"; do
     if [ ! -s "$phars/$name" ]; then
@@ -416,7 +419,6 @@ main() {
     printf '::error::GRANTS_SQL "%s" is not a non-empty regular file; the image records its sha256\n' "$grants"
     return 1
   fi
-  grants_sha="$(sha256sum "$grants" | cut -d' ' -f1)"
   if [ ! -d "$migrations" ] || ! compgen -G "$migrations/*.sql" >/dev/null; then
     printf '::error::MIGRATIONS_DIR "%s" is not a directory holding a .sql file; the ops image carries them\n' "$migrations"
     return 1
@@ -477,7 +479,7 @@ main() {
     --label "org.riftal.script-plugins=$scripts" \
     --label "org.riftal.game-commit=$commit" \
     --label "org.riftal.infra-commit=$infra" \
-    --label "org.riftal.grants-sha256=$grants_sha" \
+    --label "org.riftal.grants-sha256=$GRANTS_SHA" \
     --label "org.riftal.world-index-sha256=$INDEX_SHA" \
     --label "org.riftal.levels=$LEVELS_LABEL" \
     --label "org.riftal.backup-image=$bid" \

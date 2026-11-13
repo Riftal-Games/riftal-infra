@@ -3,10 +3,10 @@
 # from this checkout, with fixture migrations and grants and none of the core
 # image or levels a full release needs. Then runs the dump, restore and
 # migration self-tests with OPS_IMAGE set, so each of those scripts runs from
-# the image's own /opt/riftal/ops tree and meets the image's Ubuntu client and
-# tools, not mysql:8's or the dev image's. Builds under riftal_smoke_ names and
-# removes them. The self-tests never start the image's own command, which is
-# the backup loop.
+# the image's own /opt/riftal/ops tree. The migration runner also meets the
+# image's Ubuntu client in place of mysql:8's. Builds under riftal_smoke_ names
+# and removes them. The self-tests never start the image's own command, which
+# is the backup loop.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,7 +31,7 @@ printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\n' >"$WORK
 build_ops_image "$BREF" "$BASE" "$WORK/ctx" "$WORK/migrations" "$WORK/grants.sql" \
   "$(git -C "$DIR/.." rev-parse --verify HEAD)" 0123456789abcdef0123456789abcdef01234567
 
-# The tree the self-tests run from is whole, and the image is the one just built.
+# The tree the self-tests run from is whole. The id is printed for the log.
 docker run --rm -m 1g --cpus 1 --network none --entrypoint sh "$BREF" \
   -c 'cd /opt/riftal && sha256sum -c --quiet ops.sha256'
 printf 'ops image %s (%s)\n' "$BREF" "$BID"

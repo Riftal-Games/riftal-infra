@@ -30,7 +30,8 @@
 # loop. Its ops.sha256 lists the checkout's host files, the zone locks, the
 # MIGRATIONS_DIR files and GRANTS_SQL byte for byte and verifies in it, nothing
 # else is under /opt/riftal, root owns it all with files 0444, scripts 0555 and
-# directories 0755, its labels equal the release image's and record the
+# directories 0755, its labels equal the release image's, both grants-sha256
+# labels are the sha256 of the grants.sql inside it, and they record the
 # migrations and ops.sha256, the release image's org.riftal.backup-image is its
 # id, and its command is backup-loop.sh. Every top-level .sh of deploy/,
 # migrations/ and images/ is on exactly one of the two lists, a fixture script on
@@ -48,7 +49,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=90
+EXPECTED_ASSERTIONS=91
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -599,6 +600,13 @@ else
     pass "the ops image's infra-commit, game-commit and grants-sha256 labels equal the release image's"
   else
     fail "the ops image's org.riftal.$same differs from the release image's"
+  fi
+  in_b_grants="$(in_b sha256sum /opt/riftal/sql/grants.sql | cut -d' ' -f1)"
+  if [ -n "$in_b_grants" ] && [ "$(label_of "$bimage:$tag" org.riftal.grants-sha256)" = "$in_b_grants" ] \
+    && [ "$(label_of "$image:$tag" org.riftal.grants-sha256)" = "$in_b_grants" ]; then
+    pass "both images' grants-sha256 label is the sha256 of the grants.sql inside the ops image"
+  else
+    fail "a grants-sha256 label is not the sha256 of the ops image's grants.sql, $in_b_grants"
   fi
   want_migrations="$(cd "$migrations" && sha256sum -- *.sql | sha256sum | cut -d' ' -f1)"
   if [ "$(label_of "$bimage:$tag" org.riftal.migrations-sha256)" = "$want_migrations" ]; then

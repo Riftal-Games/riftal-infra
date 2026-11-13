@@ -470,8 +470,8 @@ skill does not run it yet; until the skill's wiring lands, whoever runs stage 1
 runs the check by hand and does not start the migrations on a refusal.
 
 Each `<tag>=<file>` names the `grants.sql` that tag's plugins were built from.
-The operator supplies it from the riftal-game commit the tag was built at. A tag
-in use with no mapping is a refusal, never a pass.
+The operator supplies it out of that tag's ops image. A tag in use with no
+mapping is a refusal, never a pass.
 
 A release's two images (see Release image below) carry the sha256 of that file in
 the label `org.riftal.grants-sha256`, and the commit in `org.riftal.game-commit`.
@@ -784,7 +784,8 @@ checkout, by `build_ops_image` in `release-image.sh`: the image
 `../images/backup/Dockerfile` builds (`ubuntu:24.04` and its MySQL client) plus
 the layer `../images/release/Dockerfile.backup`. It runs as root, holds the
 client and the scripts, and its command is `backup-loop.sh`, so a one-off
-container on it must set its own `--entrypoint`. All of it is owned by root,
+container on it never runs without an explicit command, which replaces that
+default. All of it is owned by root,
 scripts 0555, other files 0444, directories 0755.
 
 - `/opt/riftal/ops/`, which mirrors this repository's paths: the 13 scripts of
@@ -830,9 +831,9 @@ the checkout with `build_ops_image`, the same function the release build calls,
 with a fixture migration and grants file and none of the core image or levels,
 then runs `selftest.sh`, `restore-selftest.sh` and `../migrations/selftest.sh`
 with `OPS_IMAGE` set to it. They then run `backup.sh`, `restore.sh` and
-`run-migrations.sh` from `/opt/riftal/ops` in the image, with the Ubuntu client
-in place of `mysql:8`'s, and bind-mount only the mutants they test over the same
-path. MySQL itself stays `mysql:8`. CI runs the three on the dev image too, so a
+`run-migrations.sh` from `/opt/riftal/ops` in the image, and bind-mount only the
+mutants they test over the same path. The migration runner meets the Ubuntu
+client in place of `mysql:8`'s. MySQL itself stays `mysql:8`. CI runs the three on the dev image too, so a
 script that passes in one and fails in the other shows which side differs.
 
 ## Environment

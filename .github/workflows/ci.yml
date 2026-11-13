@@ -272,9 +272,9 @@ jobs:
         run: bash deploy/restore-selftest.sh
 
       # Builds the ops image from this checkout and runs the three self-tests
-      # above again from its own tree, where the client is Ubuntu's and not
-      # mysql:8's. They take about 8 minutes on an idle daemon, so 25 covers a
-      # step slowed by 2.6 times.
+      # above again from its own tree. The migration runner's client there is
+      # Ubuntu's, not mysql:8's. They take about 8 minutes on an idle daemon, so
+      # 25 covers a step slowed by 2.6 times.
       - name: Ops image runs the migration, dump and restore self-tests
         timeout-minutes: 25
         run: bash deploy/ops-image-selftest.sh
