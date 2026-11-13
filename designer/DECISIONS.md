@@ -1097,3 +1097,23 @@ has the geometry of `mine_a` and `mine_b`, so it takes the same recipe on seed 2
 `(0, 39, 23)` and `(0, 52, 36)` and the same surface goal `(13, 64, 36)`, and its index seed moves to 23 with
 it. `mine_c_spawn_to_surface` and `entity_clear` on `sell_npc_c` and `rankup_npc_c` mirror `mine_b`'s, and
 `tests/test_mine_a_access.py` runs over all three mines (#1412).
+
+## 2026-11-13 `quarry` and `farm` take lumber's yard on seed 23, and `farm` stands one row higher
+
+RiftalMines' `quarry` fragment is a 17 by 17 box from y 40 to 50 with `floor_y` 40 and the farm's is the
+single row y 41 over `floor_y` 40, which are lumber's footprint and height. Both build on lumber's recipe
+box, `(-10, 38, -10)` to `(10, 52, 10)`, its seed 23, and its two three-wide stairs legs, so the exit
+lane ends at `(0, 40, 16)` and the legs reach the plateau `lumber_spawn_to_surface` already walks to,
+`(14, 65, 30)`. `quarry`'s ores are cobblestone and andesite, as the fragment has them. `farm`'s spec sets
+`floor_y` 41: a crop mine's reset row is its bottom interior row and its `mine_reset` fragment names the
+farmland under it, so 41 gives the fragment's `floor_y` 40 and row y 41, and the farmland the builder
+writes at y 40 is the row `MineRefillTask.php` rewrites. Its exit platform is then y 40 and
+`farm_spawn` `(0, 41, 16)`, one above `quarry_spawn` `(0, 40, 16)`, so `farm`'s first leg starts from
+`(0, 40, 16)`, its second from `(0, 54, 30)` with a rise of 10, and its last tread is y 64 like lumber's.
+Both index seeds move to 23 with the recipes, and `tests/test_lumber_fragment.py` reads all three
+fragments from riftal-game. No safe-zone region is committed for either: riots is M3 and lumber's is
+the only yard one, so a region for each is a later change that names its extent.
+
+The dev stack's `instance` seeds both from `riftal_smoke_level_quarry` and `riftal_smoke_level_farm`
+and its RiftalMines `worlds` lists them. The `travel` destinations stay as they are: a `/quarry` and a
+`/farm` command are riftal-game#1852's, which reads these two spawn names (#1454).

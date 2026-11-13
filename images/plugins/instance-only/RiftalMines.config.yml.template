@@ -8,8 +8,9 @@
 # (riftal-game/mines/resources/config.yml), which selftest.sh compares to that
 # file. The plugin throws without any of the scalars, and reads a missing
 # join_teleport section as switched off, so that one would drift in silence
-# were it not carried here. `worlds` names lumber, mine_b and mine_c, the seeded
-# zones RiftalMines loads for travel and resets; mine_a is the default level.
+# were it not carried here. `worlds` names lumber, mine_b, mine_c, quarry and farm,
+# the seeded zones RiftalMines loads for travel and resets; mine_a is the
+# default level.
 # The schema is the one
 # compose creates, riftal_dev (images/compose.yaml), not the shipped riftal.
 # The login is the mines user of ADR 008, never root, and the password stays
@@ -31,6 +32,8 @@ worlds:
   lumber: "worlds/lumber.json"
   mine_b: "worlds/mine_b.json"
   mine_c: "worlds/mine_c.json"
+  quarry: "worlds/quarry.json"
+  farm: "worlds/farm.json"
 
 default_reset_percent: 60
 
