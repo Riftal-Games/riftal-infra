@@ -1111,8 +1111,8 @@ writes at y 40 is the row `MineRefillTask.php` rewrites. Its exit platform is th
 `farm_spawn` `(0, 41, 16)`, one above `quarry_spawn` `(0, 40, 16)`, so `farm`'s first leg starts from
 `(0, 40, 16)`, its second from `(0, 54, 30)` with a rise of 10, and its last tread is y 64 like lumber's.
 Both index seeds move to 23 with the recipes, and `tests/test_lumber_fragment.py` reads all three
-fragments from riftal-game. No safe-zone region is committed for either: riots is M3 and lumber's is
-the only yard one, so a region for each is a later change that names its extent.
+fragments from riftal-game. No safe-zone region is committed for either: riots is M3, so a region for
+each is a later change that names its extent.
 
 The dev stack's `instance` seeds both from `riftal_smoke_level_quarry` and `riftal_smoke_level_farm`
 and its RiftalMines `worlds` lists them. The `travel` destinations stay as they are: a `/quarry` and a
