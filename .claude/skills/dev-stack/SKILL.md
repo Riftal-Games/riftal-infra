@@ -86,7 +86,7 @@ any of these ports on the router.
 - [ ] `git -C ../pmmp-core submodule update --init --recursive`. `build/php` is a submodule and the core image build copies `build/php/compile.sh` in its first stage. Without it the build fails immediately.
 - [ ] Confirm `wslc version` responds. If not, `wsl --version` must be 2.9.3 or newer.
 - [ ] Copy `images/.env.example` to `images/.env` and set `MYSQL_ROOT_PASSWORD`. It is gitignored. MySQL refuses to initialise without it.
-- [ ] In the same file set `RIFTAL_DB_PASSWORD_BACKUP` and one `RIFTAL_DB_PASSWORD_<NAME>` per plugin login `.env.example` lists: `MINES`, `RANKS`, `ECONOMY`, `ACCOUNTS`. Each is at least 24 characters, `[A-Za-z0-9]` only, or the migration runner refuses it. `INSTANCE_ID` ships set to `dev-1`; a line ending in `=` needs its value.
+- [ ] In the same file set `RIFTAL_DB_PASSWORD_BACKUP` and one `RIFTAL_DB_PASSWORD_<NAME>` per plugin login `.env.example` lists: `MINES`, `RANKS`, `GANGS`, `PLOTS`, `ECONOMY`, `ACCOUNTS`. Each is at least 24 characters, `[A-Za-z0-9]` only, or the migration runner refuses it. `INSTANCE_ID` ships set to `dev-1`; a line ending in `=` needs its value.
 
 ## Bring it up
 
@@ -133,9 +133,10 @@ wslc build -f "$CORE/docker/Dockerfile" -t local-pocketmine-mp \
 
 ### 1b. The built levels
 
-`instance` seeds `lumber` and `mine_a` onto `riftal-world` from
-`riftal_smoke_level_lumber` and `riftal_smoke_level_mine_a`, which it mounts
-read-only at `/etc/riftal/levels/<zone>`, and lists both in
+`instance` seeds `lumber`, `mine_a`, `mine_b` and `mine_c` onto `riftal-world`
+from `riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`,
+`riftal_smoke_level_mine_b` and `riftal_smoke_level_mine_c`, which it mounts
+read-only at `/etc/riftal/levels/<zone>`, and lists all four in
 `RIFTAL_LEVEL_ZONES`. Each volume is built, never created by the stack: run
 `designer level build <zone>` for the engine in use
 (`designer/levels/README.md`, `DESIGNER_RUNTIME`) before the first bring-up. A
@@ -203,6 +204,7 @@ timeout 120 wslc run --rm --memory 1G --cpus 1 --network riftal-dev \
   -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD -e MYSQL_DATABASE=riftal_dev \
   -e MIGRATIONS_DIR=/migrations -e GRANTS_FILE=/grants.sql \
   -e RIFTAL_DB_PASSWORD_MINES -e RIFTAL_DB_PASSWORD_RANKS \
+  -e RIFTAL_DB_PASSWORD_GANGS -e RIFTAL_DB_PASSWORD_PLOTS \
   -e RIFTAL_DB_PASSWORD_ECONOMY -e RIFTAL_DB_PASSWORD_ACCOUNTS \
   mysql:8 bash /run-migrations.sh
 ```
@@ -238,8 +240,10 @@ wslc run -d -i --name riftal-instance --network riftal-dev \
   -v "$INFRA/designer/world_index.json:/etc/riftal/world_index.json:ro" \
   -v riftal_smoke_level_lumber:/etc/riftal/levels/lumber:ro \
   -v riftal_smoke_level_mine_a:/etc/riftal/levels/mine_a:ro \
+  -v riftal_smoke_level_mine_b:/etc/riftal/levels/mine_b:ro \
+  -v riftal_smoke_level_mine_c:/etc/riftal/levels/mine_c:ro \
   -e "INSTANCE_ID=${INSTANCE_ID}" \
-  -e "RIFTAL_LEVEL_ZONES=lumber mine_a" \
+  -e "RIFTAL_LEVEL_ZONES=lumber mine_a mine_b mine_c" \
   -e "RIFTAL_DEV_ENV=1" \
   -e "RIFTAL_DB_PASSWORD_MINES=${RIFTAL_DB_PASSWORD_MINES}" \
   -e "RIFTAL_DB_PASSWORD_RANKS=${RIFTAL_DB_PASSWORD_RANKS}" \
