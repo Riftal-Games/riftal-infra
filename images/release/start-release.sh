@@ -17,8 +17,9 @@
 # stops the boot. It gates itself on the instance's flags.
 #
 # The image also carries RiftalGangs, RiftalRiots, RiftalPlots and RiftalAnvil.
-# The dev stack's start scripts give them no login and no config, so none is
-# offered here.
+# This script gives them no login and no config, so none is offered here. The
+# dev stack's `instance` loads Gangs from plugins/instance-only/, not from the
+# image.
 set -euo pipefail
 
 ROOT=/opt/riftal

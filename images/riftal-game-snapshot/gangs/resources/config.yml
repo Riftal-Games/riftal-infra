@@ -62,6 +62,14 @@ join_notice_poll_seconds: 5
 # moves no window already chosen.
 shield_window_minutes: 360
 
+# docs/tuning-numbers.md "Contested mine capture time", in seconds of presence
+# a gang holds in the contested mine to take control. A whole number from 1.
+capture_seconds: 600
+
+# gangs/docs/tuning-numbers.md: seconds between presence checks in the
+# contested mine. A whole number from 1.
+capture_round_seconds: 1
+
 # The file in this plugin's data folder where riftal-infra delivers the
 # designer's world_index.json; resources/ bundles none. Its one world with
 # role "contested" is the contested mine.

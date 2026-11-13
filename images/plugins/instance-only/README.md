@@ -287,7 +287,7 @@ for `ranks`.
 It finds the contested mine in `/data/plugin_data/RiftalGangs/world_index.json`,
 which `../deliver-world-index.sh` copies there. Missing, it logs an ERROR and
 disables itself, and PocketMine stops the server before `Done`. Verified
-2026-11-11 against riftal-game `ce3965d`, the compose command chain on a fresh
+2026-11-13 against riftal-game `137b3ee`, the compose command chain on a fresh
 `/data` and a migrated MySQL. With the index delivered, the log reaches `Done`
 and carries `[RiftalGangs] contested-mine sweep flagged 0 gangs already at the
 eligibility level`. With none mounted and no delivery step:

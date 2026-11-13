@@ -62,3 +62,5 @@ travel:
     a: "mine_a_spawn"
     b: "mine_b_spawn"
     c: "mine_c_spawn"
+    quarry: "quarry_spawn"
+    farm: "farm_spawn"
