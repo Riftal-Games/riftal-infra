@@ -1,6 +1,9 @@
 name: CI
 
-# Pull requests gate every merge. Pushes are watched on main only, so a branch
+# Pull requests run the checks job. The bot jobs (bot-proofs-scope, bot-proofs
+# and bots-stopped-file) run on pushes to main only: they hold the machine-wide
+# rig lock for up to 110 minutes, and a pull request's bot evidence is the
+# playtester's scenario verdict. Pushes are watched on main only, so a branch
 # push and its pull request do not bill two runs for the same commit. These are
 # private repositories and workflow minutes are metered.
 on:
@@ -331,6 +334,12 @@ jobs:
       - name: bot-proofs takes the rig lock before a container and releases it last
         run: uv run --frozen --project designer python .github/scripts/rig_lock_job.py
 
+      - name: Self-test, prove the bot jobs event check can fail
+        run: uv run --frozen --project designer python .github/scripts/bot_jobs_event.py --selftest
+
+      - name: The bot jobs run on a push to main and never on a pull request
+        run: uv run --frozen --project designer python .github/scripts/bot_jobs_event.py
+
       # Riots treats a world as safe once any region in it carries safe_zone, so
       # a ranked mine without one is open PvP and a contested world with one is
       # not contested. Standard library only; uv run supplies the interpreter.
@@ -350,6 +359,7 @@ jobs:
   # failure or an empty output leaves bot-proofs running.
   bot-proofs-scope:
     name: bot proofs scope
+    if: github.event_name == 'push'
     runs-on: [self-hosted, linux, riftal]
     timeout-minutes: 5
     permissions:
@@ -368,8 +378,8 @@ jobs:
         id: scope
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
         run: |
           . .github/scripts/bot-proofs-scope.sh
           scope_run "$EVENT" "$BASE" "$HEAD" "$GITHUB_OUTPUT"
@@ -380,7 +390,9 @@ jobs:
     name: bot proofs
     needs: bot-proofs-scope
     # always() so a scope job that failed or wrote nothing still runs this one.
-    if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
+    # The event test is outside what always() overrides: a pull request skips
+    # the scope job, and a skipped need alone would not stop this one.
+    if: always() && github.event_name == 'push' && needs.bot-proofs-scope.outputs.serves != 'false'
     runs-on: [self-hosted, linux, riftal]
     # Under ci-sweep-selftest.sh's reap_after, like every job here. 78 minutes
     # of this are the longest wait for the rig lock (rig-lock.sh), 30 the body,
@@ -468,7 +480,7 @@ jobs:
       - name: Fetch main's merge-base backup script
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           . .github/scripts/bot-proofs-checks.sh
           merge_base_script "$HEAD_SHA" "$RUNNER_TEMP/merge-base"
@@ -500,7 +512,7 @@ jobs:
   bots-stopped-file:
     name: file bots-stopped
     needs: bot-proofs
-    if: always() && (needs.bot-proofs.outputs.exposure == 'found' || needs.bot-proofs.outputs.exposure == 'pending')
+    if: always() && github.event_name == 'push' && (needs.bot-proofs.outputs.exposure == 'found' || needs.bot-proofs.outputs.exposure == 'pending')
     runs-on: [self-hosted, linux, riftal]
     timeout-minutes: 5
     permissions:
@@ -512,7 +524,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           EXPOSURE: ${{ needs.bot-proofs.outputs.exposure }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           title="bots-stopped: exposure $EXPOSURE in run ${GITHUB_RUN_ID}"
