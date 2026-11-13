@@ -496,6 +496,12 @@ directory. The scan reads the checkout it runs from, so run it from riftal-infra
 `main` at the release commit. A deploy or a rollback of one instance is a
 one-line change to its file.
 
+`instances/alpha/` is the closed alpha's definition: its `image` is the release
+tag the alpha runs, and its `instance.env` is the only source of the zone list,
+the level name, the roster and the database host and schema, with no secret in
+it. `.gitignore` ignores `*.env` and negates `instances/*/instance.env`, so a
+definition's `instance.env` is tracked.
+
 A tag is in use when any of these names it:
 
 - a running container;
