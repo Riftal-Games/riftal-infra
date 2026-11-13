@@ -3,7 +3,7 @@
 # (riftal-infra#1387, ADR 027): step 2 taking a verified set, step 2 refused by the
 # database login, the whole-set rollback with restore.sh, restore.sh lowering the
 # capture fence the set carries, and the first run after that restore completing at
-# once.
+# once. It also runs step 2's set check on a set too large for a pipe buffer.
 #
 # It runs only as a CI step. ADR 027 forbids any agent running backup.sh or
 # restore.sh by hand, on any volume. Each scenario owns a throwaway mysql:8 container,
@@ -23,6 +23,17 @@ JOBS=7
 
 # The tree hash of step 4 of the runbook, over the zone folder of a mounted volume.
 TREE='cd /data/worlds/mine_a && find . -type f -printf "%P\0" | LC_ALL=C sort -z | xargs -0 -r sha256sum -- | sha256sum | cut -d" " -f1'
+
+# The verification of step 2 of the runbook, as written there.
+VERIFY_SET_SCRIPT='
+      set -euo pipefail
+      cd "/backups/$SET"
+      [ -s mysql.sql ] || { echo "mysql.sql is missing or empty"; exit 1; }
+      grep -q "^  - $VOL:" manifest.txt || { echo "manifest.txt does not list $VOL"; exit 1; }
+      for t in worlds/*.tar.gz; do tar -tzf "$t" >/dev/null; echo "ok $t"; done
+      # No -q: grep reads the whole listing, so tar never takes SIGPIPE under pipefail.
+      tar -tzf "worlds/$VOL.tar.gz" | grep -x "./worlds/$ZONE/level.dat" >/dev/null || { echo "the tar holds no $ZONE"; exit 1; }
+      echo "set $SET verified"'
 
 WORK="$(mktemp -d)"
 # backup.sh and restore.sh test server.lock with flock, which mysql:8 does not
@@ -85,16 +96,8 @@ scenario() (
       "$BACKUP_IMG" bash /deploy/restore.sh
   }
 
-  # The verification of step 2 of the runbook, as written there.
   verify_set() {
-    docker run --rm -m 1g --cpus 1 -v "$sets:/backups:ro" -e SET="$1" -e VOL="$inst" -e ZONE=mine_a mysql:8 bash -c '
-      set -euo pipefail
-      cd "/backups/$SET"
-      [ -s mysql.sql ] || { echo "mysql.sql is missing or empty"; exit 1; }
-      grep -q "^  - $VOL:" manifest.txt || { echo "manifest.txt does not list $VOL"; exit 1; }
-      for t in worlds/*.tar.gz; do tar -tzf "$t" >/dev/null; echo "ok $t"; done
-      tar -tzf "worlds/$VOL.tar.gz" | grep -qx "./worlds/$ZONE/level.dat" || { echo "the tar holds no $ZONE"; exit 1; }
-      echo "set $SET verified"'
+    docker run --rm -m 1g --cpus 1 -v "$sets:/backups:ro" -e SET="$1" -e VOL="$inst" -e ZONE=mine_a mysql:8 bash -c "$VERIFY_SET_SCRIPT"
   }
 
   docker network create "$net" >/dev/null || setup_failed "network"
@@ -172,6 +175,47 @@ scenario() (
   load_sets
   [ "$(count_sets)" = "$((sets_before + 1))" ] && pass first-run-new-set || fail first-run-new-set
 )
+
+# Step 2 on a set whose level listing outgrows a pipe buffer. A pipeline whose grep
+# exits on its first match leaves tar writing into a closed pipe, and pipefail reads
+# that SIGPIPE as a missing level. The run with the early-exit form must fail and the
+# run with the runbook's form must pass, so the log shows the case able to go red.
+SIGPIPE_FAILS=0
+sigpipe_set_check() {
+  local new_line old_line old_script out rc
+  new_line='tar -tzf "worlds/$VOL.tar.gz" | grep -x "./worlds/$ZONE/level.dat" >/dev/null'
+  old_line='tar -tzf "worlds/$VOL.tar.gz" | grep -qx "./worlds/$ZONE/level.dat"'
+  old_script="${VERIFY_SET_SCRIPT/"$new_line"/"$old_line"}"
+  if [ "$old_script" = "$VERIFY_SET_SCRIPT" ]; then
+    printf '::error::the early-exit form did not apply\n'; SIGPIPE_FAILS=$((SIGPIPE_FAILS + 1)); return
+  fi
+  run_big_set() {
+    docker run --rm -m 1g --cpus 1 -e SCRIPT="$1" -e SET=S -e VOL=riftal_smoke_lvr_big -e ZONE=mine_a mysql:8 bash -c '
+      set -euo pipefail
+      mkdir -p "/src/worlds/$ZONE" /backups/S/worlds
+      echo set > /backups/S/mysql.sql
+      printf "  - %s: 1 bytes\n" "$VOL" > /backups/S/manifest.txt
+      echo level > "/src/worlds/$ZONE/level.dat"
+      long="$(printf "z%.0s" $(seq 200))"
+      for i in $(seq 1500); do : > "/src/worlds/$ZONE/$long$i"; done
+      tar --sort=name -czf "/backups/S/worlds/$VOL.tar.gz" -C /src .
+      bash -c "$SCRIPT"' 2>&1
+  }
+  out="$(run_big_set "$old_script")"; rc=$?
+  if [ "$rc" != 0 ] && printf '%s\n' "$out" | grep -qx 'the tar holds no mine_a'; then
+    printf '  ok    the early-exit form fails a good set, exit %s\n' "$rc"
+  else
+    printf '::error::the early-exit form did not fail the large set (exit %s)\n%s\n' "$rc" "$out"
+    SIGPIPE_FAILS=$((SIGPIPE_FAILS + 1))
+  fi
+  out="$(run_big_set "$VERIFY_SET_SCRIPT")"; rc=$?
+  if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -qx 'set S verified'; then
+    printf '  ok    the runbook form verifies the large set\n'
+  else
+    printf '::error::the runbook form did not verify the large set (exit %s)\n%s\n' "$rc" "$out"
+    SIGPIPE_FAILS=$((SIGPIPE_FAILS + 1))
+  fi
+}
 
 IDS=() EXPECT=() BACKUP_SH=() RESTORE_SH=()
 PREP_FAILURES=0
@@ -275,6 +319,10 @@ for i in "${!IDS[@]}"; do
     done
   fi
 done
+
+printf '\n== step 2 set check on a large listing\n'
+sigpipe_set_check
+FAILURES=$((FAILURES + SIGPIPE_FAILS))
 
 if [ "$FAILURES" -ne 0 ]; then
   printf '\n%s scenario(s) did not end as expected\n' "$FAILURES"

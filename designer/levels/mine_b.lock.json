@@ -13,8 +13,8 @@
   },
   "chunks": 356,
   "content_sha256": "d11ec73f6b305f653ba1137b44aa986b91763c6895750d6f3e4f7475b80d4ea6",
-  "core_image": "sha256:fe69b3c574e6f23a5e935c0d14dddad9460443d4c987acb096caa9bb892bbd26",
-  "designbridge_commit": "6a94528275a1e5b12350607a30dd7143108e9c5e",
+  "core_image": "sha256:1b7d1b309c3cdfaafb187397eeda2515c79ea51dd8ef1b791dc06f1383feea1b",
+  "designbridge_commit": "6116bcde288823132f8601511f01d31e7d3378bc",
   "generator": "normal",
   "inputs": {
     "levels/mine_b.json": "1afdce739cae4f4fe284e0c5d9d270d996edbb0acd8f4a6375bdf199fdbe8a46",
@@ -24,7 +24,7 @@
     "specs/mine_b_access_south.json": "5a1c1af61fcf24a02b26567fe754de24d21bad9530f76dba9fde53072a106fe1"
   },
   "seed": 23,
-  "size_bytes": 899044,
-  "toolkit_commit": "dcc4762116200474b8bfe434e93ff78446f8936f",
+  "size_bytes": 903230,
+  "toolkit_commit": "a0da8a15a85b6b6c69a390473ce70757a3fbe83c",
   "zone": "mine_b"
 }

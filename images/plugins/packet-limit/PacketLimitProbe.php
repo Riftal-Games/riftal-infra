@@ -3,10 +3,10 @@
 /**
  * @name PacketLimitProbe
  * @main riftal\dev\packetlimit\Main
- * @version 0.0.2
+ * @version 0.0.3
  * @api 5.0.0
- * @depend RiftalDevBots
- * @description Self-test fixture for selftest.sh beside it. Never loaded by a stack.
+ * @softdepend RiftalDevBots,RiftalDownstreamLimit
+ * @description Self-test fixture for the packet limit self-tests. Never loaded by a stack.
  */
 
 declare(strict_types=1);
@@ -49,8 +49,9 @@ final class RecordingSender extends UserToRakLibThreadMessageSender{
  * Wraps the sender of every RakLib interface as it registers, ahead of
  * RiftalDevBots' MONITOR handler. Once the server ticks, lists the RakLib
  * interfaces on the network by object id, then announces the first of them
- * again as a registration, and shuts down. selftest.sh looks for each id in
- * the observed limit lines of the log.
+ * again as a registration, and shuts down. Both waits span a few ticks so a
+ * limit set a tick after its event is observed. selftest.sh looks for each id
+ * in the observed limit lines of the log.
  */
 final class Main extends PluginBase{
 
@@ -61,7 +62,7 @@ final class Main extends PluginBase{
 			EventPriority::LOWEST,
 			$this
 		);
-		$this->getScheduler()->scheduleDelayedTask(new ClosureTask($this->probe(...)), 1);
+		$this->getScheduler()->scheduleDelayedTask(new ClosureTask($this->probe(...)), 3);
 	}
 
 	private function observe(object $interface) : void{
@@ -96,6 +97,6 @@ final class Main extends PluginBase{
 			$this->getLogger()->info("packet-limit-probe registration announced");
 			(new NetworkInterfaceRegisterEvent($raklib[0]))->call();
 		}
-		$server->shutdown();
+		$this->getScheduler()->scheduleDelayedTask(new ClosureTask($server->shutdown(...)), 3);
 	}
 }
