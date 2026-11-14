@@ -74,8 +74,9 @@ operator and no console can create an item, an enchantment or experience.
 two, so the production compose must set no `RIFTAL_DEV_ENV`
 (riftal-infra#1424), and this step's log line is what proves it does not.
 
-Before any game instance opens, read its boot log. It must carry exactly this
-line from `custody`, once:
+Before any game instance opens, read its boot log. It must carry a line from
+`custody`, once, that ends in exactly this text. The plugin logger puts a
+prefix before it, such as `[Server thread/INFO]: [RiftalCustody] `:
 
 ```text
 Dev gate closed: operator item creation is off. Removed commands: give, enchant, xp, defaultgamemode.
@@ -84,9 +85,12 @@ Dev gate closed: operator item creation is off. Removed commands: give, enchant,
 An instance whose log carries `Dev gate open: operator item creation is on.`,
 or neither line, does not open. Neither line means the instance is not running
 a `custody` that carries the rule, or it stopped before enable. An instance
-that logs the default game mode as creative has stopped at enable and does not
-open either, and one that logs a refused login for a user in creative mode at
-login is not open until Nasir has put that user right.
+whose log carries this critical line has stopped at enable and does not open
+either:
+
+```text
+The server default game mode is creative, which no instance with the dev gate closed may run. Set gamemode to survival.
+```
 
 The release image already carries `RiftalCustody.phar`, so this step needs no
 image change. It reads the log, never the compose file: the compose says what
