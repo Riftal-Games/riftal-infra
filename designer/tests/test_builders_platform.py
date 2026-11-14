@@ -53,7 +53,7 @@ def test_railing_is_a_bottom_slab_ring_at_the_edge(palette: Palette) -> None:
     slab = palette.block("slab")
     ring = [op for op in edits.ops if isinstance(op, Fill) and op.block.startswith(slab)]
     assert len(ring) == 4
-    assert all("top_slot_bit=false" in op.block for op in ring)
+    assert all("minecraft:vertical_half=bottom" in op.block for op in ring)
     assert all(op.bounds.min[1] == op.bounds.max[1] == spec.y + 1 for op in ring)
     xs = {op.bounds.min[0] for op in ring} | {op.bounds.max[0] for op in ring}
     zs = {op.bounds.min[2] for op in ring} | {op.bounds.max[2] for op in ring}
