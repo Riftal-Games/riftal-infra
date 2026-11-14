@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 
 from designer.blocks import AIR, UNMAPPED, BlockClass, format_name, is_tall_floor, is_unmapped, parse_name
-from designer.builders.mine_spec import SIDES, MineSpec
+from designer.builders.mine_spec import FARMLAND, SIDES, WETNESS_STATE, MineSpec
 from designer.region import Bounds, LightRegion, Region
 from designer.reset_states import RESET_STATES
 
@@ -50,6 +50,10 @@ LIGHT_KINDS = ("block", "sky", "max")
 # MineSpec refuses an ores key whose base is not a block id, so no key can spell
 # a canonical name with this appended.
 NOT_RESET_STATE = " (not its reset state)"
+
+# Farmland at wetness 0 turns to dirt on its first random tick with no event for a plugin to cancel, and the
+# crop above it pops.
+MIN_WETNESS = 1
 
 Pos = tuple[int, int, int]
 
@@ -529,6 +533,15 @@ def _as_ores(palette: list[str], ores: dict[str, float]) -> list[str]:
     return out
 
 
+def _wet_farmland(name: str) -> bool:
+    """``name`` is farmland whose wetness state reads ``MIN_WETNESS`` or more; a missing or malformed state reads as dry."""
+    base, states = parse_name(name)
+    try:
+        return base == FARMLAND and int(states.get(WETNESS_STATE, "0")) >= MIN_WETNESS
+    except ValueError:
+        return False
+
+
 def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> MineResult:
     """The mine in ``region`` is enclosed, opens only where declared, holds the declared ores and stands on a floor.
 
@@ -550,9 +563,10 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     cells are`` or ``exit platform cells are`` that note, since it may be water or kelp in the world. So does
     any other one in the shell or padding ring, as ``wall cells are`` that note, when it lies on the shell's
     surface or the enclosure flood would reach it were it open; one sealed off inside the wall cannot leak.
-    ``coords`` holds leaks, undeclared cells, unmapped wall cells, missing floor cells, unmapped floor cells,
-    missing platform cells, unmapped platform cells, blocked lane cells, then those interior cells,
-    ``LEAKS_REPORTED`` of each.
+    A crop mine (``MineSpec.has_crop``) also fails when any floor cell under its interior is not farmland at wetness
+    ``MIN_WETNESS`` or more. ``coords`` holds leaks, undeclared cells, unmapped wall cells, missing floor cells,
+    unmapped floor cells, dry crop floor cells, missing platform cells, unmapped platform cells, blocked lane
+    cells, then those interior cells, ``LEAKS_REPORTED`` of each.
     """
     geo = spec.geometry()
     if region.world != spec.world:
@@ -616,6 +630,10 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     unmapped_at = region.unmapped()
     floor_unmapped = unmapped_at[fy, zs, xs]
     floor_odd = [_world(geo.interior, (-1, iz, ix)) for iz, ix in np.argwhere(floor_unmapped)[:LEAKS_REPORTED]]
+    dry = np.zeros(missing.shape, dtype=bool)
+    if spec.has_crop:
+        dry = ~np.array([_wet_farmland(name) for name in region.palette], dtype=bool)[region.blocks[fy, zs, xs]]
+    dry_odd = [_world(geo.interior, (-1, iz, ix)) for iz, ix in np.argwhere(dry)[:LEAKS_REPORTED]]
 
     door_axis, _ = SIDES[spec.entrance.side]
     lateral = 2 if door_axis == "x" else 0
@@ -644,6 +662,7 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
             (f"{int(stray.sum())} interior cells neither air nor in ores {strays}", strays),
             (f"{int(missing.sum())} floor cells missing", gaps),
             (f"{int(floor_unmapped.sum())} floor cells are {UNMAPPED_NOTE}", floor_odd),
+            (f"{int(dry.sum())} crop floor cells are not farmland at wetness {MIN_WETNESS} or more", dry_odd),
             (f"{int(platform_missing.sum())} exit platform cells missing", platform_gaps),
             (f"{int(platform_unmapped.sum())} exit platform cells are {UNMAPPED_NOTE}", platform_odd),
             (f"{int(platform_blocked.sum())} exit platform cells blocked above", platform_obstructed),
@@ -651,12 +670,12 @@ def mine_valid(region: Region, spec: MineSpec, *, tolerance: float = 0.03) -> Mi
     ]
     data = {
         "undeclared": undeclared[:LEAKS_REPORTED], "wall_unmapped": int(wall_unknown.sum()), "floor_missing": int(missing.sum()),
-        "floor_unmapped": int(floor_unmapped.sum()), "platform_missing": int(platform_missing.sum()),
+        "floor_unmapped": int(floor_unmapped.sum()), "crop_floor_dry": int(dry.sum()), "platform_missing": int(platform_missing.sum()),
         "platform_unmapped": int(platform_unmapped.sum()), "platform_blocked": int(platform_blocked.sum()),
     }
     return MineResult(
         not failing, "; ".join(failing) or "mine valid",
-        leaks + data["undeclared"] + wall_odd + gaps + floor_odd + platform_gaps + platform_odd + platform_obstructed + strays, data,
+        leaks + data["undeclared"] + wall_odd + gaps + floor_odd + dry_odd + platform_gaps + platform_odd + platform_obstructed + strays, data,
         leaks=leaks, entrances_found=components, composition=_fractions(inner, names), deviations=deviations,
     )
 

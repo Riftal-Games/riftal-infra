@@ -3,13 +3,14 @@
 # PluginBase::saveDefaultConfig() never overwrites a file that already exists
 # there.
 #
-# Every value below except the database section and `worlds` is the plugin's
-# own shipped default (riftal-game/mines/resources/config.yml), which
-# selftest.sh compares to that file. The plugin throws without any of the
-# scalars, and reads a missing join_teleport section as switched off, so that
-# one would drift in silence were it not carried here. `worlds` names
-# only lumber: the shipped mine_a to mine_c entries have no built mine on this
-# stack, and mine_a here is a plain generated world. The schema is the one
+# Every value below except the database section, `worlds` and
+# join_teleport.enabled is the plugin's own shipped default, travel included
+# (riftal-game/mines/resources/config.yml), which selftest.sh compares to that
+# file. The plugin throws without any of the scalars, and reads a missing
+# join_teleport section as switched off, so that one would drift in silence
+# were it not carried here. `worlds` names lumber, mine_b and mine_c, the seeded
+# zones RiftalMines loads for travel and resets; mine_a is the default level.
+# The schema is the one
 # compose creates, riftal_dev (images/compose.yaml), not the shipped riftal.
 # The login is the mines user of ADR 008, never root, and the password stays
 # empty: RiftalGames\Lib\Database\DatabaseSettings reads it from
@@ -28,6 +29,8 @@ database:
 
 worlds:
   lumber: "worlds/lumber.json"
+  mine_b: "worlds/mine_b.json"
+  mine_c: "worlds/mine_c.json"
 
 default_reset_percent: 60
 
@@ -39,9 +42,23 @@ refill_blocks_per_tick: 4096
 
 refill_tick_budget_ms: 15
 
-# Switching it on here is riftal-infra#319: with it on, a location missing from
-# the delivered world_index.json, or its world not loaded, rejects every join.
+# With it on, a location missing from the delivered world_index.json, or its
+# world not loaded, rejects every join. mine_a_spawn is in that index and
+# mine_a is a zone seed-levels.sh seeds from its built level (riftal-infra#319).
 join_teleport:
-  enabled: false
+  enabled: true
   location: "mine_a_spawn"
   world_index: "world_index.json"
+
+# A destination whose location is missing from the delivered index, or whose
+# world is not loaded, is answered "not open" at the command and never stops
+# the plugin enabling or the other destinations. Each destination names a
+# spawn in the delivered index whose world seed-levels.sh seeds from a built
+# level.
+travel:
+  world_index: "world_index.json"
+  destinations:
+    lumber: "lumber_spawn"
+    a: "mine_a_spawn"
+    b: "mine_b_spawn"
+    c: "mine_c_spawn"
