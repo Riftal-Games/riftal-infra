@@ -1,0 +1,11 @@
+# Login account resolution, docs/specs/019-accounts-plugin.md.
+# riftal-infra overrides the database section per instance.
+# `mysql` is the network alias every riftal-infra stack gives the database.
+# `accounts` is the one MySQL login allowed to write the accounts table (ADR 008).
+database:
+  host: "mysql"
+  schema: "riftal"
+  username: "accounts"
+  password: ""
+  port: 3306
+  worker-limit: 1

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for wipe-volumes.sh through wipe.sh, against one throwaway mysql:8
-# container that publishes nothing, with two throwaway riftal_smoke_ volumes
+# container that publishes nothing and sits alone on its own internal network,
+# with two throwaway riftal_smoke_ volumes
 # mounted as instance volumes. Runs under `docker`, as wipe-selftest.sh does.
 #
 # Each volume is seeded with the paths the wipe clears and the files it keeps
@@ -24,6 +25,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TAG="$$_$(date +%s)"
 C="riftal_smoke_wipevol_$TAG"
+NET="riftal_smoke_wipevol_net_$TAG"
 VOLUMES=("riftal_smoke_wipevol_a_$TAG" "riftal_smoke_wipevol_b_$TAG")
 LOGS="$(mktemp -d)"
 
@@ -35,12 +37,20 @@ cleanup() {
     docker volume rm "${VOLUMES[@]}" >/dev/null 2>&1 && break
     sleep 1
   done
+  for _ in $(seq 1 30); do
+    docker network rm "$NET" >/dev/null 2>&1 && break
+    sleep 1
+  done
   rm -rf "$LOGS"
 }
 trap cleanup EXIT
 
 for v in "${VOLUMES[@]}"; do docker volume create "$v" >/dev/null; done
-docker run -d --rm --name "$C" -m 1g --cpus 1 -v "$SCRIPT_DIR:/deploy:ro" \
+# Only this network reaches the database. On the daemon's default bridge, any
+# container of any build running there could open a session on it, and the
+# wipe refuses while another session is connected.
+docker network create --internal "$NET" >/dev/null
+docker run -d --rm --name "$C" --network "$NET" -m 1g --cpus 1 -v "$SCRIPT_DIR:/deploy:ro" \
   -v "$SCRIPT_DIR/../images/plugins:/images/plugins:ro" -v "${VOLUMES[0]}:/worlds/riftal_smoke_a" -v "${VOLUMES[1]}:/worlds/riftal_smoke_b" \
   -e MYSQL_ROOT_PASSWORD=selftest -e MYSQL_DATABASE=riftal_dev mysql:8 >/dev/null
 for _ in $(seq 1 90); do
@@ -50,6 +60,7 @@ done
 q() { docker exec "$C" mysql -uroot -pselftest -h 127.0.0.1 -N -B -e "$1" 2>/dev/null; }
 sh_in() { docker exec "$C" bash -c "$1"; }
 q 'SELECT 1' >/dev/null || { echo "mysql in $C never became ready" >&2; exit 1; }
+sh_in 'mysql -uroot -pselftest -h 127.0.0.1 riftal_dev </deploy/fence-fixture.sql'
 
 KEPT="server.log ops.txt white-list.txt banned-players.txt banned-ips.txt crashdumps/c.txt log_archive/l.log"
 KEPT="$KEPT .capture/r1/players/p.dat pocketmine.yml"
@@ -92,10 +103,12 @@ state() { sh_in 'cd /worlds && { find . -type f -exec sha256sum {} +; find . -ty
 kept() { sh_in "cd /worlds && for v in riftal_smoke_a riftal_smoke_b; do for f in $KEPT; do sha256sum \$v/\$f; done; done"; }
 state >"$LOGS/state.before"
 kept >"$LOGS/kept.before"
+TABLES_BEFORE="$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'riftal_dev'")"
+[ "${TABLES_BEFORE:-0}" -ge 1 ] || { echo "riftal_dev lists no table before the refusals" >&2; exit 1; }
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=99
+EXPECTED_ASSERTIONS=100
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 # wipe <database> <set> [docker exec -e flags]
@@ -148,6 +161,15 @@ check_fails() {
 }
 NOBUILD="has no ADR 009 build and should be absent after a wipe"
 BUILT="does not carry content_sha256"
+
+printf '\n== no container but this one can open a session on the database\n'
+joined="$(docker inspect -f '{{range $n, $_ := .NetworkSettings.Networks}}{{$n}}{{end}}' "$C")"
+members="$(docker network inspect -f '{{len .Containers}}' "$NET")"
+if [ "$joined" = "$NET" ] && [ "$members" = 1 ]; then
+  pass "the database is on $NET alone, and nothing else is on $NET"
+else
+  fail "the database is on '$joined' and $NET holds $members container(s), not $NET alone with 1"
+fi
 
 printf '\n== wipe-check fails on the seeded volumes\n'
 CHECK=("${W[@]}" "${L[@]}")
@@ -249,7 +271,7 @@ RUN=(/deploy/wipe-volumes.sh dev)
 refused direct "wipe-volumes.sh runs only inside wipe.sh" \
   riftal_dev /tmp/set "${W[@]}" "${L[@]}" "${DEV[@]}"
 RUN=(/deploy/wipe.sh)
-[ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'riftal_dev'")" = "1" ] \
+[ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'riftal_dev'")" = "$TABLES_BEFORE" ] \
   && pass "every refusal left riftal_dev in place" || fail "a refused wipe changed riftal_dev"
 
 printf '\n== RIFTAL_DEV_ENV=1 on riftal_dev clears the ruled paths and keeps the rest\n'

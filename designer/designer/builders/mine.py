@@ -107,10 +107,10 @@ def build_mine(spec: MineSpec, palette: Palette) -> EditList:
         ops.extend(_ore_ops(spec, spec.reset_interior()))
     ops.append(Fill(geo.entrance, AIR))
     ops.append(Fill(geo.exit_platform, floor))
-    # Terrain the mine is dug into would bury the walking lane, the platform's centre line, so it is carved to a
-    # player's feet and head height.
-    far = point(spec.exit_path.length)
-    ops.append(Fill(Bounds(point(1), (far[0], far[1] + 1, far[2])), AIR))
+    # Terrain the mine is dug into would bury the platform, so all of its width is carved to a player's feet and
+    # head height: the walking line, and the sign cells the NPCs stand in beside it.
+    platform = geo.exit_platform
+    ops.append(Fill(Bounds((platform.min[0], spec.floor_y, platform.min[2]), (platform.max[0], spec.floor_y + 1, platform.max[2])), AIR))
     ops.extend(SetBlock(*point(d, edge), light) for d in _light_distances(spec.exit_path.length, spec.lights_every))
 
     suffix = spec.name.rsplit("_", 1)[-1]

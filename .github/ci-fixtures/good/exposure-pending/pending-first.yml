@@ -27,4 +27,11 @@ jobs:
 
       - name: Harness
         id: harness
-        run: bash start-first-bot.sh
+        run: |
+          status=0
+          env -u GITHUB_OUTPUT bash deploy/bot-proofs.sh || status=$?
+          case "$status" in
+            0|4) printf 'exposure=none\n' >> "$GITHUB_OUTPUT" ;;
+            3) printf 'exposure=found\n' >> "$GITHUB_OUTPUT" ;;
+          esac
+          exit "$status"

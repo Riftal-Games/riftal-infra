@@ -1027,3 +1027,73 @@ named end in another. The search treats a stair as a full block and opens a one-
 A last tread at y 63 would top out at 64.0 against the grass top at 65.0, a 1.0-block step: over the
 0.6 walk step and under the 1.25-block jump. `tests/test_lumber_access.py` pins the exit tread at y 64,
 so the exit is flush and needs no jump.
+
+## 2026-10-31 `RESET_STATES` carries the six crops at max age
+
+RiftalMines resolves an `ores` key through `MineBlock::resolve`, which reads it as a Bedrock block id
+before `StringToItemParser`, so `minecraft:wheat` is the crop, and `MineResetListener.php` sets every
+`Crops` block to `getMaxAge()`. A bare crop id reads back at `growth=0`, which `mine_valid` counts as
+a stray, and `FarmFloorListener` cancels growth in mine worlds, so a farm built from bare ids would stay
+at age 0 until its first reset. `RESET_STATES` lists `wheat`, `carrots`, `potatoes` and
+`beetroot` at `growth=7`, and `melon_stem` and `pumpkin_stem` at `growth=7` with `facing_direction=0`.
+The live check on the designer stack, on the core image pinned by `images/core-image.sha`, set each crop
+as the reset does and read it back through `get_region`; the bridge refuses a stem written with
+`growth` alone, `Property "facing_direction" is missing`. The farmland under the row is the
+`build_mine` floor, which matches the farmland `MineRefillTask.php` writes (#1347).
+
+## 2026-10-31 The committed index carries `lumber_spawn`, lumber's arrival at the stairway foot
+
+A client arriving in lumber by the level's own spawn lands at 256 55 256, a flooded cave about 360
+blocks from the yard, and RiftalCustody refuses every break outside the mine interior. The committed
+entry is the one `build_mine` emits for `specs/lumber.json` (`[0, 40, 16]`, facing north up the
+stairway the `stairs` steps climb), committed through `WorldIndex.add_location` and saved, so the
+level build reproduces it exactly and `lumber_spawn_to_surface` already walks from it. RiftalMines'
+join teleport takes the location name from its `join_teleport.location` setting and has no lumber
+route of its own, so the name is the builder's, as `mine_a_spawn` is Mine A's. Setting the built
+level's own spawn was rejected: the lock does not cover it, and the index, the one file every
+plugin reads, would still hold no lumber arrival (#1355).
+
+## 2026-11-04 `mine_a` is sited on seed 23 and climbs from its spawn by two stairs legs
+
+On seed 20260907 the ground over `mine_a` is open ocean at y 62, so its exit lane ended in stone under
+the seabed and a join teleport to `mine_a_spawn` sealed a client underground (#1394). Seed 23, lumber's,
+is grass at y 63 to 65 across the whole yard and beyond. `mine_a`'s `world_index.json` entry and recipe
+take it; its mine spec keeps its own `seed` field, which seeds the ore roll and not the terrain.
+
+Two `stairs` steps climb 13 rows south from the lane's last cell `(0, 39, 23)` and 11 rows east, to a
+last tread at y 63, flush with the grass top at `(11, 36)`. A tread one cell higher would stand 1.0
+above that grass. They are one block wide, unlike lumber's: a stairs step clears its base row to its
+whole width, and the lane's last row holds the sell and rank-up signs at x -1 and 1, which a three-wide
+base row erased. `tests/test_mine_a_access.py` pins the signs. The legs lie in the chunks `pregen`
+populates around the recipe box.
+
+`bounds` stays the mine's own box. Widening it to z 23, to put the exit platform in `content_sha256`,
+reaches the stone beside the lane, which is natural terrain: two builds of the same recipe on one engine
+differed in 29 cells (dirt and gravel pockets at x 16 to 17, z 19 to 23, y 47 to 51) and so in the hash.
+The platform and the stairs are outside it, so `mine_a_spawn_to_surface` (`path_exists`,
+`zone: mine_a`) walks the built terrain from the spawn to `(13, 64, 36)`. The two `travel_time` checks
+and `warp_safe` carry `zone: mine_a` and gate the build too, as do `entity_clear` on `sell_npc_a` and
+`rankup_npc_a`: the mine builder carves the whole exit platform to head height, so the cells beside the
+lane that hold the signs are open and not stone (#1395).
+
+## 2026-11-05 `mine_b` takes `mine_a`'s siting, and `mine_c` waits on its ore name
+
+`mine_b` has the same geometry as `mine_a`, so on seed 23 it takes the same two legs from `(0, 39, 23)`
+and `(0, 52, 36)` and the same surface goal `(13, 64, 36)`. Its recipe, `mine_b_spawn_to_surface` and
+`entity_clear` on its two signs mirror `mine_a`'s, and `tests/test_mine_a_access.py` runs over both. That
+file also reads `warp_safe` at the spawn on a region with the stairs built, so the ring row at z 24 holds
+the first tread and not the stone a mine-only box ends in front of (#1407).
+
+`mine_c` has no recipe yet. Its mine spec names lapis by the Bedrock id `minecraft:lapis_ore`, its
+RiftalMines fragment by the item alias `minecraft:lapis_lazuli_ore`, and the ore gate refuses the build
+on that difference. The fragment is riftal-game#560's to correct, and a build with the fragment edited
+only for this run would gate nothing. `mine_c`'s index seed stays 20260907 until its level builds.
+
+## 2026-11-10 `mine_c` takes `mine_a`'s siting once its fragment names `minecraft:lapis_ore`
+
+riftal-game#560 corrected the RiftalMines `mine_c` fragment to the Bedrock id `minecraft:lapis_ore`, so the
+ore gate passes the unedited spec and the build runs against the fragment on riftal-game `main`. `mine_c`
+has the geometry of `mine_a` and `mine_b`, so it takes the same recipe on seed 23, the same two legs from
+`(0, 39, 23)` and `(0, 52, 36)` and the same surface goal `(13, 64, 36)`, and its index seed moves to 23 with
+it. `mine_c_spawn_to_surface` and `entity_clear` on `sell_npc_c` and `rankup_npc_c` mirror `mine_b`'s, and
+`tests/test_mine_a_access.py` runs over all three mines (#1412).

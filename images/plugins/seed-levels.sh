@@ -89,12 +89,12 @@ seed_zone() {
 		return
 	fi
 	if [ ! -d "$source" ]; then
-		refuse "$zone is not in $worlds and its level source $source is not mounted; build the level and mount its volume read-only there"
+		refuse "$zone is not in $worlds and its level source $source is not mounted; build volume riftal_smoke_level_$zone with \`designer level build $zone\` and mount it read-only there"
 	fi
 	want="$(manifest_digest "$source/$manifest" tree_sha256)"
 	content="$(manifest_digest "$source/$manifest" content_sha256)"
 	if [ -z "$want" ] || [ -z "$content" ]; then
-		refuse "$zone: $source/$manifest is missing or holds no single tree_sha256 and content_sha256 line"
+		refuse "$zone: $source/$manifest is missing or holds no single tree_sha256 and content_sha256 line; volume riftal_smoke_level_$zone was never fully built, run \`designer level build $zone\`"
 	fi
 	odd="$(find "$source" ! -type f ! -type d -print -quit)"
 	if [ -n "$odd" ]; then
