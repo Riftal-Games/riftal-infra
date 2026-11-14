@@ -3,11 +3,11 @@
 /**
  * @name RiftalDevFaults
  * @main riftal\dev\faults\Main
- * @version 0.2.0
+ * @version 0.3.0
  * @api 5.0.0
  * @depend RiftalDevBots
  * @softdepend RiftalCustody
- * @description Dev stack only. Fails a named player's saves, the custody probe, and one durable chunk save, for ADR 017 P8 and ADR 030.
+ * @description Dev stack only. Fails a named player's saves, the custody probe, and one durable chunk save, for ADR 017 P8 and ADR 030, and fires one rank-up debit for ADR 034.
  */
 
 declare(strict_types=1);
@@ -25,8 +25,15 @@ use pocketmine\event\EventPriority;
 use pocketmine\event\player\PlayerDataSaveEvent;
 use pocketmine\permission\DefaultPermissions;
 use pocketmine\plugin\PluginBase;
+use Ramsey\Uuid\Uuid;
 use riftal\dev\bots\DevEnvGate;
+use RiftalGames\Contracts\Accounts\AccountId;
 use RiftalGames\Contracts\Chunk\DurableChunkSaveEvent;
+use RiftalGames\Contracts\Currency;
+use RiftalGames\Contracts\Economy\CurrencyDebitRequestedEvent;
+use RiftalGames\Contracts\Economy\CurrencyMovementReason;
+use RiftalGames\Contracts\Economy\RequestId;
+use RiftalGames\Contracts\InstanceIdentity;
 use Symfony\Component\Filesystem\Path;
 use function class_exists;
 use function count;
@@ -35,6 +42,7 @@ use function getenv;
 use function is_dir;
 use function is_link;
 use function mkdir;
+use function preg_match;
 use function rmdir;
 use function strtolower;
 
@@ -51,7 +59,7 @@ use function strtolower;
  * Present only under RiftalDevBots' DevEnvGate: without --riftal-dev-bots=on,
  * xbox-auth off and RIFTAL_DEV_ENV=1, no command and no listener exist, and
  * without RiftalDevBots core refuses to load this plugin at all.
- * dev-faults/selftest.sh holds the gate, all three faults and the boot order.
+ * dev-faults/selftest.sh holds the gate, every fault and the boot order.
  *
  * The gate is read and the armed probe cleared in onLoad, because core runs
  * every plugin's onLoad before it enables any, and custody runs its boot
@@ -64,6 +72,12 @@ use function strtolower;
  * RiftalContracts loads at STARTUP and core puts every plugin's classes on the
  * loader before it enables any. Without RiftalContracts the other two faults
  * still register and the chunk fault does not.
+ *
+ * devfaults-debit (ADR 034) fires one CurrencyDebitRequestedEvent for rank_up
+ * and nothing else. It keeps no state, retries nothing, reads no database and
+ * never fires a credit, so the only money it can move is out of an account.
+ * The reason is not an argument: another plugin reconciles on a reason, and a
+ * console line must not be able to write one it has no matching row for.
  */
 final class Main extends PluginBase{
 
@@ -117,7 +131,57 @@ final class Main extends PluginBase{
 		}else{
 			$logger->warning("RiftalContracts is not loaded, so devfaults-chunk-save-fail is not registered");
 		}
+		if(class_exists(CurrencyDebitRequestedEvent::class)){
+			$commands[] = new FaultCommand("devfaults-debit", "Dev stack only. Debits one account once, with the reason rank_up.", "/devfaults-debit <account id> <amount minor units>", $logger, $this->debit(...));
+		}else{
+			$logger->warning("RiftalContracts is not loaded, so devfaults-debit is not registered");
+		}
 		$server->getCommandMap()->registerAll("riftaldevfaults", $commands);
+	}
+
+	/** @param list<string> $args */
+	private function debit(array $args) : string{
+		if(count($args) !== 2){
+			throw new InvalidCommandSyntaxException();
+		}
+		$account = self::positiveInt($args[0]);
+		$amount = self::positiveInt($args[1]);
+		if($account === null || $amount === null){
+			throw new InvalidCommandSyntaxException();
+		}
+		try{
+			$instance = InstanceIdentity::fromEnvironment(getenv("INSTANCE_ID"));
+		}catch(\InvalidArgumentException $e){
+			return "no debit is fired: " . $e->getMessage();
+		}
+		$requestId = RequestId::fromString(Uuid::uuid7()->toString());
+		$logger = $this->getLogger();
+		$line = "devfaults-debit request_id={$requestId->toString()} account_id=$account amount_minor_units=$amount instance_id={$instance->id()}";
+		$outcome = static fn(string $name) : Closure => static function() use ($logger, $line, $name) : void{
+			$logger->info("$line outcome=$name");
+		};
+		$logger->info("$line reason=" . CurrencyMovementReason::RankUp->value);
+		(new CurrencyDebitRequestedEvent(
+			$instance,
+			AccountId::fromInt($account),
+			Currency::fromMinorUnits($amount),
+			$outcome("debited"),
+			$outcome("rejected"),
+			$outcome("failed"),
+			$requestId,
+			CurrencyMovementReason::RankUp,
+			$outcome("not_applied")
+		))->call();
+		return "";
+	}
+
+	/** Only a plain decimal count of at least 1 that fits an int. */
+	private static function positiveInt(string $value) : ?int{
+		if(preg_match('/\A[1-9][0-9]*\z/', $value) !== 1){
+			return null;
+		}
+		$int = filter_var($value, FILTER_VALIDATE_INT);
+		return $int === false ? null : $int;
 	}
 
 	private function onChunkSave(DurableChunkSaveEvent $event) : void{
@@ -216,7 +280,7 @@ final class Main extends PluginBase{
  */
 final class FaultCommand extends Command{
 
-	/** @param Closure(list<string>) : string $run returns the line to log */
+	/** @param Closure(list<string>) : string $run returns the line to log, or "" when it has logged its own */
 	public function __construct(string $name, string $description, string $usage, private Logger $logger, private Closure $run){
 		parent::__construct($name, $description, $usage);
 		$this->setPermission(DefaultPermissions::ROOT_CONSOLE);
@@ -227,7 +291,10 @@ final class FaultCommand extends Command{
 			$sender->sendMessage($this->getName() . " runs only from the server console");
 			return true;
 		}
-		$this->logger->warning($this->getName() . ": " . ($this->run)($args));
+		$line = ($this->run)($args);
+		if($line !== ""){
+			$this->logger->warning($this->getName() . ": " . $line);
+		}
 		return true;
 	}
 }

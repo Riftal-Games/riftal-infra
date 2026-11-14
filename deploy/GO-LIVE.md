@@ -56,3 +56,9 @@ proves the arithmetic and each refusal, and `write-latency-probe-selftest.sh`
 proves on a stub `docker` that the probe volume takes the instance volume's
 driver and is the one the probe writes to, and with `--probe` runs the probe
 once for real.
+
+Only the probe run on the chosen host is the go-live result. A staging run on
+the dev machine, PASS or FAIL, is the rehearsal spec 016 criterion 6 asks for:
+the step was performed, not passed. Its number is not read as a verdict, since
+the dev machine's shared WSL2 disk and daemon spread it widely from run to run
+(riftal-infra#1147, riftal-pm#1367).

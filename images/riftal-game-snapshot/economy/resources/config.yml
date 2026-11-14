@@ -1,0 +1,49 @@
+# Currency, sell shop, auction house, chest shops, design plan §8. This
+# scaffold owns only the balance ledger; the shared MySQL database is the
+# one named in docs/specs/002-economy-currency-and-balances.md,
+# "Instance-split impact". riftal-infra overrides this section per instance.
+# `mysql` is the network alias every riftal-infra stack gives the database;
+# `riftal-mysql` is one stack's container name and resolves nowhere else.
+database:
+  host: "mysql"
+  schema: "riftal"
+  username: "economy"
+  password: ""
+  port: 3306
+  worker-limit: 1
+
+# The sell shop's price table, docs/specs/003-sell-shop.md: a map from item
+# identifier (StringToItemParser, e.g. "minecraft:oak_log") to a per-unit
+# price in minor units. There is no default price; an identifier absent here
+# is unsellable, not free-priced. A key is the item a block drops, not the
+# block: iron ore breaks to raw iron, and a mature wheat crop to wheat. The
+# entries cover M1's haul, spec 005's ores sold raw plus the lumber yard's
+# logs, spec 010's quarry and farm rows, and spec 021's contested mine gold
+# and diamond, each at the flat placeholder in docs/tuning-numbers.md, "Sell
+# shop prices, per material".
+#
+# form-reopen-seconds: how long after a sell form is sent the shop ignores
+# further uses by the same player. A held use button repeats until the form
+# reaches the client; a form still unanswered after this window was closed by
+# the server or never arrived, and the next use replaces it. Seconds, above 0.
+sell-shop:
+  form-reopen-seconds: 5
+  prices:
+    "minecraft:cobblestone": 5
+    "minecraft:coal": 5
+    "minecraft:raw_copper": 5
+    "minecraft:raw_iron": 5
+    "minecraft:raw_gold": 5
+    "minecraft:diamond": 5
+    "minecraft:lapis_lazuli": 5
+    "minecraft:oak_log": 5
+    "minecraft:andesite": 5
+    "minecraft:wheat": 5
+    "minecraft:carrot": 5
+
+# listing-tax-percent: the share of a sold listing's price the seller does not
+# receive, docs/specs/009-auction-house.md, rounded down to a whole minor unit.
+# The placeholder in docs/tuning-numbers.md, "AH listing tax rate". A whole
+# number from 0 to 100.
+auction-house:
+  listing-tax-percent: 10

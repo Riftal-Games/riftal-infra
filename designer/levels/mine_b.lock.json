@@ -1,0 +1,30 @@
+{
+  "bounds": {
+    "max": [
+      17,
+      52,
+      17
+    ],
+    "min": [
+      -18,
+      38,
+      -18
+    ]
+  },
+  "chunks": 356,
+  "content_sha256": "d11ec73f6b305f653ba1137b44aa986b91763c6895750d6f3e4f7475b80d4ea6",
+  "core_image": "sha256:1b7d1b309c3cdfaafb187397eeda2515c79ea51dd8ef1b791dc06f1383feea1b",
+  "designbridge_commit": "6116bcde288823132f8601511f01d31e7d3378bc",
+  "generator": "normal",
+  "inputs": {
+    "levels/mine_b.json": "1afdce739cae4f4fe284e0c5d9d270d996edbb0acd8f4a6375bdf199fdbe8a46",
+    "palette:mine_stone": "30c68b82e89822017f0173446c4f3fbd81ad3d470c9d57c8645cdfb292e33979",
+    "specs/mine_b.json": "07db7454c161cb37cb668a8641f45bd119f9be326f66c1974a6f2afd6f3f630c",
+    "specs/mine_b_access_east.json": "a3eb464e4ff254dfe86426b524e6dff6d23ac5ff5e3ded451ae5bd54c60a3efc",
+    "specs/mine_b_access_south.json": "5a1c1af61fcf24a02b26567fe754de24d21bad9530f76dba9fde53072a106fe1"
+  },
+  "seed": 23,
+  "size_bytes": 903230,
+  "toolkit_commit": "a0da8a15a85b6b6c69a390473ce70757a3fbe83c",
+  "zone": "mine_b"
+}

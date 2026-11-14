@@ -12,7 +12,10 @@
 *.yaml text eol=lf
 *.sha text eol=lf
 .env.example text eol=lf
+instances/*/image text eol=lf
+instances/*/instance.env text eol=lf
 Dockerfile text eol=lf
 Containerfile text eol=lf
 migrations/fixtures/lock-reads/mysql text eol=lf
 migrations/fixtures/lock-pipe/stdbuf text eol=lf
+images/riftal-game-snapshot/SOURCE text eol=lf

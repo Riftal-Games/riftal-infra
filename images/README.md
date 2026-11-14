@@ -14,7 +14,8 @@ Set in `images/.env`, copied from `.env.example`. Never commit `.env`.
 | `INSTANCE_ID` | This instance's identity, read by `RiftalGames\Lib\InstanceIdentity::fromEnvironment()` in riftal-game's shared lib and tagged onto every shared-database row the instance writes. No safe default exists across a split, which is why the class throws rather than guess one; the dev stack's single instance ships `dev-1` in `.env.example` so the boot has something to read. When an instance is split out under `/add-instance`, its `INSTANCE_ID` is set the same way, as a container env var, never written into mounted `server.properties` or `pocketmine.yml`. |
 | `INSTANCE_B_BIND`, `INSTANCE_B_ID` | The same two settings for `instance-b`, the second core instance `compose.yaml` defines alongside `instance` to prove the instance-split shape on one shared MySQL (riftal-infra#6). Distinct names because both instances read a container env var literally named `INSTANCE_ID`; the `_B` suffix is only how `.env` tells them apart before substitution. |
 | `BACKUP_RETENTION`, `BACKUP_INTERVAL_SECONDS`, `PARTIAL_MAX_AGE_MINUTES`, `LOCK_MAX_AGE_MINUTES` | How many backup sets `../deploy/backup.sh` keeps, how often the `backup` service runs it, how old a leftover `.partial` must be before it sweeps it, and how old a held `.lock` must be before it presumes the lock abandoned and sweeps that too. See `../deploy/README.md`. |
-| `RIFTAL_DB_PASSWORD_BACKUP` | Password of `backup`, the login the `backup` service dumps with. The `dump-login` service runs `../migrations/run-migrations.sh` with it on every `docker compose up`, creating or rotating the login, and `backup` starts only once that run succeeds. Empty or unset, `dump-login` exits 1 naming the variable and `backup` never starts. `dump-login-selftest.sh` proves both. See `../deploy/README.md`. |
+| `CAPTURE_ACK_TIMEOUT_SECONDS`, `CAPTURE_HOLD_MAX_SECONDS` | How long a running instance has to ack the backup's capture request through `riftal-capture`, and the lease that ends its hold (ADR 015). |
+| `RIFTAL_DB_PASSWORD_BACKUP` | Password of `backup`, the login the `backup` service dumps with. The `dump-login` service runs `../migrations/run-migrations.sh` with it on every `docker compose up`, creating or rotating the login, which writes no table directly (its exceptions are the capture fence procedures and trigger DDL), and `backup` starts only once that run succeeds. Empty or unset, `dump-login` exits 1 naming the variable and `backup` never starts. `dump-login-selftest.sh` proves both. See `../deploy/README.md`. |
 | `RIFTAL_DB_PASSWORD_ACCOUNTS` | The `accounts` MySQL login's password (ADR 008). The migration runner provisions the login with it, and compose hands it to both instances, where `RiftalAccounts` reads it from the environment, never from its config. At least 24 characters, `[A-Za-z0-9]` only. See RiftalAccounts below. |
 | `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). `plugins/RiftalDevFaults.php` exists under the same gate, or not at all. It is also reserved at wipe time: see Reserved for the dev stack, below. |
 
@@ -72,6 +73,15 @@ ADR 017 P8 (riftal-infra#932). From the server console only:
   cancel line rather than assume it was spent. The command exists only when
   `RiftalContracts` is loaded with `DurableChunkSaveEvent`; without it the
   boot logs that the command is not registered and the other two still are.
+- `devfaults-debit <account id> <amount minor units>` fires one
+  `CurrencyDebitRequestedEvent` for ADR 034 (riftal-infra#1325), with the
+  reason `rank_up` fixed in code. Both arguments are plain decimal integers of
+  at least 1, and the instance is `INSTANCE_ID`. It logs `devfaults-debit
+  request_id=<uuid> account_id=<n> amount_minor_units=<n> instance_id=<id>
+  reason=rank_up` when it fires, then the same fields with `outcome=<debited|
+  rejected|not_applied|failed>` for each answer. It only debits, takes no
+  reason argument and is registered under the same conditions as the chunk
+  fault.
 
 ## Dev bots tile contents
 
@@ -107,12 +117,12 @@ read-only at `/etc/riftal/world_index.json` and start through
 `/data/plugin_data/RiftalEconomy/`, `/data/plugin_data/RiftalMines/`, `/data/plugin_data/RiftalGangs/` and
 `/data/plugin_data/RiftalPlots/` on every
 boot, as uid 1000, before handing over to the instance's own start script.
-The designer file is the deploy's index. RiftalRanks and RiftalRiots also bundle a
-`resources/world_index.json` and read that one until riftal-game#208 switches
-them to their data folder; from then the delivered copy is what they read.
+The designer file is the deploy's index. RiftalRanks and RiftalRiots bundle none;
+Ranks gates mine entry and finds its rank-up markers in the delivered copy, Riots
+reads its safe zones from it, and each refuses to enable without it.
 RiftalEconomy bundles none; its sell shop reads the delivered copy.
-RiftalMines bundles none either; its join teleport, once
-`join_teleport.enabled` is on, reads the delivered copy and rejects every join
+RiftalMines bundles none either; its join teleport, which the instance's
+rendered config switches on, reads the delivered copy and rejects every join
 without it. RiftalMines loads on `instance` alone, so on `instance-b` that copy
 sits unread. RiftalGangs bundles none; it finds the contested mine in the
 delivered copy and refuses to enable without it. RiftalPlots reads its
@@ -121,6 +131,42 @@ names worlds, never instances, so every instance gets the same one and a split
 changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
 path. A `wslc run` of either instance needs the same `-v` and command.
+
+## The built levels
+
+`instance` runs `plugins/seed-levels.sh` straight after the delivery above,
+with `RIFTAL_LEVEL_ZONES="lumber mine_a mine_b mine_c"`, and mounts the named volumes
+`riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`,
+`riftal_smoke_level_mine_b` and `riftal_smoke_level_mine_c` read-only at
+`/etc/riftal/levels/<zone>`
+(ADR 009 items 5 and 6). When `/data/worlds/<zone>` is absent the step checks
+the mounted level against its `level-manifest.json`, copies it onto
+`riftal-world` as uid 1000 and logs the `content_sha256` it seeded; when the
+folder exists it logs `<zone> present` and changes nothing. `instance-b` sets
+no zone list, mounts no level and does not run the step.
+
+`designer level build <zone>` fills each volume (`../designer/levels/README.md`),
+and each volume is declared `external: true`, so `docker compose up` never
+creates it empty. A volume that is missing stops `up` naming it. One that is
+empty or was never fully built stops the boot before PocketMine starts, with
+the `seed-levels:` line that names
+`riftal_smoke_level_<zone>` and `designer level build <zone>`. Stop and remove
+`instance` before a rebuild: the build refuses a volume a container mounts. A
+volume is a cache, and losing it costs one build run. A `riftal-world` that
+already holds a zone, generated or built, is never reseeded.
+
+`instance` boots `--level-name=mine_a`, so a `riftal-world` that has booted
+before already holds a generated `mine_a`, which the step leaves alone. The
+built one reaches it through `../deploy/LEVEL-REPLACE.md`, an operator
+procedure. The join teleport sends every join to `mine_a_spawn`, at the end of
+the built level's exit lane, so on that volume the switch is meaningful only
+after the swap. A fresh `riftal-world` is seeded with the built level directly.
+`mine_b` and `mine_c` are not a `--level-name`, so any `riftal-world` that lacks
+either folder is seeded with it on the next boot.
+
+`riftal-pm`'s `devtools/instance-shape.js` mirrors `instance`'s command, mount
+destinations and environment names for the `wslc` bring-up, so a change to any
+of them here is a change there (riftal-pm#1730).
 
 ## Restarts
 

@@ -38,6 +38,7 @@ READY = ("[DesignBridge] enabled, bridge target", "Done (")
 FAILED = re.compile(r"/(ERROR|CRITICAL|EMERGENCY|ALERT)\]|Exception")
 DOCS = ("design_npcs.json", "design_texts.json")
 VOLUME_ABSENT = re.compile(r"no such volume|volume\b.*\b(not found|does not exist)", re.IGNORECASE)
+CONTAINER_ABSENT = re.compile(r"no such (object|container)", re.IGNORECASE)
 
 Runner = Callable[[list[str], "bytes | None", float], "subprocess.CompletedProcess[bytes]"]
 
@@ -59,6 +60,44 @@ def docker_spelling(args: tuple[str, ...]) -> tuple[str, ...]:
         if args[:len(verb)] == verb:
             return (*spelled, *args[len(verb):])
     return args
+
+
+MEMORY = re.compile(r"0|[1-9]\d*[MG]")
+CPUS = re.compile(r"\d+(\.\d+)?")
+NO_CAP = re.compile(r"0+(\.0+)?")
+
+
+def _cap(flag: str, value: str) -> list[str]:
+    return [] if NO_CAP.fullmatch(value) else [flag, value]
+
+
+@dataclass(frozen=True)
+class Limits:
+    """Memory and CPU caps on the build's containers.
+
+    A value of ``0`` leaves its flag out of the engine's argv, so the container is uncapped on both
+    runtimes without relying on how either reads a zero. A memory size is a whole number of ``M`` or
+    ``G``, upper case only, the spelling ``wslc`` documents and ``docker`` also accepts.
+    """
+
+    memory: str = "2G"
+    cpus: str = "2"
+    tool_memory: str = stack.TOOL_MEMORY
+    tool_cpus: str = stack.TOOL_CPUS
+
+    def __post_init__(self) -> None:
+        for flag, value in (("memory", self.memory), ("tool-memory", self.tool_memory)):
+            if not MEMORY.fullmatch(value):
+                raise LevelError(f"--{flag} must be a size such as 2G or 512M, got {value!r}")
+        for flag, value in (("cpus", self.cpus), ("tool-cpus", self.tool_cpus)):
+            if not CPUS.fullmatch(value):
+                raise LevelError(f"--{flag} must be a number such as 2 or 0.5, got {value!r}")
+
+    def server(self) -> list[str]:
+        return [*_cap("--memory", self.memory), *_cap("--cpus", self.cpus)]
+
+    def tool(self) -> list[str]:
+        return [*_cap("--memory", self.tool_memory), *_cap("--cpus", self.tool_cpus)]
 
 
 @dataclass(frozen=True)
@@ -95,6 +134,21 @@ class Engine:
         doc = json.loads(self.text("inspect", ref))
         return doc[0] if isinstance(doc, list) else doc
 
+    def inspect_listed(self, ref: str) -> dict[str, Any] | None:
+        """``inspect`` of a container a listing named; ``None`` when the engine says it is gone since.
+
+        Another job's ``--rm`` helper can exit between the listing and the inspect. Any other
+        failure leaves the container's mounts unknown and refuses.
+        """
+        done = self("inspect", ref, check=False)
+        says = (done.stdout + done.stderr).decode(errors="replace").strip()
+        if done.returncode == 0:
+            doc = json.loads(says)
+            return doc[0] if isinstance(doc, list) else doc
+        if CONTAINER_ABSENT.search(says):
+            return None
+        raise LevelError(f"cannot tell whether container {ref} mounts a volume: {says}")
+
     def field(self, ref: str, key: str) -> Any:
         info = self.inspect(ref)
         if key not in info:
@@ -114,7 +168,8 @@ def check_unmounted(engine: Engine, volume: str) -> bool:
     if probe.returncode == 0:
         users = []
         for ref in engine.text("list", "-a", "-q").split():
-            info = engine.inspect(ref)
+            if (info := engine.inspect_listed(ref)) is None:
+                continue
             if any(volume in (m.get("Name"), m.get("Source")) for m in info.get("Mounts") or []):
                 users.append(str(info.get("Name") or ref).lstrip("/"))
         if users:
@@ -129,11 +184,11 @@ def fresh_volume(engine: Engine, volume: str) -> None:
     engine("volume", "create", volume)
 
 
-def run_args(zone: str, generator: str, seed: int, token: str, sources: Sources) -> list[str]:
+def run_args(zone: str, generator: str, seed: int, token: str, sources: Sources, limits: Limits = Limits()) -> list[str]:
     name = WORK_PREFIX + zone
     flags = f"--level-name={zone} --level-type={generator} --level-seed={seed} --xbox-auth=false --auto-report.enabled=0"
     return [
-        "run", "-d", "-i", "--name", name, "-p", f"127.0.0.1:{sources.bridge_port}:19140/tcp",
+        "run", "-d", "-i", *limits.server(), "--name", name, "-p", f"127.0.0.1:{sources.bridge_port}:19140/tcp",
         "-v", f"{name}:/data", "-v", f"{sources.plugins.as_posix()}:/plugins",
         "-v", f"{sources.designbridge.as_posix()}:/plugins/DesignBridge:ro",
         "-e", f"DESIGNBRIDGE_TOKEN={token}", "-e", f"POCKETMINE_ARGS={flags}", stack.IMAGE,
@@ -203,7 +258,7 @@ def commit(runner: Runner, path: Path) -> str:
     return head.stdout.decode().strip() + ("-dirty" if status.stdout.strip() else "")
 
 
-def publish_level(engine: Engine, zone: str, work: str, output: str, tree: str) -> None:
+def publish_level(engine: Engine, zone: str, work: str, output: str, tree: str, limits: Limits = Limits()) -> None:
     """Copy the level folder from ``work`` to the root of a fresh ``output`` and fail unless its tree hash is ``tree``.
 
     ``output`` mounts at ``/data`` because the image declares that path owned by uid 1000, and a
@@ -211,8 +266,8 @@ def publish_level(engine: Engine, zone: str, work: str, output: str, tree: str) 
     its own and readable by it.
     """
     fresh_volume(engine, output)
-    engine("run", "--rm", "-v", f"{work}:/work:ro", "-v", f"{output}:/data", stack.IMAGE, "cp", "-R", f"/work/worlds/{zone}/.", "/data/", timeout=BOOT_TIMEOUT)
-    tar = engine("run", "--rm", "-v", f"{output}:/data:ro", stack.IMAGE, "tar", "-C", "/data", "-cf", "-", ".", timeout=BOOT_TIMEOUT)
+    engine("run", "--rm", *limits.tool(), "-v", f"{work}:/work:ro", "-v", f"{output}:/data", stack.IMAGE, "cp", "-R", f"/work/worlds/{zone}/.", "/data/", timeout=BOOT_TIMEOUT)
+    tar = engine("run", "--rm", *limits.tool(), "-v", f"{output}:/data:ro", stack.IMAGE, "tar", "-C", "/data", "-cf", "-", ".", timeout=BOOT_TIMEOUT)
     if (found := read_tree(tar.stdout)[0]) != tree:
         raise LevelError(f"the tree hash of {output} is {found}, not the manifest's {tree}; a file other than the level is at its root")
 
@@ -220,7 +275,7 @@ def publish_level(engine: Engine, zone: str, work: str, output: str, tree: str) 
 def build(
     zone: str, runtime: str, sources: Sources, *, root: Path = PROJECT_ROOT, runner: Runner = run_process,
     connect: Callable[[int, str], Bridge] | None = None, index: WorldIndex | None = None, checks_path: Path | None = None,
-    mines_config: Path | None = None,
+    mines_config: Path | None = None, limits: Limits = Limits(),
 ) -> Path:
     """Build ``zone`` on a fresh work volume, publish it to the output volume and return the lock.
 
@@ -236,14 +291,14 @@ def build(
     engine, name, token = Engine(runtime, runner), WORK_PREFIX + zone, secrets.token_urlsafe(24)
     check_unmounted(engine, PREFIX + zone)
     fresh_volume(engine, name)
-    engine(*run_args(zone, recipe.generator, recipe.seed, token, sources))
+    engine(*run_args(zone, recipe.generator, recipe.seed, token, sources, limits))
     state: dict[str, Any] = {"stopped": False}
 
     def after_stop() -> Saved:
         image = str(engine.field(name, "Image"))
         state["stopped"] = True
         _clean(name, stop(engine, name))
-        tar = engine("run", "--rm", "-v", f"{name}:/data:ro", stack.IMAGE, "tar", "-C", f"/data/worlds/{zone}", "-cf", "-", ".", timeout=BOOT_TIMEOUT)
+        tar = engine("run", "--rm", *limits.tool(), "-v", f"{name}:/data:ro", stack.IMAGE, "tar", "-C", f"/data/worlds/{zone}", "-cf", "-", ".", timeout=BOOT_TIMEOUT)
         state["tree"], size, docs = read_tree(tar.stdout)
         return Saved(image, commit(runner, sources.designbridge), commit(runner, root), size, *(docs.get(d) for d in DOCS))
 
@@ -257,6 +312,6 @@ def build(
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     manifest = json.dumps({"content_sha256": lock["content_sha256"], "tree_sha256": state["tree"]}, indent=2, sort_keys=True) + "\n"
     # tee rather than a shell redirect, so no argument is ever parsed by a shell.
-    engine("run", "--rm", "-i", "-v", f"{name}:/data", stack.IMAGE, "tee", f"/data/worlds/{zone}/{MANIFEST}", stdin=manifest.encode())
-    publish_level(engine, zone, name, PREFIX + zone, state["tree"])
+    engine("run", "--rm", "-i", *limits.tool(), "-v", f"{name}:/data", stack.IMAGE, "tee", f"/data/worlds/{zone}/{MANIFEST}", stdin=manifest.encode())
+    publish_level(engine, zone, name, PREFIX + zone, state["tree"], limits)
     return lock_path

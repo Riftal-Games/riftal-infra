@@ -754,7 +754,7 @@ def test_build_stairs_applies_with_no_name_and_falls_back_to_kind_for_the_report
     monkeypatch.setattr("designer.builders.base.load_palettes", lambda: STONE_PALETTES)
     result = call("build", kind="stairs", spec=SMALL_STAIRS_SPEC, palette="test_stone")
     assert result["ok"] is True and result["dry_run"] is False and result["undo_id"] == 1
-    assert Path(result["snapshot"]).is_file() and _writes(server) == ["fill"] * 6
+    assert Path(result["snapshot"]).is_file() and _writes(server) == ["fill"] * 7
     assert result["locations"] == [] and result["regions"] == [] and result["mine_valid"] is None
     assert Path(result["extras_report"]) == config.REPORTS_DIR / "stairs-stairs-extras.json"
 
