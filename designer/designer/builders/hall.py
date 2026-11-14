@@ -138,12 +138,12 @@ def build_hall(spec: HallSpec, palette: Palette) -> EditList:
 
     jamb, lintel, keystone = (palette.block(r) for r in ("gate_jamb", "gate_lintel", "keystone"))
     left, right = frame.entrance_u
-    gate_d, rim = frame.entrance_d, (frame.entrance_d[1],) * 2
+    gate_d, rim = frame.entrance_d, (0, 0)
     arch = floor_y + mine.entrance.height
     ops.extend(Fill(frame.box(u, gate_d, (floor_y, arch - 1)), jamb) for u in ((left - 2, left - 1), (right + 1, right + 2)))
     ops.append(Fill(frame.box((left - 2, right + 2), gate_d, (arch, arch)), lintel))
     ops.extend(Fill(frame.box((u, u), rim, (floor_y, arch + 1)), wall) for u in (left - 3, right + 3))
     ops.append(Fill(frame.box((left - 2, right + 2), rim, (arch + 1, arch + 1)), wall))
-    ops.append(SetBlock(*frame.cell((left + right) // 2, rim[0], arch + 1), keystone))
+    ops.append(SetBlock(*frame.cell((left + right) // 2, 0, arch + 1), keystone))
     ops.append(Fill(frame.box((left - 1, right + 1), rim, (arch + 2, arch + 2)), cornice))
     return EditList(mine.world, ops, {"carve": [box.to_json() for box in carve]})

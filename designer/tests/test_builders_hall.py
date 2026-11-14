@@ -10,7 +10,7 @@ from designer.builders.base import Palette
 from designer.builders.hall import HallSpec, build_hall
 from designer.builders.mine import build_mine
 from designer.config import PROJECT_ROOT
-from designer.edits import EditList
+from designer.edits import EditList, SetBlock
 from designer.level import open_carve
 from designer.palettes import HALL_ROLES, load_palettes
 from designer.region import Bounds, Region
@@ -79,7 +79,7 @@ def test_the_registry_builds_a_hall_from_its_spec_dict() -> None:
     ("hall_lumber", "lumber", {"gap": 1}),
 ])
 @pytest.mark.parametrize("side", ["south", "north", "east", "west"])
-def test_the_hall_changes_nothing_a_mine_or_its_players_stand_in(palette: str, zone: str, over: dict, side: str) -> None:
+def test_the_hall_leaves_the_mine_untouched_and_puts_the_gate_trim_on_the_outer_face(palette: str, zone: str, over: dict, side: str) -> None:
     before, after, spec, edits = _built(zone, palette, side, **over)
     geo = spec.mine.geometry()
     walking = Bounds((geo.exit_platform.min[0], spec.mine.floor_y, geo.exit_platform.min[2]), (geo.exit_platform.max[0], spec.mine.floor_y + 1, geo.exit_platform.max[2]))
@@ -87,6 +87,9 @@ def test_the_hall_changes_nothing_a_mine_or_its_players_stand_in(palette: str, z
         assert (_names(before, box) == _names(after, box)).all()
     assert all(op.bounds.intersect(geo.interior) is None for op in edits.ops)
     assert all(op.bounds.intersect(geo.entrance) is None for op in edits.ops)
+    outer, i = geo.outer, 0 if side in ("east", "west") else 2
+    [key] = [op for op in edits.ops if isinstance(op, SetBlock) and op.block == Palette.load(palette).block("keystone")]
+    assert (key.x, key.y, key.z)[i] == (outer.max[i] if side in ("south", "east") else outer.min[i])
 
 
 @pytest.mark.parametrize("palette, zone", [("hall_mine_a", "mine_a"), ("hall_lumber", "lumber")])
