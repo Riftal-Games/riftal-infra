@@ -383,10 +383,12 @@ jobs:
     if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
     runs-on: [self-hosted, linux, riftal]
     # Under ci-sweep-selftest.sh's reap_after, like every job here. 78 minutes
-    # of this are the longest wait for the rig lock (rig-lock.sh), 30 the body,
-    # and 2 the steps before the take.
-    # The holder outlasts all 110 (rig_lock_job.py).
-    timeout-minutes: 110
+    # of this are the longest wait for the rig lock (rig-lock.sh), 39 the body,
+    # and 2 the steps before the take. The body is the harness's 2040 s
+    # deadline and 120 s kill grace (deploy/bot-proofs.sh) and 180 s for the
+    # steps around it.
+    # The holder outlasts all 119 (rig_lock_job.py).
+    timeout-minutes: 119
     permissions:
       contents: read
       issues: read
