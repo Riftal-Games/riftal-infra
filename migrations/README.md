@@ -125,11 +125,14 @@ rollout order in `../CLAUDE.md`: migrations, then instances, then the proxy.
 A migration whose effect needs a matching plugin build cannot follow that
 order one instance at a time. `../deploy/ROLLOUT.md` records what each one
 needs: `0010_add_gang_founded_marker.sql`,
-`0014_add_player_ranks_claim.sql` and
-`0015_raise_gang_level_with_contribution.sql`. Its Audited migrations section
-covers every migration through `0020_create_gang_vault_slots.sql` and gives
-the reason each other one is not coupled; a later migration is unaudited until
-it is listed there.
+`0014_add_player_ranks_claim.sql`,
+`0015_raise_gang_level_with_contribution.sql`,
+`0029_create_gang_join_requests.sql` (with
+`0030_create_gang_join_notices.sql`), `0032_record_plots_geometry.sql` and
+`0035_drop_gang_rank_cache.sql`, and the `grants.sql` change of PR #923. Its
+Audited migrations section covers every migration through
+`0037_create_contested_mine_attempt.sql` and gives the reason each other one is
+not coupled; a later migration is unaudited until it is listed there.
 
 ```sh
 export MSYS_NO_PATHCONV=1
