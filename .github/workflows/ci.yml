@@ -73,10 +73,6 @@ jobs:
       - name: Custody alert check self-test
         run: bash deploy/custody-alert-check-selftest.sh
 
-      # Stub docker and curl on PATH, so it also runs before any container step.
-      - name: Custody alert act self-test
-        run: bash deploy/custody-alert-act-selftest.sh
-
       - name: Grants REVOKE check self-test
         run: bash deploy/grants-revoke-check-selftest.sh
 
@@ -167,6 +163,11 @@ jobs:
 
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
+
+      # About forty short containers with no network.
+      - name: Custody pager self-test
+        timeout-minutes: 8
+        run: bash deploy/custody-page-selftest.sh
 
       - name: Release image self-test
         run: bash deploy/release-image-selftest.sh

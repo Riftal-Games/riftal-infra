@@ -163,6 +163,9 @@ main() {
 
   cp "$SCRIPT_DIR/../images/release/start-release.sh" "$ctx/start-release.sh"
   chmod 0555 "$ctx/start-release.sh"
+  mkdir "$ctx/boot"
+  cp "$SCRIPT_DIR/../images/release/custody-page.php" "$ctx/boot/custody-page.php"
+  chmod 0444 "$ctx/boot/custody-page.php"
   for name in RiftalAccounts RiftalMines RiftalRanks RiftalEconomy; do
     mkdir -p "$ctx/plugin_data/$name"
     cp "$(plugin_config "$name")" "$ctx/plugin_data/$name/config.yml"
