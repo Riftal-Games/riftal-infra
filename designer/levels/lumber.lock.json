@@ -12,19 +12,21 @@
     ]
   },
   "chunks": 328,
-  "content_sha256": "db2cab3f1b26af36aa5a05d2eb07527907c87a4cc115f72ffad268339e16c3de",
-  "core_image": "sha256:1b7d1b309c3cdfaafb187397eeda2515c79ea51dd8ef1b791dc06f1383feea1b",
-  "designbridge_commit": "0f0b523c8f8536f676ee8de9c0c6d007f626afe8",
+  "content_sha256": "a38780100ef49d6c8a0dd5c98228884f8e8ed8d9873b962d8ae1c21acf12352a",
+  "core_image": "sha256:679fc6aadb7cd30710a192af0d6bf4d9e71f9b1443fd89e2d0b0b5b0106dc1be",
+  "designbridge_commit": "3e60c92e62a340d928ce1bbf1b8e55535eb8bcbc",
   "generator": "normal",
   "inputs": {
-    "levels/lumber.json": "e8eacf957c9dad85628e82f4d5c1c7f37727ca4e888fd12f9f3f2f786a7a0a9c",
+    "levels/lumber.json": "7173408da99c6145f8f4125714eaafe090447b99dcc6b1c019d73aa343bd2338",
+    "palette:hall_lumber": "06e759f38e031d9d612e4b8c2822e448483fe2aeed3b9f68beeaee82bcded22a",
     "palette:mine_stone": "30c68b82e89822017f0173446c4f3fbd81ad3d470c9d57c8645cdfb292e33979",
     "specs/lumber.json": "d9ebc6f32e02d00c5b6391a32922985dfc0e6f922233418521a3cda6192f9b41",
     "specs/lumber_access_east.json": "be8c01b3ad381dd517e8307e86acd3f4957e4aa0778068cc8648fde2091cf86f",
-    "specs/lumber_access_south.json": "7d1307a9ef11cfd6b559a33fbce0e663ecbfb0a508afaf4c53dde176576a27c2"
+    "specs/lumber_access_south.json": "7d1307a9ef11cfd6b559a33fbce0e663ecbfb0a508afaf4c53dde176576a27c2",
+    "specs/lumber_hall.json": "324eec489234d5b35d6d4eb8a08b5fb27d5cbcbd80c9bff1c8524e4fc22f84b3"
   },
   "seed": 23,
-  "size_bytes": 493668,
-  "toolkit_commit": "0bf43ca14d97d1778a57be6b17fcd27ca22b7ffe",
+  "size_bytes": 486202,
+  "toolkit_commit": "c517d104df0f2d8976c772d6870321b1fb2df0ee",
   "zone": "lumber"
 }

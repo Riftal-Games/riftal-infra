@@ -12,19 +12,21 @@
     ]
   },
   "chunks": 356,
-  "content_sha256": "093988ae7dfc11ad92d494335cfdad06c75e04f659fdec6879f64ea9e2eba786",
-  "core_image": "sha256:1b7d1b309c3cdfaafb187397eeda2515c79ea51dd8ef1b791dc06f1383feea1b",
-  "designbridge_commit": "0a3efec02ee80e1b0ff540d3c59aab5220fa449c",
+  "content_sha256": "da4584a49875a930ef4ef64a0d2bfc0b38e40e481d30964a9d12e809cb230f30",
+  "core_image": "sha256:679fc6aadb7cd30710a192af0d6bf4d9e71f9b1443fd89e2d0b0b5b0106dc1be",
+  "designbridge_commit": "3e60c92e62a340d928ce1bbf1b8e55535eb8bcbc",
   "generator": "normal",
   "inputs": {
-    "levels/mine_a.json": "8d67fc0cec8bb9849bb2dee94ec8f0c92472252bc3db63ce512527b919cd36c3",
+    "levels/mine_a.json": "74997681b4cf6908712cb195a766fa4768c0e4ca7b2da6ba4a29b37339eca60c",
+    "palette:hall_mine_a": "87ad65fa2ae69abc183fdaecaf54d2b16d551c67a3d0cab40e9761e7a38261cb",
     "palette:mine_stone": "30c68b82e89822017f0173446c4f3fbd81ad3d470c9d57c8645cdfb292e33979",
     "specs/mine_a.json": "bcc5a8ef0c02340f65d2e355256b147cbc5ab2e033e5184d7f3d92068adee13e",
     "specs/mine_a_access_east.json": "4aa963b02bdeccb46b7dc3ac39a734a86c03a40149ea634046cd649b0271367c",
-    "specs/mine_a_access_south.json": "fe44cea8b193fe53f337be6c5ab40aa48fa8348e004807e60ffed43d333f2016"
+    "specs/mine_a_access_south.json": "fe44cea8b193fe53f337be6c5ab40aa48fa8348e004807e60ffed43d333f2016",
+    "specs/mine_a_hall.json": "e1ae412ee683e043d1d82d1717e2256e966358013ae35d8f387277e1c609d925"
   },
   "seed": 23,
-  "size_bytes": 901727,
-  "toolkit_commit": "c6860815b32062408636fa0f02c8c3f51b424aef",
+  "size_bytes": 893414,
+  "toolkit_commit": "c517d104df0f2d8976c772d6870321b1fb2df0ee",
   "zone": "mine_a"
 }
