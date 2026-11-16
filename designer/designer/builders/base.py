@@ -81,7 +81,7 @@ def facing_state(block: str, direction: str | None = None, *, half: str | None =
 
     Stairs get ``weirdo_direction``, ``upside_down_bit`` and a straight ``minecraft:corner``, which the core's
     deserializer refuses a stair without; slabs get
-    ``top_slot_bit`` from ``half``; walls get a connection per direction in
+    ``minecraft:vertical_half``, which the core requires on a slab, from ``half``; walls get a connection per direction in
     ``connect``; signs get ``ground_sign_direction``. Any other block is
     returned with its existing states untouched.
     """
@@ -96,7 +96,7 @@ def facing_state(block: str, direction: str | None = None, *, half: str | None =
     elif name.endswith("_slab"):
         if half not in ("top", "bottom"):
             raise ValueError(f"slab needs half='top' or half='bottom', got {half!r}")
-        states["top_slot_bit"] = half == "top"
+        states["minecraft:vertical_half"] = half
     elif name.endswith("_wall"):
         sides = set(connect)
         if unknown := sides - set(DIRS):
