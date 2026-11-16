@@ -134,3 +134,23 @@ def test_a_carve_through_solid_terrain_is_allowed(world: Bridge) -> None:
 def test_a_carve_that_reaches_air_is_refused_and_names_the_cell(world: Bridge) -> None:
     found = open_carve(world, _carving({"min": [-4, 60, 18], "max": [4, 66, 23]}))
     assert found is not None and "(-4, 64, 18) holds minecraft:air" in found
+
+
+def _committed(path: str) -> dict:
+    return json.loads((PROJECT_ROOT / path).read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("zone", ["mine_a", "lumber"])
+def test_a_committed_hall_serves_the_mine_its_recipe_builds_with_its_own_tier_palette(zone: str) -> None:
+    steps = {step["build"]: step for step in _committed(f"levels/{zone}.json")["steps"]}
+    spec = _committed(steps["hall"]["spec"])
+    assert spec["world"] == zone and spec["mine"] == _committed(steps["mine"]["spec"])
+    assert steps["hall"]["palette"] == f"hall_{zone}"
+    assert spec["gap"] == (_committed(f"specs/{zone}_access_south.json")["width"] - 1) // 2
+    HallSpec.from_dict(spec)
+
+
+@pytest.mark.parametrize("zone", ["mine_a", "lumber"])
+def test_a_committed_recipe_digs_the_hall_before_its_stairs(zone: str) -> None:
+    order = [step["build"] for step in _committed(f"levels/{zone}.json")["steps"]]
+    assert order.index("mine") < order.index("hall") < order.index("stairs")

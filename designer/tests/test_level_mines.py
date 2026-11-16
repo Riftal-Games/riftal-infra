@@ -13,6 +13,7 @@ from designer.checks import DEFAULT_PATH as CHECKS
 from designer.config import PROJECT_ROOT, SIBLING_GAME_DIR
 from designer.edits import EditList, SetBlock
 from designer.level import MINES_CONFIG, LevelError, Saved, build_level, mines_config_path
+from designer.palettes import HALL_ROLES
 from designer.world_index import WorldIndex
 from tests.conftest import STONE_PALETTES
 from tests.fake_bridge import ALLOWED_BLOCKS, FakeBridge, FakeWorld
@@ -27,6 +28,8 @@ STAIRS_ZONES = ["mine_a", "mine_b", "mine_c", "lumber"]
 # the NPC clearance, since test_stone makes each sign a stone block that fills the cell the NPC stands in.
 TERRAIN_CHECKS = ("path_exists", "warp_safe", "entity_clear")
 MINE_CHECKS = "mine_checks.yaml"
+PALETTES = {"colors": {}, "palettes": {**STONE_PALETTES["palettes"], "test_hall": dict.fromkeys(HALL_ROLES, "minecraft:stone")}}
+HALL_BLOCKS = {"minecraft:lantern[hanging=true]", "minecraft:yellow_concrete", "minecraft:blue_concrete", "minecraft:yellow_wool", "minecraft:blue_wool"}
 # DesignBridge reads a block back by its Bedrock name with its states, whatever alias or states the write named.
 READ_BACK = {"minecraft:oak_log": LOG, "minecraft:lapis_lazuli_ore": "minecraft:lapis_ore"}
 
@@ -38,10 +41,10 @@ def _poke(spec: dict, palette: object, fetch: object) -> EditList:
 @pytest.fixture
 def root(tmp_path: Path, fake: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> Path:
     for target in ("designer.builders.base.load_palettes", "designer.level.load_palettes"):
-        monkeypatch.setattr(target, lambda: STONE_PALETTES)
+        monkeypatch.setattr(target, lambda: PALETTES)
     # The mine builder hangs its lights with a state, and test_stone makes every light stone.
     extra = {"minecraft:coal_ore", "minecraft:iron_ore", "minecraft:copper_ore", "minecraft:lapis_ore"}
-    extra |= {LOG, "minecraft:torch", "minecraft:chorus_flower", "minecraft:stone[hanging=false]"}
+    extra |= {LOG, "minecraft:torch", "minecraft:chorus_flower", "minecraft:stone[hanging=false]"} | HALL_BLOCKS
     monkeypatch.setattr("tests.fake_bridge.ALLOWED_BLOCKS", ALLOWED_BLOCKS | extra)
     index_of = FakeWorld.index_of
     monkeypatch.setattr(FakeWorld, "index_of", lambda world, name, where="block": index_of(world, READ_BACK.get(name, name), where))
@@ -112,7 +115,7 @@ def _with_stairs(root: Path, fake: FakeBridge, zone: str, last_rise: int | None 
     """``zone``'s committed recipe over flat terrain at y 63, its last leg climbing ``last_rise`` rows when given."""
     fake.worlds[zone] = FakeWorld(extent=((-64, -64), (64, 64)))
     recipe = json.loads((PROJECT_ROOT / "levels" / f"{zone}.json").read_text(encoding="utf-8"))
-    recipe["steps"] = [{**step, "palette": "test_stone"} for step in recipe["steps"]]
+    recipe["steps"] = [{**step, "palette": "test_hall" if step["build"] == "hall" else "test_stone"} for step in recipe["steps"]]
     (root / "levels" / f"{zone}.json").write_text(json.dumps(recipe), encoding="utf-8")
     if last_rise is not None:
         east = root / "specs" / f"{zone}_access_east.json"
