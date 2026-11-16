@@ -30,11 +30,11 @@ The proxy goes last because it is the gate that admits clients. Opening the gate
 ## Stage 1: Database migrations
 
 - [ ] Take the backup if not already taken.
-- [ ] Review pending migrations. Confirm each is additive. A migration that drops or renames a column while old instances are still running will take them down mid-rollout.
+- [ ] Review pending migrations against the audit in `deploy/ROLLOUT.md`. A migration or grants change it lists as coupled (0015, 0029 with 0030, 0032, and any later coupled entry) cannot roll out one instance at a time: an instance still on the old tag fails every call to the changed procedure with ERROR 1318. For such a release, follow `ROLLOUT.md`'s full-stop procedure in place of Stage 2's serial rollout. Every other migration must be additive. A migration that drops or renames a column while old instances are still running will take them down mid-rollout.
 - [ ] Apply migrations. The runner takes a MySQL named lock so simultaneous boots cannot race.
 - [ ] Verify `schema_migrations` lists everything expected and nothing unexpected.
 
-**Rollback:** additive migrations need no rollback, leave them. For a destructive migration, restore from the backup, which means the whole window restarts. This is exactly why migrations are additive.
+**Rollback:** additive migrations need no rollback, leave them. A coupled migration has no previous-tag rollback, since an older build calls the old procedure shape: use the rollback `ROLLOUT.md` names for it. For a destructive migration, restore from the backup, which means the whole window restarts. This is exactly why migrations are additive.
 
 ## Stage 2: Instances, one at a time
 
@@ -50,7 +50,7 @@ For each instance:
 
 Never do all instances at once. Serial rollout means the first failure costs one instance, not the server.
 
-**Rollback:** stop the container, run one from the previous image tag against the same volumes and config, start it. The database is shared and already migrated, which is safe because the migrations were additive. This rollback is cheap and exact, so use it early rather than debugging a bad release in production.
+**Rollback:** stop the container, run one from the previous image tag against the same volumes and config, start it. The database is shared and already migrated, which is safe only when every migration in the release was additive. A release with a coupled migration has no previous-tag rollback: use the one `ROLLOUT.md` names. For an additive release this rollback is cheap and exact, so use it early rather than debugging a bad release in production.
 
 ## Stage 3: Proxy
 
