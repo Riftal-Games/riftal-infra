@@ -410,8 +410,8 @@ wslc run --rm --network riftal-dev \
 `custody-alert-check.sh <log> [<log> ...]` reads one instance's logs, one file
 per process lifetime, oldest first, and alerts when a RiftalCustody
 `emergency` repeats (the riftal-pm workspace's ADR 017 item 4). It reads files
-only and stops, restarts or parks nothing; acting on an alert is a separate,
-later decision. It prints one `CUSTODY ALERT:` line per finding and exits 1
+only and stops, restarts or parks nothing; `custody-alert-act.sh`, below, acts
+on its result. It prints one `CUSTODY ALERT:` line per finding and exits 1
 when two consecutive logs each hold an instance-wide custody stop, when one
 player is refused twice or more anywhere in the logs given (names compared
 case-insensitively), or when an `EMERGENCY` line mentioning RiftalCustody
@@ -452,6 +452,58 @@ already fails one boot on any `EMERGENCY` line; this is the view across boots.
 A log left out of the middle of the list makes two stops look consecutive or
 hides one between them, so give it every lifetime in order.
 `custody-alert-check-selftest.sh` proves each rule in CI against fixture logs.
+
+### Parking an instance and paging on an alert
+
+`custody-alert-act.sh <container> <log> [<log> ...]` runs the check on the same
+logs and acts on its exit code (riftal-infra#970, Nasir's ruling: a Discord
+webhook, free, no SMS or paid service).
+
+| Check | Done | Exit |
+|---|---|---|
+| 0, `CUSTODY OK` | nothing | 0 |
+| 1, `CUSTODY ALERT` | the container parked, one page | 1, or 3 when the park failed (the page is still sent) |
+| 2, or anything else | nothing parked, one `CUSTODY CHECK ERROR` page | 2 |
+
+Exit 2 is not a custody finding, so it does not stop an instance on a log
+pipeline fault, but it is never a pass: custody alerting is blind until the
+logs are fixed, so it pages and fails.
+
+Parked is `docker update --restart=no <container>` followed by `docker stop -t
+60 <container>`, in that order, so a crash between them is not restarted. The
+instances run `restart: on-failure` (`../images/compose.yaml`), and a custody
+kill exits non-zero, so without this a repeated custody emergency cycles the
+process indefinitely. The runtime is `docker` unless `CUSTODY_RUNTIME` names
+another standard OCI CLI.
+
+Run it once per instance exit, after splitting the logs as above. It pages on
+every run while the logs still hold the finding, so an operator who un-parks
+moves the old logs out first, or the next run parks the instance again.
+
+To un-park once the cause is understood, restore the compose policy and start
+the container:
+
+```bash
+docker update --restart=on-failure <container>
+docker start <container>
+```
+
+A deploy that recreates the container from `../images/compose.yaml` also
+restores `on-failure` and starts it, so a parked instance is un-parked by any
+deploy to it; check for a park before rolling out.
+
+The page is a POST to the Discord webhook in `CUSTODY_WEBHOOK_URL`, a deploy
+secret with no default, set in the environment of the job that runs the
+script and never committed. It is passed to curl on stdin, never as an
+argument, curl's own output is discarded, and the script never prints it. With
+it unset the alert is printed and the instance is still parked, and a webhook
+that is unreachable or not a plain `https://` URL logs `page failed` or `no
+page sent` and the park stands. The page quotes the check's own lines and
+mentions nobody.
+
+`custody-alert-act-selftest.sh` proves each row, an unset webhook, a failed
+page, a failed park and that the URL leaks nowhere, in CI with stub `docker`
+and `curl` on `PATH`, so it stops no container and reaches no network.
 
 ## Grants REVOKE check
 

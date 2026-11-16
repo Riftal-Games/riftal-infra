@@ -73,6 +73,10 @@ jobs:
       - name: Custody alert check self-test
         run: bash deploy/custody-alert-check-selftest.sh
 
+      # Stub docker and curl on PATH, so it also runs before any container step.
+      - name: Custody alert act self-test
+        run: bash deploy/custody-alert-act-selftest.sh
+
       - name: Grants REVOKE check self-test
         run: bash deploy/grants-revoke-check-selftest.sh
 

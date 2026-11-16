@@ -3,7 +3,7 @@
 The go-live runbook of the riftal-pm workspace's spec 016 (criterion 6). The
 loop rehearses every step but the last on staging, the dev machine. The last,
 choosing and paying for a host and opening it to players, is Nasir's, and so
-is running any step here on that host. It holds its first pre-open step only;
+is running any step here on that host. It holds the pre-open steps that have landed;
 the steps spec 016's other criteria need join ahead of the last as they land.
 
 ## 1. Write-latency probe, before the host first takes anyone
@@ -62,3 +62,21 @@ the dev machine, PASS or FAIL, is the rehearsal spec 016 criterion 6 asks for:
 the step was performed, not passed. Its number is not read as a verdict, since
 the dev machine's shared WSL2 disk and daemon spread it widely from run to run
 (riftal-infra#1147, riftal-pm#1367).
+
+## 2. Custody page, before the host first takes anyone
+
+Nasir's, on the host. `deploy/custody-alert-act.sh` parks an instance and pages
+on a `CUSTODY ALERT` (`README.md`, "Parking an instance and paging on an
+alert"). To make the page reach him:
+
+1. Create a Discord webhook in a private channel he owns (channel settings,
+   Integrations, Webhooks). It is free.
+2. Place its URL as `CUSTODY_WEBHOOK_URL` in the environment of the job that
+   runs the script, from the host's secrets location outside the repository.
+   The URL is a credential: it is never committed or printed.
+3. Run the script against a staging instance's logs holding a custody
+   emergency, and confirm the message arrives and the instance is parked,
+   then un-park it as `README.md` shows.
+
+Left unset, an alert still parks the instance and is logged, and nobody is
+paged.
