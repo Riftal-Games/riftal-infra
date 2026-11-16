@@ -3,7 +3,7 @@
 The go-live runbook of the riftal-pm workspace's spec 016 (criterion 6). The
 loop rehearses every step but the last on staging, the dev machine. The last,
 choosing and paying for a host and opening it to players, is Nasir's, and so
-is running any step here on that host. It holds its first pre-open step only;
+is running any step here on that host. It holds its first two pre-open steps;
 the steps spec 016's other criteria need join ahead of the last as they land.
 
 ## 1. Write-latency probe, before the host first takes anyone
@@ -62,3 +62,44 @@ the dev machine, PASS or FAIL, is the rehearsal spec 016 criterion 6 asks for:
 the step was performed, not passed. Its number is not read as a verdict, since
 the dev machine's shared WSL2 disk and daemon spread it widely from run to run
 (riftal-infra#1147, riftal-pm#1367).
+
+## 2. Operator gate closed, before an instance opens
+
+Spec 024 (criterion 8) and the steward's ruling on riftal-pm#1557. On an
+instance where `lib`'s `DevGate` is closed, `custody` removes `give`,
+`enchant`, `xp` and `defaultgamemode` from the command map at enable, so no
+operator and no console can create an item, an enchantment or experience.
+`DevGate` is open only with the `riftal-dev-bots` option on, xbox-auth off and
+`RIFTAL_DEV_ENV=1`. An offline-mode instance behind the proxy meets the first
+two, so the production compose must set no `RIFTAL_DEV_ENV`
+(riftal-infra#1424), and this step's log line is what proves it does not.
+
+Before any game instance opens, read its boot log. It must carry a line from
+`custody`, once, that ends in exactly this text. The plugin logger puts a
+prefix before it, such as `[Server thread/INFO]: [RiftalCustody] `:
+
+```text
+Dev gate closed: operator item creation is off. Removed commands: give, enchant, xp, defaultgamemode.
+```
+
+An instance whose log carries `Dev gate open: operator item creation is on.`,
+or neither line, does not open. Neither line means the instance is not running
+a `custody` that carries the rule, or it stopped before enable. An instance
+whose log carries this critical line has stopped at enable and does not open
+either:
+
+```text
+The server default game mode is creative, which no instance with the dev gate closed may run. Set gamemode to survival.
+```
+
+The release image already carries `RiftalCustody.phar`, so this step needs no
+image change. It reads the log, never the compose file: the compose says what
+should happen and the log says what did.
+
+Every operator act on production is Nasir's: the console, `op` and `deop`,
+`ops.txt`, bans, kicks, stops and any restore. No agent, script or scenario
+performs one there, and none is needed to pass this step.
+
+Rehearse it on staging under spec 016 criterion 6: boot the release image with
+the gate closed, quote the line from that boot's log, and cite that log as the
+rehearsal. Only a boot on the chosen host is the go-live result, as in step 1.
