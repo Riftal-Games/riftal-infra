@@ -161,6 +161,9 @@ wslc run -d --name riftal-mysql --network riftal-dev --network-alias mysql \
   --memory 1G --cpus 1 \
   -p 127.0.0.1:3306:3306 \
   -e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" -e MYSQL_DATABASE=riftal_dev \
+  --health-cmd "mysqladmin ping -h 127.0.0.1" \
+  --health-interval 5s --health-timeout 5s --health-retries 24 \
+  --health-start-period 30s \
   -v riftal-mysql:/var/lib/mysql mysql:8
 
 wslc logs riftal-mysql
@@ -173,10 +176,10 @@ wslc logs riftal-mysql
       MySQL logs to stderr, so piping `wslc logs` to `grep` matches nothing and
       proves nothing.
 
-`wslc run` has no healthcheck flag worth wiring up, so the compose
-`depends_on: service_healthy` gate does not apply here. That log line is the
-gate instead, and starting the instance before it appears produces failures
-that look like schema bugs.
+`wslc run` cannot carry compose's `depends_on: condition: service_healthy`, so
+nothing holds the instance back until MySQL is ready. That log line is the gate
+instead, and starting the instance before it appears produces failures that look
+like schema bugs.
 
 ### 4. Migrations and logins
 
@@ -250,6 +253,9 @@ wslc run -d -i --name riftal-instance --network riftal-dev \
   -e "RIFTAL_DB_PASSWORD_ECONOMY=${RIFTAL_DB_PASSWORD_ECONOMY}" \
   -e "RIFTAL_DB_PASSWORD_ACCOUNTS=${RIFTAL_DB_PASSWORD_ACCOUNTS}" \
   -e "POCKETMINE_ARGS=--level-name=mine_a --level-type=normal --xbox-auth=false --motd=riftal-dev --riftal-dev-bots=on --auto-report.enabled=0" \
+  --health-cmd "php /plugins/restart/raknet-ping.php" \
+  --health-interval 30s --health-timeout 10s --health-retries 3 \
+  --health-start-period 180s \
   local-pocketmine-mp bash /plugins/restart/boot-gate.sh \
   bash /plugins/deliver-world-index.sh bash /plugins/seed-levels.sh \
   bash /plugins/require-accounts.sh bash /plugins/require-custody.sh \
@@ -258,6 +264,15 @@ wslc run -d -i --name riftal-instance --network riftal-dev \
 wslc logs riftal-instance
 ```
 
+Compose's `restart: on-failure` has no `wslc run` flag. A crashed instance stays
+down until it is started again by hand with `wslc start riftal-instance`.
+`boot-gate.sh` sees that start, and three starts each under 120 s apart park the
+container, which stays Up and unhealthy and never reaches PocketMine. Space hand
+starts out. Under `-Engine docker`, `docker compose` applies the policy.
+
+- [ ] `wslc inspect riftal-instance` shows a healthcheck running
+      `php /plugins/restart/raknet-ping.php`, and after the start period its
+      health is `healthy`.
 - [ ] The log reaches the line starting `Done (`. Its absence is the failure,
       because a boot that dies still exits 0.
 - [ ] No line matches `/(EMERGENCY|ALERT|CRITICAL|ERROR)]`. PocketMine's log

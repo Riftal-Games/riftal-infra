@@ -23,6 +23,7 @@ Instances are containers from one shared image. There is no host to build and no
 
 - [ ] Create `instances/<instance_id>/` in this repo holding exactly two files: `image`, one line `<INSTANCE_IMAGE>:<tag>`, and `instance.env`, which carries `RIFTAL_LEVEL_ZONES` (the zone list) and `POCKETMINE_ARGS` (with exactly one `--level-name=<zone>`). No other file, `server.properties` and `pocketmine.yml` included, belongs in the definition. The container is disposable, the definition in git is not. This is the actual provisioning step.
 - [ ] Run the core image **at the same tag every other instance runs**. Mixed core versions behind one proxy is a protocol mismatch waiting to happen, and with containers there is no excuse for it, because the tag is right there.
+- [ ] Run it with `images/compose.yaml`'s `instance` policies: `restart: on-failure` (`--restart on-failure` on docker; no retry cap, because Docker counts `on-failure:<N>` over the container's whole life), the command starting with `bash /plugins/restart/boot-gate.sh` so a bad deploy cannot restart forever, and the RakNet healthcheck `php /plugins/restart/raknet-ping.php` with interval 30s, timeout 10s, retries 3 and start period 180s. On wslc the healthcheck flags exist but no restart flag does, so that instance does not come back after a crash by itself.
 - [ ] Mount the plugin phars for this instance's worlds. An instance loads only the plugins it needs, but the shared library version must match everywhere, because they share a schema.
 - [ ] Mount the world directory on a volume. Never in the container layer. A world in a container layer is a world that a redeploy destroys.
 - [ ] Join it to the stack network.
@@ -68,6 +69,7 @@ Do not skip any of these. Each one catches a different failure.
 - [ ] An auction listing created on another instance is visible and purchasable from this one.
 - [ ] World state writes carry the right `instance_id` in the database.
 - [ ] Latency and tick rate on the new instance are healthy under a real join.
+- [ ] The container reports `healthy` once the start period is over, and its restart policy is `on-failure` (`docker inspect --format '{{.HostConfig.RestartPolicy.Name}} {{.State.Health.Status}}'`).
 
 ## 6. Cut over and clean up
 
