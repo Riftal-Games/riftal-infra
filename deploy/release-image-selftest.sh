@@ -14,7 +14,8 @@
 # in REQUIRED_PHARS intact in /opt/riftal/plugins, owned by root, mode 0444 and
 # in a root-owned 0755 directory pocketmine cannot write, holds none in
 # /plugins, has pocketmine as its configured user and is never tagged latest.
-# Each file of SHIPPED_PLUGINS is held in /opt/riftal/plugins likewise.
+# Each file of SHIPPED_PLUGINS is held in /opt/riftal/plugins likewise, and so
+# is the custody pager in /opt/riftal/boot.
 # Builds on the local daemon under a riftal_smoke_ name and removes it. Needs
 # the core image pinned in images/core-image.sha.
 set -euo pipefail
@@ -23,7 +24,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=52
+EXPECTED_ASSERTIONS=53
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -35,7 +36,7 @@ copy_release_files() {
   mkdir -p "$1/deploy" "$1/images/release" "$1/images/plugins/instance-only"
   cp "$DIR/release-image.sh" "$1/deploy/"
   cp "$DIR/../images/core-image.sh" "$DIR/../images/core-image.sha" "$1/images/"
-  cp "$DIR/../images/release/Dockerfile" "$DIR/../images/release/start-release.sh" "$1/images/release/"
+  cp "$DIR/../images/release/Dockerfile" "$DIR/../images/release/start-release.sh" "$DIR/../images/release/custody-page.php" "$1/images/release/"
   cp "$DIR/../images/plugins/RiftalAccounts.config.yml" "$DIR/../images/plugins/RiftalDownstreamLimit.php" "$1/images/plugins/"
   cp "$DIR/../images/plugins/instance-only/RiftalMines.config.yml.template"     "$DIR/../images/plugins/instance-only/RiftalRanks.config.yml"     "$DIR/../images/plugins/instance-only/RiftalEconomy.config.yml"     "$1/images/plugins/instance-only/"
 }
@@ -286,6 +287,15 @@ else
     pass "pocketmine can write none of /opt/riftal, /opt/riftal/plugins or a file in it"
   else
     fail "pocketmine can write: $writable"
+  fi
+  want="$(sha256sum "$DIR/../images/release/custody-page.php" | cut -d' ' -f1)  /opt/riftal/boot/custody-page.php
+/opt/riftal/boot root 755
+/opt/riftal/boot/custody-page.php root 444"
+  got="$(docker run --rm -m 1g --cpus 1 --user pocketmine --entrypoint sh "$image:$tag" -c 'sha256sum /opt/riftal/boot/custody-page.php; stat -c "%n %U %a" /opt/riftal/boot /opt/riftal/boot/custody-page.php; for p in /opt/riftal/boot /opt/riftal/boot/custody-page.php; do [ -w "$p" ] && echo "$p writable"; done; true')"
+  if [ "$got" = "$want" ]; then
+    pass "the custody pager is the committed file, owned by root, mode 444, and pocketmine can write neither it nor its directory"
+  else
+    fail "the custody pager in the image: $got"
   fi
   # A phar under /plugins would be hidden by a mount or outlived by a reused
   # volume, so the tag would not decide which build runs.

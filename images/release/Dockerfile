@@ -22,8 +22,10 @@ FROM ${CORE_REPO}:${CORE_TAG}
 COPY --chown=0:0 plugins/ /opt/riftal/plugins/
 COPY --chown=0:0 plugin_data/ /opt/riftal/plugin_data/
 COPY --chown=0:0 start-release.sh /opt/riftal/start-release.sh
+# The custody pager is held like the start script: root-owned, not replaceable.
+COPY --chown=0:0 boot/ /opt/riftal/boot/
 USER root
-RUN chmod 0755 /opt/riftal /opt/riftal/plugins /opt/riftal/plugin_data /opt/riftal/plugin_data/*
+RUN chmod 0755 /opt/riftal /opt/riftal/plugins /opt/riftal/plugin_data /opt/riftal/plugin_data/* /opt/riftal/boot
 USER pocketmine
 
 CMD ["/opt/riftal/start-release.sh"]

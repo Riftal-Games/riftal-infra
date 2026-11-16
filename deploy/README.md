@@ -669,7 +669,9 @@ repository's directory, so the commit it checks is the one read from beside the
 script. In the image it checks each phar byte for byte,
 that `/opt/riftal/plugins` holds exactly the ten, that they are owned by
 root and mode 444, that their directories are root-owned and mode 755, that
-`pocketmine` can write none of them, that `/plugins` holds no phar, the Ubuntu
+`pocketmine` can write none of them, that the custody pager in `/opt/riftal/boot`
+is the committed file, root-owned, mode 444 and unwritable, that `/plugins`
+holds no phar, the Ubuntu
 24.04 release file, the `pocketmine` user and the pinned core revision label. It
 refuses a malformed `GAME_COMMIT` and a `GRANTS_SQL` that is not a non-empty
 file, checks `org.riftal.game-commit`, `org.riftal.infra-commit` and
@@ -682,6 +684,44 @@ file, checks `org.riftal.game-commit`, `org.riftal.infra-commit` and
 own image's `org.riftal.phars` label names and enable exactly its roster at its
 tag's version. It also checks the refusals above, the rendered configs and that
 the server's user cannot add a file to `/opt/riftal/plugins`.
+
+### Custody pager
+
+The image carries `/opt/riftal/boot/custody-page.php` (source in
+`../images/release/`), which posts one Discord webhook message about a parked
+instance (riftal-pm ADR 055 item 5, riftal-infra#970) with the image's own `php`
+and `ext-curl`. Nothing calls it yet.
+
+```sh
+php /opt/riftal/boot/custody-page.php [--dry-run] park|check-error < check output
+php /opt/riftal/boot/custody-page.php [--dry-run] --test
+```
+
+stdin is the output of `custody-alert-check.sh`. Only its `CUSTODY ALERT:` lines
+are read, and only counted: instance-wide stop, repeat for one player, or any
+other. The page holds `INSTANCE_ID`, `PARK` or `CHECK ERROR`, the three counts
+and `docker logs <container>`, the container being the hostname, its short id.
+It quotes no log line, names no player and sends `allowed_mentions` with an
+empty `parse`. A name that is not 1 to 64 letters, digits, dots, hyphens or
+underscores is shown as `unknown-instance` or `container`.
+
+The URL comes only from `RIFTAL_CUSTODY_WEBHOOK_URL`, an optional per-instance
+deploy secret. It is never an argument (one is refused unread), never printed
+and never committed. Only `https://discord.com/api/webhooks/` and
+`https://discordapp.com/api/webhooks/` are accepted. Output is `page sent` (exit
+0), `page failed` or `no page sent` (exit 1, the variable is unset or not such
+a URL). `--dry-run` prints the JSON payload, sends nothing and exits 0. A usage
+error exits 2.
+
+| Value | Setting |
+|---|---|
+| Send | One attempt, 10 s to connect and 10 s in all (`SEND_SECONDS`) |
+| Page length | Under Discord's 2000 characters by construction: fixed text, two names of at most 64 characters and three counts |
+
+`custody-page-selftest.sh` runs it in the pinned core image with `--network
+none` and breaks it once per case to see that case go red. It reads the 10 s
+bound from the source, since a stall needs a network. The send is the go-live
+`--test` (`GO-LIVE.md`, step 2).
 
 ## Environment
 

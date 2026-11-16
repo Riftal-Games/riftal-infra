@@ -3,8 +3,9 @@
 The go-live runbook of the riftal-pm workspace's spec 016 (criterion 6). The
 loop rehearses every step but the last on staging, the dev machine. The last,
 choosing and paying for a host and opening it to players, is Nasir's, and so
-is running any step here on that host. It holds its first pre-open step only;
-the steps spec 016's other criteria need join ahead of the last as they land.
+is running any step here on that host. It holds the pre-open steps that have
+landed; the steps spec 016's other criteria need join ahead of the last as they
+land.
 
 ## 1. Write-latency probe, before the host first takes anyone
 
@@ -62,3 +63,31 @@ the dev machine, PASS or FAIL, is the rehearsal spec 016 criterion 6 asks for:
 the step was performed, not passed. Its number is not read as a verdict, since
 the dev machine's shared WSL2 disk and daemon spread it widely from run to run
 (riftal-infra#1147, riftal-pm#1367).
+
+## 2. Custody page, rehearsed on staging
+
+A parked instance pages a Discord webhook (riftal-pm ADR 055, riftal-infra#970;
+Nasir's ruling: Discord, free) through `/opt/riftal/boot/custody-page.php` in the
+release image. The page holds the instance id and a count of each finding kind,
+and no player name or log line. Nothing calls the pager yet: the gate that does
+lands with the change that closes riftal-infra#970. The loop rehearses it
+without a webhook, `custody-page-selftest.sh` in CI with `--network none` being
+the evidence. The send cannot be rehearsed, so it is the webhook part of
+Nasir's last step and not a step of its own:
+
+1. Create a Discord webhook in a private channel he owns (channel settings,
+   Integrations, Webhooks). It is free.
+2. Place its URL as `RIFTAL_CUSTODY_WEBHOOK_URL` in each instance's deploy
+   secret, in the layout riftal-infra#1425 defines, outside the repository. It
+   is a credential: never committed, never an argument, never printed. One
+   webhook may serve every instance, since each page names its own.
+3. With the instance running, send the fixed test message and confirm it
+   arrives in the channel:
+
+   ```sh
+   docker exec <container> php /opt/riftal/boot/custody-page.php --test
+   ```
+
+   `page sent` is success. `no page sent` means the variable is unset or not a
+   `https://discord.com/api/webhooks/` or `https://discordapp.com/api/webhooks/`
+   URL, and `page failed` means Discord did not accept it within 10 seconds.

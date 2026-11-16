@@ -164,6 +164,11 @@ jobs:
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
 
+      # About forty short containers with no network.
+      - name: Custody pager self-test
+        timeout-minutes: 8
+        run: bash deploy/custody-page-selftest.sh
+
       - name: Release image self-test
         run: bash deploy/release-image-selftest.sh
 
