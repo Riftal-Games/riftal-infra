@@ -32,10 +32,11 @@ git_fixture() {
 }
 # $1 the root to lay the release files out under, at their repository paths.
 copy_release_files() {
-  mkdir -p "$1/deploy" "$1/images/release" "$1/images/plugins/instance-only"
+  mkdir -p "$1/deploy" "$1/images/release/config" "$1/images/plugins/instance-only"
   cp "$DIR/release-image.sh" "$1/deploy/"
   cp "$DIR/../images/core-image.sh" "$DIR/../images/core-image.sha" "$1/images/"
   cp "$DIR/../images/release/Dockerfile" "$DIR/../images/release/start-release.sh" "$1/images/release/"
+  cp "$DIR/../images/release/config/"*.config.yml "$1/images/release/config/"
   cp "$DIR/../images/plugins/RiftalAccounts.config.yml" "$DIR/../images/plugins/RiftalDownstreamLimit.php" "$1/images/plugins/"
   cp "$DIR/../images/plugins/instance-only/RiftalMines.config.yml.template"     "$DIR/../images/plugins/instance-only/RiftalRanks.config.yml"     "$DIR/../images/plugins/instance-only/RiftalEconomy.config.yml"     "$1/images/plugins/instance-only/"
 }

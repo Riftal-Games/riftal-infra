@@ -104,7 +104,7 @@ plugin_config() {
   case "$1" in
     RiftalAccounts) printf '%s\n' "$images/RiftalAccounts.config.yml" ;;
     RiftalMines) printf '%s\n' "$images/instance-only/RiftalMines.config.yml.template" ;;
-    RiftalGangs | RiftalRiots | RiftalPlots) printf '%s\n' "$images/release/config/$1.config.yml" ;;
+    RiftalGangs | RiftalRiots | RiftalPlots) printf '%s\n' "$SCRIPT_DIR/../images/release/config/$1.config.yml" ;;
     *) printf '%s\n' "$images/instance-only/$1.config.yml" ;;
   esac
 }
