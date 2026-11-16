@@ -1,0 +1,47 @@
+# Riot triggers, countdown, PvP window, design plan §6: the state machine,
+# baseline safe-zone PvP prevention (§6.1), the unstable ore (§6.2) and the
+# alarm, PvP window and cooldown (§6.4-6.6).
+# `mysql` is the network alias every riftal-infra stack gives the database;
+# `riftal-mysql` is one stack's container name and resolves nowhere else.
+database:
+  host: "mysql"
+  schema: "riftal"
+  username: "riots"
+  password: ""
+  port: 3306
+  worker-limit: 1
+
+# A file name inside this plugin's data folder, where the deploy delivers the
+# designer's world_index.json (riftal-infra's deliver-world-index.sh). The
+# plugin refuses to enable without it; no copy is bundled under resources/.
+world_index: "world_index.json"
+
+# The unstable ore, design plan §6.2: a reset swaps one ore named on the left
+# for its twin on the right, which must share the ore's block class so it
+# drops what the ore drops. The plugin refuses to enable otherwise.
+unstable_ore:
+  # docs/tuning-numbers.md "Unstable ore spawn rate", in percent of resets.
+  spawn_percent: 100
+  # riots/docs/tuning-numbers.md
+  search_attempts: 64
+  looks_like:
+    "minecraft:coal_ore": "minecraft:deepslate_coal_ore"
+    "minecraft:copper_ore": "minecraft:deepslate_copper_ore"
+    "minecraft:iron_ore": "minecraft:deepslate_iron_ore"
+    "minecraft:lapis_lazuli_ore": "minecraft:deepslate_lapis_lazuli_ore"
+    "minecraft:gold_ore": "minecraft:deepslate_gold_ore"
+    "minecraft:redstone_ore": "minecraft:deepslate_redstone_ore"
+    "minecraft:diamond_ore": "minecraft:deepslate_diamond_ore"
+    "minecraft:emerald_ore": "minecraft:deepslate_emerald_ore"
+
+riot:
+  # Design plan §6.4 states the 30-second alarm outright, so no docs/tuning-numbers.md row.
+  alarm_seconds: 30
+  # docs/tuning-numbers.md "Riot duration (10-15 min)", the PvP window.
+  duration_seconds: 600
+  # docs/tuning-numbers.md "Riot cooldown, per mine".
+  cooldown_seconds: 900
+  # docs/tuning-numbers.md "Riot yield boost", multiplying each drop's count.
+  yield_multiplier: 2
+  # riots/docs/tuning-numbers.md
+  clock_ticks: 20

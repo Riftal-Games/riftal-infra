@@ -1,0 +1,76 @@
+# Gangs and gang levels, design plan §4.5-§4.7; contested mine, §7. The
+# plugin owns gang founding, joining, money contribution, material deposit,
+# gang levels, deposits into, viewing of and the founder's withdrawals from
+# the gang vault, and the contested-mine eligibility flag,
+# docs/specs/013-gangs-and-gang-levels.md.
+# The shared MySQL database is the one that spec's "Instance-split impact"
+# section requires. riftal-infra overrides this section per instance.
+# `mysql` is the network alias every riftal-infra stack gives the database;
+# `riftal-mysql` is one stack's container name and resolves nowhere else.
+database:
+  host: "mysql"
+  schema: "riftal"
+  username: "gangs"
+  password: ""
+  port: 3306
+  worker-limit: 1
+
+# docs/tuning-numbers.md "Gang creation money cost": debited from the
+# founder's personal balance through the shared currency contract once the
+# rank floor below is also met. Never a source of new currency itself.
+creation_cost_minor_units: 500
+
+# docs/tuning-numbers.md "Gang creation personal rank floor": the founder's
+# rank, per rank_order below, must be at or past this entry.
+rank_floor: "C"
+
+# The known personal rank ladder, lowest first. M1 has exactly three ranks
+# (docs/specs/007-ranks-ladder.md); M6 extends this list as the real 12-15
+# rank ladder locks in, never by teaching this plugin a new comparison rule.
+rank_order: ["A", "B", "C"]
+
+# docs/tuning-numbers.md "Gang level thresholds" and "Member cap per gang level".
+# Entry N is level N; threshold is the cumulative contribution in minor units.
+levels:
+  - {threshold: 0, member_cap: 4}
+  - {threshold: 1000, member_cap: 6}
+  - {threshold: 3000, member_cap: 8}
+  - {threshold: 6000, member_cap: 10}
+  - {threshold: 10000, member_cap: 12}
+
+# docs/tuning-numbers.md "Contested-mine eligibility level": the level, counted
+# in `levels` above, whose crossing sets a gang's contested-mine flag for good.
+# From 2 to the number of `levels` entries.
+contested_mine_eligibility_level: 5
+
+# docs/tuning-numbers.md "Gang vault unlock level": the level, counted in
+# `levels` above, from which members may put stacks into the vault and view it.
+# From 1 to the number of `levels` entries, at most 255.
+vault_unlock_level: 4
+
+# docs/tuning-numbers.md "Gang vault capacity": item-stack slots open to
+# deposits. Lowering it closes the slots above to deposits and leaves their
+# items in place. From 1 to 1000.
+vault_capacity: 27
+
+# gangs/docs/tuning-numbers.md: seconds between each instance's asks for the
+# join notices of its online players. A whole number from 1.
+join_notice_poll_seconds: 5
+
+# docs/tuning-numbers.md "Gang shield window length", in minutes, from 1 to
+# 1439. Stored with each window as its founder chooses it, so a change here
+# moves no window already chosen.
+shield_window_minutes: 360
+
+# docs/tuning-numbers.md "Contested mine capture time", in seconds of presence
+# a gang holds in the contested mine to take control. A whole number from 1.
+capture_seconds: 600
+
+# gangs/docs/tuning-numbers.md: seconds between presence checks in the
+# contested mine. A whole number from 1.
+capture_round_seconds: 1
+
+# The file in this plugin's data folder where riftal-infra delivers the
+# designer's world_index.json; resources/ bundles none. Its one world with
+# role "contested" is the contested mine.
+world_index: "world_index.json"

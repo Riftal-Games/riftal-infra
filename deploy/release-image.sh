@@ -96,13 +96,15 @@ infra_commit() {
   printf '%s\n' "$sha"
 }
 
-# $1 a plugin name. Prints the dev stack's config for it, which start-release.sh
-# renders the database host and schema of.
+# $1 a plugin name. Prints the config for it, which start-release.sh renders
+# the database host and schema of. Gangs, Riots and Plots take riftal-game's
+# shipped file from images/release/config; the dev stack runs none of them.
 plugin_config() {
   local images="$SCRIPT_DIR/../images/plugins"
   case "$1" in
     RiftalAccounts) printf '%s\n' "$images/RiftalAccounts.config.yml" ;;
     RiftalMines) printf '%s\n' "$images/instance-only/RiftalMines.config.yml.template" ;;
+    RiftalGangs | RiftalRiots | RiftalPlots) printf '%s\n' "$images/release/config/$1.config.yml" ;;
     *) printf '%s\n' "$images/instance-only/$1.config.yml" ;;
   esac
 }
@@ -163,7 +165,7 @@ main() {
 
   cp "$SCRIPT_DIR/../images/release/start-release.sh" "$ctx/start-release.sh"
   chmod 0555 "$ctx/start-release.sh"
-  for name in RiftalAccounts RiftalMines RiftalRanks RiftalEconomy; do
+  for name in RiftalAccounts RiftalMines RiftalRanks RiftalEconomy RiftalGangs RiftalRiots RiftalPlots; do
     mkdir -p "$ctx/plugin_data/$name"
     cp "$(plugin_config "$name")" "$ctx/plugin_data/$name/config.yml"
     chmod 0444 "$ctx/plugin_data/$name/config.yml"

@@ -586,13 +586,24 @@ not core's `start-pocketmine`, which passes `--plugins=/plugins`. It builds the
 roster from `/opt/riftal/plugins` into a `mktemp -d` copy and passes PocketMine that
 copy alone, so a mount or a reused volume on `/plugins` is never read. RiftalCustody,
 RiftalAccounts, contracts and `RiftalDownstreamLimit.php` load everywhere, and a missing one stops the boot. `RIFTAL_PLUGINS` adds
-`RiftalMines`, `RiftalRanks` and `RiftalEconomy`, space or comma separated, and
-a name outside those three stops the boot. The instance sets `RIFTAL_DB_HOST`
+`RiftalMines`, `RiftalRanks`, `RiftalEconomy`, `RiftalGangs`, `RiftalRiots`,
+`RiftalPlots` and `RiftalAnvil`, space or comma separated, and a name outside
+those seven stops the boot. The instance sets `RIFTAL_DB_HOST`
 and `RIFTAL_DB_SCHEMA`, which the script writes into each loaded plugin's
 `/data/plugin_data/<Plugin>/config.yml` on every boot, from the configs the
-dev stack uses. The password of Accounts and of each added plugin comes from
-`RIFTAL_DB_PASSWORD_<ACCOUNTS|MINES|RANKS|ECONOMY>`, and a missing one stops the
-boot before PocketMine starts. A `--plugins` or `--data` in `POCKETMINE_ARGS` is
+dev stack uses for Accounts, Mines, Ranks and Economy and, for Gangs, Riots and
+Plots, from riftal-game's shipped configs at `7159d24`
+(`../images/release/config/`), which the dev stack does not run. Anvil has no
+config and no login. The password of Accounts and of each added plugin with a
+login comes from
+`RIFTAL_DB_PASSWORD_<ACCOUNTS|MINES|RANKS|ECONOMY|GANGS|RIOTS|PLOTS>`, and a
+missing one stops the
+boot before PocketMine starts. Gangs, Riots and Plots read the designer's
+`world_index.json` from their data folders; the instance mounts it read-only at
+`/etc/riftal/world_index.json`, the path the dev stack uses, and the script
+copies it to each of the three on every boot. A roster naming one of them with
+no readable, non-empty file there stops the boot. Ranks, Mines and Economy read
+the same index and this script does not deliver it to them. A `--plugins` or `--data` in `POCKETMINE_ARGS` is
 refused. The script prints each roster phar's sha256 as a `roster` line, which
 is what the label can be compared with.
 
@@ -630,9 +641,11 @@ cp "$OUT/plots.phar" RiftalPlots.phar
 cp "$OUT/anvil.phar" RiftalAnvil.phar
 ```
 
-The image carries these four, but `start-release.sh` loads none of them: the
-dev stack's start scripts give them no roster entry, login or config, so
-`RIFTAL_PLUGINS` offers only Mines, Ranks and Economy.
+`RIFTAL_PLUGINS` offers these four. Their configs in `../images/release/config/`
+are copies of riftal-game's shipped files, so a riftal-game config change
+reaches an image only when a riftal-infra commit copies it; a copy older than the
+phars can leave a key the plugin requires missing, and the plugin then fails to
+enable.
 
 The tag is
 `<UTC date>-core<7 of the pinned pmmp-core sha>-game<7 of GAME_COMMIT>-infra<7 of the riftal-infra commit>`,
@@ -680,8 +693,9 @@ file, checks `org.riftal.game-commit`, `org.riftal.infra-commit` and
 `REQUIRED_PHARS`, that differ in version, then boots tag N, N+1 and N on one named `/data` volume and one reused
 `/plugins` volume that holds stale copies. Each boot must report the sha256s its
 own image's `org.riftal.phars` label names and enable exactly its roster at its
-tag's version. It also checks the refusals above, the rendered configs and that
-the server's user cannot add a file to `/opt/riftal/plugins`.
+tag's version. It also checks the refusals above, the rendered configs, the
+index delivered to Gangs, Riots and Plots, and that the server's user cannot add
+a file to `/opt/riftal/plugins`.
 
 ## Environment
 

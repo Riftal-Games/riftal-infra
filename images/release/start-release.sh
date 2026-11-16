@@ -5,25 +5,34 @@
 # decides which build runs.
 #
 # RiftalCustody, RiftalAccounts and contracts load on every instance. The
-# instance adds RiftalMines, RiftalRanks and RiftalEconomy by naming them in
-# RIFTAL_PLUGINS, separated by spaces or commas. Each plugin's config goes to
-# /data/plugin_data on every boot with the database host and schema from
-# RIFTAL_DB_HOST and RIFTAL_DB_SCHEMA. The password of each plugin's login
-# comes only from RIFTAL_DB_PASSWORD_<PLUGIN> (ADR 008) and a missing one stops
-# the boot here, because a plugin that fails to enable takes the whole server
-# down. /data is untouched until every check has passed.
+# instance adds RiftalMines, RiftalRanks, RiftalEconomy, RiftalGangs,
+# RiftalRiots, RiftalPlots and RiftalAnvil by naming them in RIFTAL_PLUGINS,
+# separated by spaces or commas. Each plugin's config goes to /data/plugin_data
+# on every boot with the database host and schema from RIFTAL_DB_HOST and
+# RIFTAL_DB_SCHEMA. The password of each plugin's login comes only from
+# RIFTAL_DB_PASSWORD_<PLUGIN> (ADR 008) and a missing one stops the boot here,
+# because a plugin that fails to enable takes the whole server down.
+# RiftalAnvil has no login and no config.
+#
+# RiftalGangs, RiftalRiots and RiftalPlots read the designer's index of the
+# map from their data folder, and Gangs and Riots refuse to enable without it.
+# The instance mounts it at /etc/riftal/world_index.json, the path the dev
+# stack uses, and a roster that names one of them with no such file stops the
+# boot here. The index names levels and never instances, so every instance
+# mounts the same one.
+#
+# /data is untouched until every check has passed.
 #
 # Every script plugin in SCRIPTS loads on every instance, and a missing one
 # stops the boot. It gates itself on the instance's flags.
-#
-# The image also carries RiftalGangs, RiftalRiots, RiftalPlots and RiftalAnvil.
-# The dev stack's start scripts give them no login and no config, so none is
-# offered here.
 set -euo pipefail
 
 ROOT=/opt/riftal
 ALWAYS=(RiftalCustody RiftalAccounts contracts)
-OPTIONAL=(RiftalMines RiftalRanks RiftalEconomy)
+OPTIONAL=(RiftalMines RiftalRanks RiftalEconomy RiftalGangs RiftalRiots RiftalPlots RiftalAnvil)
+NO_LOGIN=(RiftalAnvil)
+INDEXED=(RiftalGangs RiftalRiots RiftalPlots)
+INDEX=/etc/riftal/world_index.json
 SCRIPTS=(RiftalDownstreamLimit.php)
 
 refuse() {
@@ -46,7 +55,16 @@ for name in "${requested[@]}"; do
 	selected+=("$name")
 done
 
-with_login=(RiftalAccounts "${selected[@]}")
+with_login=(RiftalAccounts)
+indexed=()
+for name in "${selected[@]}"; do
+	if [[ " ${NO_LOGIN[*]} " != *" $name "* ]]; then
+		with_login+=("$name")
+	fi
+	if [[ " ${INDEXED[*]} " == *" $name "* ]]; then
+		indexed+=("$name")
+	fi
+done
 for name in "${with_login[@]}"; do
 	var="RIFTAL_DB_PASSWORD_${name#Riftal}"
 	var="${var^^}"
@@ -54,6 +72,10 @@ for name in "${with_login[@]}"; do
 		refuse "$name is in this instance's roster and $var is not set"
 	fi
 done
+
+if [ "${#indexed[@]}" -gt 0 ] && { [ ! -f "$INDEX" ] || [ ! -s "$INDEX" ] || [ ! -r "$INDEX" ]; }; then
+	refuse "${indexed[*]} in this instance's roster read the index and $INDEX is not a readable, non-empty file"
+fi
 
 read -ra pm_args <<<"${POCKETMINE_ARGS:-}"
 for arg in "${pm_args[@]}"; do
@@ -85,6 +107,11 @@ for name in "${with_login[@]}"; do
 		-e "s/^  host: .*/  host: \"$RIFTAL_DB_HOST\"/" \
 		-e "s/^  schema: .*/  schema: \"$RIFTAL_DB_SCHEMA\"/" \
 		"$ROOT/plugin_data/$name/config.yml" >"/data/plugin_data/$name/config.yml"
+done
+
+for name in "${indexed[@]}"; do
+	mkdir -p "/data/plugin_data/$name"
+	cp "$INDEX" "/data/plugin_data/$name/world_index.json"
 done
 
 cd /opt/pocketmine

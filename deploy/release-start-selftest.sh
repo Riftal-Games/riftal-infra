@@ -18,7 +18,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=27
+EXPECTED_ASSERTIONS=33
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -74,6 +74,9 @@ export GAME_COMMIT
 export GRANTS_SQL="$work/grants.sql"
 printf 'REVOKE IF EXISTS riftal_role_accounts FROM riftal_role_mines;\n' > "$GRANTS_SQL"
 
+printf '{"worlds":[],"regions":[]}\n' > "$work/world_index.json"
+chmod 0644 "$work/world_index.json"
+
 core_image
 for version in 1.0.0 2.0.0 0.0.1; do
   mkdir -m 0777 "$work/$version"
@@ -100,6 +103,7 @@ refused() {
     -e RIFTAL_DB_HOST=dbhost.test -e RIFTAL_DB_SCHEMA=riftal_test \
     -e RIFTAL_DB_PASSWORD_ACCOUNTS=x -e RIFTAL_DB_PASSWORD_MINES=x \
     -e RIFTAL_DB_PASSWORD_RANKS=x -e RIFTAL_DB_PASSWORD_ECONOMY=x \
+    -e RIFTAL_DB_PASSWORD_GANGS=x -e RIFTAL_DB_PASSWORD_RIOTS=x -e RIFTAL_DB_PASSWORD_PLOTS=x \
     "${args[@]}" "$ref" 2>&1
 }
 
@@ -116,11 +120,12 @@ expect_refusal() {
 }
 
 expect_refusal "an unset accounts password" RIFTAL_DB_PASSWORD_ACCOUNTS RIFTAL_DB_PASSWORD_ACCOUNTS=
-for pair in MINES:RiftalMines RANKS:RiftalRanks ECONOMY:RiftalEconomy; do
+for pair in MINES:RiftalMines RANKS:RiftalRanks ECONOMY:RiftalEconomy GANGS:RiftalGangs RIOTS:RiftalRiots PLOTS:RiftalPlots; do
   expect_refusal "an unset ${pair%%:*} password" "RIFTAL_DB_PASSWORD_${pair%%:*}" \
     "RIFTAL_PLUGINS=${pair##*:}" "RIFTAL_DB_PASSWORD_${pair%%:*}="
 done
-expect_refusal "an unknown plugin" RiftalPlots RIFTAL_PLUGINS=RiftalPlots
+expect_refusal "a roster naming Gangs with no index mounted" /etc/riftal/world_index.json RIFTAL_PLUGINS=RiftalGangs
+expect_refusal "an unknown plugin" RiftalCapture RIFTAL_PLUGINS=RiftalCapture
 expect_refusal "a plugins path in the arguments" --plugins=/plugins POCKETMINE_ARGS=--plugins=/plugins
 expect_refusal "an unset database host" RIFTAL_DB_HOST RIFTAL_DB_HOST=
 
@@ -140,9 +145,11 @@ boot() {
   mkfifo "$fifo"
   docker run -i --rm --name "$cname" -m 2g --cpus 2 --network none \
     -v "$data_vol:/data" -v "$plugins_vol:/plugins" \
+    -v "$work/world_index.json:/etc/riftal/world_index.json:ro" \
     -e RIFTAL_DB_HOST=dbhost.test -e RIFTAL_DB_SCHEMA=riftal_test \
     -e RIFTAL_DB_PASSWORD_ACCOUNTS=x -e RIFTAL_DB_PASSWORD_MINES=x \
     -e RIFTAL_DB_PASSWORD_RANKS=x -e RIFTAL_DB_PASSWORD_ECONOMY=x \
+    -e RIFTAL_DB_PASSWORD_GANGS=x -e RIFTAL_DB_PASSWORD_RIOTS=x -e RIFTAL_DB_PASSWORD_PLOTS=x \
     -e "RIFTAL_PLUGINS=$2" \
     -e "POCKETMINE_ARGS=--level-name=smoke_level --level-type=flat --xbox-auth=false --auto-report.enabled=0" \
     "$ref" <"$fifo" >"$log" 2>&1 &
@@ -216,7 +223,22 @@ if [ "$(grep -c '^  password: ""' <<<"$cfg")" -eq 2 ]; then
 else
   fail "a rendered config holds a password: $cfg"
 fi
-check_boot "$tag_m" "RiftalEconomy" 2.0.0
+check_boot "$tag_m" "RiftalEconomy RiftalGangs RiftalRiots RiftalPlots RiftalAnvil" 2.0.0
+cfg="$(docker run --rm -m 1g --cpus 1 -v "$data_vol:/data" --entrypoint cat "$image:$tag_m" \
+  /data/plugin_data/RiftalGangs/config.yml /data/plugin_data/RiftalRiots/config.yml /data/plugin_data/RiftalPlots/config.yml)"
+if [ "$(grep -c '^  host: "dbhost.test"' <<<"$cfg")" -eq 3 ] && [ "$(grep -c '^  schema: "riftal_test"' <<<"$cfg")" -eq 3 ] \
+  && [ "$(grep -c '^  password: ""' <<<"$cfg")" -eq 3 ]; then
+  pass "the Gangs, Riots and Plots configs carry the given host and schema and no password"
+else
+  fail "the rendered Gangs, Riots or Plots config lacks the given host or schema, or holds a password: $cfg"
+fi
+if docker run --rm -m 1g --cpus 1 -v "$data_vol:/data" -v "$work/world_index.json:/index:ro" --entrypoint sh "$image:$tag_m" -c '
+  for p in RiftalGangs RiftalRiots RiftalPlots; do cmp -s /index "/data/plugin_data/$p/world_index.json" || exit 1; done
+  [ ! -e /data/plugin_data/RiftalAnvil ]'; then
+  pass "Gangs, Riots and Plots each got the mounted index and Anvil got no data folder"
+else
+  fail "the index was not delivered to Gangs, Riots and Plots, or Anvil got a data folder"
+fi
 check_boot "$tag_n" "" 1.0.0
 
 printf '\n'
