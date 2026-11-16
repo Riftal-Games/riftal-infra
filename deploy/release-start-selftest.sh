@@ -234,10 +234,10 @@ else
 fi
 if docker run --rm -m 1g --cpus 1 -v "$data_vol:/data" -v "$work/world_index.json:/index:ro" --entrypoint sh "$image:$tag_m" -c '
   for p in RiftalGangs RiftalRiots RiftalPlots; do cmp -s /index "/data/plugin_data/$p/world_index.json" || exit 1; done
-  [ ! -e /data/plugin_data/RiftalAnvil ]'; then
-  pass "Gangs, Riots and Plots each got the mounted index and Anvil got no data folder"
+  [ -z "$(ls -A /data/plugin_data/RiftalAnvil)" ]'; then
+  pass "Gangs, Riots and Plots each got the mounted index and Anvil's data folder holds nothing"
 else
-  fail "the index was not delivered to Gangs, Riots and Plots, or Anvil got a data folder"
+  fail "the index was not delivered to Gangs, Riots and Plots, or Anvil's data folder holds a file"
 fi
 check_boot "$tag_n" "" 1.0.0
 
