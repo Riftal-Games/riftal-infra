@@ -10,6 +10,7 @@ from designer import world_index
 from designer.bridge import Bridge
 from designer.builders import BUILDERS
 from designer.builders.base import Palette
+from designer.edits import EditList
 from designer.level import LevelError, Saved, build_level, content_sha256, pregen_bounds
 from designer.region import Bounds, Bounds2D, Region, fetch_region
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
@@ -108,6 +109,17 @@ def test_step_input_outside_the_root_is_refused(fake: FakeBridge, bridge: Bridge
     with pytest.raises(LevelError, match="not a file under"):
         _build(bridge, root)
     assert fake.requests == []
+
+
+def test_a_step_that_carves_open_terrain_is_refused_and_writes_no_lock(bridge: Bridge, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(BUILDERS, "dig", lambda spec, palette, fetch: EditList("zt", [], {"carve": [spec["box"]]}))
+    box = {"min": [200, 70, 200], "max": [202, 72, 202]}
+    (root / "specs" / "dig.json").write_text(json.dumps({"world": "zt", "box": box}), encoding="utf-8")
+    steps = [*RECIPE["steps"], {"build": "dig", "spec": "specs/dig.json", "palette": "test_stone"}]
+    (root / "levels" / "zt.json").write_text(json.dumps({**RECIPE, "steps": steps}), encoding="utf-8")
+    with pytest.raises(LevelError, match=r"carves into terrain that is not solid: \(200, 70, 200\) holds minecraft:air"):
+        _build(bridge, root)
+    assert not (root / "levels" / "zt.lock.json").exists()
 
 
 def test_unknown_builder_refuses_before_any_call(fake: FakeBridge, bridge: Bridge, root: Path) -> None:
