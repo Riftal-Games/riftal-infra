@@ -9,7 +9,8 @@
 # in it and in the tables it copies, and a table no migration creates. A wipe
 # that emptied a named list of tables would leave the snapshot or the stray
 # table behind and fail here. Each refusal in wipe.sh is driven, and must leave
-# the fixture unchanged.
+# the fixture unchanged. The two for a missing PROCESS run after the confirmed
+# wipe, since their accounts cannot see the session a refusal case holds.
 #
 # The fixture also holds capture_fence with the row migration 0027 seeds.
 # wipe-check must pass with that row lowered and fail with it raised or gone.
@@ -179,6 +180,10 @@ stamped twostamps "$NOW; $NOW"
 stamped badformat "echo 'timestamp: 2026-10-10T00:00:00Z'"
 stamped badtime "echo 'timestamp: 20261340T250000000000000Z'"
 stamped stale_absent "$(stamp_cmd '-2 hours')" riftal_smoke_absent
+# A stale set that also holds a tar that does not list, so only a wipe that
+# refuses on age before it reads any tar names the age.
+stamped stale_badtar "$(stamp_cmd '-2 hours')"
+sh_in "cp /tmp/badtar/worlds/riftal_smoke_vol_z.tar.gz /tmp/stale_badtar/worlds/"
 # backup.sh's stamp with a nanosecond digit too few and one too many. Each
 # names the absent database, so a format check that let it through reaches
 # that refusal rather than a wipe of the fixture.
@@ -187,7 +192,7 @@ stamped tennanos "sed -n '/^timestamp: /s/Z\$/0Z/p' /tmp/set/manifest.txt" rifta
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=46
+EXPECTED_ASSERTIONS=50
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -220,6 +225,7 @@ refused other-db-backup "does not name database" wipe "$DB" "$DB" /tmp/other
 refused absent-database "no database riftal_smoke_absent" \
   wipe riftal_smoke_absent riftal_smoke_absent /tmp/absent
 refused stale-set "1[0-9][0-9] minute(s) old, over WIPE_BACKUP_MAX_AGE_MINUTES=60" wipe "$DB" "$DB" /tmp/stale
+refused stale-set-unread-tars "1[0-9][0-9] minute(s) old, over WIPE_BACKUP_MAX_AGE_MINUTES=60" wipe "$DB" "$DB" /tmp/stale_badtar
 refused future-set "7[12][0-9][0-9]s in the future by this host's clock; if backup.sh ran on another host, its clock is ahead of this one" \
   wipe "$DB" "$DB" /tmp/future
 refused no-timestamp "holds 0 timestamp line(s)" wipe "$DB" "$DB" /tmp/nostamp
@@ -290,17 +296,27 @@ q "CREATE ROLE 'riftal_smoke_process'; GRANT PROCESS ON *.* TO 'riftal_smoke_pro
    GRANT ALL ON $DB.* TO 'role_wiper'@'%', 'idle_role_wiper'@'%';
    GRANT 'riftal_smoke_process' TO 'role_wiper'@'%', 'idle_role_wiper'@'%';
    SET DEFAULT ROLE 'riftal_smoke_process' TO 'role_wiper'@'%'"
+# wipe.sh finds PROCESS on the one SHOW GRANTS line MySQL 8 prints for global
+# privileges. A direct grant among others and ALL PRIVILEGES must each reach the
+# session refusal, so a release that prints the line differently fails them
+# naming PROCESS rather than leaving the pattern to fail only on a real wipe.
+q "CREATE USER 'direct_wiper'@'%' IDENTIFIED BY 'selftest', 'allpriv_wiper'@'%' IDENTIFIED BY 'selftest';
+   GRANT ALL ON $DB.* TO 'direct_wiper'@'%';
+   GRANT SELECT, PROCESS, RELOAD ON *.* TO 'direct_wiper'@'%';
+   GRANT ALL PRIVILEGES ON *.* TO 'allpriv_wiper'@'%'"
 hold "$DB"
+# /tmp/set is backup.sh's own output, so reaching the session refusal shows
+# wipe.sh's restore preconditions and age check accept the layout backup.sh writes.
 refused connected-session "other session(s) are connected to .*; close every other connection, instances first" wipe "$DB" "$DB" /tmp/set
-WIPE_USER=wiper refused no-process "lacks PROCESS, directly or through an active role" wipe "$DB" "$DB" /tmp/set
-released
-hold "$DB"
-WIPE_USER=idle_role_wiper refused inactive-role-process "lacks PROCESS, directly or through an active role" \
-  wipe "$DB" "$DB" /tmp/set
 WIPE_USER=role_wiper refused role-process-session "1 other session(s) are connected" wipe "$DB" "$DB" /tmp/set
+WIPE_USER=direct_wiper refused direct-process-session "1 other session(s) are connected" wipe "$DB" "$DB" /tmp/set
+WIPE_USER=allpriv_wiper refused all-privileges-session "1 other session(s) are connected" wipe "$DB" "$DB" /tmp/set
 released
-# The held session is a backstop: a wipe.sh that missed one of these checks is
-# refused for the session instead, and fails the case without a drop.
+# The held session is a backstop for every refusal case from here on, and for
+# the four above: each runs as an account that sees it, so a wipe.sh that
+# missed the check under test is refused for the session instead and fails the
+# case without a drop. The no-PROCESS cases are not among them and run below the
+# confirmed wipe.
 hold "$DB"
 refused no-worlds-dir "has no worlds/ directory, so restore.sh" wipe "$DB" "$DB" /tmp/noworlds
 refused no-world-tars "worlds holds no .tar.gz, so restore.sh" wipe "$DB" "$DB" /tmp/notars
@@ -409,6 +425,18 @@ unlisted_fails "the table list is empty" "information_schema lists no table but 
   || fail "economy_balance_snapshot should exist and be empty, got '$(snapshot_rows)'"
 [ "$(q "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$DB' AND TABLE_NAME = 'stray_unmigrated'")" = "0" ] \
   && pass "a table no migration creates is gone" || fail "stray_unmigrated survived the wipe"
+
+# wiper and idle_role_wiper cannot see a held session, so a wipe.sh that
+# accepted either would drop the database. It runs here, after every assertion
+# that needs the fixture's contents, and a marker row shows it was not dropped.
+q "INSERT INTO $DB.balances VALUES (7, 7)"
+hold "$DB"
+WIPE_USER=wiper refused no-process "lacks PROCESS, directly or through an active role" wipe "$DB" "$DB" /tmp/set
+WIPE_USER=idle_role_wiper refused inactive-role-process "lacks PROCESS, directly or through an active role" \
+  wipe "$DB" "$DB" /tmp/set
+released
+[ "$(q "SELECT balance_minor_units FROM $DB.balances WHERE account_id = 7")" = "7" ] \
+  && pass "the no-PROCESS refusals left the database in place" || fail "a no-PROCESS refusal dropped the database"
 
 printf '\n== with performance_schema off, a connected session still refuses the wipe\n'
 qp() { docker exec "$C_PSOFF" mysql -uroot -pselftest -N -B -e "$1" 2>/dev/null; }
