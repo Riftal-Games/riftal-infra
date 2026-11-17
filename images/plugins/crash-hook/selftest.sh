@@ -24,7 +24,7 @@ ERRORS='CRITICAL|EMERGENCY|Exception|Stack trace'
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=14
+EXPECTED_ASSERTIONS=15
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -44,7 +44,7 @@ boot() {
   local entry=()
   [ "${3:-}" = pid1 ] && entry=(--entrypoint start-pocketmine)
   status=0
-  timeout 180 docker run --rm --name "$name" -m 2g --cpus 2 \
+  timeout 180 docker run --rm --pull never --name "$name" -m 2g --cpus 2 \
       -v "$plugins:/plugins:ro" "${env[@]}" "${entry[@]}" \
       -e "POCKETMINE_ARGS=--xbox-auth=false --riftal-dev-bots=$1 --auto-report.enabled=0 --level-type=flat" \
       "$IMAGE" >"$work/log" 2>&1 || status=$?
@@ -70,6 +70,10 @@ grep -q 'crash-hook-probe alive after operator' "$work/log" \
   && grep -q "crash-hook-probe operator heard: You don't have permission" "$work/log" \
   && pass "an operator is refused and the process keeps running" \
   || fail "the operator's run was not refused, or killed the process"
+grep -q 'crash-hook-probe alive after root-console holder' "$work/log" \
+  && grep -q 'crash-hook-probe root-console heard: devbots-crash runs only from the server console' "$work/log" \
+  && pass "a non-console sender holding ROOT_CONSOLE is refused and the process keeps running" \
+  || fail "a non-console sender holding ROOT_CONSOLE was not refused by the console check, or killed the process"
 grep -q 'devbots-crash: killing process' "$work/log" \
   && ! grep -qE 'crash-hook-probe alive after console|Stopping' "$work/log" \
   && pass "the console's run kills the process before any shutdown" \
