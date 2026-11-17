@@ -20,7 +20,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$DIR/../../core-image.sh"
 core_image || { printf 'the crash hook was never checked\n'; exit 1; }
 IMAGE="$CORE_IMAGE"
-ERRORS='CRITICAL|EMERGENCY|Exception|Stack trace'
+ERRORS='/(EMERGENCY|ALERT|CRITICAL|ERROR)]|Exception|Stack trace'
 
 FAILURES=0
 PASSES=0
@@ -55,9 +55,15 @@ boot() {
   printf 'exit status %s\n' "$status"
 }
 
+# $1 label, $2 optional fixed text of the one expected error line, dropped before the check
 clean() {
-  ! grep -qE "$ERRORS" "$work/log" && pass "$1: the server log has no error" \
-    || fail "$1: the server log has an error: $(grep -E "$ERRORS" "$work/log")"
+  local found
+  found="$(grep -E "$ERRORS" "$work/log" || true)"
+  if [ -n "${2:-}" ]; then
+    found="$(grep -vF -- "$2" <<<"$found" || true)"
+  fi
+  [ -z "$found" ] && pass "$1: the server log has no error" \
+    || fail "$1: the server log has an error: $found"
 }
 
 printf '\n== dev bots admitted: the console kills the process, an operator cannot\n'
@@ -79,7 +85,7 @@ grep -q 'devbots-crash: killing process' "$work/log" \
 
 printf '\n== dev bots admitted, server is process 1: the console run refuses\n'
 boot on 1 pid1
-clean "process 1"
+clean "process 1" "devbots-crash: refused, this server is process 1"
 grep -q 'devbots-crash: refused, this server is process 1' "$work/log" \
   && pass "process 1: the console's run is refused, naming why" \
   || fail "process 1: the console's run was not refused as process 1"
