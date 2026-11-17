@@ -136,7 +136,7 @@ for zone in RIFT-14:+1400 RIFT+12:-1200; do
     || { echo "TZ=${zone%%:*} does not read as ${zone#*:} in $C" >&2; exit 1; }
 done
 # The fresh set is backup.sh's own, so a timestamp format other than
-# backup.sh's fails the confirmed wipe below rather than only every real wipe.
+# backup.sh's fails the confirmed wipe below as well as every real wipe.
 # It runs 14 hours east of UTC, so a stamp taken in local time reads as a set
 # from the future and fails that wipe too.
 sh_in "mkdir -p /tmp/locks /tmp/worlds/riftal_smoke_vol && printf 'x\n' > /tmp/worlds/riftal_smoke_vol/level.dat"
@@ -299,10 +299,10 @@ q "CREATE ROLE 'riftal_smoke_process'; GRANT PROCESS ON *.* TO 'riftal_smoke_pro
 # wipe.sh finds PROCESS on the SHOW GRANTS line MySQL 8 prints for the static
 # global privileges. A direct grant among others, and a grant of every
 # privilege, must each reach the session refusal, so a release that prints the
-# line differently fails them naming PROCESS. mysql:8 (8.4.13) prints
-# GRANT ALL ON *.* as each static privilege by name, PROCESS among them, and
-# never as ALL PRIVILEGES, so allpriv_wiper reaches the session refusal through
-# that list and not through wipe.sh's ALL PRIVILEGES alternative.
+# line differently fails them naming PROCESS. Nothing here asserts which
+# alternative of wipe.sh's grep allpriv_wiper matches: that depends on how the
+# MySQL release the fixture runs prints GRANT ALL ON *.*, either as each static
+# privilege by name or as ALL PRIVILEGES.
 q "CREATE USER 'direct_wiper'@'%' IDENTIFIED BY 'selftest', 'allpriv_wiper'@'%' IDENTIFIED BY 'selftest';
    GRANT ALL ON $DB.* TO 'direct_wiper'@'%';
    GRANT SELECT, PROCESS, RELOAD ON *.* TO 'direct_wiper'@'%';
@@ -313,12 +313,15 @@ WIPE_USER=role_wiper refused role-process-session "1 other session(s) are connec
 WIPE_USER=direct_wiper refused direct-process-session "1 other session(s) are connected" wipe "$DB" "$DB" /tmp/set
 WIPE_USER=allpriv_wiper refused all-privileges-session "1 other session(s) are connected" wipe "$DB" "$DB" /tmp/set
 released
-# A held session backstops six cases: role-process-session, direct-process-session
-# and all-privileges-session above, and no-worlds-dir, no-world-tars and
-# bad-world-tar below. Each runs as an account that sees it, so a wipe.sh that
-# missed the check under test is refused for the session instead and fails the
-# case without a drop. connected-session, no-default-db-session and
-# other-db-session have no backstop, because the session is the check under test.
+# A held session backstops three cases, no-worlds-dir, no-world-tars and
+# bad-world-tar below. Each runs as root, which sees the session, so a wipe.sh
+# that missed the check under test is refused for the session instead and fails
+# the case without a drop. Nothing backs the six session cases, connected-session,
+# role-process-session, direct-process-session, all-privileges-session,
+# no-default-db-session and other-db-session: each expects the session refusal,
+# so a regression in the session count at wipe.sh would drop the fixture. The
+# cases before the first hold run with no session held, so they have no backstop
+# either.
 # psoff-session runs on $C_PSOFF, where a session on $C protects nothing. The
 # no-PROCESS cases run below the confirmed wipe.
 hold "$DB"
@@ -433,6 +436,9 @@ unlisted_fails "the table list is empty" "information_schema lists no table but 
 # wiper and idle_role_wiper cannot see a held session, so a wipe.sh that
 # accepted either would drop the database. They run here, after every assertion
 # that needs the fixture's contents, and a marker row shows it was not dropped.
+# The session is held for a wipe.sh that activated the role for idle_role_wiper:
+# that account would then see it and be refused for the session, which fails the
+# case without a drop.
 q "INSERT INTO $DB.balances VALUES (7, 7)"
 hold "$DB"
 WIPE_USER=wiper refused no-process "lacks PROCESS, directly or through an active role" wipe "$DB" "$DB" /tmp/set
