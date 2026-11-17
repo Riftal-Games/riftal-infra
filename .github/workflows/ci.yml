@@ -136,7 +136,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/packet-limit/*.php images/plugins/tile-contents/*.php images/plugins/capture-harness/*.php images/plugins/restart/*.php images/plugins/watch/*.php)
+          files=(images/plugins/*.php images/plugins/join-order/*.php images/plugins/crash-hook/*.php images/plugins/packet-limit/*.php images/plugins/proxy-unblock/*.php images/plugins/tile-contents/*.php images/plugins/capture-harness/*.php images/plugins/restart/*.php images/plugins/watch/*.php)
           if [ "${#files[@]}" -eq 0 ]; then
             printf 'no PHP plugin files to lint\n'
             exit 0
@@ -144,7 +144,7 @@ jobs:
           docker run --rm -m 1g --cpus 1 -v "$PWD/images/plugins:/plugins:ro" php:8.3-cli-alpine \
             sh -c '
               status=0
-              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/packet-limit/*.php /plugins/tile-contents/*.php /plugins/capture-harness/*.php /plugins/restart/*.php /plugins/watch/*.php; do
+              for f in /plugins/*.php /plugins/join-order/*.php /plugins/crash-hook/*.php /plugins/packet-limit/*.php /plugins/proxy-unblock/*.php /plugins/tile-contents/*.php /plugins/capture-harness/*.php /plugins/restart/*.php /plugins/watch/*.php; do
                 php -l "$f" || status=1
               done
               exit "$status"
@@ -217,6 +217,11 @@ jobs:
 
       - name: Downstream packet limit self-test
         run: bash images/plugins/downstream-limit/selftest.sh
+
+      # Ten boots of the pinned core image, up to nine seconds of pings each.
+      - name: Downstream proxy address unblock self-test
+        timeout-minutes: 12
+        run: bash images/plugins/proxy-unblock/selftest.sh
 
       - name: Dev bots tile contents self-test
         run: bash images/plugins/tile-contents/selftest.sh
