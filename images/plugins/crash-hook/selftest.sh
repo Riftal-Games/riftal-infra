@@ -45,7 +45,7 @@ boot() {
   local entry=()
   [ "${3:-}" = pid1 ] && entry=(--entrypoint start-pocketmine)
   status=0
-  timeout 180 docker run --rm --name "$name" -m 2g --cpus 2 \
+  timeout 180 docker run --rm --pull never --name "$name" -m 2g --cpus 2 \
       -v "$plugins:/plugins:ro" "${env[@]}" "${entry[@]}" \
       -e "POCKETMINE_ARGS=--xbox-auth=false --riftal-dev-bots=$1 --auto-report.enabled=0 --level-type=flat" \
       "$IMAGE" >"$work/log" 2>&1 || status=$?
