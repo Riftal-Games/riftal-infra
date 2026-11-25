@@ -1,0 +1,63 @@
+# Expected: no finding from check_port_policy.py --alpha or check_alpha_compose.py.
+#
+# The shape spec 025 gives deploy/alpha/compose.yaml: mysql by digest, one
+# instance on the release image taking its flags only from its definition's
+# instance.env, backup and migrate on the backup image under the same tag,
+# every data volume external, and one publish, 19132/udp on a bind that
+# defaults to 127.0.0.1. Each secret is a ${NAME:?} the scan gives a
+# placeholder, so `docker compose config` reads this file with none set.
+#
+# volumes: comes first and services: last, so selftest.sh can append a service
+# block to the end of a copy of this file.
+volumes:
+  riftal-mysql:
+    external: true
+  riftal-world:
+    external: true
+  riftal-backups:
+    external: true
+  riftal-capture: {}
+
+services:
+  mysql:
+    image: mysql@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set it}
+    volumes:
+      - riftal-mysql:/var/lib/mysql
+
+  instance:
+    image: riftal/pocketmine-mp:2026.11.12-a
+    env_file:
+      - ../../instances/mines/instance.env
+    environment:
+      RIFTAL_DB_PASSWORD_ACCOUNTS: ${RIFTAL_DB_PASSWORD_ACCOUNTS:?set it}
+    ports:
+      - "${ALPHA_BIND:-127.0.0.1}:19132:19132/udp"
+    restart: on-failure
+    depends_on:
+      backup:
+        condition: service_started
+    volumes:
+      - riftal-world:/data
+      - riftal-capture:/capture:ro
+
+  backup:
+    image: riftal/backup:2026.11.12-a
+    environment:
+      RIFTAL_DB_PASSWORD_BACKUP: ${RIFTAL_DB_PASSWORD_BACKUP:?set it}
+    volumes:
+      - riftal-backups:/backups
+      - riftal-capture:/capture
+      - riftal-world:/worlds/riftal-world:ro
+
+  migrate:
+    image: riftal/backup:2026.11.12-a
+    profiles: [ops]
+    command: ["bash", "-c", "/opt/riftal/ops/deploy/binlog-check.sh && /opt/riftal/ops/migrations/run-migrations.sh"]
+    environment:
+      MIGRATIONS_DIR: /opt/riftal/sql/migrations
+      GRANTS_FILE: /opt/riftal/sql/grants.sql
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set it}
+      RIFTAL_DB_PASSWORD_ACCOUNTS: ${RIFTAL_DB_PASSWORD_ACCOUNTS:?set it}
+      RIFTAL_DB_PASSWORD_BACKUP: ${RIFTAL_DB_PASSWORD_BACKUP:?set it}
