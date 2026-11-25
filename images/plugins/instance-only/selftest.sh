@@ -560,7 +560,7 @@ named_locations() {
     section == "join_teleport:" && /^  location:/ || section == "travel:" && /^    [a-z]+: "/ { gsub(/"/, "", $2); print $2 }' "$1" | sort -u
 }
 check "the delivered world index holds every location the template names for the join and travel" \
-  'names="$(named_locations "$TEMPLATE")" && [ "$(wc -l <<<"$names")" -eq 4 ] &&
+  'names="$(named_locations "$TEMPLATE")" && [ "$(wc -l <<<"$names")" -eq 6 ] &&
     [ -z "$(comm -23 <(printf "%s\n" "$names") <(jq -r ".locations[].name" "$INDEX" | sort -u))" ]'
 # Zones in the space-separated list $2 that the worlds section of config $1
 # does not register under its own name and fragment file. RiftalCustody
