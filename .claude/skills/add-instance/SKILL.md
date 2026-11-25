@@ -14,6 +14,8 @@ The world-split. This is the core scaling operation on RiftalGames. Rehearse it 
 - [ ] Which world is moving, and which instance currently serves it.
 - [ ] A backup of the shared database, taken and verified restorable.
 - [ ] A backup of the world directory.
+- [ ] The set's `manifest.txt` has a `capture_mode.<volume>:` line for every volume. Otherwise `deploy/restore.sh` refuses the set unless `ALLOW_UNCAPTURED_SET=1` is set, and that override is only for a disaster with nothing better (ADR 015 item 7).
+- [ ] For a rollback through `deploy/restore.sh`, every instance on the target volumes is stopped. The script refuses a volume whose `server.lock` is held, and it runs in the `riftal-backup` image (`images/backup/`), not `mysql:8`, because it needs `flock`.
 - [ ] Discord announcement posted for the window.
 - [ ] An `instance_id` chosen for the new instance. Short, stable, never reused: `mine-h`, `plots-1`, `contested`.
 

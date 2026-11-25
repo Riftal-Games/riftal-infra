@@ -1,0 +1,22 @@
+# Expected: no resource limit finding.
+#
+# Every long-running service carries both limits, one of them behind a profile.
+# `init` has none and needs none: `instance` waits for it to complete, so it
+# exits and holds no memory afterwards.
+services:
+  instance:
+    image: local-pocketmine-mp:fixture
+    mem_limit: 2G
+    cpus: 2
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  init:
+    image: mysql:8
+
+  tools:
+    image: mysql:8
+    profiles: [tools]
+    mem_limit: 512M
+    cpus: 0.5

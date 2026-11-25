@@ -291,6 +291,29 @@ def test_build_image_and_build_devtools_use_the_runtime_binary(monkeypatch: pyte
     assert recorder.calls[-1][3:7] == ["--memory", "1G", "--cpus", "1"]
 
 
+@pytest.mark.parametrize("name", ["PocketMine-MP", "pmmp-core"])
+def test_default_core_dir_finds_the_sibling_under_either_name(tmp_path: Path, name: str) -> None:
+    (tmp_path / name).mkdir()
+    assert stack.default_core_dir(tmp_path) == tmp_path / name
+
+
+def test_default_core_dir_prefers_the_new_name_and_falls_back_to_the_old(tmp_path: Path) -> None:
+    assert stack.default_core_dir(tmp_path) == tmp_path / "pmmp-core"
+    (tmp_path / "pmmp-core").mkdir()
+    (tmp_path / "PocketMine-MP").mkdir()
+    assert stack.default_core_dir(tmp_path) == tmp_path / "PocketMine-MP"
+
+
+@pytest.mark.parametrize("name", ["PocketMine-MP", "pmmp-core"])
+def test_build_image_without_core_dir_uses_the_sibling(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str) -> None:
+    (tmp_path / name).mkdir()
+    monkeypatch.setattr(stack, "CHECKOUTS_DIR", tmp_path)
+    recorder = Recorder(git_stdout="abc1234\n")
+    monkeypatch.setattr(subprocess, "run", recorder)
+    stack.build_image("docker")
+    assert str(tmp_path / name) in recorder.calls[-1]
+
+
 def test_exec_wraps_a_timeout_as_a_stack_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def raises(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         raise subprocess.TimeoutExpired(cmd=argv, timeout=1)

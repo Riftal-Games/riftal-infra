@@ -9,7 +9,13 @@ under containers, not less (CLAUDE.md hard rule 5).
 
 1. Acquires `GET_LOCK('riftal_schema_migrations', <timeout>)` over a
    connection it holds for the whole run, and releases it on the way out,
-   success or failure.
+   success or failure. MySQL drops a named lock when its session ends, so the
+   release must answer `1` to prove this session still held it. When the
+   session ended first, or the release read finds no live pipe or times out
+   after 30 seconds, the run prints `lost the migration lock '<name>' before
+   the run finished` and exits 1, even if every migration applied, because
+   another runner could have taken the lock meanwhile. A run that already
+   failed keeps its own nonzero exit and still prints that line.
 2. Refuses, before writing anything, a server whose `VERSION()` is below
    MySQL 8.0.30, the floor ADR 008 sets because `grants.sql` may use
    `REVOKE IF EXISTS`. The `mysql:8` tag floats, so the server is asked.
