@@ -25,7 +25,10 @@ COMPOSE_FILE = STACK_DIR / "compose.yaml"
 SERVICE = "designer"
 CONTAINER_NAME = "designer"
 IMAGE = "local-pocketmine-mp"
-DEFAULT_CORE_DIR = STACK_DIR.parent.parent.parent / "pmmp-core"
+TOOL_MEMORY = "1G"
+TOOL_CPUS = "1"
+CHECKOUTS_DIR = STACK_DIR.parent.parent.parent
+CORE_DIR_NAMES = ("PocketMine-MP", "pmmp-core")
 
 RUNTIMES = ("wslc", "docker")
 DEFAULT_TIMEOUT = 30
@@ -222,19 +225,30 @@ def down(runtime: str, *, timeout: float = STOP_TIMEOUT, poll: float = 0.5) -> N
     _exec(_compose_argv("down") if runtime == "docker" else ["wslc", "remove", CONTAINER_NAME])
 
 
+def default_core_dir(checkouts: Path | None = None) -> Path:
+    """The sibling core checkout: the first of ``CORE_DIR_NAMES`` that exists
+    under ``checkouts``, else the last, so a missing checkout is reported under
+    the legacy name."""
+    checkouts = checkouts or CHECKOUTS_DIR
+    for name in CORE_DIR_NAMES:
+        if (checkouts / name).exists():
+            return checkouts / name
+    return checkouts / CORE_DIR_NAMES[-1]
+
+
 def build_image(runtime: str, core_dir: Path | None = None) -> None:
-    core_dir = core_dir or DEFAULT_CORE_DIR
+    core_dir = core_dir or default_core_dir()
     git_hash = _exec(["git", "-C", str(core_dir), "rev-parse", "HEAD"]).stdout.strip()
     argv = [_binary(runtime), "build", "-f", str(core_dir / "docker" / "Dockerfile"), "-t", IMAGE, "--build-arg", f"GIT_HASH={git_hash}", str(core_dir)]
     _exec(argv, timeout=BUILD_TIMEOUT)
 
 
 def build_devtools(runtime: str, core_dir: Path | None = None, plugins_dir: Path | None = None) -> None:
-    core_dir = core_dir or DEFAULT_CORE_DIR
+    core_dir = core_dir or default_core_dir()
     plugins_dir = plugins_dir or (STACK_DIR / "plugins")
     devtools_src = core_dir / "tests" / "plugins" / "DevTools"
     argv = [
-        _binary(runtime), "run", "--rm", "-v", f"{devtools_src}:/src:ro", "-v", f"{plugins_dir}:/out", IMAGE,
+        _binary(runtime), "run", "--rm", "--memory", TOOL_MEMORY, "--cpus", TOOL_CPUS, "-v", f"{devtools_src}:/src:ro", "-v", f"{plugins_dir}:/out", IMAGE,
         "php", "-dphar.readonly=0", "/src/src/ConsoleScript.php", "--make", "src,plugin.yml,resources,stub.php",
         "--relative", "/src", "--stub", "stub.php", "--out", "/out/DevTools.phar",
     ]

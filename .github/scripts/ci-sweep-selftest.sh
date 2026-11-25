@@ -34,7 +34,7 @@ check() {
 # The reap below takes a volume older than reap_after seconds to be left by a
 # run that has ended, which holds only while every job in this workflow times
 # out sooner. A job with no timeout-minutes runs for 6 hours.
-reap_after=1200
+reap_after=7200
 # shellcheck source=job-timeouts.sh
 . "$dir/job-timeouts.sh"
 if verdict="$(job_timeouts_under "${dir%/scripts}/workflows/ci.yml" "$reap_after")"; then
@@ -43,11 +43,24 @@ else
   check fail "$verdict; every job needs a job-level timeout-minutes under the reap's cutoff"
   exit 1
 fi
+# The longest job-level timeout in the workflow bounds how long this run can
+# last, so a container living that long outlives any sweep below and, after a
+# cancel, is gone before the reap's cutoff.
+worst="${verdict#*within }"
+worst="${worst%% minutes*}"
+if ! [[ "$worst" =~ ^[0-9]+$ ]]; then
+  check fail "no job timeout to read in '$verdict'"
+  exit 1
+fi
+life=$((10#$worst * 60))
 
 net="riftal_smoke_sweep_net_${GITHUB_RUN_ID}_$$"
 holder="riftal_smoke_sweep_holder_${GITHUB_RUN_ID}_$$"
+late="riftal_smoke_sweep_late_${GITHUB_RUN_ID}_$$"
 own_vol="riftal_smoke_sweep_own_vol_${GITHUB_RUN_ID}_$$"
 other_vol="riftal_smoke_sweep_other_vol_${GITHUB_RUN_ID}_$$"
+own_img="riftal_smoke_sweep_own_img_${GITHUB_RUN_ID}_$$"
+other_img="riftal_smoke_sweep_other_img_${GITHUB_RUN_ID}_$$"
 reap_prefix="riftal_smoke_sweep_reaptest_${GITHUB_RUN_ID}_$$_"
 reap_young="${reap_prefix}young"
 reap_old="${reap_prefix}old"
@@ -56,10 +69,11 @@ reap_miss="riftal_smoke_sweep_reapmiss_${GITHUB_RUN_ID}_$$"
 sandbox=
 cleanup() {
   [ -z "$sandbox" ] || rm -rf "$sandbox"
-  docker rm -v -f "$own" "$other" "$holder" >/dev/null 2>&1 || true
+  docker rm -v -f "$own" "$other" "$holder" "$late" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
   docker volume rm "$own_vol" "$other_vol" "$reap_young" "$reap_old" "$reap_miss" \
     "$reap_label" >/dev/null 2>&1 || true
+  docker image rm "$own_img" "$other_img" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -129,20 +143,25 @@ else
   check ok 'sweep fails when the daemon is unreachable'
 fi
 
-# 60 seconds outlasts the first sweep below, which "$other" must survive.
-start 60 --name "$own" || exit 1
+# A sweep on a loaded engine can take minutes, and "$own" must still be there to
+# be listed when it runs.
+start "$life" --name "$own" || exit 1
 got="$(docker inspect -f '{{index .Config.Labels "riftal.ci.job"}}' "$own")"
 check "$([ "$got" = "$want" ] && echo ok)" "shim labels a run with riftal.ci.job=$want (got '$got')"
 
 # The shim passes through unlabelled without GITHUB_RUN_ID, so the only label
 # this container carries is the other job's.
-GITHUB_RUN_ID='' start 60 --name "$other" --label riftal.ci.job=selftest-other-job || exit 1
+GITHUB_RUN_ID='' start "$life" --name "$other" --label riftal.ci.job=selftest-other-job || exit 1
 
 docker volume create "$own_vol" >/dev/null || exit 1
 got="$(docker volume inspect -f '{{index .Labels "riftal.ci.job"}}' "$own_vol")"
 check "$([ "$got" = "$want" ] && echo ok)" "shim labels a volume create with riftal.ci.job=$want (got '$got')"
 GITHUB_RUN_ID='' docker volume create --label riftal.ci.job=selftest-other-job "$other_vol" \
   >/dev/null || exit 1
+
+# The shim does not stamp docker build, so the label is passed as the harness does.
+printf 'FROM php:8.3-cli-alpine\n' | docker build -q --label "riftal.ci.job=$want" -t "$own_img" - >/dev/null || exit 1
+printf 'FROM php:8.3-cli-alpine\n' | docker build -q --label riftal.ci.job=selftest-other-job -t "$other_img" - >/dev/null || exit 1
 
 out="$(bash "$sweep")"
 rc=$?
@@ -154,12 +173,17 @@ gone="$(docker ps -aq --filter "name=^/${own}\$")"
 check "$([ -z "$gone" ] && echo ok)" "sweep removed this job's container"
 running="$(docker inspect -f '{{.State.Running}}' "$other" 2>/dev/null)"
 check "$([ "$running" = true ] && echo ok)" "another job's container is still running (got '$running')"
+docker stop -t 10 "$other" >/dev/null 2>&1
 listed="$(printf '%s\n' "$out" | sed -n '/^volumes left by this job:$/,$p' | grep -cx "$own_vol")"
 check "$([ "$listed" -eq 1 ] && echo ok)" "sweep names $own_vol under 'volumes left by this job:'"
 gone="$(docker volume ls -q --filter "name=^${own_vol}\$")"
 check "$([ -z "$gone" ] && echo ok)" "sweep removed this job's volume"
 kept="$(docker volume ls -q --filter "name=^${other_vol}\$")"
 check "$([ "$kept" = "$other_vol" ] && echo ok)" "another job's volume survives the sweep (got '$kept')"
+gone="$(docker images -q "$own_img")"
+check "$([ -z "$gone" ] && echo ok)" "sweep removed this job's image"
+kept="$(docker images -q "$other_img")"
+check "$([ -n "$kept" ] && echo ok)" "another job's image survives the sweep"
 
 # A container outside this job's label holds this job's network for its first
 # seconds, so the sweep's first removal of it is refused, the way a --rm
@@ -175,13 +199,55 @@ GITHUB_RUN_ID='' start 20 --name "$holder" --network "$net" \
   --label riftal.ci.job=selftest-other-job || exit 1
 (sleep 5; docker stop -t 10 "$holder" >/dev/null 2>&1) &
 releaser=$!
+# The daemon creating a container for a stopped client after the sweep's first
+# listing: it is not in that listing, and the held network keeps the sweep in
+# its wait loop long enough to see it later.
+(sleep 2; docker create --rm -m 1g --cpus 1 --name "$late" php:8.3-cli-alpine true >/dev/null 2>&1) &
+creator=$!
 out="$(bash "$sweep")"
 rc=$?
-wait "$releaser"
+wait "$releaser" "$creator"
 printf '%s\n' "$out" | sed 's/^/  sweep | /'
 check "$([ "$rc" -eq 0 ] && echo ok)" "sweep exits 0 once a held network is released (got $rc)"
 held="$(docker network ls -q --filter "name=^${net}\$")"
 check "$([ -z "$held" ] && echo ok)" "sweep removed this job's network after its first removal was refused"
+gone="$(docker ps -aq --filter "name=^/${late}\$")"
+check "$([ -z "$gone" ] && echo ok)" "sweep removed a container created after its first listing"
+
+# A docker client left running by a cancelled step is stood in for by a script
+# named docker, which is all the sweep reads of a process: its name and the job
+# it was started in. The sweep must stop this job's and leave alone the ones
+# started under another run id, another attempt of this run, and another job
+# of this run.
+stray_dir="$(mktemp -d)" || exit 1
+printf '#!/bin/sh\nwhile :; do sleep 1; done\n' >"$stray_dir/docker"
+chmod 0755 "$stray_dir/docker"
+"$stray_dir/docker" &
+stray_own=$!
+GITHUB_RUN_ID="${GITHUB_RUN_ID}0" "$stray_dir/docker" &
+stray_other=$!
+GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT}0" "$stray_dir/docker" &
+stray_attempt=$!
+GITHUB_JOB="${GITHUB_JOB:-job}0" "$stray_dir/docker" &
+stray_job=$!
+out="$(bash "$sweep")"
+rc=$?
+printf '%s\n' "$out" | sed 's/^/  sweep | /'
+state_of() { ps -o stat= -p "$1" 2>/dev/null | cut -c1 | tr -d ' '; }
+own_state="$(state_of "$stray_own")"
+other_state="$(state_of "$stray_other")"
+attempt_state="$(state_of "$stray_attempt")"
+job_state="$(state_of "$stray_job")"
+kill "$stray_other" "$stray_attempt" "$stray_job" "$stray_own" 2>/dev/null
+wait "$stray_own" "$stray_other" "$stray_attempt" "$stray_job" 2>/dev/null
+rm -rf "$stray_dir"
+check "$([ "$rc" -eq 0 ] && echo ok)" "sweep exits 0 with a stray docker client to stop (got $rc)"
+check "$([ -z "$own_state" ] || [ "$own_state" = Z ] && echo ok)" "sweep stopped this job's stray docker client (state '$own_state')"
+check "$([ -n "$other_state" ] && [ "$other_state" != Z ] && echo ok)" "sweep left another job's docker client running (state '$other_state')"
+check "$([ -n "$attempt_state" ] && [ "$attempt_state" != Z ] && echo ok)" "sweep left another attempt's docker client running (state '$attempt_state')"
+check "$([ -n "$job_state" ] && [ "$job_state" != Z ] && echo ok)" "sweep left another job's docker client of this run running (state '$job_state')"
+stopped="$(printf '%s\n' "$out" | grep -c '^stopped a docker client left running by an earlier step: pid ')"
+check "$([ "$stopped" -eq 1 ] && echo ok)" "sweep reports stopping exactly one stray client (got $stopped)"
 
 # A label script that wraps its own shim leaves that shim exec'ing itself
 # forever. Run against this job's own shim, it would hang this script's EXIT

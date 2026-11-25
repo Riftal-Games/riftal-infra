@@ -308,8 +308,10 @@ fi
 
 apply_grants
 
-# The role for ../deploy/backup.sh lives here rather than in grants.sql,
-# because it follows the whole schema and not one plugin's tables. Without
+# The role for ../deploy/backup.sh is created and given its dump privileges
+# here, because those follow the whole schema and not one plugin's tables;
+# grants.sql adds only its EXECUTE on the two capture fence procedures, and
+# creates the role first if it runs first (ADR 027 item 7). Without
 # SHOW_ROUTINE or TRIGGER, mysqldump still exits 0 but leaves every
 # procedure or trigger out of the dump. TRIGGER also lets this login drop any
 # existing trigger in the schema, whatever the binlog setting. The binlog that

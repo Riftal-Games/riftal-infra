@@ -68,6 +68,7 @@ def test_facing_state_stairs_direction(direction: str, weirdo: int) -> None:
     result = facing_state("minecraft:stone_brick_stairs", direction)
     assert f"weirdo_direction={weirdo}" in result
     assert "upside_down_bit=false" in result
+    assert "minecraft:corner=none" in result
 
 
 def test_facing_state_stairs_upside_down() -> None:
@@ -80,10 +81,10 @@ def test_facing_state_stairs_requires_a_known_direction() -> None:
         facing_state("minecraft:stone_brick_stairs", "up")
 
 
-@pytest.mark.parametrize("half, bit", [("top", "true"), ("bottom", "false")])
-def test_facing_state_slab_half(half: str, bit: str) -> None:
+@pytest.mark.parametrize("half", ["top", "bottom"])
+def test_facing_state_slab_half(half: str) -> None:
     result = facing_state("minecraft:stone_brick_slab", half=half)
-    assert f"top_slot_bit={bit}" in result
+    assert f"minecraft:vertical_half={half}" in result and "top_slot_bit" not in result
 
 
 def test_facing_state_slab_requires_half() -> None:

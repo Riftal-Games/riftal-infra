@@ -101,20 +101,9 @@ CREATE TABLE economy_balance_snapshot (
 SQL
 # riftal-game's migration 0027 seeds capture_fence's one row, so a migrated
 # schema is never all empty. riftal-game is a separate private repo this CI
-# does not check out, so its table and seed are copied here as 0027 writes them.
-docker exec -i "$C" bash -c 'cat > /tmp/migrations/0002_capture_fence.sql' <<'SQL'
-CREATE TABLE capture_fence (
-  id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
-  request_id VARCHAR(64) CHARACTER SET ascii NULL,
-  raised_until DATETIME(3) NULL,
-  CONSTRAINT capture_fence_one_row_chk CHECK (id = 1),
-  CONSTRAINT capture_fence_pair_chk CHECK (
-    (request_id IS NULL AND raised_until IS NULL)
-    OR (request_id IS NOT NULL AND raised_until IS NOT NULL)
-  )
-);
-INSERT INTO capture_fence (id) VALUES (1);
-SQL
+# does not check out, so deploy/fence-fixture.sql carries a copy of the table,
+# the seed and the control procedures backup.sh calls.
+docker exec "$C" cp /deploy/fence-fixture.sql /tmp/migrations/0002_capture_fence.sql
 
 migrate() {
   env_run -e MYSQL_DATABASE="$DB" -e MIGRATIONS_DIR=/tmp/migrations \

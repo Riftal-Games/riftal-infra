@@ -101,8 +101,8 @@ def test_load_accepts_every_default_a_check_reads(tmp_path: Path) -> None:
 
 # Written out by hand, not derived from KINDS, so dropping a key from any kind's list refuses its entry here.
 @pytest.mark.parametrize("kind, args", [
-    ("path_exists", {"from": "a", "to": "b", "margin": 2, "max_drop": 2}),
-    ("travel_time", {"from": "a", "to": "b", "margin": 2, "speed": 3, "max_seconds": 5, "max_drop": 2}),
+    ("path_exists", {"from": "a", "to": "b", "margin": 2, "max_drop": 2, "world": "design"}),
+    ("travel_time", {"from": "a", "to": "b", "margin": 2, "speed": 3, "max_seconds": 5, "max_drop": 2, "world": "design"}),
     ("warp_safe", {"at": "a"}),
     ("entity_clear", {"at": "a"}),
     ("region_inside", {"inner": "r", "outer": "s"}),
@@ -130,6 +130,14 @@ def test_region_inside_reads_the_world_of_its_inner_region(tmp_path: Path) -> No
     index = _index(tmp_path)
     assert check_world(index, CheckSpec("i", "region_inside", {"inner": "box", "outer": "box"})) == "mine_a"
     assert check_world(index, CheckSpec("i", "region_inside", {"inner": "nope", "outer": "box"})) is None
+
+
+def test_world_places_a_coordinate_end_and_refuses_a_name_in_another_world(tmp_path: Path) -> None:
+    index = _index(tmp_path)
+    placed = CheckSpec("p", "path_exists", {"from": "c", "to": "5,64,5", "margin": 4, "world": "mine_a"})
+    assert check_world(index, placed) == "mine_a"
+    assert check_world(index, CheckSpec("p", "path_exists", {"from": "a", "to": "5,64,5", "margin": 4, "world": "mine_a"})) is None
+    assert check_world(index, CheckSpec("p", "path_exists", {"from": "c", "to": "5,64,5", "margin": 4})) is None
 
 
 def test_run_fetches_once_and_reports_both_outcomes(fake: FakeBridge, bridge: Bridge, tmp_path: Path) -> None:

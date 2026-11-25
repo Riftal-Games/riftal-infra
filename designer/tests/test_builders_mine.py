@@ -10,7 +10,7 @@ from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT
 from designer.edits import EditList, Fill
 from designer.region import Region
-from designer.verify import mine_valid, travel_time
+from designer.verify import entity_clear, mine_valid, travel_time
 
 SPEC_PATH = PROJECT_ROOT / "specs" / "mine_a.json"
 
@@ -90,6 +90,22 @@ def test_a_mine_buried_in_stone_keeps_its_exit_lane_walkable(name: str, side: st
     assert found.ok, found.detail
     walk = travel_time(region, _location(edits, f"{name}_spawn"), _location(edits, f"{name}_exit"))
     assert walk.ok, walk.detail
+
+
+@pytest.mark.parametrize("side", ["south", "north", "west", "east"])
+@pytest.mark.parametrize("width", [3, 4, 5])
+def test_the_sell_and_rankup_npcs_stand_in_open_cells_on_terrain(side: str, width: int, palette: Palette) -> None:
+    data = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    data["entrance"]["side"], data["exit_path"]["width"] = side, width
+    buried = MineSpec.from_dict(data)
+    geo = buried.geometry()
+    box = geo.padding.union(geo.exit_platform).expand(2, "y")
+    stone = EditList(buried.world, [Fill(box, "minecraft:stone")]).to_region(Region.empty(buried.world, box))
+    edits = build_mine(buried, palette)
+    region = edits.to_region(stone)
+    for name in ("sell_npc_a", "rankup_npc_a"):
+        found = entity_clear(region, _location(edits, name))
+        assert found.ok, f"{name}: {found.detail} {found.coords}"
 
 
 def test_travel_time_from_spawn_to_exit_is_under_ten_seconds(spec: MineSpec, palette: Palette) -> None:
@@ -282,7 +298,7 @@ def test_a_spec_without_safe_zone_builds_a_safe_mine(palette: Palette) -> None:
     assert _outer_tags(MineSpec.from_dict(data), palette) == ["mine", "safe_zone"]
 
 
-@pytest.mark.parametrize("name", ["mine_a", "mine_b", "mine_c", "lumber"])
+@pytest.mark.parametrize("name", ["mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm"])
 def test_committed_specs_build_safe_mines(name: str, palette: Palette) -> None:
     spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / f"{name}.json").read_text(encoding="utf-8")))
     assert _outer_tags(spec, palette) == ["mine", "safe_zone"]
