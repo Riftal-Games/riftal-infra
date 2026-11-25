@@ -39,7 +39,7 @@ expect_scan_ok() {
   local kind="$1" file="$2" out status
   out="$(bash "$SCAN" "$kind" "$file" 2>&1)"
   status=$?
-  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF "checking $file"; then
+  if [ "$status" -eq 0 ] && grep -qF "checking $file" <<<"$out"; then
     pass "$(rel "$file") checks clean through scan.sh $kind"
   else
     fail "expected $(rel "$file") to check clean through scan.sh $kind, exit $status"
@@ -53,7 +53,7 @@ expect_scan_bad() {
   local kind="$1" file="$2" needle="$3" out status
   out="$(bash "$SCAN" "$kind" "$file" 2>&1)"
   status=$?
-  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qi "$needle"; then
+  if [ "$status" -ne 0 ] && grep -qi "$needle" <<<"$out"; then
     pass "$(rel "$file") rejected through scan.sh $kind, naming $needle"
   else
     fail "expected $(rel "$file") to be rejected through scan.sh $kind naming $needle, exit $status"
@@ -79,8 +79,8 @@ expect_real_scan() {
   status=$?
   rm -rf "$PLANTED_DIR"
   if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -qF "checking ./.ci-realscan-planted/$name" \
-    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    && grep -qF "checking ./.ci-realscan-planted/$name" <<<"$out" \
+    && ! grep -q 'ci-fixtures' <<<"$out"; then
     pass "the real $kind invocation finds a planted file and excludes ci-fixtures"
   else
     fail "expected the real $kind invocation (no root, no prune argument) to find the planted file and exclude ci-fixtures, exit $status"
@@ -93,7 +93,7 @@ expect_real_scan() {
 expect_listed() {
   local out
   out="$(bash "$LIST" "$1")"
-  if printf '%s\n' "$out" | grep -q "/$2\$"; then
+  if grep -q "/$2\$" <<<"$out"; then
     pass "discovery lists $2"
   else
     fail "expected $2 in the compose list of $(rel "$1")"
@@ -104,7 +104,7 @@ expect_listed() {
 expect_not_listed() {
   local out
   out="$(bash "$LIST" "$1")"
-  if printf '%s\n' "$out" | grep -q "/$2\$"; then
+  if grep -q "/$2\$" <<<"$out"; then
     fail "$2 is not compose and must not be handed to docker compose"
     printf '%s\n' "$out"
   else
@@ -124,8 +124,8 @@ expect_dockerfile_skipped() {
   status=$?
   rm -rf "$dir"
   if [ "$status" -eq 0 ] \
-    && printf '%s' "$out" | grep -qF 'found 0 ' \
-    && ! printf '%s' "$out" | grep -qF "checking"; then
+    && grep -qF 'found 0 ' <<<"$out" \
+    && ! grep -qF "checking" <<<"$out"; then
     pass "Dockerfile discovery skips $1"
   else
     fail "$1 is not a Dockerfile or Containerfile name and must not be handed to hadolint, exit $status"
@@ -145,8 +145,8 @@ expect_dockerfile_found() {
   status=$?
   rm -rf "$dir"
   if [ "$status" -eq 0 ] \
-    && printf '%s' "$out" | grep -qF 'found 1 ' \
-    && printf '%s' "$out" | grep -qF "checking $dir/$1"; then
+    && grep -qF 'found 1 ' <<<"$out" \
+    && grep -qF "checking $dir/$1" <<<"$out"; then
     pass "Dockerfile discovery finds $1"
   else
     fail "$1 is a Dockerfile or Containerfile name and must be handed to hadolint, exit $status"
@@ -201,7 +201,7 @@ expect_dockerfiles_sorted() {
     pass "a bare sort with $(rel "$FAKE_SORT") under $COLLATING_LOCALE orders the fixture names differently from C"
   fi
   rm -f "$sort_err"
-  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'found 9 ' && [ "$got" = "$want" ]; then
+  if [ "$status" -eq 0 ] && grep -qF 'found 9 ' <<<"$out" && [ "$got" = "$want" ]; then
     pass "Dockerfile discovery checks files in LC_ALL=C order"
   else
     fail "expected Dockerfile discovery to check its 9 files in LC_ALL=C order, exit $status"
@@ -248,8 +248,8 @@ expect_php_lint_rejected() {
   out="$(run_php_lint_batch "$dir" 2>&1)"
   status=$?
   if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -q "Errors parsing /plugins/$broken" \
-    && printf '%s' "$out" | grep -q "No syntax errors detected in /plugins/$survivor"; then
+    && grep -q "Errors parsing /plugins/$broken" <<<"$out" \
+    && grep -q "No syntax errors detected in /plugins/$survivor" <<<"$out"; then
     pass "$(rel "$dir") rejected at $broken, $survivor still checked"
   else
     fail "expected $(rel "$dir") to fail naming $broken with $survivor still checked, exit $status"
@@ -281,7 +281,7 @@ expect_cleanup() {
   status=$?
   if [ -z "$needle" ] && [ "$status" -eq 0 ]; then
     pass "$(rel "$file") passes container-cleanup.sh"
-  elif [ -n "$needle" ] && [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qF "$file:$needle"; then
+  elif [ -n "$needle" ] && [ "$status" -ne 0 ] && grep -qF "$file:$needle" <<<"$out"; then
     pass "$(rel "$file") rejected by container-cleanup.sh at $needle"
   else
     fail "expected container-cleanup.sh on $(rel "$file") to give '${needle:-a pass}', exit $status"
@@ -297,10 +297,10 @@ expect_cleanup_carry() {
   out="$(bash "$CLEANUP" "$dir" 2>&1)"
   status=$?
   if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -qF "$dir/a.sh:1: a container started without --rm" \
-    && printf '%s' "$out" | grep -qF "$dir/b.sh:1: a container started without --rm" \
-    && printf '%s' "$out" | grep -qF "$dir/a.sh:2: a container-cleanup opt-out with no container" \
-    && printf '%s' "$out" | grep -qF "$dir/b.sh:2: a container-cleanup opt-out with no container"; then
+    && grep -qF "$dir/a.sh:1: a container started without --rm" <<<"$out" \
+    && grep -qF "$dir/b.sh:1: a container started without --rm" <<<"$out" \
+    && grep -qF "$dir/a.sh:2: a container-cleanup opt-out with no container" <<<"$out" \
+    && grep -qF "$dir/b.sh:2: a container-cleanup opt-out with no container" <<<"$out"; then
     pass "$(rel "$dir") keeps no opt-out across a file boundary"
   else
     fail "expected container-cleanup.sh on $(rel "$dir") to name both files' run and opt-out, exit $status"
@@ -315,8 +315,8 @@ expect_cleanup_eof_continued() {
   out="$(bash "$CLEANUP" "$dir" 2>&1)"
   status=$?
   if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -qF "$dir/a.sh:4: a container started without --rm" \
-    && printf '%s' "$out" | grep -qF "$dir/b.sh:4: a container started without --rm"; then
+    && grep -qF "$dir/a.sh:4: a container started without --rm" <<<"$out" \
+    && grep -qF "$dir/b.sh:4: a container started without --rm" <<<"$out"; then
     pass "$(rel "$dir") checks a run still continued when its file ends"
   else
     fail "expected container-cleanup.sh on $(rel "$dir") to name the continued run in both files, exit $status"
@@ -332,8 +332,8 @@ expect_real_cleanup() {
   status=$?
   rm -rf "$PLANTED_DIR"
   if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -qF './.ci-realscan-planted/cleanup-rm.sh:5:' \
-    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    && grep -qF './.ci-realscan-planted/cleanup-rm.sh:5:' <<<"$out" \
+    && ! grep -q 'ci-fixtures' <<<"$out"; then
     pass "the real container-cleanup.sh invocation finds a planted file and excludes ci-fixtures"
   else
     fail "expected the real container-cleanup.sh invocation to flag the planted file and skip ci-fixtures, exit $status"
@@ -367,7 +367,7 @@ expect_install_hadolint() {
       HADOLINT_URL="file://$stub" HADOLINT_SHA256="$1" \
       bash "$INSTALL_HADOLINT" 2>&1
   }
-  checked_dir() { printf '%s\n' "$1" | sed -n 's#^\(.*\)/hadolint: \(OK\|FAILED\)$#\1#p' | head -n 1; }
+  checked_dir() { sed -n 's#^\(.*\)/hadolint: \(OK\|FAILED\)$#\1#;T;p;q' <<<"$1"; }
 
   out_a="$(run_install "$good_sha" ab)"
   out_b="$(run_install "$good_sha" ab)"
@@ -427,13 +427,13 @@ expect_install_hadolint() {
     fail "expected no hadolint download directory left behind: $(find "$scratch/ab" "$scratch/c" -maxdepth 1 -name 'hadolint.*')"
   fi
 
-  if [ "$status_d" -ne 0 ] && printf '%s' "$out_d" | grep -qF RUNNER_TEMP && [ ! -e "$scratch/d.env" ]; then
+  if [ "$status_d" -ne 0 ] && grep -qF RUNNER_TEMP <<<"$out_d" && [ ! -e "$scratch/d.env" ]; then
     pass "with no RUNNER_TEMP, the install refuses instead of picking a shared path"
   else
     fail "expected the install to refuse with no RUNNER_TEMP, exit $status_d"
     printf '%s\n' "$out_d"
   fi
-  if [ "$status_e" -ne 0 ] && printf '%s' "$out_e" | grep -qF GITHUB_ENV && [ ! -e "$scratch/d/bin" ]; then
+  if [ "$status_e" -ne 0 ] && grep -qF GITHUB_ENV <<<"$out_e" && [ ! -e "$scratch/d/bin" ]; then
     pass "with no GITHUB_ENV, the install refuses before installing a binary no scan would find"
   else
     fail "expected the install to refuse with no GITHUB_ENV before installing, exit $status_e"
@@ -453,8 +453,8 @@ expect_scan_needs_hadolint() {
   out="$(env -u HADOLINT PATH="$shim:$PATH" bash "$SCAN" dockerfiles "$FIXTURES/bad/Dockerfile" 2>&1)"
   status=$?
   rm -rf "$shim"
-  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qF HADOLINT \
-    && ! printf '%s' "$out" | grep -qF 'PATH hadolint ran'; then
+  if [ "$status" -ne 0 ] && grep -qF HADOLINT <<<"$out" \
+    && ! grep -qF 'PATH hadolint ran' <<<"$out"; then
     pass "scan.sh dockerfiles with no HADOLINT refuses rather than run hadolint from PATH"
   else
     fail "expected scan.sh dockerfiles with no HADOLINT to refuse without a PATH lookup, exit $status"
@@ -476,8 +476,8 @@ expect_scan_runs_hadolint() {
     bash "$SCAN" dockerfiles "$FIXTURES/good/Dockerfile" 2>&1)"
   status=$?
   rm -rf "$scratch"
-  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'HADOLINT binary ran' \
-    && ! printf '%s' "$out" | grep -qF 'PATH hadolint ran'; then
+  if [ "$status" -eq 0 ] && grep -qF 'HADOLINT binary ran' <<<"$out" \
+    && ! grep -qF 'PATH hadolint ran' <<<"$out"; then
     pass "scan.sh dockerfiles lints with the HADOLINT binary, not a hadolint on PATH"
   else
     fail "expected scan.sh dockerfiles to run HADOLINT and never the hadolint on PATH, exit $status"
@@ -630,7 +630,7 @@ expect_ports_bad() {
   status=$?
   if [ "$status" -ne 0 ] \
     && [ "$(printf '%s\n' "$out" | grep -c ": $code: ")" = "$count" ] \
-    && printf '%s\n' "$out" | grep -qxF "$count finding(s) in $file"; then
+    && grep -qxF "$count finding(s) in $file" <<<"$out"; then
     pass "$(rel "$file") rejected through scan.sh ports with $count $code and nothing else"
   else
     fail "expected scan.sh ports to reject $(rel "$file") with exactly $count $code, exit $status"
@@ -649,8 +649,8 @@ expect_real_ports_clean() {
   status=$?
   rm -rf "$PLANTED_DIR"
   if [ "$status" -eq 0 ] \
-    && printf '%s' "$out" | grep -qF 'checking ./.ci-realscan-planted/ports.compose.yaml' \
-    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    && grep -qF 'checking ./.ci-realscan-planted/ports.compose.yaml' <<<"$out" \
+    && ! grep -q 'ci-fixtures' <<<"$out"; then
     pass "the real ports invocation finds a planted file, excludes ci-fixtures and passes the real tree"
   else
     fail "expected the real ports invocation to pass, find the planted file and exclude ci-fixtures, exit $status"
@@ -839,7 +839,7 @@ expect_alpha_scope() {
   sed -i 's/--xbox-auth=true/--xbox-auth=false/' "$tree/instances/mines/instance.env"
   out="$(bash "$SCAN" ports "$tree/deploy/other/compose.yaml" 2>&1)"
   status=$?
-  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qF 'required variable'; then
+  if [ "$status" -ne 0 ] && grep -qF 'required variable' <<<"$out"; then
     pass "a compose outside deploy/alpha/ gets no secret placeholder"
   else
     fail "expected a compose outside deploy/alpha/ to fail on its missing secret, exit $status"
@@ -849,8 +849,8 @@ expect_alpha_scope() {
     bash "$SCAN" ports "$tree/deploy/other/compose.yaml" 2>&1)"
   status=$?
   rm -rf "$tree"
-  if [ "$status" -eq 0 ] && ! printf '%s' "$out" | grep -qF ALPHA_ \
-    && printf '%s' "$out" | grep -qxF "0 finding(s) in $tree/deploy/other/compose.yaml"; then
+  if [ "$status" -eq 0 ] && ! grep -qF ALPHA_ <<<"$out" \
+    && grep -qxF "0 finding(s) in $tree/deploy/other/compose.yaml" <<<"$out"; then
     pass "a compose outside deploy/alpha/ is not judged by the alpha rules"
   else
     fail "expected a compose outside deploy/alpha/ to pass the port policy unjudged, exit $status"
@@ -870,9 +870,9 @@ expect_real_alpha() {
   status=$?
   rm -rf "$PLANTED_DIR"
   if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -qF 'checking ./.ci-realscan-planted/deploy/alpha/compose.yaml' \
-    && printf '%s' "$out" | grep -qF ': ALPHA_PUBLISH_XBOX_AUTH: ' \
-    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    && grep -qF 'checking ./.ci-realscan-planted/deploy/alpha/compose.yaml' <<<"$out" \
+    && grep -qF ': ALPHA_PUBLISH_XBOX_AUTH: ' <<<"$out" \
+    && ! grep -q 'ci-fixtures' <<<"$out"; then
     pass "the real ports invocation judges a planted deploy/alpha/ compose"
   else
     fail "expected the real ports invocation to reject a planted deploy/alpha/ compose, exit $status"
@@ -900,8 +900,8 @@ expect_real_alpha_file() {
   status=$?
   rm -rf "$PLANTED_DIR"
   if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -qF "checking ./.ci-realscan-planted/deploy/alpha/$name" \
-    && printf '%s' "$out" | grep -qF "$needle"; then
+    && grep -qF "checking ./.ci-realscan-planted/deploy/alpha/$name" <<<"$out" \
+    && grep -qF "$needle" <<<"$out"; then
     pass "the real ports invocation checks a planted deploy/alpha/$name and fails with '$needle'"
   else
     fail "expected the real ports invocation to check a planted deploy/alpha/$name and fail with '$needle', exit $status"
@@ -1033,8 +1033,8 @@ expect_pins_clean() {
   local file="$1" count="$2" out status
   out="$(bash "$PINS" "$file" 2>&1)"
   status=$?
-  if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -qF 'found 1 ' \
-    && printf '%s' "$out" | grep -qxF "checked $count uses: line(s)"; then
+  if [ "$status" -eq 0 ] && grep -qF 'found 1 ' <<<"$out" \
+    && grep -qxF "checked $count uses: line(s)" <<<"$out"; then
     pass "$(rel "$file") passes action-pins.sh with $count uses: lines checked"
   else
     fail "expected $(rel "$file") to pass action-pins.sh with $count uses: lines checked, exit $status"
@@ -1047,7 +1047,7 @@ expect_pins_bad() {
   local file="$1" line="$2" out status
   out="$(bash "$PINS" "$file" 2>&1)"
   status=$?
-  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qF "$file:$line: " \
+  if [ "$status" -ne 0 ] && grep -qF "$file:$line: " <<<"$out" \
     && [ "$(printf '%s\n' "$out" | grep -c ': an action not pinned')" = 1 ]; then
     pass "$(rel "$file") rejected by action-pins.sh at line $line only"
   else
@@ -1064,8 +1064,8 @@ expect_real_pins() {
   status=$?
   rm -rf "$PLANTED_DIR"
   if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -qF './.ci-realscan-planted/.github/workflows/tag.yml:8: ' \
-    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    && grep -qF './.ci-realscan-planted/.github/workflows/tag.yml:8: ' <<<"$out" \
+    && ! grep -q 'ci-fixtures' <<<"$out"; then
     pass "the real action-pins.sh invocation finds a planted workflow and excludes ci-fixtures"
   else
     fail "expected the real action-pins.sh invocation to flag the planted workflow and skip ci-fixtures, exit $status"
