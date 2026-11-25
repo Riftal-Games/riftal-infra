@@ -67,6 +67,8 @@ Do not skip any of these. Each one catches a different failure.
 
 - [ ] The instance boots clean and every plugin enables.
 - [ ] It is running the same image tag as every other instance. Check, do not assume.
+  Its `instances/<instance_id>/image` names that tag, the same as every other
+  `instances/<id>/image`, stopped instances included.
 - [ ] Restart the container and confirm the world survived. This proves the world is on a volume and not in the container layer.
 - [ ] A player joins through the proxy and lands in the moved world.
 - [ ] The XUID arrived: the player's identity on the new instance matches their identity elsewhere. If ranks or balances look wrong or empty, the xuid or auth config is wrong.
