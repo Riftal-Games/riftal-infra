@@ -20,13 +20,20 @@ interface and leaves no ports list for the rule above to read.
 With --alpha, for a compose file under deploy/alpha/, one service authenticates
 its own players, so LOOPBACK_BIND_REQUIRED's reason does not hold for it and the
 policy states the invariant that does. A publishing service is refused unless
-its POCKETMINE_ARGS, as the model resolves it from env_file, carries
---xbox-auth=true and --auto-report.enabled=0 and no other value of either:
-ALPHA_PUBLISH_XBOX_AUTH and ALPHA_PUBLISH_CRASH_UPLOAD. The crash upload flag
-is 0 because core casts the string false to true. ALPHA_PUBLISH_DEV_BOTS is
---riftal-dev-bots in that value or in its command, and ALPHA_PUBLISH_DEV_ENV is
-RIFTAL_DEV_ENV anywhere in its environment. ALPHA_MULTIPLE_PUBLISHERS is a file
-with more than one publishing service. The loopback default holds there too.
+its POCKETMINE_ARGS, as the model resolves it from env_file, carries each of
+--xbox-auth=true (ALPHA_PUBLISH_XBOX_AUTH), --auto-report.enabled=0
+(ALPHA_PUBLISH_CRASH_UPLOAD), --enable-ipv6=0 (ALPHA_PUBLISH_IPV6) and
+--transport.name=raknet (ALPHA_PUBLISH_TRANSPORT) exactly once and no other
+value of it. Core reads a repeated option as an array, which getPropertyBool
+casts to true and getConfigBool reads as false, so a flag given twice is
+refused even when both tokens agree. The crash upload flag is 0 because core
+casts the string false to true. ALPHA_PUBLISH_VERIFY_XUID is any
+--player.verify-xuid token, which stays at core's default.
+ALPHA_PUBLISH_DEV_BOTS is --riftal-dev-bots in that value or in its command,
+and ALPHA_PUBLISH_DEV_ENV is RIFTAL_DEV_ENV anywhere in its environment.
+ALPHA_PUBLISH_PORT is a publish of anything but 19132:19132/udp.
+ALPHA_MULTIPLE_PUBLISHERS is a file with more than one publishing service. The
+loopback default holds there too.
 
 Usage: docker compose -f FILE config --format json |
          check_port_policy.py [--alpha] FILE
@@ -43,7 +50,12 @@ LOOPBACK_BIND = "127.0.0.1"
 ALPHA_REQUIRED_FLAGS = (
     ("ALPHA_PUBLISH_XBOX_AUTH", "--xbox-auth", "true"),
     ("ALPHA_PUBLISH_CRASH_UPLOAD", "--auto-report.enabled", "0"),
+    ("ALPHA_PUBLISH_IPV6", "--enable-ipv6", "0"),
+    ("ALPHA_PUBLISH_TRANSPORT", "--transport.name", "raknet"),
 )
+ALPHA_VERIFY_XUID_FLAG = "--player.verify-xuid"
+ALPHA_PUBLISHED = "19132"
+ALPHA_TARGET = 19132
 ALPHA_DEV_BOTS_FLAG = "--riftal-dev-bots"
 ALPHA_DEV_ENV = "RIFTAL_DEV_ENV"
 
@@ -87,6 +99,15 @@ def check_publish(findings, path, where, port):
         )
 
 
+def is_alpha_publish(port):
+    # 19132:19132 on a protocol other than udp is BEDROCK_TCP_PUBLISH's to
+    # report, so it is not reported twice.
+    return (
+        str(port.get("published") or "") == ALPHA_PUBLISHED
+        and port.get("target") == ALPHA_TARGET
+    )
+
+
 def option_tokens(tokens, name):
     return [t for t in tokens if t == name or t.startswith(name + "=")]
 
@@ -105,7 +126,7 @@ def check_alpha_publisher(findings, path, where, service):
 
     for code, name, value in ALPHA_REQUIRED_FLAGS:
         given = option_tokens(tokens, name)
-        if not given or any(token != f"{name}={value}" for token in given):
+        if given != [f"{name}={value}"]:
             findings.append(
                 Finding(
                     code,
@@ -113,9 +134,37 @@ def check_alpha_publisher(findings, path, where, service):
                     where,
                     f"publishes a port but its POCKETMINE_ARGS "
                     f"({args or 'unset'}) does not carry {name}={value} "
-                    f"and no other value of {name}.",
+                    f"exactly once and no other value of {name}.",
                 )
             )
+
+    if option_tokens(tokens, ALPHA_VERIFY_XUID_FLAG):
+        findings.append(
+            Finding(
+                "ALPHA_PUBLISH_VERIFY_XUID",
+                path,
+                where,
+                f"publishes a port and names {ALPHA_VERIFY_XUID_FLAG} in its "
+                "POCKETMINE_ARGS. It stays at core's default.",
+            )
+        )
+
+    refused = [
+        f"{port.get('published') or 'unset'}:{port.get('target')}/"
+        f"{str(port.get('protocol') or 'tcp').lower()}"
+        for port in service.get("ports") or []
+        if not is_alpha_publish(port)
+    ]
+    if refused:
+        findings.append(
+            Finding(
+                "ALPHA_PUBLISH_PORT",
+                path,
+                where,
+                f"publishes {', '.join(refused)}. The one publish is "
+                "19132:19132/udp.",
+            )
+        )
 
     if ALPHA_DEV_BOTS_FLAG in args or ALPHA_DEV_BOTS_FLAG in command_text(service):
         findings.append(

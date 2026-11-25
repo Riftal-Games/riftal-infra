@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=289
+EXPECTED_ASSERTIONS=304
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -751,7 +751,7 @@ spell_release_image_with_registry() {
 add_second_publisher() {
   add_second_instance
   add_after "$ALPHA_COMPOSE" instance-b '^    image:' \
-    '    ports:\n      - "127.0.0.1:19133:19132/udp"'
+    '    ports:\n      - "127.0.0.1:19132:19132/udp"'
 }
 
 # An env_file that is no instances/<id>/instance.env.
@@ -915,12 +915,27 @@ alpha_case ALPHA_PUBLISH_XBOX_AUTH sed -i 's/ --xbox-auth=true//' instances/mine
 alpha_case ALPHA_PUBLISH_XBOX_AUTH sed -i 's/--xbox-auth=true/--xbox-auth=true --xbox-auth=false/' instances/mines/instance.env
 alpha_case ALPHA_PUBLISH_CRASH_UPLOAD sed -i 's/--auto-report.enabled=0/--auto-report.enabled=false/' instances/mines/instance.env
 alpha_case ALPHA_PUBLISH_CRASH_UPLOAD sed -i 's/ --auto-report.enabled=0//' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_XBOX_AUTH sed -i 's/--xbox-auth=true/--xbox-auth=true --xbox-auth=true/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_CRASH_UPLOAD sed -i 's/--auto-report.enabled=0/--auto-report.enabled=0 --auto-report.enabled=0/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_IPV6 sed -i 's/--enable-ipv6=0/--enable-ipv6=0 --enable-ipv6=0/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_TRANSPORT sed -i 's/--transport.name=raknet/--transport.name=raknet --transport.name=raknet/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_IPV6 sed -i 's/ --enable-ipv6=0//' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_IPV6 sed -i 's/--enable-ipv6=0/--enable-ipv6=1/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_TRANSPORT sed -i 's/ --transport.name=raknet//' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_TRANSPORT sed -i 's/--transport.name=raknet/--transport.name=nethernet/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_TRANSPORT sed -i 's/--transport.name=raknet/--transport.name=nethernet,raknet/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_VERIFY_XUID sed -i '/^POCKETMINE_ARGS=/s/$/ --player.verify-xuid=false/' instances/mines/instance.env
 alpha_case ALPHA_PUBLISH_DEV_BOTS sed -i '/^POCKETMINE_ARGS=/s/$/ --riftal-dev-bots=on/' instances/mines/instance.env
 alpha_case "ALPHA_PUBLISH_DEV_BOTS ALPHA_RELEASE_COMMAND" add_after "$ALPHA_COMPOSE" instance '^    image:' '    command: ["--riftal-dev-bots=on"]'
 alpha_case ALPHA_PUBLISH_DEV_ENV add_after "$ALPHA_COMPOSE" instance '^    environment:' '      RIFTAL_DEV_ENV: "1"'
 alpha_case ALPHA_MULTIPLE_PUBLISHERS add_second_publisher
 alpha_case LOOPBACK_BIND_REQUIRED sed -i 's/ALPHA_BIND:-127.0.0.1/ALPHA_BIND:-0.0.0.0/' "$ALPHA_COMPOSE"
 alpha_case BEDROCK_TCP_PUBLISH sed -i 's#19132/udp#19132#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_PUBLISH_PORT sed -i 's#:19132:19132/udp#:7551:7551/udp#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_PUBLISH_PORT sed -i 's#:19132:19132/udp#:19133:19133/udp#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_PUBLISH_PORT sed -i 's#:19132:19132/udp#:19133:19132/udp#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_PUBLISH_PORT sed -i 's#:19132:19132/udp#:7551:7551#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_PUBLISH_PORT sed -i 's#:19132:19132/udp#:19132-19133:19132-19133/udp#' "$ALPHA_COMPOSE"
 
 section "alpha lint, ADR 043 items 3 and 4 on the release-image service"
 alpha_case ALPHA_RELEASE_COMMAND add_after "$ALPHA_COMPOSE" instance '^    image:' '    command: ["start"]'
