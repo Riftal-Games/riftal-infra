@@ -417,8 +417,8 @@ levelled() {
       or (.value.environment.RIFTAL_LEVEL_ZONES // "") != "")
     | "\(.key)=\(.value.environment.RIFTAL_LEVEL_ZONES // "")"' <<<"$1"
 }
-check "only instance lists a zone or mounts a level, lumber, mine_a, mine_b and mine_c, and it runs the seed step beside the delivery" \
-  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a mine_b mine_c" ]'
+check "only instance lists a zone or mounts a level, lumber, mine_a, mine_b, mine_c, quarry and farm, and it runs the seed step beside the delivery" \
+  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a mine_b mine_c quarry farm" ]'
 check "an instance without the seed step is caught" \
   '[ "$(unseeded "$(edited "/- \/plugins\/seed-levels.sh/{N;d}")")" = instance ]'
 check "a level mount that lost :ro is caught" \
@@ -430,11 +430,11 @@ check "a listed zone with no level mount is caught" \
 check "a listed zone whose volume compose would create itself is caught" \
   '[ "$(unseeded "$(edited "/^  riftal_smoke_level_mine_a:/,/external/{/external/d}")")" = instance ]'
 check "a last listed zone with no level mount is caught" \
-  '[ "$(unseeded "$(edited "/riftal_smoke_level_mine_c:[/]etc/d")")" = instance ]'
+  '[ "$(unseeded "$(edited "/riftal_smoke_level_farm:[/]etc/d")")" = instance ]'
 check "a last listed zone whose volume compose would create itself is caught" \
-  '[ "$(unseeded "$(edited "/^  riftal_smoke_level_mine_c:/,/external/{/external/d}")")" = instance ]'
+  '[ "$(unseeded "$(edited "/^  riftal_smoke_level_farm:/,/external/{/external/d}")")" = instance ]'
 check "a zone list on instance-b is caught" \
-  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a mine_b mine_c
+  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a mine_b mine_c quarry farm
 instance-b=lumber" ]'
 
 printf '\n== link-replaced.sh gives pharynx the folder a virion requires (riftal-infra#579)\n'

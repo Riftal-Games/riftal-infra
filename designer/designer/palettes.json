@@ -58,6 +58,50 @@
       "plot_edge": "minecraft:cobblestone_wall",
       "plot_floor": "minecraft:gravel",
       "sign": "minecraft:standing_sign"
+    },
+    "hall_mine_a": {
+      "hall_wall": "minecraft:stone_bricks",
+      "hall_floor_a": "minecraft:smooth_stone",
+      "hall_floor_b": "minecraft:polished_andesite",
+      "hall_ceiling": "minecraft:smooth_stone",
+      "pilaster": "minecraft:chiseled_stone_bricks",
+      "gate_jamb": "minecraft:coal_block",
+      "gate_lintel": "minecraft:chiseled_stone_bricks",
+      "keystone": "minecraft:coal_block",
+      "cornice": "minecraft:stone_brick_slab"
+    },
+    "hall_mine_b": {
+      "hall_wall": "minecraft:weathered_cut_copper",
+      "hall_floor_a": "minecraft:smooth_stone",
+      "hall_floor_b": "minecraft:polished_andesite",
+      "hall_ceiling": "minecraft:smooth_stone",
+      "pilaster": "minecraft:cut_copper",
+      "gate_jamb": "minecraft:copper_block",
+      "gate_lintel": "minecraft:cut_copper",
+      "keystone": "minecraft:copper_block",
+      "cornice": "minecraft:cut_copper_slab"
+    },
+    "hall_mine_c": {
+      "hall_wall": "minecraft:polished_deepslate",
+      "hall_floor_a": "minecraft:deepslate_tiles",
+      "hall_floor_b": "minecraft:polished_deepslate",
+      "hall_ceiling": "minecraft:deepslate_tiles",
+      "pilaster": "minecraft:chiseled_deepslate",
+      "gate_jamb": "minecraft:iron_block",
+      "gate_lintel": "minecraft:chiseled_deepslate",
+      "keystone": "minecraft:lapis_block",
+      "cornice": "minecraft:polished_deepslate_slab"
+    },
+    "hall_lumber": {
+      "hall_wall": "minecraft:spruce_planks",
+      "hall_floor_a": "minecraft:dark_oak_planks",
+      "hall_floor_b": "minecraft:spruce_planks",
+      "hall_ceiling": "minecraft:dark_oak_planks",
+      "pilaster": "minecraft:spruce_log[pillar_axis=y]",
+      "gate_jamb": "minecraft:spruce_log[pillar_axis=y]",
+      "gate_lintel": "minecraft:stripped_spruce_log[pillar_axis=x]",
+      "keystone": "minecraft:hay_block",
+      "cornice": "minecraft:spruce_slab"
     }
   }
 }

@@ -305,7 +305,7 @@ normally. It is a warning because a boot log check fails on any ERROR line
 such as an interrupted build with no `level.dat`, is a fault and is logged
 as an ERROR.
 
-A built zone (`lumber`, `mine_a`, `mine_b`, `mine_c`) reaches `worlds/<zone>` through `../seed-levels.sh`
+A built zone (`lumber`, `mine_a`, `mine_b`, `mine_c`, `quarry`, `farm`) reaches `worlds/<zone>` through `../seed-levels.sh`
 (ADR 009 item 5), not by hand. For each zone in `RIFTAL_LEVEL_ZONES` whose
 folder is absent from `/data/worlds`, it checks the file tree mounted
 read-only at `/etc/riftal/levels/<zone>` against the `level-manifest.json` at
@@ -313,7 +313,8 @@ that folder's root, copies it into a temporary directory on the volume as the
 server's user, and renames it into place. It never touches a folder that
 exists, and it exits non-zero, before PocketMine starts, on a missing source or
 a failed check. `compose.yaml` runs it on `instance` alone, which mounts
-`riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`, `riftal_smoke_level_mine_b` and `riftal_smoke_level_mine_c` for it
+`riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`, `riftal_smoke_level_mine_b`,
+`riftal_smoke_level_mine_c`, `riftal_smoke_level_quarry` and `riftal_smoke_level_farm` for it
 (`../../README.md`, "The built levels"), so
 `instance` on a fresh `riftal-world` boots with the folder and logs no such
 line. The build that fills that
