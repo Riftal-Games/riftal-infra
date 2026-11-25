@@ -25,7 +25,7 @@ RUN="riftal_smoke_seedlv_$$"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=18
+EXPECTED_ASSERTIONS=28
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1: $(tail -n 12 <<<"${LOG:-}")"; fi; }
@@ -295,6 +295,26 @@ run_seed "$v7" lumber seed "${SRC[@]}" "${SHIMMED[@]}" -e SHIM=race
 check "a lumber that appears while the copy is made is kept and the boot stops" \
   '[ "$RC" -ne 0 ] && grep -qF "appeared while the copy was made" <<<"$LOG" && [ "$(sorted_listing "$v7")" = "lumber " ] &&
    [ "$(inspect "$v7" cat /data/worlds/lumber/level.dat)" = held ]'
+
+printf '\n== run as root, which the wipe does: RIFTAL_SEED_CHOWN, RIFTAL_LEVELS_DIR and RIFTAL_WORLDS_DIR\n'
+ROOT=(--user 0)
+refused "root without RIFTAL_SEED_CHOWN" "$(new_volume rootplain)" "running as root" "${ROOT[@]}" "${SRC[@]}"
+for bad_owner in 0:0 root 1000 1000: :1000 01000:1 -1:5 1000:1000:1; do
+  refused "root with RIFTAL_SEED_CHOWN=$bad_owner" "$(new_volume badowner)" "RIFTAL_SEED_CHOWN must be <uid>:<gid>" \
+    "${ROOT[@]}" -e "RIFTAL_SEED_CHOWN=$bad_owner" "${SRC[@]}"
+done
+
+# The seeded folder is the uid:gid it was given, mode 0700, so it is read as root.
+inspect_root() { timeout 120 docker run --rm --pull never --user 0 --name "${RUN}_r$RANDOM" -m 1g --cpus 1 -v "$1:/data:ro" "$IMAGE" "${@:2}"; }
+
+v9="$(new_volume overridden)"
+run_seed "$v9" lumber seed "${ROOT[@]}" -e RIFTAL_SEED_CHOWN=1234:5678 -e RIFTAL_LEVELS_DIR=/build -e RIFTAL_WORLDS_DIR=/data/other \
+  -v "$good:/build/lumber:ro"
+check "root with RIFTAL_SEED_CHOWN seeds from RIFTAL_LEVELS_DIR into RIFTAL_WORLDS_DIR, every path owned by that uid:gid, /data/worlds untouched" \
+  '[ "$RC" -eq 0 ] && grep -qF "seed-levels: lumber seeded at /data/other/lumber content_sha256=$CONTENT_SHA tree_sha256=$TREE" <<<"$LOG" &&
+   [ "$(inspect_root "$v9" sh -c "find /data/other/lumber -printf \"%U:%G\\n\" | sort -u")" = "1234:5678" ] &&
+   [ "$(inspect_root "$v9" tar -C /data/other/lumber -cf - . | python3 -I "$work/lv.py" "$ENGINE_PY" tree)" = "$TREE" ] &&
+   [ -z "$(listing "$v9")" ]'
 
 printf '\n'
 ran=$((PASSES + FAILURES))

@@ -1,0 +1,30 @@
+{
+  "bounds": {
+    "max": [
+      10,
+      52,
+      10
+    ],
+    "min": [
+      -10,
+      38,
+      -10
+    ]
+  },
+  "chunks": 328,
+  "content_sha256": "2bbb5abd22fa23461a481c937dea7e7c0a76eb863dd1243a25de84da1bbf66bf",
+  "core_image": "sha256:1b7d1b309c3cdfaafb187397eeda2515c79ea51dd8ef1b791dc06f1383feea1b",
+  "designbridge_commit": "b054e528b99fd1df32100e46094ca70961080066",
+  "generator": "normal",
+  "inputs": {
+    "levels/farm.json": "a0847713ec4fe65605e8ac62daeaf3f5ee8e98e57c22f41eaaa51f7ad20339a2",
+    "palette:mine_stone": "30c68b82e89822017f0173446c4f3fbd81ad3d470c9d57c8645cdfb292e33979",
+    "specs/farm.json": "ae46bc4964b0ef9cb2e04aaf09201a85969439009235fbd4441611b65b3abde3",
+    "specs/farm_access_east.json": "77960069d8cf8172ef068657a71074bf4a9e4591a3c4e2c2853d4442537eb187",
+    "specs/farm_access_south.json": "08660cc6600251364699c4b8593fd95cc200a9ba8c96a4d9e604d26199d237c3"
+  },
+  "seed": 23,
+  "size_bytes": 483452,
+  "toolkit_commit": "8f2f93ca037c7ae77b94d4ab5da51ce13e085bf7",
+  "zone": "farm"
+}
