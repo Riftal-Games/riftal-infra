@@ -19,7 +19,7 @@ The proxy goes last because it is the gate that admits clients. Opening the gate
 
 ## Before anything
 
-- [ ] Know exactly what is shipping: **image tag**, core tag, plugin versions, migration numbers. Write it down. The image tag is the deployable artifact and everything else is a description of it.
+- [ ] Know exactly what is shipping: **image tag**, core tag, plugin versions, migration numbers. Write it down. The image tag is the deployable artifact and everything else is a description of it. A release image tag is `<UTC date>-core<7 of the pmmp-core pin>-game<7 of the riftal-game commit>-infra<7 of the riftal-infra commit>`, built by `deploy/release-image.sh` from a clean riftal-infra checkout (the commit is read from the checkout holding the script), and the image's `org.riftal.infra-commit` label names the riftal-infra commit.
 - [ ] The image is built and pushed to the registry before the window opens. Never build during a rollout, and never build on a host that runs instances.
 - [ ] Confirm `pmmp-core` passed its boot test and `riftal-game` passed `/test-server`. Deployment does not discover bugs, it ships verified builds.
 - [ ] Every instance will run the same core tag and the same shared library version when this finishes. Mixed library versions against one schema is a data bug.

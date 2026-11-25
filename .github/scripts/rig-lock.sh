@@ -18,7 +18,7 @@ RIG_LOCK=/tmp/riftal-rig.lock
 # 2040 s, so a run of two takes up to 4080 s plus boot, and 4680 s is two bounds
 # and 600 s of boot slack.
 RIG_LOCK_WAIT_SEC=4680
-# Above the bot-proofs job's 110 minute timeout (6600 s), so the lock outlasts
+# Above the bot-proofs job's 119 minute timeout (7140 s), so the lock outlasts
 # every step between take and release; only a runner that dies in between
 # leaves the holder to run this out. rig_lock_job.py holds the two together.
 RIG_LOCK_HOLD_SEC=7200

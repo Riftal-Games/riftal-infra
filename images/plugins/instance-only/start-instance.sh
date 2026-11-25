@@ -1,12 +1,13 @@
 #!/bin/bash
 # The `instance` service's command in images/compose.yaml, and instance-b's
 # through ../instance-b/start.sh, which stages a copy with RiftalEconomy.phar
-# alone beside it. PocketMine loads plugins from one flat directory and
-# /plugins is the ./plugins bind instance-b shares, so the roster is
-# assembled in the container's own disposable filesystem: every plugin at the
-# top of /plugins, plus RiftalMines.phar, RiftalRanks.phar and
-# RiftalEconomy.phar once built. It mounts nothing and runs as uid 1000, so
-# /data/plugin_data on a fresh volume stays writable by PocketMine.
+# and RiftalPlots.phar alone beside it. PocketMine loads plugins from one flat
+# directory and /plugins is the ./plugins bind instance-b shares, so the
+# roster is assembled in the container's own disposable filesystem: every
+# plugin at the top of /plugins, plus RiftalMines.phar, RiftalRanks.phar,
+# RiftalEconomy.phar and RiftalPlots.phar once built. It mounts nothing and
+# runs as uid 1000, so /data/plugin_data on a fresh volume stays writable by
+# PocketMine.
 #
 # Everything else mirrors the image's start-pocketmine (pmmp-core
 # docker/start.sh), which cannot be reused here because it hard-codes
@@ -105,6 +106,20 @@ if [ -f "$here/RiftalEconomy.phar" ]; then
 	mkdir -p /data/plugin_data/RiftalEconomy
 	cp "$here/RiftalEconomy.config.yml" /data/plugin_data/RiftalEconomy/config.yml
 	cp "$here/RiftalEconomy.phar" "$roster/"
+fi
+
+if [ -f "$here/RiftalPlots.phar" ]; then
+	# RiftalPlots declares depend: [RiftalContracts], met by contracts.phar as
+	# for RiftalMines above. Its shipped config names a schema this stack does
+	# not have and it connects on enable, so a wrong config or a refused login
+	# takes the whole server down, as for RiftalRanks.
+	if [ -z "${RIFTAL_DB_PASSWORD_PLOTS:-}" ]; then
+		echo "start-instance.sh: RiftalPlots.phar is built and RIFTAL_DB_PASSWORD_PLOTS is not set; the instance takes it from images/.env" >&2
+		exit 1
+	fi
+	mkdir -p /data/plugin_data/RiftalPlots
+	cp "$here/RiftalPlots.config.yml" /data/plugin_data/RiftalPlots/config.yml
+	cp "$here/RiftalPlots.phar" "$roster/"
 fi
 
 cd /opt/pocketmine
