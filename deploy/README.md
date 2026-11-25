@@ -466,9 +466,8 @@ takes a privilege that instance still needs: every statement that uses it
 fails with ERROR 1142 or 1143. The check reads files and lists containers. It
 stops, starts and removes nothing.
 
-The check belongs in `/deploy-release` stage 1, before the migrations run. The
-skill does not run it yet; until the skill's wiring lands, whoever runs stage 1
-runs the check by hand and does not start the migrations on a refusal.
+The check runs in `/deploy-release` stage 1, before the migrations run, and a
+refusal stops the migrations from starting.
 
 Each `<tag>=<file>` names the `grants.sql` that tag's plugins were built from.
 The operator supplies it from the riftal-game commit the tag was built at. A tag
