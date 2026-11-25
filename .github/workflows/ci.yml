@@ -133,6 +133,11 @@ jobs:
       - name: Compose port policy, 19132 as udp, binds on 127.0.0.1, alpha compose lint
         run: uv run --frozen --project designer bash .github/scripts/scan.sh ports
 
+      # Scoped to images, the stack that exhausted the dev PC's memory
+      # (riftal-infra#460, #566).
+      - name: Compose long-running services carry a memory and a CPU limit
+        run: bash .github/scripts/scan.sh limits images
+
       - name: Every action is pinned by commit sha or image digest
         run: bash .github/scripts/action-pins.sh
 

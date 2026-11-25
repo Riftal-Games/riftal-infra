@@ -47,6 +47,14 @@ holds its second wide bind behind a profile, so a scan that stops asking compose
 for every profile reports one finding there instead of two. `good/compose.yaml`
 is a compose validity fixture only and is not held to the port policy.
 
+`good/limits.compose.yaml` and the four `bad/limits-*.compose.yaml` drive
+`scan.sh limits`, `.github/scripts/check_resource_limits.py`. A long-running
+service needs a nonzero `mem_limit` and `cpus`. A service another one waits on
+with `service_completed_successfully` is one-shot and exempt, which the good
+fixture pins. `bad/limits-profile.compose.yaml` holds its unbounded service
+behind a profile, and `bad/limits-zero.compose.yaml` pins that zero is not a
+limit.
+
 `good/alpha/` is the one fixture tree for the alpha rules, which `scan.sh ports`
 applies to a compose file under `deploy/alpha/`: the port policy's `ALPHA_PUBLISH_*`
 and `ALPHA_MULTIPLE_PUBLISHERS` in `check_port_policy.py --alpha`, and every other

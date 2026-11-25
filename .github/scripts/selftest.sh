@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=304
+EXPECTED_ASSERTIONS=310
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -665,6 +665,46 @@ expect_ports_bad "$FIXTURES/bad/ports-wide-bind.compose.yaml" LOOPBACK_BIND_REQU
 expect_ports_bad "$FIXTURES/bad/ports-network-mode.compose.yaml" HOST_NETWORK_MODE 1
 expect_real_ports_clean
 
+# Exactly count findings per code, and exactly total in all. A fixture that
+# also trips a second rule stays red with its own rule deleted.
+expect_limits_bad() {
+  local file="$1" code="$2" count="$3" total="$4" out status
+  out="$(bash "$SCAN" limits "$file" 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ]     && [ "$(printf '%s
+' "$out" | grep -c ": $code: ")" = "$count" ]     && printf '%s
+' "$out" | grep -qxF "$total finding(s) in $file"; then
+    pass "$(rel "$file") rejected through scan.sh limits with $count $code, $total finding(s) in all"
+  else
+    fail "expected scan.sh limits to reject $(rel "$file") with $count $code and $total finding(s), exit $status"
+    printf '%s
+' "$out"
+  fi
+}
+
+# The invocation ci.yml uses, root and all. images/compose.yaml is the file the
+# check exists for, so the scan must reach it and find it clean.
+expect_real_limits_clean() {
+  local out status
+  out="$(cd "$REPO_ROOT" && bash "$SCAN" limits images 2>&1)"
+  status=$?
+  if [ "$status" -eq 0 ]     && printf '%s' "$out" | grep -qxF 'checking images/compose.yaml'     && printf '%s' "$out" | grep -qxF '0 finding(s) in images/compose.yaml'; then
+    pass "the real limits invocation reaches images/compose.yaml and finds every long-running service bounded"
+  else
+    fail "expected the real limits invocation to check images/compose.yaml clean, exit $status"
+    printf '%s
+' "$out"
+  fi
+}
+
+section "resource limits, through scan.sh's own check_limits"
+expect_scan_ok limits "$FIXTURES/good/limits.compose.yaml"
+expect_limits_bad "$FIXTURES/bad/limits-no-memory.compose.yaml" MEMORY_LIMIT_MISSING 1 1
+expect_limits_bad "$FIXTURES/bad/limits-no-cpus.compose.yaml" CPU_LIMIT_MISSING 1 1
+expect_limits_bad "$FIXTURES/bad/limits-profile.compose.yaml" MEMORY_LIMIT_MISSING 1 2
+expect_limits_bad "$FIXTURES/bad/limits-zero.compose.yaml" CPU_LIMIT_MISSING 1 2
+expect_real_limits_clean
+
 # One alpha tree, good/alpha, is the whole fixture set for the alpha rules. A
 # case copies it, runs one mutation inside the copy and expects exactly the
 # finding codes it names, one finding each, from both tools scan.sh ports runs
@@ -1150,5 +1190,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed. A check has stopped discriminating.\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed, both sides for hadolint, discovery, compose, port policy, alpha compose lint, php lint, container cleanup and action pins.\n' "$PASSES"
+printf 'all %s assertions passed, both sides for hadolint, discovery, compose, port policy, resource limits, alpha compose lint, php lint, container cleanup and action pins.\n' "$PASSES"
 printf 'scan.sh itself is exercised end to end: discovery, every check function, the loop, and the exact no-argument invocation ci.yml uses.\n'
