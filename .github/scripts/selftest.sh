@@ -809,7 +809,7 @@ alpha_case() {
   out="$(bash "$SCAN" ports "$tree/$ALPHA_COMPOSE" 2>&1)"
   status=$?
   got="$(printf '%s\n' "$out" \
-    | sed -nE 's/^::error file=[^:]*::[^:]*: ([A-Z][A-Z_]+): .*/\1/p' | sort | tr '\n' ' ')"
+    | sed -nE 's/^::error file=[^:]*::[^:]*: ([A-Z][A-Z0-9_]+): .*/\1/p' | sort | tr '\n' ' ')"
   want="$(printf '%s\n' $codes | sed '/^$/d' | sort | tr '\n' ' ')"
   rm -rf "$tree"
   if [ -n "$codes" ]; then
