@@ -23,7 +23,7 @@ A `grants.sql` change is coupled the same way. `run-migrations.sh` applies the
 `GRANTS_FILE` it is given on every run, a run with nothing pending included
 (`../migrations/run-migrations.sh:309`), so the file's REVOKEs reach the
 database on every run, and on a fresh server a role holds only what the file
-grants. `grants-revoke-check.sh` belongs in `/deploy-release` stage 1, before
+grants. `grants-revoke-check.sh` runs in `/deploy-release` stage 1, before
 the migrations run, and refuses a REVOKE that is new against a tag that can
 still run (`README.md`, Grants REVOKE check). A change is coupled
 when a plugin build that an instance may still run, or be rolled back to,
@@ -455,7 +455,7 @@ balance change into `CALL economy_ledger_credit` and `CALL
 economy_ledger_debit` (`economy/resources/sql/economy.sql:35`, `:47` at
 `9a80ef1`). PR #891 is an ancestor of PR #923. Related:
 `grants-revoke-check.sh` (riftal-infra#1187, closing riftal-infra#944), which
-belongs in `/deploy-release` stage 1 and refuses a `grants.sql` REVOKE that is
+runs in `/deploy-release` stage 1 and refuses a `grants.sql` REVOKE that is
 new against any tag a container or an instance definition still names.
 
 What PR #923 does: leaves `riftal_role_economy` only `UPDATE (account_id)` on
