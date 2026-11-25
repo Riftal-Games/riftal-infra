@@ -954,7 +954,7 @@ alpha_case ALPHA_RELEASE_VOLUMES_FROM add_after "$ALPHA_COMPOSE" instance '^    
 alpha_case ALPHA_RELEASE_ENV_FILE_EXTRA add_second_env_file
 alpha_case ALPHA_RELEASE_ENV_ZONES add_after "$ALPHA_COMPOSE" instance '^    environment:' '      RIFTAL_LEVEL_ZONES: mine_a'
 alpha_case ALPHA_RELEASE_ENV_ZONES list_environment_with_zones
-alpha_case ALPHA_RELEASE_ENV_ARGS add_after "$ALPHA_COMPOSE" instance '^    environment:' '      POCKETMINE_ARGS: --level-name=mine_a --xbox-auth=true --auto-report.enabled=0'
+alpha_case ALPHA_RELEASE_ENV_ARGS add_after "$ALPHA_COMPOSE" instance '^    environment:' '      POCKETMINE_ARGS: --level-name=mine_a --xbox-auth=true --auto-report.enabled=0 --enable-ipv6=0 --transport.name=raknet'
 alpha_case ALPHA_RELEASE_TAG_MISMATCH sed -i 's#riftal/pocketmine-mp:2026.11.12-a#riftal/pocketmine-mp:2026.11.12-b#' "$ALPHA_COMPOSE"
 alpha_case ALPHA_RELEASE_NO_DEFINITION point_at_stray_env
 alpha_case ALPHA_OPS_ON_RELEASE_IMAGE put_backup_on_release_image
