@@ -55,6 +55,26 @@ fixture pins. `bad/limits-profile.compose.yaml` holds its unbounded service
 behind a profile, and `bad/limits-zero.compose.yaml` pins that zero is not a
 limit.
 
+`good/alpha/` is the one fixture tree for the alpha rules, which `scan.sh ports`
+applies to a compose file under `deploy/alpha/`: the port policy's `ALPHA_PUBLISH_*`
+and `ALPHA_MULTIPLE_PUBLISHERS` in `check_port_policy.py --alpha`, and every other
+`ALPHA_*` code in `check_alpha_compose.py`. It holds a compose shaped like spec 025's
+alpha compose and one instance definition, `instances/mines/` with its `image` and
+`instance.env`, at the same distance from each other as in the real tree, because the
+lint finds definitions beside `deploy/alpha/`. `scan.sh` gives `${NAME:?}` a
+placeholder in these files and in no other, so `docker compose config` reads the
+secrets the compose refuses to start without.
+
+There is no bad file for an alpha rule. `selftest.sh` copies the tree, makes one
+change inside the copy and expects exactly the codes that change trips, one finding
+each. Each case is one line in the self-test's alpha sections, so the code is found by
+searching `selftest.sh` for it, and the line holds the change. A change that alters
+nothing fails its case. `add_second_instance`, a second definition on N-1 beside the
+first on N, derives the serial-rollout fixture that must pass; `add_second_publisher`
+and `add_third_tag` derive two that must not. A case that names two codes trips both by
+design: a `--riftal-dev-bots` in `command:` is also a `command:` on a release-image
+service, and an unreadable definition image leaves the release tag unnamed.
+
 `good/php-plugins/` and the three `bad/php-plugins-*/` directories are batches, not
 single files, because the defect they cover only shows up across a multi-file
 `images/plugins/*.php` glob: a broken file's own exit status has to survive being one
