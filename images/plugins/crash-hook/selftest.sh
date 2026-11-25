@@ -3,9 +3,10 @@
 # unit 6).
 #
 # Boots the real core image with the shipped RiftalDevBots.php and
-# CrashHookProbe.php beside it. The probe runs the command as an operator and
-# then as the console. With dev bots admitted, the operator is refused and the
-# console kills the process: the probe never logs past it, and tini reports
+# CrashHookProbe.php beside it. The probe runs the command as an operator, as
+# a holder of the console permission that is not the console, and then as the
+# console. With dev bots admitted, the operator and the holder are refused and
+# the console kills the process: the probe never logs past it, and tini reports
 # the server's SIGKILL as exit 137. Without the --riftal-dev-bots=on flag, or
 # without RIFTAL_DEV_ENV=1, the command does not exist and the server shuts
 # down cleanly. With the server as process 1, as in an image without tini,
@@ -20,7 +21,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$DIR/../../core-image.sh"
 core_image || { printf 'the crash hook was never checked\n'; exit 1; }
 IMAGE="$CORE_IMAGE"
-ERRORS='CRITICAL|EMERGENCY|Exception|Stack trace'
+ERRORS='/(EMERGENCY|ALERT|CRITICAL|ERROR)]|Exception|Stack trace'
 
 FAILURES=0
 PASSES=0
@@ -55,12 +56,18 @@ boot() {
   printf 'exit status %s\n' "$status"
 }
 
+# $1 label, $2 optional fixed text of the one expected error line, dropped before the check
 clean() {
-  ! grep -qE "$ERRORS" "$work/log" && pass "$1: the server log has no error" \
-    || fail "$1: the server log has an error: $(grep -E "$ERRORS" "$work/log")"
+  local found
+  found="$(grep -E "$ERRORS" "$work/log" || true)"
+  if [ -n "${2:-}" ]; then
+    found="$(grep -vF -- "$2" <<<"$found" || true)"
+  fi
+  [ -z "$found" ] && pass "$1: the server log has no error" \
+    || fail "$1: the server log has an error: $found"
 }
 
-printf '\n== dev bots admitted: the console kills the process, an operator cannot\n'
+printf '\n== dev bots admitted: the console kills the process, no other sender can\n'
 boot on 1
 clean "admitted"
 grep -q 'crash-hook-probe registered=yes' "$work/log" \
@@ -70,10 +77,10 @@ grep -q 'crash-hook-probe alive after operator' "$work/log" \
   && grep -q "crash-hook-probe operator heard: You don't have permission" "$work/log" \
   && pass "an operator is refused and the process keeps running" \
   || fail "the operator's run was not refused, or killed the process"
-grep -q 'crash-hook-probe alive after root-console holder' "$work/log" \
-  && grep -q 'crash-hook-probe root-console heard: devbots-crash runs only from the server console' "$work/log" \
-  && pass "a non-console sender holding ROOT_CONSOLE is refused and the process keeps running" \
-  || fail "a non-console sender holding ROOT_CONSOLE was not refused by the console check, or killed the process"
+grep -q 'crash-hook-probe alive after holder' "$work/log" \
+  && grep -q "crash-hook-probe holder heard: devbots-crash runs only from the server console" "$work/log" \
+  && pass "a console-permission holder that is not the console is refused and the process keeps running" \
+  || fail "the holder's run was not refused by the console-only check, or killed the process"
 grep -q 'devbots-crash: killing process' "$work/log" \
   && ! grep -qE 'crash-hook-probe alive after console|Stopping' "$work/log" \
   && pass "the console's run kills the process before any shutdown" \
@@ -83,7 +90,7 @@ grep -q 'devbots-crash: killing process' "$work/log" \
 
 printf '\n== dev bots admitted, server is process 1: the console run refuses\n'
 boot on 1 pid1
-clean "process 1"
+clean "process 1" "devbots-crash: refused, this server is process 1"
 grep -q 'devbots-crash: refused, this server is process 1' "$work/log" \
   && pass "process 1: the console's run is refused, naming why" \
   || fail "process 1: the console's run was not refused as process 1"

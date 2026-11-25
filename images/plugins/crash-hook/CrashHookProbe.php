@@ -26,16 +26,14 @@ use pocketmine\Server;
 use function str_replace;
 
 /**
- * Holds one root permission without being the console. Built standalone
- * because a ConsoleCommandSender subclass would pass the console-only check by
- * its type alone. Given ROOT_OPERATOR it stands for an operator; given
- * ROOT_CONSOLE it passes the permission check and reaches the command's own
- * console check.
+ * Holds one permission and nothing else, without being the console. Built
+ * standalone because a ConsoleCommandSender subclass would pass the
+ * console-only check by its type alone.
  */
-final class OperatorSender implements CommandSender{
+final class ProbeSender implements CommandSender{
 	use PermissibleDelegateTrait;
 
-	public function __construct(private Server $server, private string $label, string $permission){
+	public function __construct(private Server $server, private string $role, string $permission){
 		$this->perm = new PermissibleBase([$permission => true]);
 	}
 
@@ -47,7 +45,7 @@ final class OperatorSender implements CommandSender{
 		if($message instanceof Translatable){
 			$message = $this->getLanguage()->translate($message);
 		}
-		$this->server->getLogger()->info("crash-hook-probe " . $this->label . " heard: " .str_replace("\n", " ", $message));
+		$this->server->getLogger()->info("crash-hook-probe $this->role heard: " . str_replace("\n", " ", $message));
 	}
 
 	public function getServer() : Server{
@@ -55,7 +53,7 @@ final class OperatorSender implements CommandSender{
 	}
 
 	public function getName() : string{
-		return "crash-hook-probe-" . $this->label;
+		return "crash-hook-probe-" . $this->role;
 	}
 
 	public function getScreenLineHeight() : int{
@@ -68,8 +66,9 @@ final class OperatorSender implements CommandSender{
 
 /**
  * Once the server ticks, reports whether devbots-crash exists, runs it as an
- * operator, as a non-console sender holding ROOT_CONSOLE, then as the console, and shuts down if the process is still
- * alive. selftest.sh reads the result from the log.
+ * operator, as a holder of the console permission that is not the console,
+ * then as the console, and shuts down if the process is still alive.
+ * selftest.sh reads the result from the log.
  */
 final class Main extends PluginBase{
 
@@ -85,11 +84,11 @@ final class Main extends PluginBase{
 		$registered = $server->getCommandMap()->getCommand(self::COMMAND) !== null;
 		$logger->info("crash-hook-probe registered=" . ($registered ? "yes" : "no"));
 
-		$server->dispatchCommand(new OperatorSender($server, "operator", DefaultPermissions::ROOT_OPERATOR), self::COMMAND);
+		$server->dispatchCommand(new ProbeSender($server, "operator", DefaultPermissions::ROOT_OPERATOR), self::COMMAND);
 		$logger->info("crash-hook-probe alive after operator");
 
-		$server->dispatchCommand(new OperatorSender($server, "root-console", DefaultPermissions::ROOT_CONSOLE), self::COMMAND);
-		$logger->info("crash-hook-probe alive after root-console holder");
+		$server->dispatchCommand(new ProbeSender($server, "holder", DefaultPermissions::ROOT_CONSOLE), self::COMMAND);
+		$logger->info("crash-hook-probe alive after holder");
 
 		$server->dispatchCommand(new ConsoleCommandSender($server, $server->getLanguage()), self::COMMAND);
 		$logger->info("crash-hook-probe alive after console");
