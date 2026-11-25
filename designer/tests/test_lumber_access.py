@@ -25,14 +25,19 @@ def _json(*parts: str) -> dict:
     return json.loads(PROJECT_ROOT.joinpath(*parts).read_text(encoding="utf-8"))
 
 
-@pytest.fixture
-def mine() -> MineSpec:
-    return MineSpec.from_dict(_json("specs", "lumber.json"))
+@pytest.fixture(params=["lumber", "quarry", "farm"])
+def zone(request: pytest.FixtureRequest) -> str:
+    return request.param
 
 
 @pytest.fixture
-def legs() -> list[StairsSpec]:
-    steps = [step for step in load_recipe("lumber").steps if step.build == "stairs"]
+def mine(zone: str) -> MineSpec:
+    return MineSpec.from_dict(_json("specs", f"{zone}.json"))
+
+
+@pytest.fixture
+def legs(zone: str) -> list[StairsSpec]:
+    steps = [step for step in load_recipe(zone).steps if step.build == "stairs"]
     return [StairsSpec.from_dict(json.loads(PROJECT_ROOT.joinpath(step.spec).read_text(encoding="utf-8"))) for step in steps]
 
 
@@ -44,15 +49,15 @@ def _top(leg: StairsSpec) -> tuple[int, int, int]:
 
 def _spawn(mine: MineSpec) -> tuple[int, int, int]:
     locations = build_mine(mine, Palette.load("mine_stone")).extras["locations"]
-    return tuple(next(l for l in locations if l["name"] == "lumber_spawn")["pos"])
+    return tuple(next(l for l in locations if l["name"] == f"{mine.world}_spawn")["pos"])
 
 
 def _built(mine: MineSpec, legs: list[StairsSpec], with_legs: bool = True) -> Region:
     """The mine and its stairs dug into stone that reaches the exit's ground, over the chunks ``pregen`` populates."""
     palette = Palette.load("mine_stone")
-    recipe = Bounds.from_json(_json("levels", "lumber.json")["bounds"])
+    recipe = Bounds.from_json(_json("levels", f"{mine.world}.json")["bounds"])
     area = pregen_bounds(recipe)
-    region = Region.empty("lumber", Bounds((area.min[0], recipe.min[1], area.min[1]), (area.max[0], EXIT_GROUND_Y + 3, area.max[1])))
+    region = Region.empty(mine.world, Bounds((area.min[0], recipe.min[1], area.min[1]), (area.max[0], EXIT_GROUND_Y + 3, area.max[1])))
     region.fill(Bounds(region.bounds.min, (region.bounds.max[0], EXIT_GROUND_Y, region.bounds.max[2])), STONE)
     region = build_mine(mine, palette).to_region(region)
     for leg in legs if with_legs else ():
@@ -73,7 +78,7 @@ def test_the_legs_chain_from_the_spawn_and_stay_in_the_populated_chunks(mine: Mi
     assert legs[0].direction == mine.entrance.side and legs[0].base == (x, y - 1, z)
     for before, after in zip(legs, legs[1:]):
         assert after.base == _top(before)
-    area = pregen_bounds(Bounds.from_json(_json("levels", "lumber.json")["bounds"]))
+    area = pregen_bounds(Bounds.from_json(_json("levels", f"{mine.world}.json")["bounds"]))
     for leg in legs:
         for tread in (leg.base, _top(leg)):
             for lateral in (-(leg.width // 2), leg.width - 1 - leg.width // 2):
@@ -81,8 +86,8 @@ def test_the_legs_chain_from_the_spawn_and_stay_in_the_populated_chunks(mine: Mi
                 assert area.contains((tread[0] + abs(dz) * lateral, tread[2] + abs(dx) * lateral))
 
 
-def test_the_last_tread_is_flush_with_seed_23s_ground_at_the_exit(legs: list[StairsSpec]) -> None:
-    recipe = load_recipe("lumber")
+def test_the_last_tread_is_flush_with_seed_23s_ground_at_the_exit(zone: str, legs: list[StairsSpec]) -> None:
+    recipe = load_recipe(zone)
     assert recipe.seed == 23
     assert _top(legs[-1])[1] == EXIT_GROUND_Y
 

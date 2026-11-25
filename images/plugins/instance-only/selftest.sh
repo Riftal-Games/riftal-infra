@@ -33,7 +33,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=99
+EXPECTED_ASSERTIONS=103
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -417,8 +417,8 @@ levelled() {
       or (.value.environment.RIFTAL_LEVEL_ZONES // "") != "")
     | "\(.key)=\(.value.environment.RIFTAL_LEVEL_ZONES // "")"' <<<"$1"
 }
-check "only instance lists a zone or mounts a level, lumber, mine_a, mine_b and mine_c, and it runs the seed step beside the delivery" \
-  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a mine_b mine_c" ]'
+check "only instance lists a zone or mounts a level, lumber, mine_a, mine_b, mine_c, quarry and farm, and it runs the seed step beside the delivery" \
+  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a mine_b mine_c quarry farm" ]'
 check "an instance without the seed step is caught" \
   '[ "$(unseeded "$(edited "/- \/plugins\/seed-levels.sh/{N;d}")")" = instance ]'
 check "a level mount that lost :ro is caught" \
@@ -430,11 +430,11 @@ check "a listed zone with no level mount is caught" \
 check "a listed zone whose volume compose would create itself is caught" \
   '[ "$(unseeded "$(edited "/^  riftal_smoke_level_mine_a:/,/external/{/external/d}")")" = instance ]'
 check "a last listed zone with no level mount is caught" \
-  '[ "$(unseeded "$(edited "/riftal_smoke_level_mine_c:[/]etc/d")")" = instance ]'
+  '[ "$(unseeded "$(edited "/riftal_smoke_level_farm:[/]etc/d")")" = instance ]'
 check "a last listed zone whose volume compose would create itself is caught" \
-  '[ "$(unseeded "$(edited "/^  riftal_smoke_level_mine_c:/,/external/{/external/d}")")" = instance ]'
+  '[ "$(unseeded "$(edited "/^  riftal_smoke_level_farm:/,/external/{/external/d}")")" = instance ]'
 check "a zone list on instance-b is caught" \
-  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a mine_b mine_c
+  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a mine_b mine_c quarry farm
 instance-b=lumber" ]'
 
 printf '\n== link-replaced.sh gives pharynx the folder a virion requires (riftal-infra#579)\n'
@@ -560,8 +560,31 @@ named_locations() {
     section == "join_teleport:" && /^  location:/ || section == "travel:" && /^    [a-z]+: "/ { gsub(/"/, "", $2); print $2 }' "$1" | sort -u
 }
 check "the delivered world index holds every location the template names for the join and travel" \
-  'names="$(named_locations "$TEMPLATE")" && [ "$(wc -l <<<"$names")" -eq 4 ] &&
+  'names="$(named_locations "$TEMPLATE")" && [ "$(wc -l <<<"$names")" -eq 6 ] &&
     [ -z "$(comm -23 <(printf "%s\n" "$names") <(jq -r ".locations[].name" "$INDEX" | sort -u))" ]'
+# Zones in the space-separated list $2 that the worlds section of config $1
+# does not register under its own name and fragment file. RiftalCustody
+# refuses every break but a crafting table in a zone no registered fragment
+# declares an interior for.
+unregistered() {
+  comm -23 <(tr ' ' '\n' <<<"$2" | grep . | sort -u) \
+    <(sed -n '/^worlds:/,/^[^[:space:]]/s/^  \([a-z0-9_]*\): "worlds\/\1\.json"$/\1/p' "$1" | sort -u)
+}
+compose_zones="$(jq -r '.services.instance.environment.RIFTAL_LEVEL_ZONES // ""' <<<"$real")"
+INSTANCES="$DIR/../../../instances"
+check "every zone instance in compose.yaml seeds is registered in the template's worlds" \
+  '[ -n "$compose_zones" ] && [ -z "$(unregistered "$TEMPLATE" "$compose_zones")" ]'
+check "every zone an instances/ definition seeds is registered in the template's worlds" \
+  'defs="$(ls "$INSTANCES"/*/instance.env)" && [ -n "$defs" ] && ( for env in $defs; do
+    zones="$(sed -n "s/^RIFTAL_LEVEL_ZONES=//p" "$env")"
+    [ -n "$zones" ] && [ -z "$(unregistered "$TEMPLATE" "$zones")" ] || exit 1
+  done )'
+check "a template that drops mine_a from worlds is caught" \
+  'sed "/^  mine_a:/d" "$TEMPLATE" > "$mutated" && ! cmp -s "$TEMPLATE" "$mutated" &&
+    [ "$(unregistered "$mutated" "$compose_zones")" = mine_a ]'
+check "a worlds entry naming another zone's fragment does not register the zone" \
+  'sed "s#\"worlds/mine_a.json\"#\"worlds/mine_b.json\"#" "$TEMPLATE" > "$mutated" &&
+    [ "$(unregistered "$mutated" "$compose_zones")" = mine_a ]'
 check "a shipped value the template does not carry is caught" \
   'sed "s/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/" "$SHIPPED" > "$mutated" &&
     [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'
