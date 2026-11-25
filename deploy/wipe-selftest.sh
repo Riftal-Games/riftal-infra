@@ -192,7 +192,7 @@ stamped tennanos "sed -n '/^timestamp: /s/Z\$/0Z/p' /tmp/set/manifest.txt" rifta
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=50
+EXPECTED_ASSERTIONS=51
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 refused() {
@@ -454,10 +454,16 @@ qp "CREATE TABLE $DB.t (id INT PRIMARY KEY); INSERT INTO $DB.t VALUES (1), (2), 
 docker exec "$C_PSOFF" bash -c "mkdir -p /tmp/set/worlds /tmp/vol && printf 'x\n' > /tmp/set/mysql.sql \
   && printf 'x\n' > /tmp/vol/level.dat && tar -czf /tmp/set/worlds/$TAR -C /tmp/vol ."
 docker exec "$C" cat /tmp/set/manifest.txt | docker exec -i "$C_PSOFF" bash -c 'cat > /tmp/set/manifest.txt'
-docker exec -d "$C_PSOFF" mysql -uroot -pselftest "$DB" -e 'SELECT SLEEP(20)'
+# performance_schema's processlist is empty on this server and
+# information_schema.PROCESSLIST is deprecated, so the session announces itself
+# by holding a named lock, which any connection can read.
+[ "$(qp "SELECT IS_USED_LOCK('selftest_psoff_held') IS NOT NULL")" = "0" ] \
+  && pass "the held-session probe reads 0 before the session starts" \
+  || fail "the held-session probe did not read 0 before the session started"
+docker exec -d "$C_PSOFF" mysql -uroot -pselftest "$DB" -e "SELECT GET_LOCK('selftest_psoff_held', 0), SLEEP(20)"
 held=0
 for _ in $(seq 1 20); do
-  [ "$(qp "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE INFO LIKE 'SELECT SLEEP%'")" = "1" ] \
+  [ "$(qp "SELECT IS_USED_LOCK('selftest_psoff_held') IS NOT NULL")" = "1" ] \
     && { held=1; break; }
   sleep 0.5
 done

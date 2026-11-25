@@ -67,8 +67,10 @@ done
 step='(save|read-back|file fsync|directory fsync)'
 # FlushFailureResponse.php:76, instance-wide
 probe_failed="^flushing .+ failed at $step and the probe failed too, so no player file can be made durable; killing the process\$"
-# Shutdown.php:26, instance-wide, and the last line of a refused boot
-disabled='^RiftalCustody was disabled while the server is running; killing the process so no world saves without it$'
+# Shutdown.php:32-33, instance-wide. One logger call composes both forms: a
+# runtime disable ("was disabled") and the last line of a refused boot
+# ("refused to enable (<reason>)"), whose reason is free text.
+disabled='^RiftalCustody (was disabled|refused to enable \(.+\)) while the server is running; killing the process so no world saves without it$'
 # FlushFailureResponse.php:87, one player
 refused="^flushing .+ failed at $step( with nothing to probe| and the probe held); destroyed [0-9]+ item-yielding entities in .* and refusing (.+) until restart\$"
 prefix='/EMERGENCY]: [RiftalCustody] '

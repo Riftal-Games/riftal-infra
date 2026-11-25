@@ -1,0 +1,8 @@
+{
+  "world": "farm",
+  "from": [0, 54, 30],
+  "direction": "east",
+  "rise": 10,
+  "width": 3,
+  "headroom": 3
+}

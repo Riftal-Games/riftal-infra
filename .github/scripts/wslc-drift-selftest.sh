@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-# Proves wslc-drift.sh can fail: the real doc must pass, and scratch copies of
-# it with one flag drifted must each fail, naming the drifted line.
+# Proves wslc-drift.sh can fail: the real doc must pass, scratch copies of it
+# with one flag drifted, or of compose with its healthcheck changed, must each
+# fail naming the differing line, and a doc that only writes a health duration
+# in another form must still pass.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOC="$DIR/../../docs/dev-stack-two-instance.md"
 CHECK="$DIR/wslc-drift.sh"
+ROOT_COMPOSE="$DIR/../../images/compose.yaml"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=13
+EXPECTED_ASSERTIONS=21
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -50,6 +53,29 @@ check "a command chain missing a step is caught" \
   'caught "s#bash /plugins/require-custody.sh ##" "< command [\"bash\",\"/plugins/restart/boot-gate.sh\",\"bash\",\"/plugins/deliver-world-index.sh\",\"bash\",\"/plugins/require-accounts.sh\",\"bash\",\"/plugins/instance-b/start.sh\"]"'
 check "a flag the check does not know is caught" \
   'caught "s/--network riftal-dev/--network riftal-dev --privileged/" "< unknown --privileged"'
+check "a doc that drops the healthcheck is caught" \
+  'caught "/--health-/d" "> --health-cmd php /plugins/restart/raknet-ping.php"'
+check "a drifted --health-retries is caught" \
+  'caught "s/--health-retries 3/--health-retries 5/" "< --health-retries 5"'
+check "a drifted --health-interval is caught" \
+  'caught "s/--health-interval 30s/--health-interval 20s/" "< --health-interval 20s"'
+check "a drifted --health-timeout is caught" \
+  'caught "s/--health-timeout 10s/--health-timeout 5s/" "< --health-timeout 5s"'
+check "a drifted --health-start-period is caught" \
+  'caught "s/--health-start-period 180s/--health-start-period 120s/" "< --health-start-period 120s"'
+check "a duration in a form neither side prints still matches" \
+  'sed "s/--health-start-period 180s/--health-start-period 2m60s/" "$DOC" > "$work/doc.md" &&
+    ! cmp -s "$DOC" "$work/doc.md" && bash "$CHECK" "$work/doc.md" > "$work/out" 2>&1'
+check "a healthcheck the compose service lacks is caught" \
+  'sed "/healthcheck: \*raknet-health/d" "$ROOT_COMPOSE" > "$work/compose.yaml" &&
+    ! WSLC_DRIFT_COMPOSE="$work/compose.yaml" WSLC_DRIFT_PROJECT_DIR="$(dirname "$ROOT_COMPOSE")" \
+      bash "$CHECK" "$DOC" > "$work/out" 2>&1 &&
+    grep -qxF -- "< --health-cmd php /plugins/restart/raknet-ping.php" "$work/out"'
+check "a compose start_period that differs is caught after normalising" \
+  'sed "s/start_period: 180s/start_period: 2m/" "$ROOT_COMPOSE" > "$work/compose.yaml" &&
+    ! WSLC_DRIFT_COMPOSE="$work/compose.yaml" WSLC_DRIFT_PROJECT_DIR="$(dirname "$ROOT_COMPOSE")" \
+      bash "$CHECK" "$DOC" > "$work/out" 2>&1 &&
+    grep -qxF -- "> --health-start-period 120s" "$work/out"'
 check "a doc with no wslc run is caught" \
   'printf "nothing here\n" > "$work/none.md" && ! bash "$CHECK" "$work/none.md" > "$work/out" 2>&1 &&
     grep -q "no wslc run command found" "$work/out"'
