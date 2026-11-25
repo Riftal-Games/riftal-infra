@@ -145,7 +145,8 @@ survive; the migration run reapplies their grants anyway.
    `wipe <database>: complete, empty; run ../migrations/run-migrations.sh, then wipe-check.sh`.
 5. **Migrate.** `../migrations/run-migrations.sh` with `GRANTS_FILE` and every
    `RIFTAL_DB_PASSWORD_<NAME>`, exactly as after a restore
-   (`../migrations/README.md`).
+   (`../migrations/README.md`). On an alpha host,
+   `docker compose run --rm migrate` (ADR 045 item 3).
 6. **Verify.** `wipe-check.sh`, below, before any instance starts, since a
    boot writes a default level back. Mount every volume step 4 mounted, by
    the same names: it checks only the volumes under `WORLDS_DIR` and passes
@@ -177,13 +178,12 @@ that stops part way, or a lost connection before the drop, which may print no
 `FAILED` line at all. The database may be intact while some or every volume is
 cleared, so go to `restore.sh` with the step 3 set, never to step 7: that starts
 instances on cleared levels against a database that still holds the old
-items. Repeat step 2 first if any
-instance or the `backup` service is running, since `restore.sh` refuses while
-any other session is connected, before it drops the database or clears a world
-volume. Then `restore.sh` with the step 3 set, then step 5, then step 7. It
-rebuilds every world volume from that set, which is the state they were stopped
-in at step 2, so a rollback after step 7 also discards every block changed and
-every row written since the instances came back.
+items. Repeat step 2 first if any instance or the `backup` service is running,
+since `restore.sh` refuses while any other session is connected, before it
+drops the database or clears a world volume. Then step 5, then step 7.
+`restore.sh` rebuilds every world volume from that set, which is the state they
+were stopped in at step 2, so a rollback after step 7 also discards every block
+changed and every row written since the instances came back.
 
 **A refused run**, one that printed `wipe <database>: refused: ...`,
 has dropped and cleared nothing and needs no rollback. Every instance and the `backup`
@@ -271,32 +271,49 @@ wslc run --rm --network riftal-dev \
 
 Wrap each in `timeout 120` when running unattended.
 
-On an alpha host the scripts run with `docker`, never `wslc`, from the extracted
-tree `$OPS` (ADR 045 item 6), in a one-off container of the backup image
-`$BACKUP_IMAGE`; `$NET` is the compose project's network. The wipe refuses
-unless `images/plugins/seed-levels.sh` sits beside `deploy/` in `$OPS`. There is
-no `RIFTAL_DEV_ENV`, so a level with no build refuses.
+On an alpha host the scripts run with `docker`, never `wslc`, in a one-off
+container of the backup image `$BACKUP_IMAGE` (B), from the tree at
+`/opt/riftal/ops` (ADR 045 item 1, row 33). They drive no host runtime, so they
+do not run from an extracted copy. `$NET` is the compose project's network.
+`wipe-volumes.sh` finds `seed-levels.sh` at `../images/plugins/seed-levels.sh`
+beside `deploy/`, so the alpha wipe of a built level refuses until B's tree
+carries `images/plugins/seed-levels.sh` and a release image carries
+`/etc/riftal/levels` (riftal-infra#338). There is no `RIFTAL_DEV_ENV`, so a
+level with no build refuses.
 
-The builds are not on a volume. They are in the release image `$RELEASE_IMAGE`
-at `/etc/riftal/levels/<zone>` (ADR 009 item 7). Copy them out to a `$BUILDS`
-that does not exist yet, then mount it:
+The builds are in the release image `$RELEASE_REF`, a full reference, at
+`/etc/riftal/levels/<zone>` (ADR 009 item 7). Copy them out to `$BUILDS`, an
+absolute path that does not exist yet, then mount it. Export `MYSQL_PASSWORD`
+first, from the root secret, so it never sits in a command line.
+`$BACKUPS_VOLUME` and `$WORLD_VOLUME` are the external volumes the compose
+names; add one `$WORLD_VOLUME` line per instance volume:
 
 ```sh
-CID="$(docker create "$RELEASE_IMAGE")"
+export MYSQL_PASSWORD
+CID="$(docker create "$RELEASE_REF")"
 docker cp "$CID":/etc/riftal/levels "$BUILDS"
-docker rm "$CID"
+docker rm -v "$CID"
 docker run --rm -m 1g --cpus 1 --network "$NET" \
-  -v "$OPS/deploy:/deploy:ro" -v "$OPS/images/plugins:/images/plugins:ro" \
-  -v "$OPS/designer/levels:/levels:ro" -v "$BUILDS:/builds:ro" -v riftal-backups:/backups:ro \
-  -v riftal-world:/worlds/riftal-world \
-  -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
+  -v "$BACKUPS_VOLUME:/backups:ro" -v "$BUILDS:/builds:ro" \
+  -v "$WORLD_VOLUME:/worlds/$WORLD_VOLUME" \
+  -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD \
   -e MYSQL_DATABASE=riftal_alpha -e WIPE_CONFIRM=riftal_alpha \
   -e BACKUP_SET=/backups/<timestamp> -e WORLDS_DIR=/worlds \
-  -e LEVEL_LOCKS_DIR=/levels -e LEVEL_BUILDS_DIR=/builds \
-  "$BACKUP_IMAGE" bash /deploy/wipe.sh
+  -e LEVEL_LOCKS_DIR=/opt/riftal/ops/designer/levels -e LEVEL_BUILDS_DIR=/builds \
+  "$BACKUP_IMAGE" bash /opt/riftal/ops/deploy/wipe.sh
 ```
 
-The check is the dev form's, on `$BACKUP_IMAGE` and `$OPS`, with every volume `:ro`.
+Then, after `docker compose run --rm migrate`, the check, with every volume
+read-only. It reads the locks and no builds:
+
+```sh
+docker run --rm -m 1g --cpus 1 --network "$NET" \
+  -v "$WORLD_VOLUME:/worlds/$WORLD_VOLUME:ro" \
+  -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD \
+  -e MYSQL_DATABASE=riftal_alpha -e WORLDS_DIR=/worlds \
+  -e LEVEL_LOCKS_DIR=/opt/riftal/ops/designer/levels \
+  "$BACKUP_IMAGE" bash /opt/riftal/ops/deploy/wipe-check.sh
+```
 
 ## Testing
 
