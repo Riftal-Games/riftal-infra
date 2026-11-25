@@ -139,9 +139,9 @@ cases() {
   wait "$bg"
   is wait-ends-when-runners-exit "  unprinted start 1 pid 205 continued | f2:1" "$out2:$([ "$gone" -le 5000 ] && echo 1 || echo "${gone}ms")"
 
-  is wait-bound-capped '30' "$(live_wait_bound 10 1620 60 30)"
-  is wait-bound-shrinks '20' "$(live_wait_bound 1540 1620 60 30)"
-  is wait-bound-floored '0' "$(live_wait_bound 1590 1620 60 30)"
+  is wait-bound-capped '30' "$(live_wait_bound 10 2160 60 30)"
+  is wait-bound-shrinks '20' "$(live_wait_bound 2080 2160 60 30)"
+  is wait-bound-floored '0' "$(live_wait_bound 2130 2160 60 30)"
 }
 
 good="$work/good"
