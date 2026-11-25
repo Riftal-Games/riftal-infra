@@ -1115,5 +1115,5 @@ fragments from riftal-game. No safe-zone region is committed for either: riots i
 each is a later change that names its extent.
 
 The dev stack's `instance` seeds both from `riftal_smoke_level_quarry` and `riftal_smoke_level_farm`
-and its RiftalMines `worlds` lists them. The `travel` destinations stay as they are: a `/quarry` and a
-`/farm` command are riftal-game#1852's, which reads these two spawn names (#1454).
+and its RiftalMines `worlds` lists them. Its `travel` destinations name `quarry_spawn` and `farm_spawn`
+too (#1502); riftal-game#1852's `/quarry` and `/farm` commands read the same two spawn names (#1454).

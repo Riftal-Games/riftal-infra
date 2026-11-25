@@ -13,9 +13,9 @@
 # loads each for resets and declares its interior, which RiftalCustody needs
 # before it lets a block break there, so a seeded zone missing from `worlds`
 # cannot be mined; selftest.sh fails on one. A level the server already holds
-# as its default loads again without harm, so mine_a is listed too. Quarry and
-# farm are not travel destinations. The schema is the one
-# compose creates, riftal_dev (images/compose.yaml), not the shipped riftal.
+# as its default loads again without harm, so mine_a is listed too. The schema
+# is the one compose creates, riftal_dev (images/compose.yaml), not the shipped
+# riftal.
 # The login is the mines user of ADR 008, never root, and the password stays
 # empty: RiftalGames\Lib\Database\DatabaseSettings reads it from
 # RIFTAL_DB_PASSWORD_MINES in the instance's environment and throws if this
@@ -69,3 +69,5 @@ travel:
     a: "mine_a_spawn"
     b: "mine_b_spawn"
     c: "mine_c_spawn"
+    quarry: "quarry_spawn"
+    farm: "farm_spawn"
