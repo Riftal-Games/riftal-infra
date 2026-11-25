@@ -22,7 +22,7 @@ FAILURES=0
 PASSES=0
 # Every assertion below must run. A harness that quietly runs fewer and still
 # prints its closing line is the exact failure it exists to catch.
-EXPECTED_ASSERTIONS=205
+EXPECTED_ASSERTIONS=304
 
 rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
@@ -665,6 +665,351 @@ expect_ports_bad "$FIXTURES/bad/ports-wide-bind.compose.yaml" LOOPBACK_BIND_REQU
 expect_ports_bad "$FIXTURES/bad/ports-network-mode.compose.yaml" HOST_NETWORK_MODE 1
 expect_real_ports_clean
 
+# One alpha tree, good/alpha, is the whole fixture set for the alpha rules. A
+# case copies it, runs one mutation inside the copy and expects exactly the
+# finding codes it names, one finding each, from both tools scan.sh ports runs
+# on a file under deploy/alpha/. Codes in a case that names several are a
+# mutation that trips each of them and nothing else. A case that names none
+# expects a clean pass.
+#
+# A mutation that changes nothing is a failed case, because it would pass for
+# the wrong reason.
+ALPHA_GOOD="$FIXTURES/good/alpha"
+ALPHA_COMPOSE=deploy/alpha/compose.yaml
+
+# add_after <file> <service> <anchor> <text> puts text after the first line of
+# the service's block that matches anchor, \n for a line break. An empty service
+# reads the whole file. It fails when no line matched.
+add_after() {
+  awk -v service="$2" -v anchor="$3" -v text="$4" '
+    /^[^ ]/ { inside = (service == "") }
+    /^  [^ ]/ { inside = (service == "" || $0 == "  " service ":") }
+    { print }
+    inside && !done && $0 ~ anchor { print text; done = 1 }
+    END { if (!done) exit 3 }
+  ' "$1" > "$1.new" && mv "$1.new" "$1"
+}
+
+# add_definition <id> <tag> writes a second instance definition.
+add_definition() {
+  mkdir -p "instances/$1"
+  printf 'riftal/pocketmine-mp:%s\n' "$2" > "instances/$1/image"
+  cp instances/mines/instance.env "instances/$1/instance.env"
+}
+
+# The state of a serial rollout: a second instance on N-1 beside the first on N.
+add_second_instance() {
+  add_definition mines-b 2026.11.11-z
+  add_after "$ALPHA_COMPOSE" "" '^volumes:' '  riftal-world-b:\n    external: true'
+  add_after "$ALPHA_COMPOSE" backup '^      - riftal-world:/worlds' \
+    '      - riftal-world-b:/worlds/riftal-world-b:ro'
+  cat >> "$ALPHA_COMPOSE" <<'SECOND'
+
+  instance-b:
+    image: riftal/pocketmine-mp:2026.11.11-z
+    env_file:
+      - ../../instances/mines-b/instance.env
+    restart: on-failure
+    volumes:
+      - riftal-world-b:/data
+      - riftal-capture:/capture:ro
+SECOND
+}
+
+add_third_tag() {
+  add_definition mines-b 2026.11.11-z
+  add_definition mines-c 2026.11.10-y
+}
+
+add_unreferenced_unreadable_definition() {
+  add_second_instance
+  add_definition mines-c latest
+}
+
+# backup on the release image's repository, under the spelling given or the
+# bare one, with the command and the mount that image's rules would have
+# refused.
+put_backup_on_release_image() {
+  sed -i "/^  backup:/,/^  migrate:/s#riftal/backup:2026.11.12-a#${1:-riftal/pocketmine-mp:2026.11.12-a}#" "$ALPHA_COMPOSE"
+  add_after "$ALPHA_COMPOSE" backup '^    image:' '    command: ["sleep", "infinity"]'
+  add_after "$ALPHA_COMPOSE" backup '^      - riftal-backups' '      - /srv/boot:/opt/riftal:ro'
+}
+
+# set_mysql_image <image> replaces the mysql service's image: line.
+set_mysql_image() {
+  sed -i "/^  mysql:/,/^  instance:/s#^    image: .*#    image: $1#" "$ALPHA_COMPOSE"
+}
+
+# The release image spelled docker.io/riftal/pocketmine-mp in its definition and
+# in the instance, which backup then names bare.
+spell_release_image_with_registry() {
+  sed -i 's#^riftal/#docker.io/riftal/#' instances/mines/image
+  sed -i '/^  instance:/,/^  backup:/s#image: riftal/pocketmine-mp#image: docker.io/riftal/pocketmine-mp#' "$ALPHA_COMPOSE"
+  put_backup_on_release_image
+}
+
+add_second_publisher() {
+  add_second_instance
+  add_after "$ALPHA_COMPOSE" instance-b '^    image:' \
+    '    ports:\n      - "127.0.0.1:19132:19132/udp"'
+}
+
+# An env_file that is no instances/<id>/instance.env.
+point_at_stray_env() {
+  cp instances/mines/instance.env deploy/alpha/stray.env
+  sed -i 's#../../instances/mines/instance.env#stray.env#' "$ALPHA_COMPOSE"
+}
+
+# add_top_level <file> <text> appends a top-level block after services:.
+add_top_level() {
+  printf '\n%b\n' "$2" >> "$1"
+}
+
+add_include() {
+  printf 'services:\n  extra:\n    image: riftal/pocketmine-mp:2026.11.12-a\n' > deploy/alpha/extra.yaml
+  sed -i '1i include:\n  - extra.yaml\n' "$ALPHA_COMPOSE"
+}
+
+add_second_env_file() {
+  printf 'EXTRA=1\n' > deploy/alpha/extra.env
+  add_after "$ALPHA_COMPOSE" instance '^      - ../../instances/mines/instance.env' '      - extra.env'
+}
+
+list_environment() {
+  sed -i '/^  instance:/,/^  backup:/s/^      \(RIFTAL_DB_PASSWORD_ACCOUNTS\): /      - \1=/' "$ALPHA_COMPOSE"
+}
+
+list_environment_with_zones() {
+  list_environment
+  add_after "$ALPHA_COMPOSE" instance '^    environment:' '      - RIFTAL_LEVEL_ZONES=mine_a'
+}
+
+add_config_target() {
+  add_top_level "$ALPHA_COMPOSE" 'configs:\n  boot:\n    content: boot'
+  add_after "$ALPHA_COMPOSE" instance '^    restart:' \
+    "    configs:\n      - source: boot\n        target: $1"
+}
+
+add_secret_target() {
+  add_top_level "$ALPHA_COMPOSE" 'secrets:\n  boot:\n    environment: BOOT_SECRET'
+  add_after "$ALPHA_COMPOSE" instance '^    restart:' \
+    "    secrets:\n      - source: boot\n        target: $1"
+}
+
+alpha_case() {
+  local codes="$1" tree out status got want expected_status
+  shift
+  tree="$(mktemp -d)"
+  cp -R "$ALPHA_GOOD/." "$tree/"
+  if ! (cd "$tree" && "$@") || diff -rq "$ALPHA_GOOD" "$tree" > /dev/null; then
+    fail "the mutation '$*' did not change the alpha tree"
+    rm -rf "$tree"
+    return
+  fi
+  out="$(bash "$SCAN" ports "$tree/$ALPHA_COMPOSE" 2>&1)"
+  status=$?
+  got="$(printf '%s\n' "$out" \
+    | sed -nE 's/^::error file=[^:]*::[^:]*: ([A-Z][A-Z0-9_]+): .*/\1/p' | sort | tr '\n' ' ')"
+  want="$(printf '%s\n' $codes | sed '/^$/d' | sort | tr '\n' ' ')"
+  rm -rf "$tree"
+  if [ -n "$codes" ]; then
+    [ "$status" -ne 0 ]
+  else
+    [ "$status" -eq 0 ]
+  fi
+  expected_status=$?
+  if [ "$got" = "$want" ] && [ "$expected_status" -eq 0 ]; then
+    pass "alpha tree changed by '$*' gives ${want:-no finding}"
+  else
+    fail "expected alpha tree changed by '$*' to give '${want:-no finding}', got '${got:-no finding}', exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+# Outside deploy/alpha/ the alpha rules do not apply, and neither do the
+# placeholders: spec 016's production compose, where only the proxy publishes, is
+# not judged by them, and a file that reads a secret it does not get fails
+# `docker compose config`, on its missing secret.
+expect_alpha_scope() {
+  local tree out status
+  tree="$(mktemp -d)"
+  cp -R "$ALPHA_GOOD/." "$tree/"
+  mkdir -p "$tree/deploy/other"
+  mv "$tree/$ALPHA_COMPOSE" "$tree/deploy/other/compose.yaml"
+  sed -i 's/--xbox-auth=true/--xbox-auth=false/' "$tree/instances/mines/instance.env"
+  out="$(bash "$SCAN" ports "$tree/deploy/other/compose.yaml" 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qF 'required variable'; then
+    pass "a compose outside deploy/alpha/ gets no secret placeholder"
+  else
+    fail "expected a compose outside deploy/alpha/ to fail on its missing secret, exit $status"
+    printf '%s\n' "$out"
+  fi
+  out="$(MYSQL_ROOT_PASSWORD=x RIFTAL_DB_PASSWORD_ACCOUNTS=x RIFTAL_DB_PASSWORD_BACKUP=x \
+    bash "$SCAN" ports "$tree/deploy/other/compose.yaml" 2>&1)"
+  status=$?
+  rm -rf "$tree"
+  if [ "$status" -eq 0 ] && ! printf '%s' "$out" | grep -qF ALPHA_ \
+    && printf '%s' "$out" | grep -qxF "0 finding(s) in $tree/deploy/other/compose.yaml"; then
+    pass "a compose outside deploy/alpha/ is not judged by the alpha rules"
+  else
+    fail "expected a compose outside deploy/alpha/ to pass the port policy unjudged, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+# The no-argument invocation ci.yml uses reaches deploy/alpha/ under the root
+# it scans, and judges what it finds there.
+expect_real_alpha() {
+  local out status
+  mkdir -p "$PLANTED_DIR"
+  cp -R "$ALPHA_GOOD/." "$PLANTED_DIR/"
+  sed 's/--xbox-auth=true/--xbox-auth=false/' "$ALPHA_GOOD/instances/mines/instance.env" \
+    > "$PLANTED_DIR/instances/mines/instance.env"
+  out="$(cd "$REPO_ROOT" && bash "$SCAN" ports 2>&1)"
+  status=$?
+  rm -rf "$PLANTED_DIR"
+  if [ "$status" -ne 0 ] \
+    && printf '%s' "$out" | grep -qF 'checking ./.ci-realscan-planted/deploy/alpha/compose.yaml' \
+    && printf '%s' "$out" | grep -qF ': ALPHA_PUBLISH_XBOX_AUTH: ' \
+    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    pass "the real ports invocation judges a planted deploy/alpha/ compose"
+  else
+    fail "expected the real ports invocation to reject a planted deploy/alpha/ compose, exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+section "alpha compose, the good tree and a serial rollout on N and N-1"
+expect_scan_ok compose "$ALPHA_GOOD/$ALPHA_COMPOSE"
+expect_scan_ok ports "$ALPHA_GOOD/$ALPHA_COMPOSE"
+alpha_case "" add_second_instance
+alpha_case "" list_environment
+alpha_case "" sed -i '/^    env_file:$/{N;s#\n      - # #}' "$ALPHA_COMPOSE"
+expect_alpha_scope
+expect_real_alpha
+
+# expect_real_alpha_file <name> <content> <needle> plants one file under
+# deploy/alpha/ of the tree the no-argument scan reads, whatever it holds, and
+# expects the scan to list it, check it and fail with the needle in its output.
+expect_real_alpha_file() {
+  local name="$1" content="$2" needle="$3" out status
+  mkdir -p "$PLANTED_DIR/deploy/alpha"
+  printf '%b' "$content" > "$PLANTED_DIR/deploy/alpha/$name"
+  out="$(cd "$REPO_ROOT" && bash "$SCAN" ports 2>&1)"
+  status=$?
+  rm -rf "$PLANTED_DIR"
+  if [ "$status" -ne 0 ] \
+    && printf '%s' "$out" | grep -qF "checking ./.ci-realscan-planted/deploy/alpha/$name" \
+    && printf '%s' "$out" | grep -qF "$needle"; then
+    pass "the real ports invocation checks a planted deploy/alpha/$name and fails with '$needle'"
+  else
+    fail "expected the real ports invocation to check a planted deploy/alpha/$name and fail with '$needle', exit $status"
+    printf '%s\n' "$out"
+  fi
+}
+
+section "alpha port policy, a publishing service authenticates its own players"
+alpha_case ALPHA_PUBLISH_XBOX_AUTH sed -i 's/--xbox-auth=true/--xbox-auth=false/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_XBOX_AUTH sed -i 's/ --xbox-auth=true//' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_XBOX_AUTH sed -i 's/--xbox-auth=true/--xbox-auth=true --xbox-auth=false/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_CRASH_UPLOAD sed -i 's/--auto-report.enabled=0/--auto-report.enabled=false/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_CRASH_UPLOAD sed -i 's/ --auto-report.enabled=0//' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_XBOX_AUTH sed -i 's/--xbox-auth=true/--xbox-auth=true --xbox-auth=true/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_CRASH_UPLOAD sed -i 's/--auto-report.enabled=0/--auto-report.enabled=0 --auto-report.enabled=0/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_IPV6 sed -i 's/--enable-ipv6=0/--enable-ipv6=0 --enable-ipv6=0/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_TRANSPORT sed -i 's/--transport.name=raknet/--transport.name=raknet --transport.name=raknet/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_IPV6 sed -i 's/ --enable-ipv6=0//' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_IPV6 sed -i 's/--enable-ipv6=0/--enable-ipv6=1/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_TRANSPORT sed -i 's/ --transport.name=raknet//' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_TRANSPORT sed -i 's/--transport.name=raknet/--transport.name=nethernet/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_TRANSPORT sed -i 's/--transport.name=raknet/--transport.name=nethernet,raknet/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_VERIFY_XUID sed -i '/^POCKETMINE_ARGS=/s/$/ --player.verify-xuid=false/' instances/mines/instance.env
+alpha_case ALPHA_PUBLISH_DEV_BOTS sed -i '/^POCKETMINE_ARGS=/s/$/ --riftal-dev-bots=on/' instances/mines/instance.env
+alpha_case "ALPHA_PUBLISH_DEV_BOTS ALPHA_RELEASE_COMMAND" add_after "$ALPHA_COMPOSE" instance '^    image:' '    command: ["--riftal-dev-bots=on"]'
+alpha_case ALPHA_PUBLISH_DEV_ENV add_after "$ALPHA_COMPOSE" instance '^    environment:' '      RIFTAL_DEV_ENV: "1"'
+alpha_case ALPHA_MULTIPLE_PUBLISHERS add_second_publisher
+alpha_case LOOPBACK_BIND_REQUIRED sed -i 's/ALPHA_BIND:-127.0.0.1/ALPHA_BIND:-0.0.0.0/' "$ALPHA_COMPOSE"
+alpha_case BEDROCK_TCP_PUBLISH sed -i 's#19132/udp#19132#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_PUBLISH_PORT sed -i 's#:19132:19132/udp#:7551:7551/udp#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_PUBLISH_PORT sed -i 's#:19132:19132/udp#:19133:19133/udp#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_PUBLISH_PORT sed -i 's#:19132:19132/udp#:19133:19132/udp#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_PUBLISH_PORT sed -i 's#:19132:19132/udp#:7551:7551#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_PUBLISH_PORT sed -i 's#:19132:19132/udp#:19132-19133:19132-19133/udp#' "$ALPHA_COMPOSE"
+
+section "alpha lint, ADR 043 items 3 and 4 on the release-image service"
+alpha_case ALPHA_RELEASE_COMMAND add_after "$ALPHA_COMPOSE" instance '^    image:' '    command: ["start"]'
+alpha_case ALPHA_RELEASE_ENTRYPOINT add_after "$ALPHA_COMPOSE" instance '^    image:' '    entrypoint: ["start"]'
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - /srv/boot:/opt/riftal/boot:ro'
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - /srv/levels:/etc/riftal/levels:ro'
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - /srv/opt:/opt:ro'
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - type: bind\n        source: /srv/boot\n        target: /opt/riftal/boot/'
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^    restart:' '    tmpfs:\n      - /opt/riftal/boot'
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^    restart:' '    tmpfs: /opt'
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_config_target /etc/riftal/levels
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_secret_target /opt/riftal/boot
+alpha_case ALPHA_RELEASE_MOUNT_RESERVED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - /srv/boot://opt/riftal:ro'
+alpha_case ALPHA_BACKUP_MISSING_RO_MOUNT sed -i -e 's#riftal-world:/data#riftal-world://data#' -e '/riftal-world:\/worlds\/riftal-world:ro/d' "$ALPHA_COMPOSE"
+alpha_case ALPHA_RELEASE_VOLUMES_FROM add_after "$ALPHA_COMPOSE" instance '^    restart:' '    volumes_from:\n      - backup'
+alpha_case ALPHA_RELEASE_ENV_FILE_EXTRA add_second_env_file
+alpha_case ALPHA_RELEASE_ENV_ZONES add_after "$ALPHA_COMPOSE" instance '^    environment:' '      RIFTAL_LEVEL_ZONES: mine_a'
+alpha_case ALPHA_RELEASE_ENV_ZONES list_environment_with_zones
+alpha_case ALPHA_RELEASE_ENV_ARGS add_after "$ALPHA_COMPOSE" instance '^    environment:' '      POCKETMINE_ARGS: --level-name=mine_a --xbox-auth=true --auto-report.enabled=0 --enable-ipv6=0 --transport.name=raknet'
+alpha_case ALPHA_RELEASE_TAG_MISMATCH sed -i 's#riftal/pocketmine-mp:2026.11.12-a#riftal/pocketmine-mp:2026.11.12-b#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_RELEASE_NO_DEFINITION point_at_stray_env
+alpha_case ALPHA_OPS_ON_RELEASE_IMAGE put_backup_on_release_image
+alpha_case ALPHA_OPS_ON_RELEASE_IMAGE put_backup_on_release_image docker.io/riftal/pocketmine-mp:2026.11.12-a
+alpha_case ALPHA_OPS_ON_RELEASE_IMAGE put_backup_on_release_image index.docker.io/riftal/pocketmine-mp:2026.11.12-a
+alpha_case ALPHA_OPS_ON_RELEASE_IMAGE spell_release_image_with_registry
+alpha_case ALPHA_OPS_ON_RELEASE_IMAGE set_mysql_image docker.io/riftal/pocketmine-mp@sha256:0000000000000000000000000000000000000000000000000000000000000000
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image '${M:-riftal/pocketmine-mp:2026.11.12-a}'
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image sha256:1111111111111111111111111111111111111111111111111111111111111111
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image sha256:0123456789
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE sed -i '/^  mysql:/,/^  instance:/{/^    image:/d}' "$ALPHA_COMPOSE"
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image mysql
+alpha_case ALPHA_MYSQL_IMAGE_UNREADABLE set_mysql_image mysql:latest
+
+section "alpha lint, ADR 045 item 4 on tags, capture, backup and volumes"
+alpha_case ALPHA_BACKUP_MIGRATE_TAG_DIFFER sed -i '/^  backup:/,/^  migrate:/s#riftal/backup:2026.11.12-a#riftal/backup:2026.11.12-b#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_RELEASE_TAG_UNNAMED sed -i 's#riftal/backup:2026.11.12-a#riftal/backup:2026.11.12-b#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_TOO_MANY_TAGS add_third_tag
+alpha_case ALPHA_CAPTURE_MISSING_RO sed -i '/riftal-capture:\/capture:ro/d' "$ALPHA_COMPOSE"
+alpha_case ALPHA_CAPTURE_RELEASE_RW sed -i 's#riftal-capture:/capture:ro#riftal-capture:/capture#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_CAPTURE_RW_NOT_BACKUP add_after "$ALPHA_COMPOSE" migrate '^    profiles:' '    volumes:\n      - riftal-capture:/capture'
+alpha_case ALPHA_BACKUP_MISSING_RO_MOUNT sed -i '/riftal-world:\/worlds\/riftal-world:ro/d' "$ALPHA_COMPOSE"
+alpha_case ALPHA_BACKUP_MISSING_RO_MOUNT sed -i 's#\(/worlds/riftal-world\):ro#\1#' "$ALPHA_COMPOSE"
+alpha_case ALPHA_BUILD_KEY add_after "$ALPHA_COMPOSE" backup '^    image:' '    build: ./backup'
+alpha_case ALPHA_RELATIVE_BIND add_after "$ALPHA_COMPOSE" backup '^      - riftal-backups' '      - ../../deploy:/deploy:ro'
+alpha_case ALPHA_RELATIVE_BIND add_after "$ALPHA_COMPOSE" backup '^      - riftal-backups' '      - type: bind\n        source: ./scripts\n        target: /scripts'
+alpha_case ALPHA_DATA_VOLUME_NOT_EXTERNAL sed -i '/^  riftal-world:$/{n;s/.*/    driver: local/}' "$ALPHA_COMPOSE"
+
+section "alpha lint, the three rules ADR 045 leaves to it"
+alpha_case ALPHA_RESTART_NOT_ON_FAILURE sed -i 's/restart: on-failure/restart: always/' "$ALPHA_COMPOSE"
+alpha_case ALPHA_RESTART_NOT_ON_FAILURE sed -i '/restart: on-failure/d' "$ALPHA_COMPOSE"
+alpha_case ALPHA_RELEASE_HEALTHCHECK add_after "$ALPHA_COMPOSE" instance '^    restart:' '    healthcheck:\n      disable: true'
+alpha_case ALPHA_RELEASE_BOOT_STARTS add_after "$ALPHA_COMPOSE" instance '^    environment:' '      RIFTAL_BOOT_STARTS: /tmp/starts'
+alpha_case ALPHA_RELEASE_BOOT_STARTS add_after instances/mines/instance.env "" '^POCKETMINE_ARGS=' 'RIFTAL_BOOT_STARTS=/tmp/starts'
+
+section "alpha lint, what it cannot read it refuses"
+alpha_case ALPHA_EXTENDS add_after "$ALPHA_COMPOSE" instance '^    restart:' '    extends:\n      service: backup'
+alpha_case ALPHA_INCLUDE add_include
+alpha_case ALPHA_SERVICE_MISSING sed -i '/^  migrate:/,$d' "$ALPHA_COMPOSE"
+alpha_case ALPHA_IMAGE_TAG_UNREADABLE sed -i 's#riftal/pocketmine-mp:2026.11.12-a#riftal/pocketmine-mp:latest#' "$ALPHA_COMPOSE"
+alpha_case "ALPHA_DEFINITION_IMAGE_UNREADABLE ALPHA_RELEASE_TAG_UNNAMED" sed -i 's#:.*#:latest#' instances/mines/image
+alpha_case ALPHA_DEFINITION_IMAGE_UNREADABLE add_unreferenced_unreadable_definition
+alpha_case ALPHA_MOUNT_INTERPOLATED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - riftal-data:${T:-/opt/riftal/boot}'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - ${S:-/srv}:/srv/boot:ro'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_after "$ALPHA_COMPOSE" instance '^      - riftal-capture' '      - type: bind\n        source: /srv/boot\n        target: ${T:-/etc/riftal}'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_after "$ALPHA_COMPOSE" instance '^    restart:' '    tmpfs: ${T:-/opt/riftal}'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_config_target '${T:-/etc/riftal}'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_secret_target '${T:-/opt/riftal/boot}'
+alpha_case ALPHA_MOUNT_INTERPOLATED add_after "$ALPHA_COMPOSE" backup '^      - riftal-backups' '      - /srv/out:${T:-/opt/riftal}'
+alpha_case ALPHA_MOUNT_INTERPOLATED sed -i 's#riftal-world:/data#riftal-world:${T:-/data}#' "$ALPHA_COMPOSE"
+expect_real_alpha_file compose.yaml 'include:\n  - extra.yaml\n' ': ALPHA_INCLUDE: '
+expect_real_alpha_file compose.override.yaml 'services:\n  instance:\n    restart: always\n' ': ALPHA_COMPOSE_OVERRIDE: '
+expect_real_alpha_file notes.yaml '- not\n- a mapping\n' 'the compose file is not a mapping'
+expect_real_alpha_file quoted.yaml '"services":\n  mysql:\n    image: mysql\n' ': ALPHA_SERVICE_MISSING: '
+
 section "php lint, broken file at each position in a multi-file batch"
 expect_php_lint_clean "$FIXTURES/good/php-plugins"
 expect_php_lint_rejected "$FIXTURES/bad/php-plugins-first" a_broken.php z_valid.php
@@ -805,5 +1150,5 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed. A check has stopped discriminating.\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed, both sides for hadolint, discovery, compose, port policy, php lint, container cleanup and action pins.\n' "$PASSES"
+printf 'all %s assertions passed, both sides for hadolint, discovery, compose, port policy, alpha compose lint, php lint, container cleanup and action pins.\n' "$PASSES"
 printf 'scan.sh itself is exercised end to end: discovery, every check function, the loop, and the exact no-argument invocation ci.yml uses.\n'
