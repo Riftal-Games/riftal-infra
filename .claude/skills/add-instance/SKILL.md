@@ -39,6 +39,15 @@ If this step feels like it is taking real time, something has drifted. Adding an
 
 - [ ] Stop writes to the world on the source instance. Either stop the instance or unload the world.
 - [ ] Copy the world directory to the new instance. Verify the copy: file count and total size match.
+- [ ] **Moving `plots`: the source instance's player data moves with it** (riftal-pm
+  ADR 012, item 9 and its Instance-split impact). Copy the source volume's `players/`
+  directory to the new instance's volume together with the `plots` folder, both from
+  the same stopped instance or the same quiesced capture (ADR 015's held tick, as
+  `deploy/backup.sh` takes it). Never take one from a later moment than the other. The
+  placed-block record lives in the `plots` chunks, so a chunk saved after a placement
+  paired with a player file saved before it lets the player keep the item and the block
+  drop it again: an item the server created. Verify this copy the same way, and freeze
+  the source `players/` with the source world.
 - [ ] Set the new instance's default world and its world list.
 - [ ] **Freeze the source copy.** Rename it, do not delete it. It is the rollback. It gets deleted at the end, after verification, not before.
 
