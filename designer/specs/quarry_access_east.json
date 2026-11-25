@@ -1,0 +1,8 @@
+{
+  "world": "quarry",
+  "from": [0, 53, 30],
+  "direction": "east",
+  "rise": 11,
+  "width": 3,
+  "headroom": 3
+}
