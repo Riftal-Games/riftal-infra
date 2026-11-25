@@ -1,0 +1,5 @@
+# Expected: CPU_LIMIT_MISSING once, at services.instance.
+services:
+  instance:
+    image: local-pocketmine-mp:fixture
+    mem_limit: 2G
