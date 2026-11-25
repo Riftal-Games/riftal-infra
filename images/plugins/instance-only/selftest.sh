@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
 # and RiftalAccounts (riftal-infra#465), RiftalRanks (riftal-infra#558) and
-# RiftalEconomy (riftal-infra#887), and for start-instance.sh and
-# require-accounts.sh, the scripts that load them. Also pins crash
+# RiftalEconomy (riftal-infra#887) and RiftalPlots (riftal-infra#345), and for
+# start-instance.sh and require-accounts.sh, the scripts that load them. Also pins crash
 # auto-report off on every PocketMine service, designer/stack's included, and
 # covers deliver-world-index.sh and the index mount both instances boot with
 # (riftal-infra#293), the memory and CPU limits on mysql and both
@@ -14,7 +14,7 @@
 # stubbed. It also covers link-replaced.sh, which it runs against scratch
 # fixtures in a throwaway php:8.3-cli-alpine container, so it needs Docker and
 # that image, but neither the dev stack nor a built RiftalMines.phar,
-# RiftalRanks.phar or RiftalEconomy.phar.
+# RiftalRanks.phar, RiftalEconomy.phar or RiftalPlots.phar.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,12 +28,13 @@ ACCOUNTS_PW=selftestAccountsPassword01
 RANKS_PW=selftestRanksPassword0001
 ECONOMY_PW=selftestEconomyPassword01
 MINES_PW=selftestMinesPassword0001
-printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\n' \
-  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" > "$work/env"
+PLOTS_PW=selftestPlotsPassword0001
+printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\nRIFTAL_DB_PASSWORD_PLOTS=%s\n' \
+  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" "$PLOTS_PW" > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=103
+EXPECTED_ASSERTIONS=110
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -144,7 +145,8 @@ printf '\n== start-instance.sh keeps what start-pocketmine does\n'
 # With MINES set, RiftalMines.phar is built, contracts.phar sits at the top of
 # /plugins as on the real stack, a config rendered by hand sits next to it, and
 # the volume holds one an earlier boot rendered as root. With RANKS set,
-# RiftalRanks.phar is built, and with ECONOMY set, RiftalEconomy.phar.
+# RiftalRanks.phar is built, with ECONOMY set, RiftalEconomy.phar, and with
+# PLOTS set, RiftalPlots.phar.
 ROOT_PW=rootPasswordFromAnEarlierBoot
 boot() {
   local owner="$1" root="$work/boot"
@@ -153,7 +155,7 @@ boot() {
   mkdir -p "$root/plugins" "$root/data" "$root/pm" "$root/bin"
   : > "$root/plugins/Cached.phar"
   cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$DIR/RiftalRanks.config.yml" \
-    "$DIR/RiftalEconomy.config.yml" "$root/"
+    "$DIR/RiftalEconomy.config.yml" "$DIR/RiftalPlots.config.yml" "$root/"
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
     : > "$root/plugins/contracts.phar"
@@ -166,6 +168,9 @@ boot() {
   fi
   if [ -n "${ECONOMY:-}" ]; then
     : > "$root/RiftalEconomy.phar"
+  fi
+  if [ -n "${PLOTS:-}" ]; then
+    : > "$root/RiftalPlots.phar"
   fi
   # A source folder DevTools would load, and two it would refuse.
   if [ -n "${FOLDERS:-}" ]; then
@@ -280,6 +285,24 @@ check "with RiftalEconomy.phar built, an unset RIFTAL_DB_PASSWORD_ECONOMY stops 
   '! ECONOMY=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_ECONOMY is not set" "$b/out"'
 check "without RiftalEconomy.phar, no economy config lands and no economy password is needed" \
   'boot "$me" && [ ! -e "$economy_on_volume" ] && ! grep -q RiftalEconomy "$b/roster"'
+
+printf '\n== RiftalPlots connects as the plots login, its password only in the environment (riftal-infra#345)\n'
+PLOTS_CONFIG="$DIR/RiftalPlots.config.yml"
+plots_on_volume="$b/data/plugin_data/RiftalPlots/config.yml"
+check "the plots config names the compose mysql, its schema and the plots login, with no password" \
+  '[ "$(db host "$PLOTS_CONFIG")" = mysql ] && [ "$(db username "$PLOTS_CONFIG")" = plots ] &&
+    [ "$(db schema "$PLOTS_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
+    grep -qx "  password: \"\"" "$PLOTS_CONFIG"'
+check "instance and instance-b get RIFTAL_DB_PASSWORD_PLOTS from images/.env" \
+  'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_PLOTS == \"$PLOTS_PW\"
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_PLOTS == \"$PLOTS_PW\"" <<<"$real" >/dev/null'
+check "with RiftalPlots.phar built, the tracked config lands on the volume with no password and the phar joins the roster" \
+  'PLOTS=1 boot "$me" RIFTAL_DB_PASSWORD_PLOTS="$PLOTS_PW" && grep -qx RiftalPlots.phar "$b/roster" &&
+    cmp -s "$PLOTS_CONFIG" "$plots_on_volume" && ! grep -rqF "$PLOTS_PW" "$b/data"'
+check "with RiftalPlots.phar built, an unset RIFTAL_DB_PASSWORD_PLOTS stops the boot before php, naming it" \
+  '! PLOTS=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_PLOTS is not set" "$b/out"'
+check "without RiftalPlots.phar, no plots config lands and no plots password is needed" \
+  'boot "$me" && [ ! -e "$plots_on_volume" ] && ! grep -q RiftalPlots "$b/roster"'
 
 printf '\n== RiftalAccounts loads on every instance as the accounts login (riftal-infra#465)\n'
 ACCOUNTS_CONFIG="$DIR/../RiftalAccounts.config.yml"
@@ -489,9 +512,10 @@ SHIPPED="$SNAPSHOT/mines/resources/config.yml"
 RANKS_SHIPPED="$SNAPSHOT/ranks/resources/config.yml"
 ACCOUNTS_SHIPPED="$SNAPSHOT/accounts/resources/config.yml"
 ECONOMY_SHIPPED="$SNAPSHOT/economy/resources/config.yml"
+PLOTS_SHIPPED="$SNAPSHOT/plots/resources/config.yml"
 check "the snapshot names the riftal-game commit it was taken from" \
   '[ "$(wc -l < "$SNAPSHOT/SOURCE")" -eq 1 ] && grep -qE "^[0-9a-f]{40}$" "$SNAPSHOT/SOURCE"'
-# Compares the snapshot with the four configs under $1, a riftal-game checkout.
+# Compares the snapshot with the five configs under $1, a riftal-game checkout.
 # It runs only when RIFTAL_GAME_DIR names one, so a CI run with no checkout
 # takes the snapshot alone. LIVE counts these checks apart from the expected
 # total, which holds with or without a checkout.
@@ -499,7 +523,7 @@ LIVE=0
 live_drift() {
   local plugin
   local checkout="$1"
-  for plugin in mines ranks accounts economy; do
+  for plugin in mines ranks accounts economy plots; do
     LIVE=$((LIVE + 1))
     check "the snapshot's $plugin config is the one in riftal-game at $checkout" \
       'cmp -s "$SNAPSHOT/$plugin/resources/config.yml" "$checkout/$plugin/resources/config.yml"'
@@ -507,12 +531,12 @@ live_drift() {
 }
 if [ -n "${RIFTAL_GAME_DIR:-}" ]; then live_drift "$RIFTAL_GAME_DIR"; fi
 game="$work/game"
-for plugin in mines ranks accounts economy; do
+for plugin in mines ranks accounts economy plots; do
   mkdir -p "$game/$plugin/resources"
   cp "$SNAPSHOT/$plugin/resources/config.yml" "$game/$plugin/resources/config.yml"
 done
 check "a checkout equal to the snapshot passes the live comparison" \
-  '[ "$(LIVE=0; FAILURES=0; live_drift "$game" >/dev/null; echo "$FAILURES $LIVE")" = "0 4" ]'
+  '[ "$(LIVE=0; FAILURES=0; live_drift "$game" >/dev/null; echo "$FAILURES $LIVE")" = "0 5" ]'
 sed 's/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/' "$SHIPPED" > "$game/mines/resources/config.yml"
 check "a checkout whose mines config differs from the snapshot fails the live comparison" \
   '! cmp -s "$SHIPPED" "$game/mines/resources/config.yml" &&
@@ -626,6 +650,11 @@ check "every line in riftal-game's economy config.yml but the schema matches the
 check "a shipped sell shop price the economy config does not carry is caught" \
   'sed "s/^    \"minecraft:coal\": .*/    \"minecraft:coal\": 6/" "$ECONOMY_SHIPPED" > "$mutated" &&
     [ "$(settings "$mutated")" != "$(settings "$ECONOMY_CONFIG")" ]'
+check "every line in riftal-game's plots config.yml but the schema matches the plots config" \
+  '[ -n "$(settings "$PLOTS_SHIPPED")" ] && [ "$(settings "$PLOTS_SHIPPED")" = "$(settings "$PLOTS_CONFIG")" ]'
+check "a shipped plots-world the plots config does not carry is caught" \
+  'sed "s/^plots-world:.*/plots-world: \"elsewhere\"/" "$PLOTS_SHIPPED" > "$mutated" &&
+    [ "$(settings "$mutated")" != "$(settings "$PLOTS_CONFIG")" ]'
 printf '\n'
 ran=$((PASSES + FAILURES - LIVE))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
