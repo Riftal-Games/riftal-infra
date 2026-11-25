@@ -1,0 +1,30 @@
+{
+  "bounds": {
+    "max": [
+      10,
+      52,
+      10
+    ],
+    "min": [
+      -10,
+      38,
+      -10
+    ]
+  },
+  "chunks": 328,
+  "content_sha256": "ebdcc52ffe9ba97d7bc9169c3f11eb839dcd912fab7565292f30f31be90fbc0c",
+  "core_image": "sha256:1b7d1b309c3cdfaafb187397eeda2515c79ea51dd8ef1b791dc06f1383feea1b",
+  "designbridge_commit": "b054e528b99fd1df32100e46094ca70961080066",
+  "generator": "normal",
+  "inputs": {
+    "levels/quarry.json": "8363467eecc72b0c41dda755effeb24d2104e33f5a8741ffe200c20cbe15fdbb",
+    "palette:mine_stone": "30c68b82e89822017f0173446c4f3fbd81ad3d470c9d57c8645cdfb292e33979",
+    "specs/quarry.json": "b3009a14d2b00be1a0c5aa3520596556e25ea8f582e9f433ac9a32c76ac54d7f",
+    "specs/quarry_access_east.json": "122ba76eab9a0b883e68b808a597886b540571c03b1312c0dc5dbaabecc83877",
+    "specs/quarry_access_south.json": "a45ce80171adfe58964838cd248adddbd5dab9fc13fd560f1e22855a1e9d3019"
+  },
+  "seed": 23,
+  "size_bytes": 488960,
+  "toolkit_commit": "8f2f93ca037c7ae77b94d4ab5da51ce13e085bf7",
+  "zone": "quarry"
+}

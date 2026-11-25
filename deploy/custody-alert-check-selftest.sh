@@ -20,8 +20,10 @@ quiet() {
 }
 # riftal-game custody/src/RiftalGames/Custody/FlushFailureResponse.php:76
 probe_failed="$e flushing Steve failed at file fsync and the probe failed too, so no player file can be made durable; killing the process"
-# riftal-game custody/src/RiftalGames/Custody/Shutdown.php:26
+# riftal-game custody/src/RiftalGames/Custody/Shutdown.php:32-33, the runtime-disable form
 disabled="$e RiftalCustody was disabled while the server is running; killing the process so no world saves without it"
+# riftal-game custody/src/RiftalGames/Custody/Shutdown.php:32-33, the refused-boot form
+boot_refused="$e RiftalCustody refused to enable (the probe failed at startup (disk full)) while the server is running; killing the process so no world saves without it"
 # riftal-game custody/src/RiftalGames/Custody/FlushFailureResponse.php:87, both branches of its probe clause
 held() { printf '%s flushing %s failed at save and the probe held; destroyed 3 item-yielding entities in mine-a, plots-1 and refusing %s until restart\n' "$e" "$1" "$1"; }
 nothing() { printf '%s flushing %s failed at read-back with nothing to probe; destroyed 0 item-yielding entities in  and refusing %s until restart\n' "$e" "$1" "$1"; }
@@ -34,6 +36,7 @@ log() {
 log quiet.log
 log probe.log "$probe_failed"
 log disabled.log "$disabled"
+log boot-refused.log "$boot_refused"
 log steve.log "$(held Steve)"
 log steve-upper.log "$(nothing sTEVE)"
 log alex.log "$(nothing Alex)"
@@ -56,7 +59,7 @@ printf '%s\n' '[11:59:58.000] [Server thread/WARNING]: Non-packaged installation
 
 failures=0
 ran=0
-expected=16
+expected=18
 # check <exit> <regex some output line must match> <case> <log>...
 check() {
   local want="$1" match="$2" case="$3" out got
@@ -81,6 +84,10 @@ check 1 '^CUSTODY ALERT: instance-wide custody stop in two consecutive logs: pro
   'two consecutive instance-wide stops alert' probe.log disabled.log
 check 0 '^CUSTODY OK: 3 log\(s\), 2 instance-wide' 'two non-consecutive instance-wide stops pass' \
   probe.log quiet.log disabled.log
+check 0 '^CUSTODY OK: 1 log\(s\), 1 instance-wide' 'a refused boot is one instance-wide stop' \
+  boot-refused.log
+check 1 '^CUSTODY ALERT: instance-wide custody stop in two consecutive logs: boot-refused.log:5, then disabled.log:5$' \
+  'a refused boot then a runtime disable alert' boot-refused.log disabled.log
 check 1 '^CUSTODY ALERT: player steve refused 2 times: steve.log:5, steve-upper.log:5$' \
   'one player in two logs, in different letter case, alerts' steve.log quiet.log steve-upper.log
 check 1 '^CUSTODY ALERT: player alex refused 2 times: alex-twice.log:5, alex-twice.log:6$' \
