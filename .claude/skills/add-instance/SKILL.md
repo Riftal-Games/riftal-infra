@@ -24,6 +24,8 @@ The world-split. This is the core scaling operation on RiftalGames. Rehearse it 
 Instances are containers from one shared image. There is no host to build and no software to install. What makes this container a specific instance is its mounted config and its `instance_id`, never a separately built image.
 
 - [ ] Create `instances/<instance_id>/` in this repo holding its `server.properties`, `pocketmine.yml`, plugin configs, and world list. The container is disposable, the definition in git is not. This is the actual provisioning step.
+  Leave the moving zone out of that list until step 2 has put its level folder on the
+  new volume.
 - [ ] Run the core image **at the same tag every other instance runs**. Mixed core versions behind one proxy is a protocol mismatch waiting to happen, and with containers there is no excuse for it, because the tag is right there.
 - [ ] Mount the plugin phars for this instance's worlds. An instance loads only the plugins it needs, but the shared library version must match everywhere, because they share a schema.
 - [ ] Mount the world directory on a volume. Never in the container layer. A world in a container layer is a world that a redeploy destroys.
@@ -39,7 +41,11 @@ If this step feels like it is taking real time, something has drifted. Adding an
 
 - [ ] Stop writes to the world on the source instance. Either stop the instance or unload the world.
 - [ ] Copy the world directory to the new instance. Verify the copy: file count and total size match.
-- [ ] Set the new instance's default world and its world list.
+- [ ] Only now, with the copy verified on the new instance's volume, add the zone to the
+  new instance's zone list and set its default world. Never the other order: the boot
+  seed step (ADR 009 item 5) seeds a pristine built level for any listed zone whose
+  folder is absent, and that pristine level then hides the real one. Harmless for a
+  mine that resets, a lost map for plots.
 - [ ] **Freeze the source copy.** Rename it, do not delete it. It is the rollback. It gets deleted at the end, after verification, not before.
 
 ## 3. Register with the proxy
