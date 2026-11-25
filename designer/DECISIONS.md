@@ -1075,3 +1075,45 @@ The platform and the stairs are outside it, so `mine_a_spawn_to_surface` (`path_
 and `warp_safe` carry `zone: mine_a` and gate the build too, as do `entity_clear` on `sell_npc_a` and
 `rankup_npc_a`: the mine builder carves the whole exit platform to head height, so the cells beside the
 lane that hold the signs are open and not stone (#1395).
+
+## 2026-11-05 `mine_b` takes `mine_a`'s siting, and `mine_c` waits on its ore name
+
+`mine_b` has the same geometry as `mine_a`, so on seed 23 it takes the same two legs from `(0, 39, 23)`
+and `(0, 52, 36)` and the same surface goal `(13, 64, 36)`. Its recipe, `mine_b_spawn_to_surface` and
+`entity_clear` on its two signs mirror `mine_a`'s, and `tests/test_mine_a_access.py` runs over both. That
+file also reads `warp_safe` at the spawn on a region with the stairs built, so the ring row at z 24 holds
+the first tread and not the stone a mine-only box ends in front of (#1407).
+
+`mine_c` has no recipe yet. Its mine spec names lapis by the Bedrock id `minecraft:lapis_ore`, its
+RiftalMines fragment by the item alias `minecraft:lapis_lazuli_ore`, and the ore gate refuses the build
+on that difference. The fragment is riftal-game#560's to correct, and a build with the fragment edited
+only for this run would gate nothing. `mine_c`'s index seed stays 20260907 until its level builds.
+
+## 2026-11-10 `mine_c` takes `mine_a`'s siting once its fragment names `minecraft:lapis_ore`
+
+riftal-game#560 corrected the RiftalMines `mine_c` fragment to the Bedrock id `minecraft:lapis_ore`, so the
+ore gate passes the unedited spec and the build runs against the fragment on riftal-game `main`. `mine_c`
+has the geometry of `mine_a` and `mine_b`, so it takes the same recipe on seed 23, the same two legs from
+`(0, 39, 23)` and `(0, 52, 36)` and the same surface goal `(13, 64, 36)`, and its index seed moves to 23 with
+it. `mine_c_spawn_to_surface` and `entity_clear` on `sell_npc_c` and `rankup_npc_c` mirror `mine_b`'s, and
+`tests/test_mine_a_access.py` runs over all three mines (#1412).
+
+## 2026-11-13 `quarry` and `farm` take lumber's yard on seed 23, and `farm` stands one row higher
+
+RiftalMines' `quarry` fragment is a 17 by 17 box from y 40 to 50 with `floor_y` 40 and the farm's is the
+single row y 41 over `floor_y` 40, which are lumber's footprint and height. Both build on lumber's recipe
+box, `(-10, 38, -10)` to `(10, 52, 10)`, its seed 23, and its two three-wide stairs legs, so the exit
+lane ends at `(0, 40, 16)` and the legs reach the plateau `lumber_spawn_to_surface` already walks to,
+`(14, 65, 30)`. `quarry`'s ores are cobblestone and andesite, as the fragment has them. `farm`'s spec sets
+`floor_y` 41: a crop mine's reset row is its bottom interior row and its `mine_reset` fragment names the
+farmland under it, so 41 gives the fragment's `floor_y` 40 and row y 41, and the farmland the builder
+writes at y 40 is the row `MineRefillTask.php` rewrites. Its exit platform is then y 40 and
+`farm_spawn` `(0, 41, 16)`, one above `quarry_spawn` `(0, 40, 16)`, so `farm`'s first leg starts from
+`(0, 40, 16)`, its second from `(0, 54, 30)` with a rise of 10, and its last tread is y 64 like lumber's.
+Both index seeds move to 23 with the recipes, and `tests/test_lumber_fragment.py` reads all three
+fragments from riftal-game. No safe-zone region is committed for either: riots is M3, so a region for
+each is a later change that names its extent.
+
+The dev stack's `instance` seeds both from `riftal_smoke_level_quarry` and `riftal_smoke_level_farm`
+and its RiftalMines `worlds` lists them. Its `travel` destinations name `quarry_spawn` and `farm_spawn`
+too (#1502); riftal-game#1852's `/quarry` and `/farm` commands read the same two spawn names (#1454).

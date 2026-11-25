@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
 # and RiftalAccounts (riftal-infra#465), RiftalRanks (riftal-infra#558) and
-# RiftalEconomy (riftal-infra#887), and for start-instance.sh and
-# require-accounts.sh, the scripts that load them. Also pins crash
+# RiftalEconomy (riftal-infra#887) and RiftalPlots (riftal-infra#345), and for
+# start-instance.sh and require-accounts.sh, the scripts that load them. Also pins crash
 # auto-report off on every PocketMine service, designer/stack's included, and
 # covers deliver-world-index.sh and the index mount both instances boot with
 # (riftal-infra#293), the memory and CPU limits on mysql and both
@@ -14,7 +14,7 @@
 # stubbed. It also covers link-replaced.sh, which it runs against scratch
 # fixtures in a throwaway php:8.3-cli-alpine container, so it needs Docker and
 # that image, but neither the dev stack nor a built RiftalMines.phar,
-# RiftalRanks.phar or RiftalEconomy.phar.
+# RiftalRanks.phar, RiftalEconomy.phar or RiftalPlots.phar.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,12 +28,13 @@ ACCOUNTS_PW=selftestAccountsPassword01
 RANKS_PW=selftestRanksPassword0001
 ECONOMY_PW=selftestEconomyPassword01
 MINES_PW=selftestMinesPassword0001
-printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\n' \
-  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" > "$work/env"
+PLOTS_PW=selftestPlotsPassword0001
+printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\nRIFTAL_DB_PASSWORD_PLOTS=%s\n' \
+  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" "$PLOTS_PW" > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=97
+EXPECTED_ASSERTIONS=110
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -144,7 +145,8 @@ printf '\n== start-instance.sh keeps what start-pocketmine does\n'
 # With MINES set, RiftalMines.phar is built, contracts.phar sits at the top of
 # /plugins as on the real stack, a config rendered by hand sits next to it, and
 # the volume holds one an earlier boot rendered as root. With RANKS set,
-# RiftalRanks.phar is built, and with ECONOMY set, RiftalEconomy.phar.
+# RiftalRanks.phar is built, with ECONOMY set, RiftalEconomy.phar, and with
+# PLOTS set, RiftalPlots.phar.
 ROOT_PW=rootPasswordFromAnEarlierBoot
 boot() {
   local owner="$1" root="$work/boot"
@@ -153,7 +155,7 @@ boot() {
   mkdir -p "$root/plugins" "$root/data" "$root/pm" "$root/bin"
   : > "$root/plugins/Cached.phar"
   cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$DIR/RiftalRanks.config.yml" \
-    "$DIR/RiftalEconomy.config.yml" "$root/"
+    "$DIR/RiftalEconomy.config.yml" "$DIR/RiftalPlots.config.yml" "$root/"
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
     : > "$root/plugins/contracts.phar"
@@ -166,6 +168,9 @@ boot() {
   fi
   if [ -n "${ECONOMY:-}" ]; then
     : > "$root/RiftalEconomy.phar"
+  fi
+  if [ -n "${PLOTS:-}" ]; then
+    : > "$root/RiftalPlots.phar"
   fi
   # A source folder DevTools would load, and two it would refuse.
   if [ -n "${FOLDERS:-}" ]; then
@@ -280,6 +285,24 @@ check "with RiftalEconomy.phar built, an unset RIFTAL_DB_PASSWORD_ECONOMY stops 
   '! ECONOMY=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_ECONOMY is not set" "$b/out"'
 check "without RiftalEconomy.phar, no economy config lands and no economy password is needed" \
   'boot "$me" && [ ! -e "$economy_on_volume" ] && ! grep -q RiftalEconomy "$b/roster"'
+
+printf '\n== RiftalPlots connects as the plots login, its password only in the environment (riftal-infra#345)\n'
+PLOTS_CONFIG="$DIR/RiftalPlots.config.yml"
+plots_on_volume="$b/data/plugin_data/RiftalPlots/config.yml"
+check "the plots config names the compose mysql, its schema and the plots login, with no password" \
+  '[ "$(db host "$PLOTS_CONFIG")" = mysql ] && [ "$(db username "$PLOTS_CONFIG")" = plots ] &&
+    [ "$(db schema "$PLOTS_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
+    grep -qx "  password: \"\"" "$PLOTS_CONFIG"'
+check "instance and instance-b get RIFTAL_DB_PASSWORD_PLOTS from images/.env" \
+  'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_PLOTS == \"$PLOTS_PW\"
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_PLOTS == \"$PLOTS_PW\"" <<<"$real" >/dev/null'
+check "with RiftalPlots.phar built, the tracked config lands on the volume with no password and the phar joins the roster" \
+  'PLOTS=1 boot "$me" RIFTAL_DB_PASSWORD_PLOTS="$PLOTS_PW" && grep -qx RiftalPlots.phar "$b/roster" &&
+    cmp -s "$PLOTS_CONFIG" "$plots_on_volume" && ! grep -rqF "$PLOTS_PW" "$b/data"'
+check "with RiftalPlots.phar built, an unset RIFTAL_DB_PASSWORD_PLOTS stops the boot before php, naming it" \
+  '! PLOTS=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_PLOTS is not set" "$b/out"'
+check "without RiftalPlots.phar, no plots config lands and no plots password is needed" \
+  'boot "$me" && [ ! -e "$plots_on_volume" ] && ! grep -q RiftalPlots "$b/roster"'
 
 printf '\n== RiftalAccounts loads on every instance as the accounts login (riftal-infra#465)\n'
 ACCOUNTS_CONFIG="$DIR/../RiftalAccounts.config.yml"
@@ -417,8 +440,8 @@ levelled() {
       or (.value.environment.RIFTAL_LEVEL_ZONES // "") != "")
     | "\(.key)=\(.value.environment.RIFTAL_LEVEL_ZONES // "")"' <<<"$1"
 }
-check "only instance lists a zone or mounts a level, lumber and mine_a, and it runs the seed step beside the delivery" \
-  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a" ]'
+check "only instance lists a zone or mounts a level, lumber, mine_a, mine_b, mine_c, quarry and farm, and it runs the seed step beside the delivery" \
+  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a mine_b mine_c quarry farm" ]'
 check "an instance without the seed step is caught" \
   '[ "$(unseeded "$(edited "/- \/plugins\/seed-levels.sh/{N;d}")")" = instance ]'
 check "a level mount that lost :ro is caught" \
@@ -429,8 +452,12 @@ check "a listed zone with no level mount is caught" \
   '[ "$(unseeded "$(edited "/riftal_smoke_level_mine_a:\/etc/d")")" = instance ]'
 check "a listed zone whose volume compose would create itself is caught" \
   '[ "$(unseeded "$(edited "/^  riftal_smoke_level_mine_a:/,/external/{/external/d}")")" = instance ]'
+check "a last listed zone with no level mount is caught" \
+  '[ "$(unseeded "$(edited "/riftal_smoke_level_farm:[/]etc/d")")" = instance ]'
+check "a last listed zone whose volume compose would create itself is caught" \
+  '[ "$(unseeded "$(edited "/^  riftal_smoke_level_farm:/,/external/{/external/d}")")" = instance ]'
 check "a zone list on instance-b is caught" \
-  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a
+  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a mine_b mine_c quarry farm
 instance-b=lumber" ]'
 
 printf '\n== link-replaced.sh gives pharynx the folder a virion requires (riftal-infra#579)\n'
@@ -475,49 +502,45 @@ check "unpinned, nothing is linked, not even a replaced name no virion requires"
 
 printf '\n== the template keeps the plugin'"'"'s shipped tuning (riftal-infra#262)\n'
 # The plugin throws on enable without a scalar key and reads a missing
-# join_teleport as off, so the template has to carry them. CI checks out this
-# repository alone and holds no token for the private riftal-game, so there
-# the comparison is reported as skipped rather than passed.
-# Sets SHIPPED, RANKS_SHIPPED, ACCOUNTS_SHIPPED and ECONOMY_SHIPPED to
-# riftal-game's shipped configs under RIFTAL_GAME_DIR, or under the default
-# sibling checkout when it is unset or empty.
-shipped_configs() {
-  local game="${RIFTAL_GAME_DIR:-$DIR/../../../../riftal-game}"
-  SHIPPED="$game/mines/resources/config.yml"
-  RANKS_SHIPPED="$game/ranks/resources/config.yml"
-  ACCOUNTS_SHIPPED="$game/accounts/resources/config.yml"
-  ECONOMY_SHIPPED="$game/economy/resources/config.yml"
+# join_teleport as off, so the template has to carry them. The comparison reads
+# riftal-game's shipped configs from images/riftal-game-snapshot, a copy of the
+# commit SOURCE names, so it runs the same on every checkout and never reads a
+# riftal-game tree another job is moving. Any change to one of those configs
+# lands with refresh-riftal-game-snapshot.sh and the template change it needs.
+SNAPSHOT="$DIR/../../riftal-game-snapshot"
+SHIPPED="$SNAPSHOT/mines/resources/config.yml"
+RANKS_SHIPPED="$SNAPSHOT/ranks/resources/config.yml"
+ACCOUNTS_SHIPPED="$SNAPSHOT/accounts/resources/config.yml"
+ECONOMY_SHIPPED="$SNAPSHOT/economy/resources/config.yml"
+PLOTS_SHIPPED="$SNAPSHOT/plots/resources/config.yml"
+check "the snapshot names the riftal-game commit it was taken from" \
+  '[ "$(wc -l < "$SNAPSHOT/SOURCE")" -eq 1 ] && grep -qE "^[0-9a-f]{40}$" "$SNAPSHOT/SOURCE"'
+# Compares the snapshot with the five configs under $1, a riftal-game checkout.
+# It runs only when RIFTAL_GAME_DIR names one, so a CI run with no checkout
+# takes the snapshot alone. LIVE counts these checks apart from the expected
+# total, which holds with or without a checkout.
+LIVE=0
+live_drift() {
+  local plugin
+  local checkout="$1"
+  for plugin in mines ranks accounts economy plots; do
+    LIVE=$((LIVE + 1))
+    check "the snapshot's $plugin config is the one in riftal-game at $checkout" \
+      'cmp -s "$SNAPSHOT/$plugin/resources/config.yml" "$checkout/$plugin/resources/config.yml"'
+  done
 }
-shipped_configs
-SKIPPED=0
-# That skip covers only an absent default sibling checkout, and each skipped
-# assertion is counted, so EXPECTED_ASSERTIONS catches one that was deleted.
-# A RIFTAL_GAME_DIR naming no config fails: a mistyped path is a broken run,
-# not a missing checkout. An empty RIFTAL_GAME_DIR counts as unset. $3 names
-# the shipped file when it is not the mines config.
-drift() {
-  if [ -f "${3:-$SHIPPED}" ]; then check "$1" "$2"
-  elif [ -n "${RIFTAL_GAME_DIR:-}" ]; then fail "$1: RIFTAL_GAME_DIR is set but ${3:-$SHIPPED} does not exist"
-  else SKIPPED=$((SKIPPED + 1)); fi
-}
-check "an explicit RIFTAL_GAME_DIR without the mines config fails the drift assertion" \
-  '[ "$(RIFTAL_GAME_DIR=/nonexistent; shipped_configs; FAILURES=0; SKIPPED=0; drift x true >/dev/null; echo "$FAILURES $SKIPPED")" = "1 0" ]'
-check "an explicit RIFTAL_GAME_DIR without a named shipped config fails the drift assertion" \
-  '[ "$(RIFTAL_GAME_DIR=/nonexistent; SHIPPED="$TEMPLATE"; FAILURES=0; SKIPPED=0; drift x true /nonexistent/r.yml >/dev/null; echo "$FAILURES $SKIPPED")" = "1 0" ]'
-check "an absent default sibling checkout skips the drift assertion" \
-  '[ "$(unset RIFTAL_GAME_DIR; SHIPPED=/nonexistent/c.yml; FAILURES=0; SKIPPED=0; drift x true >/dev/null; echo "$FAILURES $SKIPPED")" = "0 1" ]'
-# The shipped config shipped_configs derives for $1, the name of one of the
-# variables it sets, under a scratch RIFTAL_GAME_DIR, so a path derived
-# without it cannot match.
-derived() { (RIFTAL_GAME_DIR="$work/game"; shipped_configs; printf '%s' "${!1}"); }
-check "RIFTAL_GAME_DIR names the mines config the drift assertions read" \
-  '[ "$(derived SHIPPED)" = "$work/game/mines/resources/config.yml" ]'
-check "RIFTAL_GAME_DIR names the ranks config the drift assertions read" \
-  '[ "$(derived RANKS_SHIPPED)" = "$work/game/ranks/resources/config.yml" ]'
-check "RIFTAL_GAME_DIR names the accounts config the drift assertions read" \
-  '[ "$(derived ACCOUNTS_SHIPPED)" = "$work/game/accounts/resources/config.yml" ]'
-check "RIFTAL_GAME_DIR names the economy config the drift assertions read" \
-  '[ "$(derived ECONOMY_SHIPPED)" = "$work/game/economy/resources/config.yml" ]'
+if [ -n "${RIFTAL_GAME_DIR:-}" ]; then live_drift "$RIFTAL_GAME_DIR"; fi
+game="$work/game"
+for plugin in mines ranks accounts economy plots; do
+  mkdir -p "$game/$plugin/resources"
+  cp "$SNAPSHOT/$plugin/resources/config.yml" "$game/$plugin/resources/config.yml"
+done
+check "a checkout equal to the snapshot passes the live comparison" \
+  '[ "$(LIVE=0; FAILURES=0; live_drift "$game" >/dev/null; echo "$FAILURES $LIVE")" = "0 5" ]'
+sed 's/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/' "$SHIPPED" > "$game/mines/resources/config.yml"
+check "a checkout whose mines config differs from the snapshot fails the live comparison" \
+  '! cmp -s "$SHIPPED" "$game/mines/resources/config.yml" &&
+    [ "$(LIVE=0; FAILURES=0; live_drift "$game" >/dev/null; echo "$FAILURES")" = 1 ]'
 # Every top-level key, whether it holds a scalar or opens a section.
 keys() { grep -oE '^[^[:space:]#-][^:]*:' "$1" | sort -u; }
 # Top-level keys holding a scalar. The database and worlds sections hold
@@ -534,69 +557,106 @@ sections() {
 # Top-level keys in the shipped file $1 that the template lacks.
 missing() { comm -23 <(keys "$1") <(keys "$TEMPLATE"); }
 mutated="$work/shipped.yml"
-drift "every scalar key in riftal-game's mines config.yml matches the template" \
+check "every scalar key in riftal-game's mines config.yml matches the template" \
   '[ -n "$(tuning "$SHIPPED")" ] && [ "$(tuning "$SHIPPED")" = "$(tuning "$TEMPLATE")" ]'
-drift "every top-level key in riftal-game's mines config.yml, section or scalar, is in the template" \
+check "every top-level key in riftal-game's mines config.yml, section or scalar, is in the template" \
   '[ -n "$(keys "$SHIPPED")" ] && [ -z "$(missing "$SHIPPED")" ]'
-drift "every section in riftal-game's mines config.yml but database and worlds matches the template" \
+check "every section in riftal-game's mines config.yml but database and worlds matches the template" \
   '[ -n "$(sections "$SHIPPED")" ] && [ "$(sections "$SHIPPED")" = "$(sections "$TEMPLATE")" ]'
-drift "a shipped join_teleport value the template does not carry is caught" \
+check "a shipped join_teleport value the template does not carry is caught" \
   'sed "s/^  location: .*/  location: \"elsewhere\"/" "$SHIPPED" > "$mutated" &&
     ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" != "$(sections "$TEMPLATE")" ]'
-drift "a shipped join_teleport world_index the template does not carry is caught" \
+check "a shipped join_teleport world_index the template does not carry is caught" \
   'sed "s/^  world_index: .*/  world_index: \"elsewhere.json\"/" "$SHIPPED" > "$mutated" &&
     ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" != "$(sections "$TEMPLATE")" ]'
-drift "a shipped join_teleport enabled switch is not compared" \
+check "a shipped join_teleport enabled switch is not compared" \
   'sed "s/^  enabled: .*/  enabled: maybe/" "$SHIPPED" > "$mutated" &&
     ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" = "$(sections "$TEMPLATE")" ]'
 check "the template switches the join teleport on" \
   '[ "$(awk "/^join_teleport:/ { s = 1; next } /^[^[:space:]#]/ { s = 0 } s && /^  enabled:/ { print \$2 }" "$TEMPLATE")" = true ]'
-drift "a shipped value the template does not carry is caught" \
+check "a shipped travel destination the template does not carry is caught" \
+  'sed "s/^    b: .*/    b: \"elsewhere\"/" "$SHIPPED" > "$mutated" &&
+    ! cmp -s "$SHIPPED" "$mutated" && [ "$(sections "$mutated")" != "$(sections "$TEMPLATE")" ]'
+# Every location the template names for the join or for travel, as a line of
+# names, which the delivered designer index has to hold.
+named_locations() {
+  awk '/^[^[:space:]#]/ { section = $1 }
+    section == "join_teleport:" && /^  location:/ || section == "travel:" && /^    [a-z]+: "/ { gsub(/"/, "", $2); print $2 }' "$1" | sort -u
+}
+check "the delivered world index holds every location the template names for the join and travel" \
+  'names="$(named_locations "$TEMPLATE")" && [ "$(wc -l <<<"$names")" -eq 6 ] &&
+    [ -z "$(comm -23 <(printf "%s\n" "$names") <(jq -r ".locations[].name" "$INDEX" | sort -u))" ]'
+# Zones in the space-separated list $2 that the worlds section of config $1
+# does not register under its own name and fragment file. RiftalCustody
+# refuses every break but a crafting table in a zone no registered fragment
+# declares an interior for.
+unregistered() {
+  comm -23 <(tr ' ' '\n' <<<"$2" | grep . | sort -u) \
+    <(sed -n '/^worlds:/,/^[^[:space:]]/s/^  \([a-z0-9_]*\): "worlds\/\1\.json"$/\1/p' "$1" | sort -u)
+}
+compose_zones="$(jq -r '.services.instance.environment.RIFTAL_LEVEL_ZONES // ""' <<<"$real")"
+INSTANCES="$DIR/../../../instances"
+check "every zone instance in compose.yaml seeds is registered in the template's worlds" \
+  '[ -n "$compose_zones" ] && [ -z "$(unregistered "$TEMPLATE" "$compose_zones")" ]'
+check "every zone an instances/ definition seeds is registered in the template's worlds" \
+  'defs="$(ls "$INSTANCES"/*/instance.env)" && [ -n "$defs" ] && ( for env in $defs; do
+    zones="$(sed -n "s/^RIFTAL_LEVEL_ZONES=//p" "$env")"
+    [ -n "$zones" ] && [ -z "$(unregistered "$TEMPLATE" "$zones")" ] || exit 1
+  done )'
+check "a template that drops mine_a from worlds is caught" \
+  'sed "/^  mine_a:/d" "$TEMPLATE" > "$mutated" && ! cmp -s "$TEMPLATE" "$mutated" &&
+    [ "$(unregistered "$mutated" "$compose_zones")" = mine_a ]'
+check "a worlds entry naming another zone's fragment does not register the zone" \
+  'sed "s#\"worlds/mine_a.json\"#\"worlds/mine_b.json\"#" "$TEMPLATE" > "$mutated" &&
+    [ "$(unregistered "$mutated" "$compose_zones")" = mine_a ]'
+check "a shipped value the template does not carry is caught" \
   'sed "s/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/" "$SHIPPED" > "$mutated" &&
     [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'
-drift "a shipped scalar whose key holds a digit or hyphen is caught" \
+check "a shipped scalar whose key holds a digit or hyphen is caught" \
   '{ cat "$SHIPPED"; printf "refill_v2-budget: 3\n"; } > "$mutated" &&
     [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'
-drift "a shipped section the template lacks is caught" \
+check "a shipped section the template lacks is caught" \
   '{ cat "$SHIPPED"; printf "messages:\n  reset: x\n"; } > "$mutated" &&
     [ "$(missing "$mutated")" = "messages:" ]'
-drift "riftal-game's ranks config.yml has no top-level key or scalar value the ranks config lacks" \
-  '[ -n "$(keys "$RANKS_SHIPPED")" ] && [ -z "$(comm -23 <(keys "$RANKS_SHIPPED") <(keys "$RANKS_CONFIG"))" ] &&
-    [ "$(tuning "$RANKS_SHIPPED")" = "$(tuning "$RANKS_CONFIG")" ]' "$RANKS_SHIPPED"
+# Every line but comments, blanks and the schema, the one line a dev config
+# overrides on purpose.
+settings() { grep -vE '^[[:space:]]*(#|$|schema:)' "$1" | sed 's/[[:space:]]*$//'; }
+check "every line in riftal-game's ranks config.yml but the schema matches the ranks config" \
+  '[ -n "$(settings "$RANKS_SHIPPED")" ] && [ "$(settings "$RANKS_SHIPPED")" = "$(settings "$RANKS_CONFIG")" ]'
+check "a shipped rank-up cost the ranks config does not carry is caught" \
+  'sed "s/^  C: {cost_minor_units: [0-9]*/  C: {cost_minor_units: 200/" "$RANKS_SHIPPED" > "$mutated" &&
+    ! cmp -s "$RANKS_SHIPPED" "$mutated" && [ "$(settings "$mutated")" != "$(settings "$RANKS_CONFIG")" ]'
+check "a shipped rankup_claim value the ranks config does not carry is caught" \
+  'sed "s/^  lease_seconds: .*/  lease_seconds: 999/" "$RANKS_SHIPPED" > "$mutated" &&
+    ! cmp -s "$RANKS_SHIPPED" "$mutated" && [ "$(settings "$mutated")" != "$(settings "$RANKS_CONFIG")" ]'
 # The lines inside the top-level database section, comments dropped, schema
 # excepted: the one line the ranks config overrides on purpose.
 dbsection() {
   sed -n '/^database:/,/^[^[:space:]]/{/^[[:space:]]/p}' "$1" |
     grep -vE '^[[:space:]]*(#|schema:)' | sed 's/[[:space:]]*$//'
 }
-drift "every database line in riftal-game's ranks config.yml but the schema matches the ranks config" \
-  '[ -n "$(dbsection "$RANKS_SHIPPED")" ] && [ "$(dbsection "$RANKS_SHIPPED")" = "$(dbsection "$RANKS_CONFIG")" ]' \
-  "$RANKS_SHIPPED"
-drift "a shipped database.port the ranks config does not carry is caught" \
+check "every database line in riftal-game's ranks config.yml but the schema matches the ranks config" \
+  '[ -n "$(dbsection "$RANKS_SHIPPED")" ] && [ "$(dbsection "$RANKS_SHIPPED")" = "$(dbsection "$RANKS_CONFIG")" ]'
+check "a shipped database.port the ranks config does not carry is caught" \
   'sed "s/^  port:.*/  port: 3307/" "$RANKS_SHIPPED" > "$mutated" &&
-    [ "$(dbsection "$mutated")" != "$(dbsection "$RANKS_CONFIG")" ]' "$RANKS_SHIPPED"
-# Every line but comments, blanks and the schema, the one line the accounts
-# config overrides on purpose.
-settings() { grep -vE '^[[:space:]]*(#|$|schema:)' "$1" | sed 's/[[:space:]]*$//'; }
-drift "every line in riftal-game's accounts config.yml but the schema matches the accounts config" \
-  '[ -n "$(settings "$ACCOUNTS_SHIPPED")" ] && [ "$(settings "$ACCOUNTS_SHIPPED")" = "$(settings "$ACCOUNTS_CONFIG")" ]' \
-  "$ACCOUNTS_SHIPPED"
-drift "a shipped database.port the accounts config does not carry is caught" \
+    [ "$(dbsection "$mutated")" != "$(dbsection "$RANKS_CONFIG")" ]'
+check "every line in riftal-game's accounts config.yml but the schema matches the accounts config" \
+  '[ -n "$(settings "$ACCOUNTS_SHIPPED")" ] && [ "$(settings "$ACCOUNTS_SHIPPED")" = "$(settings "$ACCOUNTS_CONFIG")" ]'
+check "a shipped database.port the accounts config does not carry is caught" \
   'sed "s/^  port:.*/  port: 3307/" "$ACCOUNTS_SHIPPED" > "$mutated" &&
-    [ "$(settings "$mutated")" != "$(settings "$ACCOUNTS_CONFIG")" ]' "$ACCOUNTS_SHIPPED"
-drift "every line in riftal-game's economy config.yml but the schema matches the economy config" \
-  '[ -n "$(settings "$ECONOMY_SHIPPED")" ] && [ "$(settings "$ECONOMY_SHIPPED")" = "$(settings "$ECONOMY_CONFIG")" ]' \
-  "$ECONOMY_SHIPPED"
-drift "a shipped sell shop price the economy config does not carry is caught" \
+    [ "$(settings "$mutated")" != "$(settings "$ACCOUNTS_CONFIG")" ]'
+check "every line in riftal-game's economy config.yml but the schema matches the economy config" \
+  '[ -n "$(settings "$ECONOMY_SHIPPED")" ] && [ "$(settings "$ECONOMY_SHIPPED")" = "$(settings "$ECONOMY_CONFIG")" ]'
+check "a shipped sell shop price the economy config does not carry is caught" \
   'sed "s/^    \"minecraft:coal\": .*/    \"minecraft:coal\": 6/" "$ECONOMY_SHIPPED" > "$mutated" &&
-    [ "$(settings "$mutated")" != "$(settings "$ECONOMY_CONFIG")" ]' "$ECONOMY_SHIPPED"
-if [ "$SKIPPED" -ne 0 ]; then
-  printf '::warning::%s assertions skipped: no riftal-game config at %s, %s, %s or %s; set RIFTAL_GAME_DIR\n' \
-    "$SKIPPED" "$SHIPPED" "$RANKS_SHIPPED" "$ACCOUNTS_SHIPPED" "$ECONOMY_SHIPPED"
-fi
-
+    [ "$(settings "$mutated")" != "$(settings "$ECONOMY_CONFIG")" ]'
+check "every line in riftal-game's plots config.yml but the schema matches the plots config" \
+  '[ -n "$(settings "$PLOTS_SHIPPED")" ] && [ "$(settings "$PLOTS_SHIPPED")" = "$(settings "$PLOTS_CONFIG")" ]'
+check "a shipped plots-world the plots config does not carry is caught" \
+  'sed "s/^plots-world:.*/plots-world: \"elsewhere\"/" "$PLOTS_SHIPPED" > "$mutated" &&
+    [ "$(settings "$mutated")" != "$(settings "$PLOTS_CONFIG")" ]'
 printf '\n'
-ran=$((PASSES + FAILURES + SKIPPED))
+ran=$((PASSES + FAILURES - LIVE))
 if [ "$ran" -ne "$EXPECTED_ASSERTIONS" ]; then
   printf '%s of %s assertions ran, so one did not run and cannot have passed\n' \
     "$ran" "$EXPECTED_ASSERTIONS"
@@ -605,9 +665,5 @@ fi
 if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
-fi
-if [ "$SKIPPED" -ne 0 ]; then
-  printf '%s assertions passed, %s skipped\n' "$PASSES" "$SKIPPED"
-  exit 0
 fi
 printf 'all %s assertions passed\n' "$PASSES"

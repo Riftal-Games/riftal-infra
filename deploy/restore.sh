@@ -86,6 +86,31 @@ for tar_file in "${world_tars[@]}"; do
   tar -tzf "$tar_file" >/dev/null || fail "world tar for $name ($tar_file) failed integrity check, aborting before clearing anything"
 done
 
+# A target that is no mount would take its tar into this container's own
+# filesystem, where it vanishes on exit, while the database is rolled back and
+# the run reports success: the two then disagree about every item. Refused
+# before the database, a server.lock or any directory is touched.
+command -v mountpoint >/dev/null || fail "refused: mountpoint is not installed, so a missing volume mount cannot be detected; run this in the backup image"
+unmounted=""
+for tar_file in "${world_tars[@]}"; do
+  name="$(basename "$tar_file" .tar.gz)"
+  mountpoint -q "$WORLDS_DIR/$name" || unmounted="$unmounted $name"
+done
+[ -z "$unmounted" ] || fail "refused: volume(s)$unmounted not mounted under $WORLDS_DIR, so the database would be rebuilt without its level; add a -v line for each"
+
+# A volume mounted read-only passes the mount check, then fails at the first
+# delete or extract, after the database has been dropped and reloaded, leaving
+# a restored database against a level that was never restored. A write is
+# attempted rather than the mount flags read, so a directory this user cannot
+# write to is refused the same way. Refused before the database is touched.
+unwritable=""
+for tar_file in "${world_tars[@]}"; do
+  name="$(basename "$tar_file" .tar.gz)"
+  probe_file="$(mktemp -p "$WORLDS_DIR/$name" .restore-write-probe.XXXXXX 2>/dev/null)" \
+    && rm -f "$probe_file" || unwritable="$unwritable $name"
+done
+[ -z "$unwritable" ] || fail "refused: volume(s)$unwritable not writable under $WORLDS_DIR, so the level could not be rebuilt after the database was; mount each read-write"
+
 sql() {
   MYSQL_PWD="$MYSQL_PASSWORD" mysql --host="$MYSQL_HOST" --port="$MYSQL_PORT" \
     --user="$MYSQL_USER" -N -B -e "$1"

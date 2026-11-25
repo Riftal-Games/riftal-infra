@@ -4,13 +4,18 @@
 # there.
 #
 # Every value below except the database section, `worlds` and
-# join_teleport.enabled is the plugin's own shipped default
+# join_teleport.enabled is the plugin's own shipped default, travel included
 # (riftal-game/mines/resources/config.yml), which selftest.sh compares to that
 # file. The plugin throws without any of the scalars, and reads a missing
 # join_teleport section as switched off, so that one would drift in silence
-# were it not carried here. `worlds` names only lumber: the shipped mine_a to
-# mine_c reset entries are not carried on this stack. The schema is the one
-# compose creates, riftal_dev (images/compose.yaml), not the shipped riftal.
+# were it not carried here. `worlds` names lumber, mine_a, mine_b, mine_c,
+# quarry and farm, the zones an instance seeds (RIFTAL_LEVEL_ZONES). RiftalMines
+# loads each for resets and declares its interior, which RiftalCustody needs
+# before it lets a block break there, so a seeded zone missing from `worlds`
+# cannot be mined; selftest.sh fails on one. A level the server already holds
+# as its default loads again without harm, so mine_a is listed too. The schema
+# is the one compose creates, riftal_dev (images/compose.yaml), not the shipped
+# riftal.
 # The login is the mines user of ADR 008, never root, and the password stays
 # empty: RiftalGames\Lib\Database\DatabaseSettings reads it from
 # RIFTAL_DB_PASSWORD_MINES in the instance's environment and throws if this
@@ -28,6 +33,11 @@ database:
 
 worlds:
   lumber: "worlds/lumber.json"
+  mine_a: "worlds/mine_a.json"
+  mine_b: "worlds/mine_b.json"
+  mine_c: "worlds/mine_c.json"
+  quarry: "worlds/quarry.json"
+  farm: "worlds/farm.json"
 
 default_reset_percent: 60
 
@@ -46,3 +56,18 @@ join_teleport:
   enabled: true
   location: "mine_a_spawn"
   world_index: "world_index.json"
+
+# A destination whose location is missing from the delivered index, or whose
+# world is not loaded, is answered "not open" at the command and never stops
+# the plugin enabling or the other destinations. Each destination names a
+# spawn in the delivered index whose world seed-levels.sh seeds from a built
+# level.
+travel:
+  world_index: "world_index.json"
+  destinations:
+    lumber: "lumber_spawn"
+    a: "mine_a_spawn"
+    b: "mine_b_spawn"
+    c: "mine_c_spawn"
+    quarry: "quarry_spawn"
+    farm: "farm_spawn"

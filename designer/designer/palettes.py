@@ -16,6 +16,13 @@ ROLES = (
     "slab", "light", "boundary", "boundary_accent", "plot_edge", "plot_floor", "sign",
 )
 
+# The roles a ``hall`` step draws from. A palette binds either these or ``ROLES``, never a mix, so the hall's
+# look is its own palette and a mine's shell palette stays as it is.
+HALL_ROLES = (
+    "hall_wall", "hall_floor_a", "hall_floor_b", "hall_ceiling", "pilaster", "gate_jamb", "gate_lintel", "keystone",
+    "cornice",
+)
+
 
 @cache
 def load_palettes() -> dict[str, Any]:
@@ -24,6 +31,7 @@ def load_palettes() -> dict[str, Any]:
         if len(rgb) != 3 or any(not isinstance(c, int) or not 0 <= c <= 255 for c in rgb):
             raise ValueError(f"colour of {name} must be three ints in 0..255, got {rgb!r}")
     for name, palette in data["palettes"].items():
-        if set(palette) != set(ROLES):
-            raise ValueError(f"palette {name} roles differ from the spec: {sorted(set(palette) ^ set(ROLES))}")
+        wanted = set(HALL_ROLES if name.startswith("hall_") else ROLES)
+        if set(palette) != wanted:
+            raise ValueError(f"palette {name} roles differ from the spec: {sorted(set(palette) ^ wanted)}")
     return data

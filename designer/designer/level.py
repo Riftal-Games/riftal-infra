@@ -24,7 +24,7 @@ import numpy as np
 import yaml
 
 from designer import checks as checks_mod
-from designer.blocks import format_name, parse_name
+from designer.blocks import BlockClass, format_name, parse_name
 from designer.bridge import Bridge
 from designer.builders import BUILDERS
 from designer.builders.base import Palette
@@ -201,6 +201,20 @@ def _differences(index: WorldIndex, locations: list[Any], regions: list[Any]) ->
     return out
 
 
+def open_carve(bridge: Bridge, edits: Any) -> str | None:
+    """The first cell inside a box of ``edits.extras["carve"]`` that is not solid terrain, described, or ``None``.
+
+    A step that digs out what is there would open onto water, lava or a natural cave wherever it finds one.
+    """
+    for box in edits.extras.get("carve", []):
+        region = fetch_region(bridge, edits.world, Bounds.from_json(box))
+        if len(found := np.argwhere(region.classes() != BlockClass.SOLID)):
+            iy, iz, ix = found[0]
+            x, y, z = (int(v) for v in np.add(region.bounds.min, (ix, iy, iz)))
+            return f"({x}, {y}, {z}) holds {region.get(x, y, z)}"
+    return None
+
+
 def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex) -> None:
     """Apply each step and register what it names in ``index``, so the zone's checks resolve against what was built.
 
@@ -225,6 +239,8 @@ def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex) ->
             raise LevelError(f"step {n} ({step.build} {step.spec}) names {again}, which an earlier step made")
         if differ := _differences(index, locations, regions):
             raise LevelError(f"step {n} ({step.build} {step.spec}) differs from world_index.json: {'; '.join(differ)}")
+        if opened := open_carve(bridge, edits):
+            raise LevelError(f"step {n} ({step.build} {step.spec}) carves into terrain that is not solid: {opened}")
         result = edits.apply(bridge)
         if not result.ok:
             raise LevelError(f"step {n} ({step.build} {step.spec}) failed: {result.errors[0]}")

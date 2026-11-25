@@ -32,6 +32,56 @@ checks:
   - check: warp_safe
     zone: lumber
     at: lumber_spawn
+  - check: travel_time
+    zone: quarry
+    from: quarry_spawn
+    to: quarry_exit
+  - check: warp_safe
+    zone: quarry
+    at: quarry_spawn
+  - check: travel_time
+    zone: farm
+    from: farm_spawn
+    to: farm_exit
+  - check: warp_safe
+    zone: farm
+    at: farm_spawn
+  - check: path_exists
+    id: quarry_spawn_to_surface
+    zone: quarry
+    world: quarry
+    from: quarry_spawn
+    to: "14,65,30"
+  - check: path_exists
+    id: farm_spawn_to_surface
+    zone: farm
+    world: farm
+    from: farm_spawn
+    to: "14,65,30"
+  - check: path_exists
+    id: mine_b_spawn_to_surface
+    zone: mine_b
+    world: mine_b
+    from: mine_b_spawn
+    to: "13,64,36"
+  - check: entity_clear
+    zone: mine_b
+    at: sell_npc_b
+  - check: entity_clear
+    zone: mine_b
+    at: rankup_npc_b
+  - check: path_exists
+    id: mine_c_spawn_to_surface
+    zone: mine_c
+    world: mine_c
+    from: mine_c_spawn
+    to: "13,64,36"
+  - check: entity_clear
+    zone: mine_c
+    at: sell_npc_c
+  - check: entity_clear
+    zone: mine_c
+    at: rankup_npc_c
   - check: path_exists
     id: mine_a_spawn_to_surface
     zone: mine_a
@@ -60,6 +110,14 @@ checks:
     zone: lumber
     region: lumber
     spec: specs/lumber.json
+  - check: mine_valid
+    zone: quarry
+    region: quarry
+    spec: specs/quarry.json
+  - check: mine_valid
+    zone: farm
+    region: farm
+    spec: specs/farm.json
   - check: path_exists
     id: lumber_spawn_to_surface
     zone: lumber
@@ -78,6 +136,12 @@ checks:
   - check: offdisk_clear
     zone: lumber
     world: lumber
+  - check: offdisk_clear
+    zone: quarry
+    world: quarry
+  - check: offdisk_clear
+    zone: farm
+    world: farm
   - check: no_holes
     region: plots_0_0
     floor_y: 65

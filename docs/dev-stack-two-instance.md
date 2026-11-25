@@ -82,6 +82,7 @@ wslc run -d -i --name riftal-instance-b --network riftal-dev \
   -e "RIFTAL_DEV_ENV=1" \
   -e "RIFTAL_DB_PASSWORD_ACCOUNTS=${RIFTAL_DB_PASSWORD_ACCOUNTS}" \
   -e "RIFTAL_DB_PASSWORD_ECONOMY=${RIFTAL_DB_PASSWORD_ECONOMY}" \
+  -e "RIFTAL_DB_PASSWORD_PLOTS=${RIFTAL_DB_PASSWORD_PLOTS}" \
   -e "POCKETMINE_ARGS=--level-name=plots_b --level-type=flat --xbox-auth=false --motd=riftal-dev-b --riftal-dev-bots=on --auto-report.enabled=0" \
   local-pocketmine-mp bash /plugins/restart/boot-gate.sh \
   bash /plugins/deliver-world-index.sh bash /plugins/require-accounts.sh \
@@ -121,8 +122,12 @@ empty, so build it first (`images/README.md`, RiftalCustody), and
 `require-accounts.sh` does the same for `RiftalAccounts.phar`,
 `contracts.phar` and `RIFTAL_DB_PASSWORD_ACCOUNTS` (`images/README.md`,
 RiftalAccounts). `images/plugins/instance-b/start.sh` loads
-`RiftalEconomy.phar` from `images/plugins/instance-only/` once built, and
-then stops the boot without `RIFTAL_DB_PASSWORD_ECONOMY`, as on `instance`.
+`RiftalEconomy.phar` and `RiftalPlots.phar` from
+`images/plugins/instance-only/` once built, and then stops the boot without
+`RIFTAL_DB_PASSWORD_ECONOMY` or `RIFTAL_DB_PASSWORD_PLOTS`, as on `instance`.
+`plots_b` is not the `plots` level, so `instance-b` hosts no plot grid; spec
+017 criterion 4 has a claim there written to the shared database, teleporting
+nobody.
 
 - [ ] The log reaches `Done (` for `riftal-instance-b`, same checks as the
       primary instance in step 4: no `[.../CRITICAL]`, `[.../EMERGENCY]`,
