@@ -13,13 +13,52 @@ prune="${3:-$root/.github/ci-fixtures}"
 scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 check_dockerfiles() { "$HADOLINT" "$1"; }
-check_compose() { docker compose -f "$1" config --quiet; }
+
+# The tree that holds deploy/alpha/ for a compose file under it, and nothing for
+# any other file. A relative path with no leading ./ would miss the match, which
+# would leave the alpha rules off for that file, so it is given one.
+alpha_root() {
+  local file="$1"
+  case "$file" in /* | ./*) ;; *) file="./$file" ;; esac
+  case "$file" in
+    */deploy/alpha/*) printf '%s' "${file%%/deploy/alpha/*}" ;;
+  esac
+}
+
+# The alpha compose refuses a secret that is missing or empty with ${NAME:?...},
+# so config needs a value for each one it names. A placeholder, never a real
+# value: nothing here reads a secret, and one in the environment is overridden.
+# Every other file gets the caller's environment, unchanged.
+docker_compose() {
+  local file="$1" placeholders=()
+  shift
+  if [ -n "$(alpha_root "$file")" ]; then
+    mapfile -t placeholders < <(
+      grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*:?\?' "$file" |
+        sed -E 's/^\$\{([A-Za-z0-9_]+).*/\1=placeholder-not-a-secret/' | sort -u
+    )
+  fi
+  env ${placeholders[@]+"${placeholders[@]}"} docker compose "$@"
+}
+
+check_compose() { docker_compose "$1" -f "$1" config --quiet; }
 
 # Every profile, because `config` drops a service behind a profile nobody
-# asked for, and a publish nobody reads passes.
+# asked for, and a publish nobody reads passes. A file under deploy/alpha/ also
+# gets the alpha port policy and the alpha compose lint, both from this one
+# step; the lint reads the file as written, so it runs even when config fails.
 check_ports() {
-  docker compose --profile '*' -f "$1" config --format json |
-    python3 "$scripts/check_port_policy.py" "$1"
+  local root status=0
+  root="$(alpha_root "$1")"
+  if [ -z "$root" ]; then
+    docker_compose "$1" --profile '*' -f "$1" config --format json |
+      python3 "$scripts/check_port_policy.py" "$1"
+    return
+  fi
+  docker_compose "$1" --profile '*' -f "$1" config --format json |
+    python3 "$scripts/check_port_policy.py" --alpha "$1" || status=1
+  python3 "$scripts/check_alpha_compose.py" --alpha-root "$root" "$1" || status=1
+  return "$status"
 }
 
 # Command substitution puts discovery's exit status under `set -e`, so a
