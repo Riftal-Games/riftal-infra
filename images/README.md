@@ -135,9 +135,10 @@ path. A `wslc run` of either instance needs the same `-v` and command.
 ## The built levels
 
 `instance` runs `plugins/seed-levels.sh` straight after the delivery above,
-with `RIFTAL_LEVEL_ZONES="lumber mine_a mine_b mine_c"`, and mounts the named volumes
+with `RIFTAL_LEVEL_ZONES="lumber mine_a mine_b mine_c quarry farm"`, and mounts the named volumes
 `riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`,
-`riftal_smoke_level_mine_b` and `riftal_smoke_level_mine_c` read-only at
+`riftal_smoke_level_mine_b`, `riftal_smoke_level_mine_c`,
+`riftal_smoke_level_quarry` and `riftal_smoke_level_farm` read-only at
 `/etc/riftal/levels/<zone>`
 (ADR 009 items 5 and 6). When `/data/worlds/<zone>` is absent the step checks
 the mounted level against its `level-manifest.json`, copies it onto
@@ -161,8 +162,8 @@ built one reaches it through `../deploy/LEVEL-REPLACE.md`, an operator
 procedure. The join teleport sends every join to `mine_a_spawn`, at the end of
 the built level's exit lane, so on that volume the switch is meaningful only
 after the swap. A fresh `riftal-world` is seeded with the built level directly.
-`mine_b` and `mine_c` are not a `--level-name`, so any `riftal-world` that lacks
-either folder is seeded with it on the next boot.
+`mine_b`, `mine_c`, `quarry` and `farm` are not a `--level-name`, so any
+`riftal-world` that lacks one of those folders is seeded with it on the next boot.
 
 `riftal-pm`'s `devtools/instance-shape.js` mirrors `instance`'s command, mount
 destinations and environment names for the `wslc` bring-up, so a change to any

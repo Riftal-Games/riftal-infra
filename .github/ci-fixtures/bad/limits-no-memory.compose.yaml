@@ -1,0 +1,8 @@
+# Expected: MEMORY_LIMIT_MISSING once, at services.instance.
+#
+# The shape of a compose file whose mem_limit line was deleted. Compose accepts
+# it, and so does `docker compose config --quiet`.
+services:
+  instance:
+    image: local-pocketmine-mp:fixture
+    cpus: 2

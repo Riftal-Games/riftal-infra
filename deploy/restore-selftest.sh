@@ -103,7 +103,7 @@ docker run --rm -m 1g --cpus 1 -v "$WORLD_B_VOL:/world" mysql:8 bash -c \
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=55
+EXPECTED_ASSERTIONS=59
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s\n' "$1"; }
@@ -134,6 +134,8 @@ run_restore() {
   local backup_set="$1" user="${2:-root}" rc=0 mount_b=(-v "$WORLD_B_VOL:/worlds/world-b")
   if [ -n "${RESTORE_OMIT_B:-}" ]; then
     mount_b=()
+  elif [ -n "${RESTORE_RO_B:-}" ]; then
+    mount_b=(-v "$WORLD_B_VOL:/worlds/world-b:ro")
   fi
   timeout -k 5 60 docker run --rm -m 1g --cpus 1 --name "$RESTORE_CONTAINER" --network "$NETWORK" \
     -v "${RESTORE_SCRIPT:-$SCRIPT_DIR/restore.sh}:/deploy/restore.sh:ro" \
@@ -424,9 +426,12 @@ RESTORE_OMIT_B=1
 refused_unchanged unmounted-volume "volume(s) world-b not mounted under /worlds" root
 
 unmounted_check="$LOGS/restore-skips-mount-check.sh"
-sed 's/^  mountpoint -q .* || unmounted=/  true || unmounted=/' "$SCRIPT_DIR/restore.sh" >"$unmounted_check"
-if [ "$(diff "$SCRIPT_DIR/restore.sh" "$unmounted_check" | grep -c '^<' || true)" != "1" ]; then
-  echo "the skips-mount-check mutant did not change exactly one line of restore.sh" >&2
+# The writable check also refuses a directory that does not exist, so it is
+# skipped too for the mount check to be the only thing tested here.
+sed -e 's/^  mountpoint -q .* || unmounted=/  true || unmounted=/' \
+  -e 's/|| unwritable="\$unwritable \$name"$/|| true/' "$SCRIPT_DIR/restore.sh" >"$unmounted_check"
+if [ "$(diff "$SCRIPT_DIR/restore.sh" "$unmounted_check" | grep -c '^<' || true)" != "2" ]; then
+  echo "the skips-mount-check mutant did not change exactly two lines of restore.sh" >&2
   exit 1
 fi
 if RESTORE_SCRIPT="$unmounted_check" run_restore "/backups/$dir1" >"$LOGS"/out-skips-mount-check.log 2>&1 \
@@ -439,6 +444,32 @@ fi
   && pass "mutant: the database was rolled back to 500 although world-b was not restored" \
   || fail "expected the skips-mount-check mutant to roll the database back to 500"
 RESTORE_OMIT_B=
+
+exec_sql 'UPDATE riftal_selftest.accounts SET balance = 777 WHERE id = 1'
+world_a 'echo 777 > /world/blocks_broken_mine_a.txt'
+
+section "a set whose volume is mounted read-only is refused, and changes nothing"
+# world-b is mounted, so the mount check passes, but nothing can be deleted or
+# extracted into it.
+RESTORE_RO_B=1
+refused_unchanged readonly-volume "volume(s) world-b not writable under /worlds" root
+
+readonly_check="$LOGS/restore-skips-writable-check.sh"
+sed 's/|| unwritable="\$unwritable \$name"$/|| true/' "$SCRIPT_DIR/restore.sh" >"$readonly_check"
+if [ "$(diff "$SCRIPT_DIR/restore.sh" "$readonly_check" | grep -c '^<' || true)" != "1" ]; then
+  echo "the skips-writable-check mutant did not change exactly one line of restore.sh" >&2
+  exit 1
+fi
+if RESTORE_SCRIPT="$readonly_check" run_restore "/backups/$dir1" >"$LOGS"/out-skips-writable-check.log 2>&1 \
+  || grep -q ': complete,' "$LOGS"/out-skips-writable-check.log; then
+  fail "expected the skips-writable-check mutant to fail at the read-only volume"; cat "$LOGS"/out-skips-writable-check.log
+else
+  pass "mutant: with the writable check skipped the run fails at the read-only volume"
+fi
+[ "$(query riftal_selftest 'SELECT balance FROM accounts WHERE id = 1')" = "500" ] \
+  && pass "mutant: the database was already rolled back to 500 when the read-only volume failed the run" \
+  || fail "expected the skips-writable-check mutant to roll the database back to 500"
+RESTORE_RO_B=
 
 exec_sql 'UPDATE riftal_selftest.accounts SET balance = 777 WHERE id = 1'
 world_a 'echo 777 > /world/blocks_broken_mine_a.txt'
@@ -557,4 +588,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1, and refusal, with nothing changed, of a set with no valid capture_mode line for every volume unless ALLOW_UNCAPTURED_SET=1, and of a volume whose server.lock is held, and of a set with a volume not mounted in the restore container, with a free server.lock kept through the extract, every server.lock held at each extract, including one the restore itself creates, and every server.lock given the owner of its volume directory after the extract or the restore failing loudly.\n' "$PASSES"
+printf 'all %s assertions passed: backup by the backup login, drift, restore to the backup-time state across the database, its stored procedures, triggers and views and every world volume, loud failure on a missing backup set, loud failure on a corrupt world tar with no world directory cleared, and refusal, with nothing changed, while another session is connected or when the account lacks PROCESS, the restored capture fence row lowered so a commit-first collect commits at once, and refusal, with nothing changed, of a set whose manifest has no capture_fence line unless ALLOW_UNFENCED_SET=1, and refusal, with nothing changed, of a set with no valid capture_mode line for every volume unless ALLOW_UNCAPTURED_SET=1, and of a volume whose server.lock is held, and of a set with a volume not mounted in the restore container, and of a volume mounted read-only, with a free server.lock kept through the extract, every server.lock held at each extract, including one the restore itself creates, and every server.lock given the owner of its volume directory after the extract or the restore failing loudly.\n' "$PASSES"

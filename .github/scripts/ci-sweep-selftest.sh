@@ -43,6 +43,16 @@ else
   check fail "$verdict; every job needs a job-level timeout-minutes under the reap's cutoff"
   exit 1
 fi
+# The longest job-level timeout in the workflow bounds how long this run can
+# last, so a container living that long outlives any sweep below and, after a
+# cancel, is gone before the reap's cutoff.
+worst="${verdict#*within }"
+worst="${worst%% minutes*}"
+if ! [[ "$worst" =~ ^[0-9]+$ ]]; then
+  check fail "no job timeout to read in '$verdict'"
+  exit 1
+fi
+life=$((10#$worst * 60))
 
 net="riftal_smoke_sweep_net_${GITHUB_RUN_ID}_$$"
 holder="riftal_smoke_sweep_holder_${GITHUB_RUN_ID}_$$"
@@ -133,14 +143,15 @@ else
   check ok 'sweep fails when the daemon is unreachable'
 fi
 
-# 60 seconds outlasts the first sweep below, which "$other" must survive.
-start 60 --name "$own" || exit 1
+# A sweep on a loaded engine can take minutes, and "$own" must still be there to
+# be listed when it runs.
+start "$life" --name "$own" || exit 1
 got="$(docker inspect -f '{{index .Config.Labels "riftal.ci.job"}}' "$own")"
 check "$([ "$got" = "$want" ] && echo ok)" "shim labels a run with riftal.ci.job=$want (got '$got')"
 
 # The shim passes through unlabelled without GITHUB_RUN_ID, so the only label
 # this container carries is the other job's.
-GITHUB_RUN_ID='' start 60 --name "$other" --label riftal.ci.job=selftest-other-job || exit 1
+GITHUB_RUN_ID='' start "$life" --name "$other" --label riftal.ci.job=selftest-other-job || exit 1
 
 docker volume create "$own_vol" >/dev/null || exit 1
 got="$(docker volume inspect -f '{{index .Labels "riftal.ci.job"}}' "$own_vol")"
@@ -162,6 +173,7 @@ gone="$(docker ps -aq --filter "name=^/${own}\$")"
 check "$([ -z "$gone" ] && echo ok)" "sweep removed this job's container"
 running="$(docker inspect -f '{{.State.Running}}' "$other" 2>/dev/null)"
 check "$([ "$running" = true ] && echo ok)" "another job's container is still running (got '$running')"
+docker stop -t 10 "$other" >/dev/null 2>&1
 listed="$(printf '%s\n' "$out" | sed -n '/^volumes left by this job:$/,$p' | grep -cx "$own_vol")"
 check "$([ "$listed" -eq 1 ] && echo ok)" "sweep names $own_vol under 'volumes left by this job:'"
 gone="$(docker volume ls -q --filter "name=^${own_vol}\$")"

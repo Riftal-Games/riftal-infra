@@ -1,0 +1,9 @@
+# Expected: MEMORY_LIMIT_MISSING once and CPU_LIMIT_MISSING once, both at
+# services.instance.
+#
+# A zero limit reads as "unlimited" to the runtime.
+services:
+  instance:
+    image: local-pocketmine-mp:fixture
+    mem_limit: 0
+    cpus: 0
