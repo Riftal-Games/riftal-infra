@@ -101,13 +101,21 @@ jobs:
       - name: Install hadolint
         run: bash .github/scripts/install-hadolint.sh
 
+      # astral-sh/setup-uv v10.0.1, pinned by commit so a tag move cannot
+      # change the installer, and by uv version so the resolver matches the
+      # one on the development machine.
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          version: "0.12.0"
+
       # Runs before the real scans on purpose. A scan that finds nothing exits
       # 0, so a green scan alone cannot tell a clean tree from a check that
       # never ran. This step feeds every check a fixture it must reject and a
       # fixture it must accept, so the checks are known to discriminate on
       # this commit.
       - name: Self-test, prove every check can fail
-        run: bash .github/scripts/selftest.sh
+        run: uv run --frozen --project designer bash .github/scripts/selftest.sh
 
       # Every scan runs the shared script, and the self-test above drives that
       # same script, discovery, dispatch, every check_ function and the loop,
@@ -120,9 +128,10 @@ jobs:
         run: bash .github/scripts/scan.sh compose
 
       # The same discovery as the step above, so a compose file validated
-      # there is never one this policy skips.
-      - name: Compose port policy, 19132 as udp, binds on 127.0.0.1
-        run: bash .github/scripts/scan.sh ports
+      # there is never one this policy skips. A compose under deploy/alpha/ is
+      # also judged by the alpha port policy and the alpha compose lint.
+      - name: Compose port policy, 19132 as udp, binds on 127.0.0.1, alpha compose lint
+        run: uv run --frozen --project designer bash .github/scripts/scan.sh ports
 
       - name: Every action is pinned by commit sha or image digest
         run: bash .github/scripts/action-pins.sh
@@ -149,14 +158,6 @@ jobs:
               done
               exit "$status"
             '
-
-      # astral-sh/setup-uv v10.0.1, pinned by commit so a tag move cannot
-      # change the installer, and by uv version so the resolver matches the
-      # one on the development machine.
-      - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
-        with:
-          version: "0.12.0"
 
       - name: Dev bots admission guard self-test
         run: bash images/plugins/selftest.sh
@@ -383,10 +384,12 @@ jobs:
     if: always() && needs.bot-proofs-scope.outputs.serves != 'false'
     runs-on: [self-hosted, linux, riftal]
     # Under ci-sweep-selftest.sh's reap_after, like every job here. 78 minutes
-    # of this are the longest wait for the rig lock (rig-lock.sh), 30 the body,
-    # and 2 the steps before the take.
-    # The holder outlasts all 110 (rig_lock_job.py).
-    timeout-minutes: 110
+    # of this are the longest wait for the rig lock (rig-lock.sh), 39 the body,
+    # and 2 the steps before the take. The body is the harness's 2040 s
+    # deadline and 120 s kill grace (deploy/bot-proofs.sh) and 180 s for the
+    # steps around it.
+    # The holder outlasts all 119 (rig_lock_job.py).
+    timeout-minutes: 119
     permissions:
       contents: read
       issues: read

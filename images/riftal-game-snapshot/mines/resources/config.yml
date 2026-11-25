@@ -28,6 +28,7 @@ worlds:
   mine_c: "worlds/mine_c.json"
   quarry: "worlds/quarry.json"
   farm: "worlds/farm.json"
+  contested: "worlds/contested.json"
 
 # Used only when a world's own mine_reset fragment omits reset_percent, per
 # MineDefinition::fromFragment. docs/tuning-numbers.md's "Mine reset percent,
@@ -81,3 +82,5 @@ travel:
     a: "mine_a_spawn"
     b: "mine_b_spawn"
     c: "mine_c_spawn"
+    quarry: "quarry_spawn"
+    farm: "farm_spawn"

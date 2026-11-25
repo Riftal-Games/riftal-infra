@@ -40,7 +40,7 @@ done
 # TERM lands at DEADLINE seconds, KILL KILL_GRACE seconds later. Teardown waits at most
 # LIVE_WAIT seconds for a bot runner still running, and never past the KILL less
 # CLEANUP_RESERVE seconds for the container cleanup and the summary line.
-DEADLINE=1500 KILL_GRACE=120 LIVE_WAIT=30 CLEANUP_RESERVE=60
+DEADLINE=2040 KILL_GRACE=120 LIVE_WAIT=30 CLEANUP_RESERVE=60
 if [ -z "${BOT_PROOFS_INNER:-}" ]; then
   BOT_PROOFS_INNER=1 exec timeout --preserve-status -k "$KILL_GRACE" "$DEADLINE" bash "${BASH_SOURCE[0]}"
 fi
