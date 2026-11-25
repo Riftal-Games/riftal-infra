@@ -35,4 +35,5 @@ join_notice_poll_seconds: 5
 shield_window_minutes: 360
 capture_seconds: 600
 capture_round_seconds: 1
+capture_alert_poll_seconds: 2
 world_index: "world_index.json"

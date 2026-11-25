@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for how images/compose.yaml loads RiftalMines (riftal-infra#213)
 # and RiftalAccounts (riftal-infra#465), RiftalRanks (riftal-infra#558) and
-# RiftalEconomy (riftal-infra#887), and for start-instance.sh and
-# require-accounts.sh, the scripts that load them. Also pins crash
+# RiftalEconomy (riftal-infra#887) and RiftalPlots (riftal-infra#345), and for
+# start-instance.sh and require-accounts.sh, the scripts that load them. Also pins crash
 # auto-report off on every PocketMine service, designer/stack's included, and
 # covers deliver-world-index.sh and the index mount both instances boot with
 # (riftal-infra#293), the memory and CPU limits on mysql and both
@@ -15,7 +15,7 @@
 # stubbed. It also covers link-replaced.sh, which it runs against scratch
 # fixtures in a throwaway php:8.3-cli-alpine container, so it needs Docker and
 # that image, but neither the dev stack nor a built RiftalMines.phar,
-# RiftalRanks.phar, RiftalEconomy.phar or RiftalGangs.phar.
+# RiftalRanks.phar, RiftalEconomy.phar, RiftalPlots.phar or RiftalGangs.phar.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,12 +30,13 @@ RANKS_PW=selftestRanksPassword0001
 ECONOMY_PW=selftestEconomyPassword01
 GANGS_PW=selftestGangsPassword0001
 MINES_PW=selftestMinesPassword0001
-printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\nRIFTAL_DB_PASSWORD_GANGS=%s\n' \
-  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" "$GANGS_PW" > "$work/env"
+PLOTS_PW=selftestPlotsPassword0001
+printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKEN=t\nRIFTAL_DB_PASSWORD_ACCOUNTS=%s\nRIFTAL_DB_PASSWORD_RANKS=%s\nRIFTAL_DB_PASSWORD_ECONOMY=%s\nRIFTAL_DB_PASSWORD_MINES=%s\nRIFTAL_DB_PASSWORD_PLOTS=%s\nRIFTAL_DB_PASSWORD_GANGS=%s\n' \
+  "$ACCOUNTS_PW" "$RANKS_PW" "$ECONOMY_PW" "$MINES_PW" "$PLOTS_PW" "$GANGS_PW" > "$work/env"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=105
+EXPECTED_ASSERTIONS=116
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -147,7 +148,7 @@ printf '\n== start-instance.sh keeps what start-pocketmine does\n'
 # /plugins as on the real stack, a config rendered by hand sits next to it, and
 # the volume holds one an earlier boot rendered as root. With RANKS set,
 # RiftalRanks.phar is built, with ECONOMY set, RiftalEconomy.phar, and with
-# GANGS set, RiftalGangs.phar.
+# PLOTS set, RiftalPlots.phar, and with GANGS set, RiftalGangs.phar.
 ROOT_PW=rootPasswordFromAnEarlierBoot
 boot() {
   local owner="$1" root="$work/boot"
@@ -156,7 +157,7 @@ boot() {
   mkdir -p "$root/plugins" "$root/data" "$root/pm" "$root/bin"
   : > "$root/plugins/Cached.phar"
   cp "$DIR/render-config.sh" "$DIR/RiftalMines.config.yml.template" "$DIR/RiftalRanks.config.yml" \
-    "$DIR/RiftalEconomy.config.yml" "$DIR/RiftalGangs.config.yml" "$root/"
+    "$DIR/RiftalEconomy.config.yml" "$DIR/RiftalPlots.config.yml" "$DIR/RiftalGangs.config.yml" "$root/"
   if [ -n "${MINES:-}" ]; then
     : > "$root/RiftalMines.phar"
     : > "$root/plugins/contracts.phar"
@@ -169,6 +170,9 @@ boot() {
   fi
   if [ -n "${ECONOMY:-}" ]; then
     : > "$root/RiftalEconomy.phar"
+  fi
+  if [ -n "${PLOTS:-}" ]; then
+    : > "$root/RiftalPlots.phar"
   fi
   if [ -n "${GANGS:-}" ]; then
     : > "$root/RiftalGangs.phar"
@@ -302,6 +306,24 @@ check "with RiftalEconomy.phar built, an unset RIFTAL_DB_PASSWORD_ECONOMY stops 
   '! ECONOMY=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_ECONOMY is not set" "$b/out"'
 check "without RiftalEconomy.phar, no economy config lands and no economy password is needed" \
   'boot "$me" && [ ! -e "$economy_on_volume" ] && ! grep -q RiftalEconomy "$b/roster"'
+
+printf '\n== RiftalPlots connects as the plots login, its password only in the environment (riftal-infra#345)\n'
+PLOTS_CONFIG="$DIR/RiftalPlots.config.yml"
+plots_on_volume="$b/data/plugin_data/RiftalPlots/config.yml"
+check "the plots config names the compose mysql, its schema and the plots login, with no password" \
+  '[ "$(db host "$PLOTS_CONFIG")" = mysql ] && [ "$(db username "$PLOTS_CONFIG")" = plots ] &&
+    [ "$(db schema "$PLOTS_CONFIG")" = "$(jq -r .services.mysql.environment.MYSQL_DATABASE <<<"$real")" ] &&
+    grep -qx "  password: \"\"" "$PLOTS_CONFIG"'
+check "instance and instance-b get RIFTAL_DB_PASSWORD_PLOTS from images/.env" \
+  'jq -e ".services | .instance.environment.RIFTAL_DB_PASSWORD_PLOTS == \"$PLOTS_PW\"
+    and .[\"instance-b\"].environment.RIFTAL_DB_PASSWORD_PLOTS == \"$PLOTS_PW\"" <<<"$real" >/dev/null'
+check "with RiftalPlots.phar built, the tracked config lands on the volume with no password and the phar joins the roster" \
+  'PLOTS=1 boot "$me" RIFTAL_DB_PASSWORD_PLOTS="$PLOTS_PW" && grep -qx RiftalPlots.phar "$b/roster" &&
+    cmp -s "$PLOTS_CONFIG" "$plots_on_volume" && ! grep -rqF "$PLOTS_PW" "$b/data"'
+check "with RiftalPlots.phar built, an unset RIFTAL_DB_PASSWORD_PLOTS stops the boot before php, naming it" \
+  '! PLOTS=1 boot "$me" && [ ! -e "$b/args" ] && grep -q "RIFTAL_DB_PASSWORD_PLOTS is not set" "$b/out"'
+check "without RiftalPlots.phar, no plots config lands and no plots password is needed" \
+  'boot "$me" && [ ! -e "$plots_on_volume" ] && ! grep -q RiftalPlots "$b/roster"'
 
 printf '\n== RiftalAccounts loads on every instance as the accounts login (riftal-infra#465)\n'
 ACCOUNTS_CONFIG="$DIR/../RiftalAccounts.config.yml"
@@ -439,8 +461,8 @@ levelled() {
       or (.value.environment.RIFTAL_LEVEL_ZONES // "") != "")
     | "\(.key)=\(.value.environment.RIFTAL_LEVEL_ZONES // "")"' <<<"$1"
 }
-check "only instance lists a zone or mounts a level, lumber, mine_a, mine_b and mine_c, and it runs the seed step beside the delivery" \
-  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a mine_b mine_c" ]'
+check "only instance lists a zone or mounts a level, lumber, mine_a, mine_b, mine_c, quarry and farm, and it runs the seed step beside the delivery" \
+  '[ -z "$(unseeded "$real")" ] && [ "$(levelled "$real")" = "instance=lumber mine_a mine_b mine_c quarry farm" ]'
 check "an instance without the seed step is caught" \
   '[ "$(unseeded "$(edited "/- \/plugins\/seed-levels.sh/{N;d}")")" = instance ]'
 check "a level mount that lost :ro is caught" \
@@ -452,11 +474,11 @@ check "a listed zone with no level mount is caught" \
 check "a listed zone whose volume compose would create itself is caught" \
   '[ "$(unseeded "$(edited "/^  riftal_smoke_level_mine_a:/,/external/{/external/d}")")" = instance ]'
 check "a last listed zone with no level mount is caught" \
-  '[ "$(unseeded "$(edited "/riftal_smoke_level_mine_c:[/]etc/d")")" = instance ]'
+  '[ "$(unseeded "$(edited "/riftal_smoke_level_farm:[/]etc/d")")" = instance ]'
 check "a last listed zone whose volume compose would create itself is caught" \
-  '[ "$(unseeded "$(edited "/^  riftal_smoke_level_mine_c:/,/external/{/external/d}")")" = instance ]'
+  '[ "$(unseeded "$(edited "/^  riftal_smoke_level_farm:/,/external/{/external/d}")")" = instance ]'
 check "a zone list on instance-b is caught" \
-  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a mine_b mine_c
+  '[ "$(levelled "$(edited "/INSTANCE_ID: \${INSTANCE_B_ID}/a\      RIFTAL_LEVEL_ZONES: lumber")")" = "instance=lumber mine_a mine_b mine_c quarry farm
 instance-b=lumber" ]'
 
 printf '\n== link-replaced.sh gives pharynx the folder a virion requires (riftal-infra#579)\n'
@@ -511,10 +533,11 @@ SHIPPED="$SNAPSHOT/mines/resources/config.yml"
 RANKS_SHIPPED="$SNAPSHOT/ranks/resources/config.yml"
 ACCOUNTS_SHIPPED="$SNAPSHOT/accounts/resources/config.yml"
 ECONOMY_SHIPPED="$SNAPSHOT/economy/resources/config.yml"
+PLOTS_SHIPPED="$SNAPSHOT/plots/resources/config.yml"
 GANGS_SHIPPED="$SNAPSHOT/gangs/resources/config.yml"
 check "the snapshot names the riftal-game commit it was taken from" \
   '[ "$(wc -l < "$SNAPSHOT/SOURCE")" -eq 1 ] && grep -qE "^[0-9a-f]{40}$" "$SNAPSHOT/SOURCE"'
-# Compares the snapshot with the five configs under $1, a riftal-game checkout.
+# Compares the snapshot with the six configs under $1, a riftal-game checkout.
 # It runs only when RIFTAL_GAME_DIR names one, so a CI run with no checkout
 # takes the snapshot alone. LIVE counts these checks apart from the expected
 # total, which holds with or without a checkout.
@@ -522,7 +545,7 @@ LIVE=0
 live_drift() {
   local plugin
   local checkout="$1"
-  for plugin in mines ranks accounts economy gangs; do
+  for plugin in mines ranks accounts economy plots gangs; do
     LIVE=$((LIVE + 1))
     check "the snapshot's $plugin config is the one in riftal-game at $checkout" \
       'cmp -s "$SNAPSHOT/$plugin/resources/config.yml" "$checkout/$plugin/resources/config.yml"'
@@ -530,12 +553,12 @@ live_drift() {
 }
 if [ -n "${RIFTAL_GAME_DIR:-}" ]; then live_drift "$RIFTAL_GAME_DIR"; fi
 game="$work/game"
-for plugin in mines ranks accounts economy gangs; do
+for plugin in mines ranks accounts economy plots gangs; do
   mkdir -p "$game/$plugin/resources"
   cp "$SNAPSHOT/$plugin/resources/config.yml" "$game/$plugin/resources/config.yml"
 done
 check "a checkout equal to the snapshot passes the live comparison" \
-  '[ "$(LIVE=0; FAILURES=0; live_drift "$game" >/dev/null; echo "$FAILURES $LIVE")" = "0 5" ]'
+  '[ "$(LIVE=0; FAILURES=0; live_drift "$game" >/dev/null; echo "$FAILURES $LIVE")" = "0 6" ]'
 sed 's/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/' "$SHIPPED" > "$game/mines/resources/config.yml"
 check "a checkout whose mines config differs from the snapshot fails the live comparison" \
   '! cmp -s "$SHIPPED" "$game/mines/resources/config.yml" &&
@@ -587,8 +610,31 @@ named_locations() {
     grep -vxE 'quarry_spawn|farm_spawn' | sort -u
 }
 check "the delivered world index holds every location the template names for the join and travel" \
-  'names="$(named_locations "$TEMPLATE")" && [ "$(wc -l <<<"$names")" -eq 4 ] &&
+  'names="$(named_locations "$TEMPLATE")" && [ "$(wc -l <<<"$names")" -eq 6 ] &&
     [ -z "$(comm -23 <(printf "%s\n" "$names") <(jq -r ".locations[].name" "$INDEX" | sort -u))" ]'
+# Zones in the space-separated list $2 that the worlds section of config $1
+# does not register under its own name and fragment file. RiftalCustody
+# refuses every break but a crafting table in a zone no registered fragment
+# declares an interior for.
+unregistered() {
+  comm -23 <(tr ' ' '\n' <<<"$2" | grep . | sort -u) \
+    <(sed -n '/^worlds:/,/^[^[:space:]]/s/^  \([a-z0-9_]*\): "worlds\/\1\.json"$/\1/p' "$1" | sort -u)
+}
+compose_zones="$(jq -r '.services.instance.environment.RIFTAL_LEVEL_ZONES // ""' <<<"$real")"
+INSTANCES="$DIR/../../../instances"
+check "every zone instance in compose.yaml seeds is registered in the template's worlds" \
+  '[ -n "$compose_zones" ] && [ -z "$(unregistered "$TEMPLATE" "$compose_zones")" ]'
+check "every zone an instances/ definition seeds is registered in the template's worlds" \
+  'defs="$(ls "$INSTANCES"/*/instance.env)" && [ -n "$defs" ] && ( for env in $defs; do
+    zones="$(sed -n "s/^RIFTAL_LEVEL_ZONES=//p" "$env")"
+    [ -n "$zones" ] && [ -z "$(unregistered "$TEMPLATE" "$zones")" ] || exit 1
+  done )'
+check "a template that drops mine_a from worlds is caught" \
+  'sed "/^  mine_a:/d" "$TEMPLATE" > "$mutated" && ! cmp -s "$TEMPLATE" "$mutated" &&
+    [ "$(unregistered "$mutated" "$compose_zones")" = mine_a ]'
+check "a worlds entry naming another zone's fragment does not register the zone" \
+  'sed "s#\"worlds/mine_a.json\"#\"worlds/mine_b.json\"#" "$TEMPLATE" > "$mutated" &&
+    [ "$(unregistered "$mutated" "$compose_zones")" = mine_a ]'
 check "a shipped value the template does not carry is caught" \
   'sed "s/^refill_blocks_per_tick:.*/refill_blocks_per_tick: 1/" "$SHIPPED" > "$mutated" &&
     [ "$(tuning "$mutated")" != "$(tuning "$TEMPLATE")" ]'
@@ -630,6 +676,11 @@ check "every line in riftal-game's economy config.yml but the schema matches the
 check "a shipped sell shop price the economy config does not carry is caught" \
   'sed "s/^    \"minecraft:coal\": .*/    \"minecraft:coal\": 6/" "$ECONOMY_SHIPPED" > "$mutated" &&
     [ "$(settings "$mutated")" != "$(settings "$ECONOMY_CONFIG")" ]'
+check "every line in riftal-game's plots config.yml but the schema matches the plots config" \
+  '[ -n "$(settings "$PLOTS_SHIPPED")" ] && [ "$(settings "$PLOTS_SHIPPED")" = "$(settings "$PLOTS_CONFIG")" ]'
+check "a shipped plots-world the plots config does not carry is caught" \
+  'sed "s/^plots-world:.*/plots-world: \"elsewhere\"/" "$PLOTS_SHIPPED" > "$mutated" &&
+    [ "$(settings "$mutated")" != "$(settings "$PLOTS_CONFIG")" ]'
 check "every line in riftal-game's gangs config.yml but the schema matches the gangs config" \
   '[ -n "$(settings "$GANGS_SHIPPED")" ] && [ "$(settings "$GANGS_SHIPPED")" = "$(settings "$GANGS_CONFIG")" ]'
 check "a shipped gang level threshold the gangs config does not carry is caught" \

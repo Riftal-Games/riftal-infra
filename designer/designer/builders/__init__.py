@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from designer.builders.base import Palette
+from designer.builders.hall import HallSpec, build_hall
 from designer.builders.mine import build_mine
 from designer.builders.mine_spec import MineSpec
 from designer.builders.perimeter import PerimeterSpec, build_perimeter
@@ -56,5 +57,6 @@ BUILDERS: dict[str, Callable[[dict[str, Any], Palette, HeightmapFetch], EditList
     "plot_grid": lambda spec, palette, fetch: build_plot_grid(PlotGridSpec.from_dict(spec), palette),
     "signage": lambda spec, palette, fetch: build_signage(SignageSpec.from_dict(spec)),
     "perimeter": _build_perimeter,
+    "hall": lambda spec, palette, fetch: build_hall(HallSpec.from_dict(spec), palette),
     "room": lambda spec, palette, fetch: build_room(RoomSpec.from_dict(spec), palette),
 }

@@ -1,0 +1,14 @@
+# Expected: MEMORY_LIMIT_MISSING once and CPU_LIMIT_MISSING once, both at
+# services.tools.
+#
+# A service behind a profile is dropped from the model unless the scan asks for
+# every profile, and it runs unbounded the day someone enables the profile.
+services:
+  instance:
+    image: local-pocketmine-mp:fixture
+    mem_limit: 2G
+    cpus: 2
+
+  tools:
+    image: mysql:8
+    profiles: [tools]

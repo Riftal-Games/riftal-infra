@@ -70,6 +70,11 @@ capture_seconds: 600
 # contested mine. A whole number from 1.
 capture_round_seconds: 1
 
+# gangs/docs/tuning-numbers.md: seconds between each instance's asks for a
+# capture attempt to tell the controlling gang's members of. A whole number
+# from 1.
+capture_alert_poll_seconds: 2
+
 # The file in this plugin's data folder where riftal-infra delivers the
 # designer's world_index.json; resources/ bundles none. Its one world with
 # role "contested" is the contested mine.
