@@ -839,7 +839,7 @@ expect_alpha_scope() {
   sed -i 's/--xbox-auth=true/--xbox-auth=false/' "$tree/instances/mines/instance.env"
   out="$(bash "$SCAN" ports "$tree/deploy/other/compose.yaml" 2>&1)"
   status=$?
-  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qF 'required variable'; then
+  if [ "$status" -ne 0 ] && grep -qF 'required variable' <<<"$out"; then
     pass "a compose outside deploy/alpha/ gets no secret placeholder"
   else
     fail "expected a compose outside deploy/alpha/ to fail on its missing secret, exit $status"
@@ -849,8 +849,8 @@ expect_alpha_scope() {
     bash "$SCAN" ports "$tree/deploy/other/compose.yaml" 2>&1)"
   status=$?
   rm -rf "$tree"
-  if [ "$status" -eq 0 ] && ! printf '%s' "$out" | grep -qF ALPHA_ \
-    && printf '%s' "$out" | grep -qxF "0 finding(s) in $tree/deploy/other/compose.yaml"; then
+  if [ "$status" -eq 0 ] && ! grep -qF ALPHA_ <<<"$out" \
+    && grep -qxF "0 finding(s) in $tree/deploy/other/compose.yaml" <<<"$out"; then
     pass "a compose outside deploy/alpha/ is not judged by the alpha rules"
   else
     fail "expected a compose outside deploy/alpha/ to pass the port policy unjudged, exit $status"
@@ -870,9 +870,9 @@ expect_real_alpha() {
   status=$?
   rm -rf "$PLANTED_DIR"
   if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -qF 'checking ./.ci-realscan-planted/deploy/alpha/compose.yaml' \
-    && printf '%s' "$out" | grep -qF ': ALPHA_PUBLISH_XBOX_AUTH: ' \
-    && ! printf '%s' "$out" | grep -q 'ci-fixtures'; then
+    && grep -qF 'checking ./.ci-realscan-planted/deploy/alpha/compose.yaml' <<<"$out" \
+    && grep -qF ': ALPHA_PUBLISH_XBOX_AUTH: ' <<<"$out" \
+    && ! grep -q 'ci-fixtures' <<<"$out"; then
     pass "the real ports invocation judges a planted deploy/alpha/ compose"
   else
     fail "expected the real ports invocation to reject a planted deploy/alpha/ compose, exit $status"
@@ -900,8 +900,8 @@ expect_real_alpha_file() {
   status=$?
   rm -rf "$PLANTED_DIR"
   if [ "$status" -ne 0 ] \
-    && printf '%s' "$out" | grep -qF "checking ./.ci-realscan-planted/deploy/alpha/$name" \
-    && printf '%s' "$out" | grep -qF "$needle"; then
+    && grep -qF "checking ./.ci-realscan-planted/deploy/alpha/$name" <<<"$out" \
+    && grep -qF "$needle" <<<"$out"; then
     pass "the real ports invocation checks a planted deploy/alpha/$name and fails with '$needle'"
   else
     fail "expected the real ports invocation to check a planted deploy/alpha/$name and fail with '$needle', exit $status"
