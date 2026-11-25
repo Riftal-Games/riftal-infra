@@ -2,6 +2,20 @@
   "default_world": "design",
   "locations": [
     {
+      "name": "farm_spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        41,
+        16
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "farm",
+      "yaw": 180
+    },
+    {
       "name": "lumber_spawn",
       "pitch": 0,
       "pos": [
@@ -55,6 +69,20 @@
         "spawn"
       ],
       "world": "mine_c",
+      "yaw": 180
+    },
+    {
+      "name": "quarry_spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        40,
+        16
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "quarry",
       "yaw": 180
     },
     {
@@ -199,7 +227,7 @@
       "generator": "normal",
       "name": "farm",
       "role": "farm",
-      "seed": 20260907
+      "seed": 23
     },
     {
       "generator": "normal",
@@ -238,7 +266,7 @@
       "generator": "normal",
       "name": "quarry",
       "role": "quarry",
-      "seed": 20260907
+      "seed": 23
     }
   ]
 }

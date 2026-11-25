@@ -21,10 +21,15 @@
 # bytes designer/designer/level_engine.py's read_tree hashes. A path holding a
 # backslash or a newline makes sha256sum escape its output, so it fails the
 # check instead of matching.
+#
+# RIFTAL_LEVELS_DIR and RIFTAL_WORLDS_DIR move the two directories for a caller
+# that is not an instance boot: deploy/wipe-volumes.sh seeds each instance
+# volume's worlds/ from the build's output folders. Run as root, it refuses
+# unless RIFTAL_SEED_CHOWN names the <uid>:<gid> that should own what is seeded.
 set -euo pipefail
 
-levels=/etc/riftal/levels
-worlds=/data/worlds
+levels="${RIFTAL_LEVELS_DIR:-/etc/riftal/levels}"
+worlds="${RIFTAL_WORLDS_DIR:-/data/worlds}"
 manifest=level-manifest.json
 
 say() { printf 'seed-levels: %s\n' "$*"; }
@@ -106,6 +111,9 @@ seed_zone() {
 	if [ "$(tree_sha256 "$tmp")" != "$want" ]; then
 		refuse "$zone: the copy of $source does not hash to $want"
 	fi
+	if [ -n "${RIFTAL_SEED_CHOWN:-}" ]; then
+		chown -R "$RIFTAL_SEED_CHOWN" "$tmp"
+	fi
 	if [ -e "$dest" ] || [ -L "$dest" ]; then
 		refuse "$zone: $dest appeared while the copy was made; leaving it as it is"
 	fi
@@ -115,7 +123,10 @@ seed_zone() {
 }
 
 read -ra zones <<<"${RIFTAL_LEVEL_ZONES:-}"
-if [ "$(id -u)" -eq 0 ] && [ "${#zones[@]}" -gt 0 ]; then
+if [ -n "${RIFTAL_SEED_CHOWN:-}" ] && [[ ! "$RIFTAL_SEED_CHOWN" =~ ^[1-9][0-9]*:[0-9]+$ ]]; then
+	refuse "RIFTAL_SEED_CHOWN must be <uid>:<gid> with a uid that is not root"
+fi
+if [ "$(id -u)" -eq 0 ] && [ -z "${RIFTAL_SEED_CHOWN:-}" ] && [ "${#zones[@]}" -gt 0 ]; then
 	refuse "running as root; the seeded folder would not be owned by the server's user"
 fi
 clear_leftovers
