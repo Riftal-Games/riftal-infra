@@ -209,10 +209,11 @@ restore then.
 ## Audited migrations
 
 Every migration in `riftal-game/lib/resources/sql/migrations/` from `0001` to
-`0020_create_gang_vault_slots.sql` has been checked against the rule above, at
-riftal-game `main` `205e6e1`. Coupled: 0010, 0014 and 0015, each with its
-entry below. A migration numbered above 0020 is unaudited until it is listed
-here.
+`0037_create_contested_mine_attempt.sql` has been checked against the rule
+above, at riftal-game `main` `3e60c92`. There is no 0034 on `main`. Coupled:
+0010, 0014, 0015, 0029, 0032 and 0035, each with its entry below. 0030 is
+covered by 0029's entry. A migration numbered above 0037 is unaudited until it
+is listed here.
 
 Each check is the rule above: whether a build from before the migration's PR,
 running against the migrated schema, fails or writes rows the schema treats
@@ -259,6 +260,35 @@ Not coupled:
   `gang_vault_slots` or calls `gangs_vault_deposit`. On such a build, an item
   already deposited stays in its slot row, out of reach until a build with
   `/gang vault` (PR #1124, `a09b00a`) runs again.
+- 0021: `gangs_join` keeps its four parameters (`0021:11-16`, as `0012:24-29`)
+  and gains only the account row's lock, so an older build's CALL runs
+  unchanged. 0029 changes that signature, with its own entry.
+- 0022: `gangs_reserve_founder` is new, and no build from before PR #1224
+  (`552d51a`) calls it.
+- 0023: `gangs_contested_mine_sweep` is new and no older build calls it. A
+  gang an older build leaves ineligible stays so until the next raise by a
+  newer build, the same lag as 0017.
+- 0024: appends a debit reason, `plot_expansion`, which no older build
+  writes, and the CHECK still refuses every combination it refused.
+- 0025 and 0026: `listings` and `economy_listing_create`, `_cancel`,
+  `_collect` and `_purchase` are new, and `economy_ledger.kind` gains values
+  appended last, so no stored kind moves. No build from before PR #1329
+  (`49a88bb`) touches any of it.
+- 0027: `economy_listing_collect` keeps its five parameters
+  (`0027:78-84`, as `0025`). It answers `capture_fenced` only while
+  `backup.sh` holds the fence, before any write, so no ledger row exists. An
+  economy build from before PR #1543 (`1349062`) does not list that outcome as
+  definite and sends such a collect on to ADR 006 item 5's ledger fence.
+- 0028: `gangs_vault_withdraw` is new, and no gangs build from before PR #1544
+  (`f65704b`) calls it.
+- 0031: `plots`, `plot_chunks` and `plots_claim` arrive with no caller; the
+  first is PR #1675 (`31354fd`), which calls the six-parameter form
+  (`0031:34-41`). A release that applies 0031 alone leaves that build working.
+  A release that applies 0032 too is 0032's entry.
+- 0033, 0036 and 0037: each creates a table (`contested_mine_control`,
+  `gang_shield_windows`, `contested_mine_attempt`) that no build from before
+  its PR (#328, #1836, #1843) reads or writes. The rows 0033 and 0037 insert
+  are single-row seeds nothing older reads.
 
 ## Audited `grants.sql`
 
@@ -351,8 +381,9 @@ So, for any release that takes a database from before 0010 to after it:
    run, and that `schema_migrations` records `0010_add_gang_founded_marker.sql`.
 4. Start every instance on an image tag that carries the matching build of
    every coupled migration and grants change the run applied: PR #266 for
-   0010, and PR #675 for 0014, PR #712 for 0015 and PR #891 for PR #923's
-   `grants.sql` when the run crosses them too (see below).
+   0010, and PR #675 for 0014, PR #712 for 0015, PR #1643 for 0029, PR #1687
+   for 0032, PR #1827 for 0035 and PR #891 for PR #923's `grants.sql` when the
+   run crosses them too (see below).
 5. Rollback is an image tag that meets the same condition. Until the first
    instance on the new tag admits a player, it can also be the restore in
    When a restore is a rollback, above; after that, nothing else. No image
@@ -368,7 +399,8 @@ Migration: `riftal-game/lib/resources/sql/migrations/0015_raise_gang_level_with_
 Matching build: any `gangs` build carrying riftal-game PR #712 (merge commit
 `829565d`), which landed the migration and the 11-argument
 `CALL gangs_ledger_contribute(..., :instance_id, :levels, @gangs_ledger_outcome)`
-(`riftal-game/gangs/resources/sql/gangs.sql:75`) in the same commit. PR #712
+(`riftal-game/gangs/resources/sql/gangs.sql:112` at riftal-game `main`
+`3e60c92`) in the same commit. PR #712
 descends from PR #266, so a tag carrying it also meets the 0010 condition.
 
 What 0015 does: drops `gangs_ledger_contribute` and recreates it with an
@@ -511,6 +543,143 @@ database whose last run applied one from before it:
    When a restore is a rollback, above; after that, nothing else. No
    `economy` build older than PR #891 runs against a database whose grants
    came from PR #923 onward.
+
+## 0029 and the gangs build that sends the founder's accept ship together
+
+Migration: `riftal-game/lib/resources/sql/migrations/0029_create_gang_join_requests.sql`,
+and 0030 after it. Matching build: any `gangs` build carrying riftal-game
+PR #1643 (`99cc7a8`), which landed 0030 and descends from PR #1631
+(`f45ee39`), which landed 0029 and the five-argument
+`CALL gangs_join(:gang_id, :founder_account_id, :account_id, :levels, @gangs_join_outcome)`
+(`riftal-game/gangs/resources/sql/gangs.sql:214` at riftal-game `main`
+`3e60c92`). Source: riftal-game#1631, #1633.
+
+What 0029 does: creates `gang_join_requests`, creates `gangs_join_request`, and
+drops `gangs_join` and recreates it with `IN p_founder_id` before
+`p_account_id`, five parameters where 0012 and 0021 declare four
+(`0029:41-47`). A join is now the founder's accept of a pending request.
+0030 drops and recreates it with the same five parameters (`0030:24-30`) and
+writes a `gang_join_notices` row on admission.
+
+Why the two cannot be split:
+
+- **Older build, migrated schema.** A `gangs` build from before PR #1631
+  calls the procedure with four arguments
+  (`gangs.sql:158` at `f45ee39^`), so every gang join fails on the argument
+  count, ERROR 1318.
+- **Newer build, unmigrated schema.** A build from PR #1631 onward calls it
+  with five, which the 0021 definition refuses the same way, and it reads
+  `gang_join_requests`, which does not exist until 0029 runs.
+
+No build between PR #1631 and PR #1643 breaks against 0030 alone: the
+parameters are unchanged, and no build from before PR #1643 reads
+`gang_join_notices`. The matching build is PR #1643 so that a run that
+applies both has one tag to name.
+
+So, for any release that takes a database from before 0029 to after it:
+
+1. Stop every instance cleanly.
+2. Back up as in The window's backup and restore, above, and record the set
+   name. Restoring it is a rollback only until the first instance on the new
+   tag admits a player; after that it is Nasir's call, never a rollback.
+3. Run the migrations and confirm `schema_migrations` records
+   `0029_create_gang_join_requests.sql`, and 0030 when it was pending.
+4. Start every instance on an image tag whose `gangs` plugin carries PR
+   #1643, and the matching build of any other coupled migration or grants
+   change the run applied.
+5. Rollback is an image tag that meets the same condition. Until the first
+   instance on the new tag admits a player, it can also be the restore in
+   When a restore is a rollback, above; after that, nothing else. No image
+   tag older than PR #1631 runs against a database with 0029 applied.
+
+## 0032 and the plots build that passes the grid geometry ship together
+
+Migration: `riftal-game/lib/resources/sql/migrations/0032_record_plots_geometry.sql`.
+Matching build: any `plots` build carrying riftal-game PR #1687 (`b4f5051`),
+which landed the migration and the ten-argument
+`CALL plots_claim(..., :centre_chunk_x, :centre_chunk_z, :max_plot_side_chunks, :border_chunks, @plots_claim_outcome)`
+(`riftal-game/plots/resources/sql/plots.sql:21-22` at riftal-game `main`
+`3e60c92`) in the same commit. PR #1687 descends from PR #1675 (`31354fd`),
+the first `plots` build that calls the procedure. Source: riftal-game#1673.
+
+What 0032 does: creates `plot_geometry`, a single row, and drops
+`plots_claim` and recreates it with four geometry `IN` parameters, ten
+parameters where 0031 declares six, and `OUT p_outcome VARCHAR(24)` where it
+declared `VARCHAR(16)` (`0032:29-40`, `0031:34-41`). The claim answers
+`geometry_differs` unless the stored row matches the arguments.
+
+Why the two cannot be split:
+
+- **Older build, migrated schema.** A `plots` build from PR #1675 up to
+  before PR #1687 calls the procedure with six arguments
+  (`plots.sql:17` at `31354fd`), so every plot claim fails on the argument
+  count, ERROR 1318.
+- **Newer build, unmigrated schema.** A build from PR #1687 onward calls it
+  with ten, which the 0031 definition refuses the same way.
+
+So, for any release that takes a database from before 0032 to after it:
+
+1. Stop every instance cleanly.
+2. Back up as in The window's backup and restore, above, and record the set
+   name. Restoring it is a rollback only until the first instance on the new
+   tag admits a player; after that it is Nasir's call, never a rollback.
+3. Run the migrations and confirm `schema_migrations` records
+   `0032_record_plots_geometry.sql`.
+4. Start every instance on an image tag whose `plots` plugin carries PR
+   #1687, and the matching build of any other coupled migration or grants
+   change the run applied.
+5. Rollback is an image tag that meets the same condition. Until the first
+   instance on the new tag admits a player, it can also be the restore in
+   When a restore is a rollback, above; after that, nothing else. No image
+   tag from PR #1675 up to before PR #1687 runs against a database with 0032
+   applied. A `plots` build from before PR #1675 never calls the procedure.
+
+The plots plugin writes the geometry row before the first claim, and the
+primary key decides which instance's write stands (`0032:1-5`). An instance
+whose configured geometry differs from the stored row answers
+`geometry_differs` to every claim, so every instance's configuration carries
+the same four values before the window ends.
+
+## 0035 and the gangs build that no longer writes the rank cache ship together
+
+Migration: `riftal-game/lib/resources/sql/migrations/0035_drop_gang_rank_cache.sql`.
+Matching build: any `gangs` build carrying riftal-game PR #1827 (`76d8e93`),
+which removed the cache's repository, its listener and its two queries
+(`rank_cache.upsert` and `rank_cache.get`, `gangs.sql:215-228` at `76d8e93^`).
+PR #1837 (`37509ff`), which landed 0035, descends from it. Source: ADR 026
+item 4, riftal-game#1468.
+
+What 0035 does: `DROP TABLE gang_rank_cache` (`0035:5`). The same PR's
+`grants.sql` revokes `riftal_role_gangs`'s privileges on the table, because
+MySQL keeps a dropped table's grants (`grants.sql`, ADR 026 item 4 comment).
+
+Why the two cannot be split:
+
+- **Older build, migrated schema.** A `gangs` build from before PR #1827
+  writes the cache on a rank change through `rank_cache.upsert`, and a build
+  from before PR #1496 (`0f33055`) also reads it at the rank floor through
+  `rank_cache.get`. The table is gone, so those statements fail.
+- **Newer build, unmigrated schema.** Not a constraint: a build from PR #1827
+  onward never names the table, and runs the same against a database that
+  still has it.
+
+So, for any release that takes a database from before 0035 to after it:
+
+1. Stop every instance cleanly.
+2. Back up as in The window's backup and restore, above, and record the set
+   name. Restoring it is a rollback only until the first instance on the new
+   tag admits a player; after that it is Nasir's call, never a rollback.
+3. Run the migrations and confirm `schema_migrations` records
+   `0035_drop_gang_rank_cache.sql`. Cache rows are derived from
+   `player_ranks`, which keeps every fact they held, so the drop loses no
+   data (`0035:1-4`).
+4. Start every instance on an image tag whose `gangs` plugin carries PR
+   #1827, and the matching build of any other coupled migration or grants
+   change the run applied.
+5. Rollback is an image tag that meets the same condition. Until the first
+   instance on the new tag admits a player, it can also be the restore in
+   When a restore is a rollback, above; after that, nothing else. No image
+   tag older than PR #1827 runs against a database with 0035 applied.
 
 ## No rollback to a plugin build from before riftal-game PR #454
 
