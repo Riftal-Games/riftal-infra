@@ -280,8 +280,9 @@ recipe above, `gangs` in place of `mines` in the copy loop and
 `depend: [RiftalContracts]` and `softdepend: [RiftalCustody]`, both met at the
 top of `plugins/`.
 
-The plugin reads one config file and adds no default for any key but
-`world_index`, so `RiftalGangs.config.yml` carries every key. `start-instance.sh` copies it to
+`RiftalGangs.config.yml` carries every key the plugin's shipped config does,
+because `selftest.sh` holds the two equal but for the schema, comments and
+blank lines. `start-instance.sh` copies it to
 `/data/plugin_data/RiftalGangs/config.yml` on every boot. It differs from the
 shipped one only in its schema, `riftal_dev`, and holds no password: the gangs
 login's comes from `RIFTAL_DB_PASSWORD_GANGS`, which compose passes `instance`

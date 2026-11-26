@@ -1,6 +1,6 @@
 # start-instance.sh copies this to /data/plugin_data/RiftalGangs/config.yml on
-# every boot. The plugin reads this file alone and adds no default for any key
-# but world_index, so it carries every key.
+# every boot. It carries every key the plugin's shipped config does, because
+# selftest.sh holds the two equal but for the schema, comments and blank lines.
 #
 # Everything below except the schema is the plugin's own shipped default
 # (images/riftal-game-snapshot/gangs/resources/config.yml). selftest.sh
