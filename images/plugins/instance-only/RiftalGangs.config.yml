@@ -1,0 +1,39 @@
+# start-instance.sh copies this to /data/plugin_data/RiftalGangs/config.yml on
+# every boot. It carries every key the plugin's shipped config does, because
+# selftest.sh holds the two equal but for the schema, comments and blank lines.
+#
+# Everything below except the schema is the plugin's own shipped default
+# (images/riftal-game-snapshot/gangs/resources/config.yml). selftest.sh
+# compares every line to that file but comments, blanks and the schema, which
+# it checks against the one compose creates, riftal_dev. The password stays
+# empty: RiftalGames\Lib\Database\DatabaseSettings reads the gangs login's
+# password from RIFTAL_DB_PASSWORD_GANGS in the instance's environment, and
+# throws if this file holds one too (ADR 008 item 5).
+database:
+  host: "mysql"
+  schema: "riftal_dev"
+  username: "gangs"
+  password: ""
+  port: 3306
+  worker-limit: 1
+
+creation_cost_minor_units: 500
+rank_floor: "C"
+rank_order: ["A", "B", "C"]
+
+levels:
+  - {threshold: 0, member_cap: 4}
+  - {threshold: 1000, member_cap: 6}
+  - {threshold: 3000, member_cap: 8}
+  - {threshold: 6000, member_cap: 10}
+  - {threshold: 10000, member_cap: 12}
+
+contested_mine_eligibility_level: 5
+vault_unlock_level: 4
+vault_capacity: 27
+join_notice_poll_seconds: 5
+shield_window_minutes: 360
+capture_seconds: 600
+capture_round_seconds: 1
+capture_alert_poll_seconds: 2
+world_index: "world_index.json"

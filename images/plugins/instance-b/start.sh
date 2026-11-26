@@ -4,16 +4,16 @@
 # balance ledger as one made on `instance` (spec 017 criterion 20, ADR 022,
 # riftal-infra#348). It loads RiftalPlots too, so a claim made there is written
 # to the shared database through the plots login (spec 017 criterion 4,
-# riftal-infra#345); it hosts `plots_b`, never the `plots` level. RiftalMines
-# and RiftalRanks serve `instance`'s worlds alone and stay off it.
+# riftal-infra#345); it hosts `plots_b`, never the `plots` level. RiftalMines,
+# RiftalRanks and RiftalGangs serve `instance`'s worlds alone and stay off it.
 #
-# start-instance.sh loads whichever of RiftalMines, RiftalRanks, RiftalEconomy
-# and RiftalPlots sit beside it, on top of every plugin at the top of /plugins.
-# A copy staged in this container's own filesystem with RiftalEconomy and
-# RiftalPlots alone beside it gives instance-b that roster, with the same
-# config copy and the same refusal of a missing RIFTAL_DB_PASSWORD_ECONOMY or
-# RIFTAL_DB_PASSWORD_PLOTS as `instance`, and writes nothing into the
-# ./plugins bind both instances share.
+# start-instance.sh loads whichever of RiftalMines, RiftalRanks, RiftalEconomy,
+# RiftalPlots and RiftalGangs sit beside it, on top of every plugin at the top
+# of /plugins. A copy staged in this container's own filesystem with
+# RiftalEconomy and RiftalPlots alone beside it gives instance-b that roster,
+# with the same config copy and the same refusal of a missing
+# RIFTAL_DB_PASSWORD_ECONOMY or RIFTAL_DB_PASSWORD_PLOTS as `instance`, and
+# writes nothing into the ./plugins bind both instances share.
 set -euo pipefail
 
 only=/plugins/instance-only

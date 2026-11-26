@@ -35,7 +35,7 @@ boot() {
     : > "$root/plugins/$source_folder/plugin.yml"
   fi
   cp "$ONLY/RiftalRanks.config.yml" "$ONLY/RiftalEconomy.config.yml" "$ONLY/RiftalPlots.config.yml" \
-    "$ONLY/render-config.sh" "$ONLY/RiftalMines.config.yml.template" "$root/plugins/instance-only/"
+    "$ONLY/RiftalGangs.config.yml" "$ONLY/render-config.sh" "$ONLY/RiftalMines.config.yml.template" "$root/plugins/instance-only/"
   for phar in $phars; do : > "$root/plugins/instance-only/$phar"; done
   local rewrite=(-e "s#/plugins#$root/plugins#g; s#/data#$root/data#g"
     -e "s#/opt/pocketmine#$root/pm#g; s#-user pocketmine#-user $(id -u)#g")
@@ -51,7 +51,7 @@ EOF
   env -i HOME="$work" PATH="$root/bin:$PATH" TMPDIR="$root" MYSQL_ROOT_PASSWORD=x "$@" \
     bash "$root/start.sh" > "$root/out" 2>&1 < /dev/null && [ -s "$root/args" ]
 }
-all="RiftalMines.phar RiftalRanks.phar RiftalEconomy.phar RiftalPlots.phar"
+all="RiftalMines.phar RiftalRanks.phar RiftalEconomy.phar RiftalPlots.phar RiftalGangs.phar"
 economy_on_volume="$root/data/plugin_data/RiftalEconomy/config.yml"
 # The logins instance-b is given.
 logins=(RIFTAL_DB_PASSWORD_ECONOMY=pw RIFTAL_DB_PASSWORD_PLOTS=pw)
@@ -71,7 +71,7 @@ check "with every instance-only phar built, the roster is the shared plugins, Ri
 sed 's#cp "\$only/start-instance.sh" #cp "$only"/* #' "$DIR/start.sh" > "$work/leaky.sh"
 check "a start script that stages all of instance-only is caught" \
   '! cmp -s "$DIR/start.sh" "$work/leaky.sh" &&
-    boot "$work/leaky.sh" "$all" "${logins[@]}" RIFTAL_DB_PASSWORD_RANKS=pw RIFTAL_DB_PASSWORD_MINES=pw && ! economy_and_plots_only'
+    boot "$work/leaky.sh" "$all" "${logins[@]}" RIFTAL_DB_PASSWORD_RANKS=pw RIFTAL_DB_PASSWORD_MINES=pw RIFTAL_DB_PASSWORD_GANGS=pw && ! economy_and_plots_only'
 check "with RiftalEconomy.phar built, an unset RIFTAL_DB_PASSWORD_ECONOMY stops the boot before php, naming it" \
   '! boot "$DIR/start.sh" "$all" RIFTAL_DB_PASSWORD_PLOTS=pw && [ ! -e "$root/args" ] && grep -q "RIFTAL_DB_PASSWORD_ECONOMY is not set" "$root/out"'
 check "with RiftalPlots.phar built, an unset RIFTAL_DB_PASSWORD_PLOTS stops the boot before php, naming it" \
