@@ -21,7 +21,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$DIR/../../core-image.sh"
 core_image || { printf 'the crash hook was never checked\n'; exit 1; }
 IMAGE="$CORE_IMAGE"
-ERRORS='CRITICAL|EMERGENCY|Exception|Stack trace'
+ERRORS='/(EMERGENCY|ALERT|CRITICAL|ERROR)]|Exception|Stack trace'
 
 FAILURES=0
 PASSES=0
@@ -45,7 +45,7 @@ boot() {
   local entry=()
   [ "${3:-}" = pid1 ] && entry=(--entrypoint start-pocketmine)
   status=0
-  timeout 180 docker run --rm --name "$name" -m 2g --cpus 2 \
+  timeout 180 docker run --rm --pull never --name "$name" -m 2g --cpus 2 \
       -v "$plugins:/plugins:ro" "${env[@]}" "${entry[@]}" \
       -e "POCKETMINE_ARGS=--xbox-auth=false --riftal-dev-bots=$1 --auto-report.enabled=0 --level-type=flat" \
       "$IMAGE" >"$work/log" 2>&1 || status=$?
@@ -56,9 +56,15 @@ boot() {
   printf 'exit status %s\n' "$status"
 }
 
+# $1 label, $2 optional fixed text of the one expected error line, dropped before the check
 clean() {
-  ! grep -qE "$ERRORS" "$work/log" && pass "$1: the server log has no error" \
-    || fail "$1: the server log has an error: $(grep -E "$ERRORS" "$work/log")"
+  local found
+  found="$(grep -E "$ERRORS" "$work/log" || true)"
+  if [ -n "${2:-}" ]; then
+    found="$(grep -vF -- "$2" <<<"$found" || true)"
+  fi
+  [ -z "$found" ] && pass "$1: the server log has no error" \
+    || fail "$1: the server log has an error: $found"
 }
 
 printf '\n== dev bots admitted: the console kills the process, no other sender can\n'
@@ -84,7 +90,7 @@ grep -q 'devbots-crash: killing process' "$work/log" \
 
 printf '\n== dev bots admitted, server is process 1: the console run refuses\n'
 boot on 1 pid1
-clean "process 1"
+clean "process 1" "devbots-crash: refused, this server is process 1"
 grep -q 'devbots-crash: refused, this server is process 1' "$work/log" \
   && pass "process 1: the console's run is refused, naming why" \
   || fail "process 1: the console's run was not refused as process 1"

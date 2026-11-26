@@ -605,6 +605,15 @@ address. It acts only when the instance's service definition passes
 logs why. No instance sets the option today, and a downstream must publish no
 port (spec 016). `images/plugins/downstream-limit/selftest.sh` holds it.
 
+The same plugin lifts core's 5 s bad-packet block, which behind the proxy would
+silence every session on the downstream. Under the same opt-in it calls each
+RakLib interface's `unblockAddress()` every tick for each address in
+`--riftal-downstream-proxies=<ip>[,<ip>...]`, set by the instance's service
+definition and never learned from traffic. Unset or empty, it makes no call and
+logs why. RakLib logs each call at debug; core shows debug only above its
+default `debug.level: 1`, which the release image leaves alone.
+`images/plugins/proxy-unblock/selftest.sh` holds it.
+
 `GAME_COMMIT` is the full lowercase 40-character riftal-game sha the phars and
 `GRANTS_SQL` were built from, and `GRANTS_SQL` is that commit's `grants.sql`.
 The script refuses a `GAME_COMMIT` that is unset or malformed and a `GRANTS_SQL`
