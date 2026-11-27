@@ -72,6 +72,18 @@
       "yaw": 180
     },
     {
+      "name": "portal_lumber_out",
+      "pitch": 0,
+      "pos": [
+        53,
+        228,
+        117
+      ],
+      "tags": [],
+      "world": "pit",
+      "yaw": 180
+    },
+    {
       "name": "quarry_spawn",
       "pitch": 0,
       "pos": [
