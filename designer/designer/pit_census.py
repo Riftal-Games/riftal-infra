@@ -95,8 +95,11 @@ def write_json(path: Path, data: Any) -> None:
 
 
 def check(source_dir: Path = SOURCE_DIR, core_pin: str | None = None) -> list[str]:
-    """Every way the committed sources differ from what they pin; empty when none."""
-    core_pin = core_pin or CORE_PIN.read_text(encoding="utf-8").strip()
+    """Every way the committed sources differ from what they pin; empty when none.
+
+    ``core_pin`` is the core image sha the census verdict must be for. It is the
+    caller's to supply: the designer container mounts this directory alone.
+    """
     pins = read_json(source_dir / "pins.json")
     problems = []
     for name, want in sorted(pins["files"].items()):
@@ -111,7 +114,7 @@ def check(source_dir: Path = SOURCE_DIR, core_pin: str | None = None) -> list[st
     committed, rebuilt = read_json(source_dir / "census.json"), build_census(source_dir / STRUCTURE)
     problems += [f"census.json {key} differs from the structure it pins" for key in sorted(rebuilt) if committed.get(key) != rebuilt[key]]
     got_core = (committed.get("resolution") or {}).get("core_image")
-    if got_core != core_pin:
+    if core_pin is not None and got_core != core_pin:
         problems.append(f"census.json resolution is for core image {got_core}, pin is {core_pin}")
     return problems
 
@@ -136,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
 
     problems: list[str] = []
     if args.cmd == "check":
-        problems = check()
+        problems = check(core_pin=CORE_PIN.read_text(encoding="utf-8").strip())
     elif args.cmd == "write":
         path = SOURCE_DIR / "census.json"
         census = build_census(SOURCE_DIR / STRUCTURE)
