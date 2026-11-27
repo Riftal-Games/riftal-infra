@@ -81,15 +81,18 @@ read and written by `designer/level.py`.
   layers 4 to 14, so layers 1 to 3 keep their placeholder for `mines` to fill.
 - A `pit_matches_handoff` check (`world`, `spec` the structure spec, optional `deviations`)
   reads the whole of `bounds` once, the same region `content_sha256` hashes, and runs the
-  eleven checks of the pit plan's section 4.4 against the hand-off's `cells.json`,
+  thirteen checks of the pit plan's section 4.4 against the hand-off's `cells.json`,
   `routes.json` and `census.json` and the source cut again by `convert`: the read-back
-  against the source cell by cell (01), `packed_mud` in each layer's bed box (02) and
-  nowhere else (03), the contested mine's terracotta (04), every cell's blocks and gray
-  bed (05), the census totals of iron door halves, chests and beds (06), each ladder
-  (07), a solid block under and two air blocks at every stair landing, warp and bridge
-  end (08), `path_exists` along the south stairway and from the gate (09), the three
-  positions INTEGRATION.md quotes (10), and no liquid the source lacks (11). A failure names the cell or
-  position. A bed's colour is not in the read-back, so 05 reads it from the cell files.
+  against the source cell by cell (01), `packed_mud` in each deck's bed box and the floor
+  ring's (02) and nowhere else (03), the contested cylinder's terracotta (04), every
+  cell's blocks and gray bed (05), the census totals of iron door halves, chests and
+  beds (06), each ladder (07), a solid block under and two air blocks at every stair
+  landing, warp and bridge end (08), `path_exists` along the south stairway, from the
+  gate, from terraces 1 to 3 to their decks and from the pit floor to the hall (09), the
+  positions INTEGRATION.md quotes (10), no liquid the source lacks (11), every
+  placeholder at the radius of its own centre, the tower axis or the pit axis (12), and
+  each of the 52 bridges walked from its tower end to a terrace end inside its landing's
+  box (13). A failure names the cell or position. A bed's colour is not in the read-back, so 05 reads it from the cell files.
   `deviations` is a file of `{"<check>": {"<exact problem text>": "<why>"}}`: a problem
   whose text is listed is counted under `accepted_deviations` and does not fail the
   build, and a listed text that is no longer found fails it. `specs/pit_handoff_deviations.json`

@@ -1,7 +1,8 @@
 """A sparse miniature of the pit: the hand-off's own sample positions, standing places, two cells and a few placeholders.
 
-Positions are local to the pit's origin ``0 66 0``. Everything sits at the coordinates INTEGRATION.md quotes, so
-``SAMPLES`` holds without an override, and the rest is laid out so each of the eleven checks has something to count.
+Positions are local to the pit's origin ``0 66 0``. The cells, the ladder and the first stair landing sit at the
+coordinates INTEGRATION.md quotes, and the rest is laid out so each of the thirteen checks has something to count.
+``SAMPLES`` holds only with ``SAMPLES`` below, since the hall sits on the walkway and not 260 blocks under it.
 """
 
 from __future__ import annotations
@@ -48,12 +49,30 @@ def _cell(cell_id: str, layer: int, dz: int) -> dict[str, Any]:
 
 
 CELLS = [_cell("L08-R2-010", 8, 0), _cell("L09-R1-001", 9, 10)]
+TOWER = [-0.5, -0.5]
+SAMPLES = {
+    "south stairway layer 1 bottom landing": ((11, 142, 122), (11, 208, 122)),
+    "contested_mine_top": ((0, -115, 0), (0, -49, 0)),
+    "deck_1": ((0, 142, 34), (0, 208, 34)),
+    "hall": ((0, 142, 23), (0, 208, 23)),
+    "cell L08-R2-010 door_lower": ((75, 7, -24), (75, 73, -24)),
+}
+
+
+def _bridge(layer: int, x: int) -> dict[str, Any]:
+    return {
+        "name": f"bridge_{layer}", "layer": layer, "tower_end": [x, 142, 36], "terrace_end": [x, 142, 96],
+        "landing": {"name": f"landing_{layer}", "box_min": [x - 2, 141, 96], "box_max": [x + 2, 144, 100]},
+    }
+
+
 ROUTES: dict[str, Any] = {
-    "levels": [
-        {"layer": 1, "bed_r": [3, 4], "bed_y": [60, 64], "bed_blocks": 3},
-        {"layer": 2, "bed_r": [2, 3], "bed_y": [40, 44], "bed_blocks": 2},
+    "decks": [
+        {"deck": 1, "centre": TOWER, "bed_r": [3, 5], "bed_y": [60, 64], "bed_blocks": 3},
+        {"deck": 2, "centre": TOWER, "bed_r": [2, 4], "bed_y": [40, 44], "bed_blocks": 2},
     ],
-    "contested_mine": {"min": [-1, -117, -1], "max": [1, -116, 1], "blocks": 18},
+    "pit_floor": {"layer14_ring": {"r": [26, 39], "y": [-118, -117], "blocks": 3}},
+    "contested_mine": {"centre": TOWER, "radius": 16, "box_min": [-1, -117, -1], "box_max": [1, -116, 1], "blocks": 18},
     "stairs": [
         {"stair": "south", "layer": 1, "top_landing": [-11, 142, 122], "bottom_landing": [11, 142, 122]},
         {"stair": "south", "layer": 2, "top_landing": [11, 142, 116], "bottom_landing": [-11, 142, 116]},
@@ -61,11 +80,13 @@ ROUTES: dict[str, Any] = {
     "warps": {
         "rim_south": {"local": [0, 142, 110]}, "pit_floor": {"local": [0, 142, 100]}, "contested_mine_top": {"local": [0, -115, 0]},
         "gate_outside": {"local": [0, 2, 98]}, "gate_hall": {"local": [0, 2, 90]}, "layer_8": {"local": [0, 2, 70]},
+        "layer_1": {"local": [0, 142, 120]}, "layer_2": {"local": [2, 142, 120]}, "deck_1": {"local": [0, 142, 34]},
+        "deck_2": {"local": [2, 142, 34]}, "hall": {"local": [0, 142, 23]},
     },
-    "bridges": [{"bridge": 1, "end_a": [12, 142, 104], "end_b": [12, 142, 102]}],
+    "bridges": [_bridge(1, 0), _bridge(2, 2)],
 }
 LADDERS = [{"layer": 1, "x": -14, "z": 110, "y_from": 142, "y_to": 146, "facing": "east"}]
-MUD_AT = [(4, 60, 0), (-4, 61, 1), (0, 62, 4), (3, 40, 0), (-3, 41, 0)]
+MUD_AT = [(4, 60, 0), (-4, 61, 1), (0, 62, 4), (3, 40, 0), (-3, 41, 0), (30, -118, 0), (28, -117, 10), (27, -117, -5)]
 CENSUS = {"size": [HIGH[a] - LOW[a] + 1 for a in range(3)], "block_names": {"minecraft:iron_door": 4, "minecraft:chest": 2, "minecraft:bed": 4}}
 
 
@@ -77,6 +98,7 @@ def layout() -> dict[Pos, str]:
     """Every block of the miniature by world position, air left out."""
     put = {world((x, 141, z)): STONE for x in range(-12, 13) for z in range(96, 125)}
     put |= {world((x, 1, z)): STONE for x in range(-8, 9) for z in range(60, 101)}
+    put |= {world((x, 141, z)): STONE for x in range(-2, 3) for z in range(20, 96)}
     put |= {world((x, y, z)): CLAY for x in range(-1, 2) for y in (-117, -116) for z in range(-1, 2)}
     for cell in CELLS:
         lantern = LANTERN if cell["layer"] <= 8 else SOUL
