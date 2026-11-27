@@ -16,6 +16,15 @@
 # Every script plugin in SCRIPTS loads on every instance, and a missing one
 # stops the boot. It gates itself on the instance's flags.
 #
+# The image delivers its own world index and levels (ADR 043). Before /data is
+# written the boot refuses a /etc/riftal that does not match the digest list the
+# image carries, a RIFTAL_LEVEL_ZONES zone the list lacks, and any value of
+# RIFTAL_LEVEL_ZONES and POCKETMINE_ARGS that level-args.sh, the rule CI applies
+# to every instance definition, finds fault with. It then delivers the index and
+# seeds the zones with the scripts in /opt/riftal/boot. No variable skips any of
+# these steps, and one that moves where seed-levels.sh reads or writes
+# (RIFTAL_LEVELS_DIR, RIFTAL_WORLDS_DIR, RIFTAL_SEED_CHOWN) stops the boot.
+#
 # The image also carries RiftalGangs, RiftalRiots, RiftalPlots and RiftalAnvil.
 # This script gives them no login and no config, so none is offered here. The
 # dev stack's `instance` loads Gangs from plugins/instance-only/, not from the
@@ -26,11 +35,28 @@ ROOT=/opt/riftal
 ALWAYS=(RiftalCustody RiftalAccounts contracts)
 OPTIONAL=(RiftalMines RiftalRanks RiftalEconomy)
 SCRIPTS=(RiftalDownstreamLimit.php)
+BOOT=$ROOT/boot
+DIGESTS=$BOOT/etc-riftal.sha256
+LEVELS=/etc/riftal/levels
 
 refuse() {
 	echo "start-release.sh: $1" >&2
 	exit 1
 }
+
+# $1 a level manifest. Prints its content_sha256, nothing when it holds none.
+content_sha256() {
+	sed -n 's/^ *"content_sha256": *"\([0-9a-f]\{64\}\)",\{0,1\} *$/\1/p' "$1" 2>/dev/null || true
+}
+
+# seed-levels.sh reads these to serve deploy/wipe-volumes.sh. A boot that
+# honoured them would seed from a folder this image did not verify, or away from
+# /data/worlds.
+for var in RIFTAL_LEVELS_DIR RIFTAL_WORLDS_DIR RIFTAL_SEED_CHOWN; do
+	if [ -n "${!var+x}" ]; then
+		refuse "$var is set; it belongs to deploy/wipe-volumes.sh and no instance sets it"
+	fi
+done
 
 for var in RIFTAL_DB_HOST RIFTAL_DB_SCHEMA; do
 	if ! [[ "${!var:-}" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -65,6 +91,30 @@ for arg in "${pm_args[@]}"; do
 	esac
 done
 
+if [ ! -f "$BOOT/level-args.sh" ]; then
+	refuse "$BOOT/level-args.sh is missing from this image"
+fi
+# shellcheck source=../plugins/level-args.sh
+. "$BOOT/level-args.sh"
+
+if ! out="$(sha256sum -c --quiet "$DIGESTS" 2>&1)"; then
+	refuse "/etc/riftal is not what this image delivers, so $DIGESTS does not check: $out"
+fi
+
+if ! findings="$(level_findings "${RIFTAL_LEVEL_ZONES-}" "${POCKETMINE_ARGS-}")"; then
+	while IFS= read -r line; do
+		echo "start-release.sh: $line" >&2
+	done <<<"$findings"
+	exit 1
+fi
+
+read -ra zones <<<"$RIFTAL_LEVEL_ZONES"
+for zone in "${zones[@]}"; do
+	if ! awk -v want="$LEVELS/$zone/level-manifest.json" '$2 == want { found = 1 } END { exit !found }' "$DIGESTS"; then
+		refuse "RIFTAL_LEVEL_ZONES lists $zone and this image carries no level $zone"
+	fi
+done
+
 roster="$(mktemp -d)"
 for name in "${ALWAYS[@]}" "${selected[@]}"; do
 	if [ ! -s "$ROOT/plugins/$name.phar" ]; then
@@ -87,6 +137,19 @@ for name in "${with_login[@]}"; do
 		-e "s/^  schema: .*/  schema: \"$RIFTAL_DB_SCHEMA\"/" \
 		"$ROOT/plugin_data/$name/config.yml" >"/data/plugin_data/$name/config.yml"
 done
+
+for zone in "${zones[@]}"; do
+	if [ -e "/data/worlds/$zone" ]; then
+		seeded="$(content_sha256 "/data/worlds/$zone/level-manifest.json")"
+		tag_sha="$(content_sha256 "$LEVELS/$zone/level-manifest.json")"
+		if [ "$seeded" != "$tag_sha" ]; then
+			echo "LEVEL DIFFERS $zone seeded=${seeded:-none} tag=$tag_sha"
+		fi
+	fi
+done
+
+"$BOOT/deliver-world-index.sh" || refuse "deliver-world-index.sh failed"
+"$BOOT/seed-levels.sh" || refuse "seed-levels.sh failed"
 
 cd /opt/pocketmine
 

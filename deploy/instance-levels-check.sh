@@ -28,8 +28,13 @@
 # 64 lowercase hex digits (the keys designer/designer/level.py writes). Levels a
 # plugin loads by its own config are not read here.
 #
+# The per-definition rule on those two values is images/plugins/level-args.sh,
+# which the release image's start command applies to the same values on the host.
+# What needs every definition or the locks stays here.
+#
 # Environment: INSTANCES_DIR (default instances/ beside deploy/), LEVEL_LOCKS_DIR
-# (default designer/levels beside deploy/), JQ_BIN (default /usr/bin/jq).
+# (default designer/levels beside deploy/), JQ_BIN (default /usr/bin/jq),
+# LEVEL_ARGS_SH (default images/plugins/level-args.sh beside deploy/).
 #
 # Exit status: 0 one INSTANCE LEVELS OK line, also for zero definitions; 1 one
 # INSTANCE LEVELS REFUSED line per finding; 2 usage, an unreadable instance.env,
@@ -41,6 +46,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTANCES_DIR="${INSTANCES_DIR:-$SCRIPT_DIR/../instances}"
 LEVEL_LOCKS_DIR="${LEVEL_LOCKS_DIR:-$SCRIPT_DIR/../designer/levels}"
 JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
+LEVEL_ARGS_SH="${LEVEL_ARGS_SH:-$SCRIPT_DIR/../images/plugins/level-args.sh}"
 
 die() {
   echo "instance-levels-check.sh: $1" >&2
@@ -51,6 +57,9 @@ die() {
 [ -d "$INSTANCES_DIR" ] || die "cannot read instance definitions in $INSTANCES_DIR"
 [ -d "$LEVEL_LOCKS_DIR" ] || die "$LEVEL_LOCKS_DIR is not a directory, so no zone's build can be read"
 [ -x "$JQ_BIN" ] || die "$JQ_BIN is not an executable jq, so no build lock can be read"
+[ -f "$LEVEL_ARGS_SH" ] || die "$LEVEL_ARGS_SH is not a file, so no definition's levels can be checked"
+# shellcheck source=../images/plugins/level-args.sh
+. "$LEVEL_ARGS_SH"
 
 INSTANCES_DIR="${INSTANCES_DIR%/}"
 refused=0
@@ -59,14 +68,11 @@ refuse() {
   refused=1
 }
 
-value_re='^[A-Za-z0-9 _.,:=/@+-]+$'
-option_re='^--[A-Za-z0-9][A-Za-z0-9._-]*(=.*)?$'
+value_re="$LEVEL_VALUE_RE"
 declare -A zone_owner=()
 declare -A env_value=()
 definitions=0
 built=()
-listed=()
-default_zone=
 
 # lock_problem <zone> prints why the zone has no build, or nothing when it has.
 lock_problem() {
@@ -106,58 +112,6 @@ read_env() {
   done <"$file"
 }
 
-# check_args <id> sets default_zone from POCKETMINE_ARGS, empty when there is none.
-check_args() {
-  local id="$1" token names=() odd=0 args
-  default_zone=
-  read -ra args <<<"${env_value[POCKETMINE_ARGS]}"
-  for token in "${args[@]}"; do
-    if ! [[ $token =~ $option_re ]]; then
-      refuse "$id: POCKETMINE_ARGS token '$token' is not a single long option, so core stops reading options there and takes no --level-name after it"
-      odd=1
-      break
-    fi
-    case "$token" in
-      --level-name=?*) names+=("${token#--level-name=}") ;;
-      --level-name*)
-        refuse "$id: POCKETMINE_ARGS token '$token' is not --level-name=<zone>, so core would not take it as a name"
-        odd=1 ;;
-      --worlds*) refuse "$id: POCKETMINE_ARGS token '$token' would generate the levels it lists" ;;
-    esac
-  done
-  if [ "${#names[@]}" -gt 1 ]; then
-    refuse "$id: POCKETMINE_ARGS holds ${#names[@]} --level-name tokens, and exactly one is allowed"
-  elif [ "${#names[@]}" -eq 0 ] && [ "$odd" -eq 0 ]; then
-    refuse "$id: POCKETMINE_ARGS holds no --level-name=<zone>, so core would generate the default level"
-  fi
-  [ "${#names[@]}" -ne 1 ] || default_zone="${names[0]}"
-}
-
-# check_zones <id> sets listed to the valid zones in RIFTAL_LEVEL_ZONES.
-check_zones() {
-  local id="$1" zone zones
-  declare -A seen=()
-  listed=()
-  read -ra zones <<<"${env_value[RIFTAL_LEVEL_ZONES]}"
-  if [ "${#zones[@]}" -eq 0 ]; then
-    refuse "$id: RIFTAL_LEVEL_ZONES lists no zone"
-    return
-  fi
-  for zone in "${zones[@]}"; do
-    if ! [[ $zone =~ ^[a-z0-9_]+$ ]]; then
-      refuse "$id: RIFTAL_LEVEL_ZONES zone '$zone' is not a name matching [a-z0-9_]+"
-    elif [ -n "${seen[$zone]+x}" ]; then
-      refuse "$id: RIFTAL_LEVEL_ZONES lists zone $zone more than once"
-    elif [ -n "${zone_owner[$zone]+x}" ]; then
-      refuse "$id: zone $zone is also listed by ${zone_owner[$zone]}, and two instances never list the same zone"
-    else
-      seen[$zone]=1
-      zone_owner[$zone]="$id"
-      listed+=("$zone")
-    fi
-  done
-}
-
 shopt -s nullglob dotglob
 for entry in "$INSTANCES_DIR"/*; do
   id="${entry##*/}"
@@ -185,23 +139,22 @@ for entry in "$INSTANCES_DIR"/*; do
   done
   [ -n "${env_value[RIFTAL_LEVEL_ZONES]+x}" ] && [ -n "${env_value[POCKETMINE_ARGS]+x}" ] || continue
 
-  check_zones "$id"
-  check_args "$id"
-  if [ -n "$default_zone" ]; then
-    in_list=0
-    for zone in "${listed[@]}"; do
-      [ "$zone" != "$default_zone" ] || in_list=1
-    done
-    [ "$in_list" -eq 1 ] || refuse "$id: --level-name zone '$default_zone' is not in RIFTAL_LEVEL_ZONES, so boot would generate it"
-  fi
-  for zone in "${listed[@]}"; do
+  while IFS= read -r finding; do
+    refuse "$id: $finding"
+  done < <(level_findings "${env_value[RIFTAL_LEVEL_ZONES]}" "${env_value[POCKETMINE_ARGS]}" || true)
+  while IFS= read -r zone; do
+    if [ -n "${zone_owner[$zone]+x}" ]; then
+      refuse "$id: zone $zone is also listed by ${zone_owner[$zone]}, and two instances never list the same zone"
+      continue
+    fi
+    zone_owner[$zone]="$id"
     problem="$(lock_problem "$zone")"
     if [ -n "$problem" ]; then
       refuse "$id: zone $zone $problem"
     else
       built+=("$zone")
     fi
-  done
+  done < <(level_zone_list "${env_value[RIFTAL_LEVEL_ZONES]}")
 done
 shopt -u nullglob dotglob
 

@@ -15,25 +15,44 @@
 # in a root-owned 0755 directory pocketmine cannot write, holds none in
 # /plugins, has pocketmine as its configured user and is never tagged latest.
 # Each file of SHIPPED_PLUGINS is held in /opt/riftal/plugins likewise.
+# The levels are fixtures: two zones in volumes of the self-test's own
+# riftal_smoke_ prefix, locked against the pinned core image, never the dev
+# stack's build volumes or the committed locks. A volume that is missing, a
+# manifest whose content_sha256 is not the lock's, a tree that is not its
+# manifest's and a lock built on another core image are each refused naming the
+# zone, and so is a locks directory with no lock, all before a build. A boot
+# script that cannot be copied fails the build with no image left. In a checkout
+# whose designer/levels holds committed locks, read with LEVEL_LOCKS_DIR unset,
+# a lock that is not tracked is refused by name and the tracked ones are baked.
+# In the
+# image, the world index and the three boot scripts equal the checkout's,
+# /etc/riftal/levels holds the locked zones and no other, each hashing to its
+# manifest, the digest list checks and the labels record them, and pocketmine
+# can write nothing under /etc/riftal or /opt/riftal/boot.
 # Builds on the local daemon under a riftal_smoke_ name and removes it. Needs
 # the core image pinned in images/core-image.sha.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$DIR/release-fixture.sh"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=52
+EXPECTED_ASSERTIONS=71
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
+
+boot_scripts=(deliver-world-index.sh seed-levels.sh level-args.sh)
 
 git_fixture() {
   git -c user.name=selftest -c user.email=selftest@example.invalid -c commit.gpgsign=false "$@"
 }
 # $1 the root to lay the release files out under, at their repository paths.
 copy_release_files() {
-  mkdir -p "$1/deploy" "$1/images/release" "$1/images/plugins/instance-only"
+  mkdir -p "$1/deploy" "$1/designer" "$1/images/release" "$1/images/plugins/instance-only"
   cp "$DIR/release-image.sh" "$1/deploy/"
+  cp "$DIR/../designer/world_index.json" "$1/designer/"
+  for name in "${boot_scripts[@]}"; do cp "$DIR/../images/plugins/$name" "$1/images/plugins/"; done
   cp "$DIR/../images/core-image.sh" "$DIR/../images/core-image.sha" "$1/images/"
   cp "$DIR/../images/release/Dockerfile" "$DIR/../images/release/start-release.sh" "$1/images/release/"
   cp "$DIR/../images/plugins/RiftalAccounts.config.yml" "$DIR/../images/plugins/RiftalDownstreamLimit.php" "$1/images/plugins/"
@@ -64,11 +83,33 @@ git_fixture -C "$elsewhere" add marker
 git_fixture -C "$elsewhere" commit -q -m marker
 cd "$elsewhere"
 . "$infra/deploy/release-image.sh"
+level_prefix="riftal_smoke_rel_$$_level_"
+level_vols=()
 cleanup() {
-  docker image rm "$image:$tag" >/dev/null 2>&1 || true
+  docker image ls --format '{{.Repository}}:{{.Tag}}' "$image" | xargs -r docker image rm >/dev/null 2>&1 || true
+  docker volume rm "${level_vols[@]}" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT
+
+core_image
+core_id="$(docker image inspect --format '{{.Id}}' "$CORE_IMAGE")"
+content_a="$(printf 'a%.0s' {1..64})"
+content_b="$(printf 'b%.0s' {1..64})"
+locks="$work/locks"
+mkdir "$locks"
+# $1 zone, $2 the content_sha256 its manifest and lock record. Creates its
+# build volume under the self-test's own prefix and locks it.
+fixture_level() {
+  level_vols+=("$level_prefix$1")
+  docker volume create "$level_prefix$1" >/dev/null
+  fixture_tree "$level_prefix$1" "$1"
+  fixture_manifest "$level_prefix$1" "$2"
+  fixture_lock "$locks" "$1" "$2" "$core_id"
+}
+fixture_level smoke_a "$content_a"
+fixture_level smoke_b "$content_b"
+export LEVEL_LOCKS_DIR="$locks" LEVEL_VOLUME_PREFIX="$level_prefix"
 
 if [ "$(release_tag 2026-10-21 "$sha" "$GAME_COMMIT" "$infra_sha")" = "$tag" ]; then
   pass "the tag is $tag"
@@ -188,6 +229,107 @@ git -C "$infra" add added
 refuses_infra "$infra" "has tracked changes since $infra_sha" "a checkout with a staged new file"
 git -C "$infra" reset -q
 
+# $1 a locks directory, $2 the zone the refusal must name, $3 the message it
+# must carry, $4 the case. A refused build leaves no image.
+refuses_levels() {
+  local out
+  if out="$(LEVEL_LOCKS_DIR="$1" release_from "$infra" 2>&1)"; then
+    fail "$4 was accepted"
+  elif grep -qF "zone $2: " <<<"$out" && grep -qF -- "$3" <<<"$out" && [ -z "$(docker image ls -q "$image")" ]; then
+    pass "$4 is refused naming zone $2, before a build"
+  else
+    fail "$4 was refused without naming zone $2 and '$3': $out"
+  fi
+}
+# $1 a case name. Prints a copy of the fixture locks to change.
+locks_for() {
+  cp -r "$locks" "$work/locks-$1"
+  printf '%s\n' "$work/locks-$1"
+}
+case_dir="$(locks_for missing)"
+fixture_lock "$case_dir" smoke_c "$content_a" "$core_id"
+refuses_levels "$case_dir" smoke_c "build volume ${level_prefix}smoke_c is not on this daemon" "a lock with no build volume"
+if docker volume inspect "${level_prefix}smoke_c" >/dev/null 2>&1; then
+  docker volume rm "${level_prefix}smoke_c" >/dev/null 2>&1 || true
+  fail "the refused build created volume ${level_prefix}smoke_c"
+else
+  pass "the refused build created no volume"
+fi
+case_dir="$(locks_for content)"
+fixture_lock "$case_dir" smoke_a "$(printf 'c%.0s' {1..64})" "$core_id"
+refuses_levels "$case_dir" smoke_a "holds content_sha256 $content_a and the lock holds" "a manifest whose content_sha256 is not the lock's"
+level_vols+=("${level_prefix}smoke_t")
+docker volume create "${level_prefix}smoke_t" >/dev/null
+fixture_tree "${level_prefix}smoke_t" smoke_t
+fixture_manifest "${level_prefix}smoke_t" "$content_a"
+docker run --rm -m 1g --cpus 1 --network none --user root -v "${level_prefix}smoke_t:/level" \
+  --entrypoint bash "$CORE_IMAGE" -c 'printf "added after the manifest\n" >/level/db/added'
+case_dir="$(locks_for tree)"
+fixture_lock "$case_dir" smoke_t "$content_a" "$core_id"
+refuses_levels "$case_dir" smoke_t "does not hash to the" "a tree that is not its manifest's"
+case_dir="$(locks_for core)"
+fixture_lock "$case_dir" smoke_a "$content_a" "sha256:$(printf '0%.0s' {1..64})"
+refuses_levels "$case_dir" smoke_a "its lock was built on core image sha256:0000" "a lock built on another core image"
+mkdir "$work/locks-none"
+if out="$(LEVEL_LOCKS_DIR="$work/locks-none" release_from "$infra" 2>&1)"; then
+  fail "a locks directory with no lock was accepted"
+elif grep -qF "holds no <zone>.lock.json" <<<"$out" && [ -z "$(docker image ls -q "$image")" ]; then
+  pass "a locks directory with no lock is refused before a build"
+else
+  fail "a locks directory with no lock was refused without saying why: $out"
+fi
+
+# A boot script that cannot be copied leaves the build with a missing file the
+# digest list does not name, so the build must stop, with no image left. The
+# script is a committed symlink to nothing, so the checkout is clean and the
+# copy fails whoever runs the self-test.
+copy_release_files "$work/unread"
+ln -sf "$work/gone" "$work/unread/images/plugins/level-args.sh"
+git init -q "$work/unread"
+git_fixture -C "$work/unread" add -A
+git_fixture -C "$work/unread" commit -q -m fixture
+if out="$(release_from "$work/unread" 2>&1)"; then
+  fail "a boot script that cannot be copied was accepted"
+elif grep -qF "level-args.sh" <<<"$out" && [ -z "$(docker image ls -q "$image")" ]; then
+  pass "a boot script that cannot be copied fails the build, leaving no image"
+else
+  fail "a boot script that cannot be copied failed without saying which: $out"
+fi
+
+# $1 a checkout, built with the default locks directory.
+release_default_locks() {
+  (
+    unset LEVEL_LOCKS_DIR
+    release_from "$1"
+  )
+}
+commit_checkout "$work/tracked"
+mkdir "$work/tracked/designer/levels"
+cp "$locks"/*.lock.json "$work/tracked/designer/levels/"
+git_fixture -C "$work/tracked" add -A
+git_fixture -C "$work/tracked" commit -q -m locks
+fixture_lock "$work/tracked/designer/levels" smoke_z "$content_a" "$core_id"
+if out="$(release_default_locks "$work/tracked" 2>&1)"; then
+  fail "a lock that is not tracked was accepted"
+elif grep -qF "designer/levels/smoke_z.lock.json is not tracked" <<<"$out" && [ -z "$(docker image ls -q "$image")" ]; then
+  pass "an untracked lock in designer/levels is refused by name, before a build"
+else
+  fail "an untracked lock was refused without naming it: $out"
+fi
+rm "$work/tracked/designer/levels/smoke_z.lock.json"
+if ! out="$(release_default_locks "$work/tracked" 2>&1)"; then
+  fail "the build with the committed locks of the default directory failed: $out"
+else
+  ref="$(sed -n 's/^release image \([^ ]*\) (.*/\1/p' <<<"$out")"
+  tracked_levels="$(docker image inspect --format '{{index .Config.Labels "org.riftal.levels"}}' "$ref")"
+  if [[ "$tracked_levels" == smoke_a=$content_a:*,smoke_b=$content_b:* ]]; then
+    pass "the locks committed in designer/levels are baked when the default directory is read"
+  else
+    fail "the build from the default directory labels its levels '$tracked_levels'"
+  fi
+  docker image rm "$ref" >/dev/null
+fi
+
 if out="$(release_from "$infra" 2>&1)"; then
   pass "the release image builds from a checkout with an untracked file"
 else
@@ -294,6 +436,83 @@ else
     pass "/plugins in the image holds no phar"
   else
     fail "phar(s) under /plugins: $volume_phars"
+  fi
+
+  # $@ a command to run in the image as its configured user.
+  in_image() { docker run --rm -m 1g --cpus 1 --network none --entrypoint "$1" "$image:$tag" "${@:2}"; }
+  want_index="$(sha256sum "$DIR/../designer/world_index.json" | cut -d' ' -f1)"
+  got_index="$(in_image sha256sum /etc/riftal/world_index.json | cut -d' ' -f1)"
+  if [ "$got_index" = "$want_index" ]; then
+    pass "/etc/riftal/world_index.json is designer/world_index.json byte for byte"
+  else
+    fail "the image's world index is $got_index, not $want_index"
+  fi
+  mismatch=0
+  for name in "${boot_scripts[@]}"; do
+    want="$(sha256sum "$DIR/../images/plugins/$name" | cut -d' ' -f1)"
+    got="$(in_image sha256sum "/opt/riftal/boot/$name" | cut -d' ' -f1 || true)"
+    [ "$got" = "$want" ] || mismatch=$((mismatch + 1))
+  done
+  if [ "$mismatch" -eq 0 ]; then
+    pass "the three boot scripts in /opt/riftal/boot are the files in images/plugins byte for byte"
+  else
+    fail "$mismatch boot script(s) differ from images/plugins"
+  fi
+
+  want_zones="$(ls "$locks" | sed 's/\.lock\.json$//')"
+  got_zones="$(in_image ls /etc/riftal/levels)"
+  if [ "$got_zones" = "$want_zones" ]; then
+    pass "/etc/riftal/levels holds exactly the locked zones"
+  else
+    fail "/etc/riftal/levels holds '$got_zones', the locks name '$want_zones'"
+  fi
+  want_levels=""
+  for zone in $want_zones; do
+    want_content="$content_a"
+    [ "$zone" = smoke_a ] || want_content="$content_b"
+    in_image cat "/etc/riftal/levels/$zone/level-manifest.json" >"$work/manifest-$zone"
+    got_tree="$(in_image bash -c "cd /etc/riftal/levels/$zone && find . -type f ! -path ./level-manifest.json -printf '%P\\0' | LC_ALL=C sort -z | xargs -0 -r sha256sum -- | sha256sum | cut -d' ' -f1")"
+    if [ "$(manifest_digest "$work/manifest-$zone" tree_sha256)" = "$got_tree" ] \
+      && [ "$(manifest_digest "$work/manifest-$zone" content_sha256)" = "$want_content" ]; then
+      pass "zone $zone in the image hashes to its manifest and carries its lock's content_sha256"
+    else
+      fail "zone $zone in the image hashes to $got_tree, its manifest: $(cat "$work/manifest-$zone")"
+    fi
+    want_levels+="${want_levels:+,}$zone=$want_content:$got_tree"
+  done
+  label_index="$(docker image inspect --format '{{index .Config.Labels "org.riftal.world-index-sha256"}}' "$image:$tag")"
+  label_levels="$(docker image inspect --format '{{index .Config.Labels "org.riftal.levels"}}' "$image:$tag")"
+  if [ "$label_index" = "$want_index" ]; then
+    pass "org.riftal.world-index-sha256 is the index's sha256"
+  else
+    fail "org.riftal.world-index-sha256 is '$label_index', not $want_index"
+  fi
+  if [ "$label_levels" = "$want_levels" ]; then
+    pass "org.riftal.levels records each zone's content_sha256 and tree_sha256"
+  else
+    fail "org.riftal.levels is '$label_levels', not '$want_levels'"
+  fi
+
+  want_list="$(printf '%s\n' "/etc/riftal/world_index.json" "/etc/riftal/levels/smoke_a/level-manifest.json" "/etc/riftal/levels/smoke_b/level-manifest.json")"
+  got_list="$(in_image cut -d' ' -f3- /opt/riftal/boot/etc-riftal.sha256)"
+  if in_image sha256sum -c --quiet /opt/riftal/boot/etc-riftal.sha256 >/dev/null 2>&1 && [ "$got_list" = "$want_list" ]; then
+    pass "etc-riftal.sha256 lists the index and each zone's manifest, and /etc/riftal checks against it"
+  else
+    fail "etc-riftal.sha256 lists: $got_list"
+  fi
+
+  odd_files="$(in_image find /etc/riftal /opt/riftal/boot -type f \( ! -user root -o \( ! -name '*.sh' ! -perm 444 \) -o \( -name '*.sh' ! -perm 555 \) \))"
+  odd_dirs="$(in_image find /etc/riftal /opt/riftal/boot -type d \( ! -user root -o ! -perm 755 \))"
+  if [ -z "$odd_files$odd_dirs" ]; then
+    pass "everything under /etc/riftal and /opt/riftal/boot is root-owned, files 444, scripts 555, directories 755"
+  else
+    fail "not root-owned or not the expected mode: $odd_files $odd_dirs"
+  fi
+  writable="$(in_image find /etc/riftal /opt/riftal/boot -writable)"
+  if [ -z "$writable" ]; then
+    pass "pocketmine can write nothing under /etc/riftal or /opt/riftal/boot"
+  else
+    fail "pocketmine can write: $writable"
   fi
 fi
 
