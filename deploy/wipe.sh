@@ -46,9 +46,6 @@ shopt -s nullglob
 world_tars=("$BACKUP_SET"/worlds/*.tar.gz)
 shopt -u nullglob
 [ "${#world_tars[@]}" -gt 0 ] || fail "$BACKUP_SET/worlds holds no .tar.gz, so restore.sh could not roll the wipe back"
-for tar_file in "${world_tars[@]}"; do
-  tar -tzf "$tar_file" >/dev/null || fail "$tar_file does not list with tar -tzf, so restore.sh could not roll the wipe back"
-done
 
 [[ "$WIPE_BACKUP_MAX_AGE_MINUTES" =~ ^[1-9][0-9]{0,5}$ ]] \
   || fail "WIPE_BACKUP_MAX_AGE_MINUTES must be a whole number of minutes from 1 to 999999"
@@ -71,6 +68,12 @@ age=$(( $(date -u +%s) - taken ))
   || fail "$BACKUP_SET was taken $(( -age ))s in the future by this host's clock; if backup.sh ran on another host, its clock is ahead of this one"
 [ "$age" -le $(( WIPE_BACKUP_MAX_AGE_MINUTES * 60 )) ] \
   || fail "$BACKUP_SET is $(( age / 60 )) minute(s) old, over WIPE_BACKUP_MAX_AGE_MINUTES=$WIPE_BACKUP_MAX_AGE_MINUTES; take a fresh backup with every instance stopped"
+
+# Listing reads every byte of every tar, so it runs only for a set young enough
+# to be used.
+for tar_file in "${world_tars[@]}"; do
+  tar -tzf "$tar_file" >/dev/null || fail "$tar_file does not list with tar -tzf, so restore.sh could not roll the wipe back"
+done
 
 sql() {
   MYSQL_PWD="$MYSQL_PASSWORD" mysql --host="$MYSQL_HOST" --port="$MYSQL_PORT" \

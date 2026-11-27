@@ -19,7 +19,7 @@ The proxy goes last because it is the gate that admits clients. Opening the gate
 
 ## Before anything
 
-- [ ] Know exactly what is shipping: **image tag**, core tag, plugin versions, migration numbers. Write it down. The image tag is the deployable artifact and everything else is a description of it.
+- [ ] Know exactly what is shipping: **image tag**, core tag, plugin versions, migration numbers. Write it down. The image tag is the deployable artifact and everything else is a description of it. A release image tag is `<UTC date>-core<7 of the pmmp-core pin>-game<7 of the riftal-game commit>-infra<7 of the riftal-infra commit>`, built by `deploy/release-image.sh` from a clean riftal-infra checkout (the commit is read from the checkout holding the script), and the image's `org.riftal.infra-commit` label names the riftal-infra commit.
 - [ ] The image is built and pushed to the registry before the window opens. Never build during a rollout, and never build on a host that runs instances.
 - [ ] Confirm `pmmp-core` passed its boot test and `riftal-game` passed `/test-server`. Deployment does not discover bugs, it ships verified builds.
 - [ ] Every instance will run the same core tag and the same shared library version when this finishes. Mixed library versions against one schema is a data bug.
@@ -42,7 +42,10 @@ For each instance:
 
 - [ ] Drain it. Stop routing new players to it at the proxy and let the current ones leave or transfer.
 - [ ] Stop it cleanly, with a real stop signal and enough grace time to save. A hard kill risks unsaved world chunks, and a container runtime will kill a slow-stopping container by default, so check the timeout rather than trusting it.
-- [ ] Replace the container with one from the new image tag. Same volumes, same mounted config from `instances/`, same `instance_id`. Only the tag changes.
+- [ ] Replace the container with one from the new image tag. Same volumes, same mounted
+  config from `instances/`, same `instance_id`. Only the tag changes. Set
+  `instances/<instance_id>/image` to the new tag in the same step, so the record never
+  names a tag the instance is not on.
 - [ ] Start it. Confirm it reaches "Done", every plugin enables, and no schema errors appear.
 - [ ] Smoke it: join directly, confirm a database read and write round-trips.
 - [ ] Return it to rotation.
@@ -50,7 +53,11 @@ For each instance:
 
 Never do all instances at once. Serial rollout means the first failure costs one instance, not the server.
 
-**Rollback:** stop the container, run one from the previous image tag against the same volumes and config, start it. The database is shared and already migrated, which is safe because the migrations were additive. This rollback is cheap and exact, so use it early rather than debugging a bad release in production.
+**Rollback:** stop the container, run one from the previous image tag against the same
+volumes and config, start it, and set `instances/<instance_id>/image` back to the
+previous tag. The database is shared and already migrated, which is safe because the
+migrations were additive. This rollback is cheap and exact, so use it early rather than
+debugging a bad release in production.
 
 ## Stage 3: Proxy
 
@@ -65,7 +72,17 @@ Never do all instances at once. Serial rollout means the first failure costs one
 
 - [ ] Announce completion in Discord, naming the version and, for a protocol update, the Bedrock version now supported.
 - [ ] Watch logs and player reports through the next peak.
-- [ ] Tag the deployed state in this repo so the running configuration is reproducible. Record which image tag each instance is running.
+- [ ] Tag the deployed state in this repo so the running configuration is reproducible.
+  The rollout record is `instances/<id>/image` for every instance defined under
+  `instances/`, running or stopped: a stopped instance starts on the tag its file names,
+  so an older tag there is still in use. Commit every file at the tag its instance runs
+  or will start on.
+- [ ] Before any step that needs no instance able to run older code again, such as ADR
+  006's split 4 balance snapshot, check all three on every machine that runs instances:
+  every running container is on the required tag or later, no stopped container was
+  created from an older tag, and every `instances/<id>/image` names the required tag or
+  later. `deploy/grants-revoke-check.sh` counts all three as a tag in use
+  (`deploy/README.md`, Grants REVOKE check).
 - [ ] Keep the previous image tag in the registry until the release has survived a full peak. It is the rollback.
 - [ ] Add a dated entry to `../docs/decision-log.md`: what shipped, actual window length, and anything that went wrong.
 

@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 # Verifies a wipe after the migrations have run and before any instance starts:
-# every instance volume holds no level and no file in players/ or plugin_data/,
-# and every table the migrations created is empty, schema_migrations aside and
-# capture_fence holding only the row its migration seeds.
+# every instance volume holds no level but a re-seeded ADR 009 build and no file
+# in players/ or plugin_data/, and every table the migrations created is empty,
+# schema_migrations aside and capture_fence holding only the row its migration
+# seeds.
 #
 # It counts every base table the schema holds, not a named list, so a table a
 # later migration adds is checked without editing this file.
 #
+# A level with an ADR 009 build is the one level a volume may hold, and only as
+# the build re-seeded (riftal-infra#1126): its level-manifest.json carries the
+# lock's content_sha256 and its file tree hashes to the manifest's tree_sha256.
+#
 # The files the wipe keeps (riftal-infra#1123), and anything else on a volume,
 # are not read: a kept file is not a wipe left undone.
 set -euo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/wipe-lib.sh"
 
 MYSQL_HOST="${MYSQL_HOST:?MYSQL_HOST is required}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
@@ -45,16 +52,31 @@ shopt -s dotglob
 for volume in "${volumes[@]}"; do
   name="$(basename "$volume")"
   clean=1
+  seeded=
   for level in "$volume"worlds/*/; do
     zone="$(basename "$level")"
-    clean=0
-    if [ -e "$LEVEL_LOCKS_DIR/$zone.lock.json" ]; then
-      flag "level $zone on $name has an ADR 009 build, and checking it against its lock's content_sha256 is riftal-infra#1126"
-    else
+    lock="$LEVEL_LOCKS_DIR/$zone.lock.json"
+    manifest="${level}level-manifest.json"
+    if [ ! -e "$lock" ]; then
       # riftal-pm#1312: the wipe clears such a level and leaves it absent, and
       # only a boot, after this check, can write one again.
+      clean=0
       flag "level $zone on $name has no ADR 009 build and should be absent after a wipe"
+      continue
     fi
+    want="$(json_digest "$lock" content_sha256)"
+    if [ -z "$want" ]; then
+      problem="has an ADR 009 build, and $lock holds no single content_sha256"
+    elif [ "$(json_digest "$manifest" content_sha256)" != "$want" ]; then
+      problem="does not carry content_sha256 $want, the one in $lock"
+    elif [ "$(tree_sha256 "$level")" != "$(json_digest "$manifest" tree_sha256)" ]; then
+      problem="has a file tree that is not the one its level-manifest.json names"
+    else
+      seeded="$seeded $zone"
+      continue
+    fi
+    clean=0
+    flag "level $zone on $name $problem"
   done
   for dir in players plugin_data; do
     [ -d "$volume$dir" ] || continue
@@ -64,8 +86,11 @@ for volume in "${volumes[@]}"; do
       flag "$dir/ on $name holds $files file(s)"
     fi
   done
-  [ "$clean" -eq 0 ] \
-    || echo "wipe-check $MYSQL_DATABASE: volume $name: ok, no level, and players/ and plugin_data/ hold no file"
+  if [ "$clean" -eq 1 ]; then
+    held="no level"
+    [ -z "$seeded" ] || held="level(s)$seeded match their lock's content_sha256"
+    echo "wipe-check $MYSQL_DATABASE: volume $name: ok, $held, and players/ and plugin_data/ hold no file"
+  fi
 done
 shopt -u nullglob dotglob
 

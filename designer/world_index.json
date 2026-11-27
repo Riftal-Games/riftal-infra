@@ -2,6 +2,20 @@
   "default_world": "design",
   "locations": [
     {
+      "name": "farm_spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        41,
+        16
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "farm",
+      "yaw": 180
+    },
+    {
       "name": "lumber_spawn",
       "pitch": 0,
       "pos": [
@@ -58,6 +72,46 @@
       "yaw": 180
     },
     {
+      "name": "portal_lumber_out",
+      "pitch": 0,
+      "pos": [
+        53,
+        228,
+        117
+      ],
+      "tags": [],
+      "world": "pit",
+      "yaw": 180
+    },
+    {
+      "name": "quarry_spawn",
+      "pitch": 0,
+      "pos": [
+        0,
+        40,
+        16
+      ],
+      "tags": [
+        "spawn"
+      ],
+      "world": "quarry",
+      "yaw": 180
+    },
+    {
+      "name": "rankup_gate",
+      "pitch": 0,
+      "pos": [
+        4,
+        67,
+        96
+      ],
+      "tags": [
+        "rankup"
+      ],
+      "world": "pit",
+      "yaw": 0
+    },
+    {
       "name": "rankup_npc_a",
       "pitch": 0,
       "pos": [
@@ -73,6 +127,34 @@
       "yaw": 0
     },
     {
+      "name": "rankup_rim",
+      "pitch": 0,
+      "pos": [
+        4,
+        227,
+        127
+      ],
+      "tags": [
+        "rankup"
+      ],
+      "world": "pit",
+      "yaw": 0
+    },
+    {
+      "name": "sell_gate",
+      "pitch": 0,
+      "pos": [
+        -4,
+        67,
+        96
+      ],
+      "tags": [
+        "sell"
+      ],
+      "world": "pit",
+      "yaw": 0
+    },
+    {
       "name": "sell_npc_a",
       "pitch": 0,
       "pos": [
@@ -85,6 +167,20 @@
         "sell"
       ],
       "world": "mine_a",
+      "yaw": 0
+    },
+    {
+      "name": "sell_rim",
+      "pitch": 0,
+      "pos": [
+        -4,
+        227,
+        127
+      ],
+      "tags": [
+        "sell"
+      ],
+      "world": "pit",
       "yaw": 0
     },
     {
@@ -180,7 +276,7 @@
       "world": "mine_c"
     }
   ],
-  "updated": "2026-11-04T06:30:00+00:00",
+  "updated": "2026-11-27T00:00:00+00:00",
   "version": 1,
   "worlds": [
     {
@@ -199,7 +295,7 @@
       "generator": "normal",
       "name": "farm",
       "role": "farm",
-      "seed": 20260907
+      "seed": 23
     },
     {
       "generator": "normal",
@@ -229,6 +325,12 @@
       "seed": 23
     },
     {
+      "generator": "void",
+      "name": "pit",
+      "role": "pit",
+      "seed": 0
+    },
+    {
       "generator": "normal",
       "name": "plots",
       "role": "plots",
@@ -238,7 +340,7 @@
       "generator": "normal",
       "name": "quarry",
       "role": "quarry",
-      "seed": 20260907
+      "seed": 23
     }
   ]
 }

@@ -1,0 +1,10 @@
+{
+  "generator": "void",
+  "seed": 0,
+  "bounds": {"min": [-184, -63, -184], "max": [184, 282, 184]},
+  "steps": [
+    {"build": "structure", "spec": "specs/pit_structure.json"},
+    {"build": "fill_box", "spec": "specs/pit_bedrock.json"},
+    {"build": "fill_sets", "spec": "specs/pit_stone.json"}
+  ]
+}

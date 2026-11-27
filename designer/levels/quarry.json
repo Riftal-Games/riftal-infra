@@ -1,0 +1,10 @@
+{
+  "generator": "normal",
+  "seed": 23,
+  "bounds": {"min": [-10, 38, -10], "max": [10, 52, 10]},
+  "steps": [
+    {"build": "mine", "spec": "specs/quarry.json", "palette": "mine_stone"},
+    {"build": "stairs", "spec": "specs/quarry_access_south.json", "palette": "mine_stone"},
+    {"build": "stairs", "spec": "specs/quarry_access_east.json", "palette": "mine_stone"}
+  ]
+}

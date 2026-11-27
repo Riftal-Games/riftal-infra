@@ -293,6 +293,7 @@ cannot see every session:
 | `cannot give the server.lock of volume <name> the owner of <dir>, so core could not open it; run this as root` | Raised after the database is rebuilt. The restore was not run as root, so it could not give `server.lock` the directory's owner. Run it again as root; it is not reported complete |
 | `refused: flock is not installed, so a running instance cannot be detected; run this in the backup image` | `mysql:8` has no `flock`. Run `restore.sh` in the `riftal-backup` image |
 | `refused: volume(s) <names> not mounted under <WORLDS_DIR>, so the database would be rebuilt without its level; add a -v line for each` | The run has no mount at `WORLDS_DIR/<name>` for a volume in the set. Raised right after the tars list, before the database is read or any `server.lock` is made. Without it the tar would extract into the container's own filesystem and be lost while the database rolled back. Add the `-v` line |
+| `refused: volume(s) <names> not writable under <WORLDS_DIR>, so the level could not be rebuilt after the database was; mount each read-write` | A write into `WORLDS_DIR/<name>` failed, usually a `:ro` mount, or a directory the user cannot write. Raised right after the mount check, before the database is read or any `server.lock` is made. Without it the database would be dropped and reloaded and the run would then fail at the first delete in the volume. Drop the `:ro` |
 | `refused: mountpoint is not installed, ...` | Run `restore.sh` in the `riftal-backup` image |
 
 The check reads the moment it runs. A session opened afterwards is not seen.
@@ -654,6 +655,15 @@ address. It acts only when the instance's service definition passes
 logs why. No instance sets the option today, and a downstream must publish no
 port (spec 016). `images/plugins/downstream-limit/selftest.sh` holds it.
 
+The same plugin lifts core's 5 s bad-packet block, which behind the proxy would
+silence every session on the downstream. Under the same opt-in it calls each
+RakLib interface's `unblockAddress()` every tick for each address in
+`--riftal-downstream-proxies=<ip>[,<ip>...]`, set by the instance's service
+definition and never learned from traffic. Unset or empty, it makes no call and
+logs why. RakLib logs each call at debug; core shows debug only above its
+default `debug.level: 1`, which the release image leaves alone.
+`images/plugins/proxy-unblock/selftest.sh` holds it.
+
 `GAME_COMMIT` is the full lowercase 40-character riftal-game sha the phars and
 `GRANTS_SQL` were built from, and `GRANTS_SQL` is that commit's `grants.sql`.
 The script refuses a `GAME_COMMIT` that is unset or malformed and a `GRANTS_SQL`
@@ -680,9 +690,10 @@ cp "$OUT/plots.phar" RiftalPlots.phar
 cp "$OUT/anvil.phar" RiftalAnvil.phar
 ```
 
-The image carries these four, but `start-release.sh` loads none of them: the
-dev stack's start scripts give them no roster entry, login or config, so
-`RIFTAL_PLUGINS` offers only Mines, Ranks and Economy.
+The image carries these four, but `start-release.sh` loads none of them: it
+gives them no roster entry, login or config, so `RIFTAL_PLUGINS` offers only
+Mines, Ranks and Economy. The dev stack's `instance` loads Gangs from
+`../images/plugins/instance-only/` (riftal-infra#697), not from the image.
 
 The tag is
 `<UTC date>-core<7 of the pinned pmmp-core sha>-game<7 of GAME_COMMIT>-infra<7 of the riftal-infra commit>`,

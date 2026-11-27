@@ -43,8 +43,9 @@ read and written by `designer/level.py`.
   build runs only those, and needs at least one. Each must resolve against the built
   index, read the zone's world and pass. A check with no `zone` never gates a build.
 - `content_sha256` does not cover stairs written outside `bounds`, so lumber's
-  `lumber_spawn_to_surface`, `mine_a_spawn_to_surface`, `mine_b_spawn_to_surface` and
-  `mine_c_spawn_to_surface` (`path_exists`, `world` the zone) walk the built terrain from the spawn to a
+  `lumber_spawn_to_surface`, `mine_a_spawn_to_surface`, `mine_b_spawn_to_surface`,
+  `mine_c_spawn_to_surface`, `quarry_spawn_to_surface` and `farm_spawn_to_surface`
+  (`path_exists`, `world` the zone) walk the built terrain from the spawn to a
   cell on the exit's ground and fail the build when a leg ends short of it.
 - A zone listed under `worlds:` in riftal-game `mines/resources/config.yml` is built
   only when `checks.yaml` has a `mine_valid` with its `zone` on a spec one of the
@@ -54,6 +55,48 @@ read and written by `designer/level.py`.
   every zone is refused. Both refusals come before any engine call.
 - After the checks, a chorus flower anywhere in `bounds` outside every `mine` step's
   interior refuses the build: a projectile breaks one with no cancellable event.
+- A step `{"build": "structure", "spec": "specs/<name>.json"}` has no palette. Its spec
+  names a pinned source (`source` folder, `file`), the `origin` the source's local
+  coordinates are added to, the source's `min_corner` in those local coordinates, and
+  `substitutes`, a map from a block name to the block name written in place of every state
+  of it. Before the server boots the toolkit cuts the source into 16^3 cell files on the
+  world's 16 grid, not the source's, under a folder the server mounts read-only at
+  `/structures` (`designer level build --structures`, default a temporary folder). A cell
+  of air is not written. The only block entity a cell file carries is a bed's colour; every
+  other tile and every item field is dropped (hard rule 1). The build runs `load_structure`
+  once per batch of cells whose box stays within `max_region_edge`, after `pregen`. The
+  source's uncompressed sha256 must equal `structure_sha256` in its `pins.json`, which is
+  also hashed into `inputs`. The pit's origin `0 66 0` is the pit's centre at ground level,
+  so its minimum corner, `-184 -63 -184`, is where the recipe's bounds start.
+- A step `{"build": "fill_box", "spec": "specs/<name>.json"}` has no palette. Its spec
+  (`world`, `bounds`, `block`) is one fill, written in order. The pit's `pit_bedrock.json`
+  fills y -64, one below the recipe's bounds, so `content_sha256` does not cover it.
+- A step `{"build": "fill_sets", "spec": "specs/<name>.json"}` has no palette and runs
+  after the zone's checks, since they read the placeholder it replaces. Its spec (`world`,
+  `sets`, `manifest`, `layers`, `from`, `block`) names a folder of `mine_sets/layer_NN.bin`
+  and the `sha256sum` manifest in it. For each layer listed it replaces `from` with
+  `block` in the set's box, refusing a set the manifest does not vouch for, a set position
+  not holding `from`, and any `from` in the box that the set lacks. The manifest is hashed
+  into `inputs`, and `content_sha256` covers the level after the fill. The pit lists
+  layers 4 to 14, so layers 1 to 3 keep their placeholder for `mines` to fill.
+- A `pit_matches_handoff` check (`world`, `spec` the structure spec, optional `deviations`)
+  reads the whole of `bounds` once, the same region `content_sha256` hashes, and runs the
+  thirteen checks of the pit plan's section 4.4 against the hand-off's `cells.json`,
+  `routes.json` and `census.json` and the source cut again by `convert`: the read-back
+  against the source cell by cell (01), `packed_mud` in each deck's bed box and the floor
+  ring's (02) and nowhere else (03), the contested cylinder's terracotta (04), every
+  cell's blocks and gray bed (05), the census totals of iron door halves, chests and
+  beds (06), each ladder (07), a solid block under and two air blocks at every stair
+  landing, warp and bridge end (08), `path_exists` along the south stairway, from the
+  gate, from terraces 1 to 3 to their decks and from the pit floor to the hall (09), the
+  positions INTEGRATION.md quotes (10), no liquid the source lacks (11), every
+  placeholder at the radius of its own centre, the tower axis or the pit axis (12), and
+  each of the 52 bridges walked from its tower end to a terrace end inside its landing's
+  box (13). A failure names the cell or position. A bed's colour is not in the read-back, so 05 reads it from the cell files.
+  `deviations` is a file of `{"<check>": {"<exact problem text>": "<why>"}}`: a problem
+  whose text is listed is counted under `accepted_deviations` and does not fail the
+  build, and a listed text that is no longer found fails it. `specs/pit_handoff_deviations.json`
+  lists what the pinned hand-off itself gets wrong.
 
 ## Lock, `<zone>.lock.json`
 
@@ -66,6 +109,8 @@ read and written by `designer/level.py`.
 | `chunks` | Chunks `scan_items` walked: every chunk the saved level holds |
 | `size_bytes` | Uncompressed size of the saved level folder |
 | `content_sha256` | Block states in `bounds`, then `design_npcs.json` and `design_texts.json` when present |
+| `counts` | Only when a zone check reports counts: each such check's id, then each of its numbered checks with what it measured |
+| `structure` | Only with a `structure` step: `structure_sha256` of the source, the number of `cells` written and `cells_sha256` over their positions and file hashes, the `substitutes` map and how many blocks of each name it replaced (`substituted`), and the count of each block entity type dropped (`dropped_block_entities`) |
 
 `chunks` and `size_bytes` count more than the recipe bounds. They include the boot
 spawn area around (256, 256), the one-chunk margin `pregen` populates around the

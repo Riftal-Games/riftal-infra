@@ -24,6 +24,7 @@ import numpy as np
 import yaml
 
 from designer import checks as checks_mod
+from designer import fills
 from designer.blocks import BlockClass, format_name, parse_name
 from designer.bridge import Bridge
 from designer.builders import BUILDERS
@@ -31,6 +32,7 @@ from designer.builders.base import Palette
 from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT, SIBLING_GAME_DIR
 from designer.palettes import load_palettes
+from designer.structure import StructureBuildError, StructureSpec, Converted, convert, load
 from designer.region import Bounds, Bounds2D, Region, fetch_heightmap, fetch_region
 from designer.reset_states import RESET_STATES
 from designer.world_index import Location, NamedRegion, WorldIndex
@@ -40,6 +42,12 @@ ZONE_RE = re.compile(r"^[a-z0-9_]+$")
 # its zone, so a zone carrying one would make its own volume unremovable (ADR 007 item 3).
 FORBIDDEN_WORDS = ("world", "player", "backup")
 MINES_CONFIG = Path("mines") / "resources" / "config.yml"
+# A step of this kind builds from a pinned source rather than a palette (``structure.py``).
+STRUCTURE = "structure"
+# Steps that write from a committed spec alone, with no palette. ``fill_sets`` runs after the zone's checks,
+# since they read the placeholder it replaces (``fills.py``).
+FILL_BOX, FILL_SETS = "fill_box", "fill_sets"
+NO_PALETTE = (STRUCTURE, FILL_BOX, FILL_SETS)
 
 
 class LevelError(Exception):
@@ -50,7 +58,7 @@ class LevelError(Exception):
 class Step:
     build: str
     spec: str
-    palette: str
+    palette: str | None
 
 
 @dataclass(frozen=True)
@@ -94,7 +102,9 @@ def load_recipe(zone: str, root: Path = PROJECT_ROOT) -> Recipe:
     path = root / "levels" / f"{zone}.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        steps = tuple(Step(str(s["build"]), str(s["spec"]), str(s["palette"])) for s in data["steps"])
+        steps = tuple(
+            Step(str(s["build"]), str(s["spec"]), None if s["build"] in NO_PALETTE else str(s["palette"])) for s in data["steps"]
+        )
         seed = data["seed"]
         # The lock copies this seed as authoritative, so a float or string that merely converts is refused.
         if type(seed) is not int:
@@ -104,9 +114,9 @@ def load_recipe(zone: str, root: Path = PROJECT_ROOT) -> Recipe:
         raise LevelError(f"cannot read recipe {path}: {exc}") from exc
     palettes = load_palettes()["palettes"]
     for n, step in enumerate(recipe.steps):
-        if step.build not in BUILDERS:
+        if step.build not in BUILDERS and step.build not in NO_PALETTE:
             raise LevelError(f"step {n}: no builder {step.build!r}")
-        if step.palette not in palettes:
+        if step.palette is not None and step.palette not in palettes:
             raise LevelError(f"step {n}: no palette {step.palette!r} in palettes.json")
         spec_path = _input(root, step.spec)
         try:
@@ -116,6 +126,38 @@ def load_recipe(zone: str, root: Path = PROJECT_ROOT) -> Recipe:
         if world != zone:
             raise LevelError(f"step {n} ({step.build} {step.spec}) writes world {world!r}, not the zone {zone!r}")
     return recipe
+
+
+def structure_spec(step: Step, root: Path) -> StructureSpec:
+    try:
+        return StructureSpec.from_dict(json.loads(_input(root, step.spec).read_text(encoding="utf-8")))
+    except (OSError, ValueError) as exc:
+        raise LevelError(f"cannot read the structure spec {step.spec}: {exc}") from exc
+
+
+def prepare_structures(recipe: Recipe, root: Path, out: Path) -> Converted | None:
+    """Convert the recipe's ``structure`` step into cell files under ``out``, an empty directory; ``None`` without one.
+
+    The conversion's sha256 of the structure must be the one ``pins.json`` records.
+    """
+    steps = [step for step in recipe.steps if step.build == STRUCTURE]
+    if len(steps) > 1:
+        raise LevelError(f"{recipe.zone!r} has {len(steps)} structure steps; the cells of two would share one directory")
+    if not steps:
+        return None
+    spec = structure_spec(steps[0], root)
+    if out.exists() and any(out.iterdir()):
+        raise LevelError(f"{out} is not empty; cell files from another run would be loaded with these")
+    source = _input(root, f"{spec.source}/{spec.file}")
+    pinned = json.loads(_input(root, f"{spec.source}/pins.json").read_text(encoding="utf-8"))["structure_sha256"]
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        converted = convert(source, out, spec)
+    except StructureBuildError as exc:
+        raise LevelError(f"cannot convert {source.name}: {exc}") from exc
+    if converted.structure_sha256 != pinned:
+        raise LevelError(f"{source.name} unpacks to sha256 {converted.structure_sha256}, pins.json records {pinned}")
+    return converted
 
 
 def check_index(recipe: Recipe, index: WorldIndex) -> None:
@@ -159,7 +201,15 @@ def input_hashes(recipe: Recipe, root: Path = PROJECT_ROOT) -> dict[str, str]:
     out = {recipe.path.relative_to(root).as_posix(): hashlib.sha256(recipe.path.read_bytes()).hexdigest()}
     for step in recipe.steps:
         out[step.spec] = hashlib.sha256(_input(root, step.spec).read_bytes()).hexdigest()
-        out[f"palette:{step.palette}"] = hashlib.sha256(_canonical(load_palettes()["palettes"][step.palette])).hexdigest()
+        if step.palette is not None:
+            out[f"palette:{step.palette}"] = hashlib.sha256(_canonical(load_palettes()["palettes"][step.palette])).hexdigest()
+        elif step.build == STRUCTURE:
+            source = structure_spec(step, root).source
+            out[f"{source}/pins.json"] = hashlib.sha256(_input(root, f"{source}/pins.json").read_bytes()).hexdigest()
+        elif step.build == FILL_SETS:
+            spec = json.loads(_input(root, step.spec).read_text(encoding="utf-8"))
+            manifest = f"{spec['sets']}/{spec['manifest']}"
+            out[manifest] = hashlib.sha256(_input(root, manifest).read_bytes()).hexdigest()
     return out
 
 
@@ -215,7 +265,7 @@ def open_carve(bridge: Bridge, edits: Any) -> str | None:
     return None
 
 
-def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex) -> None:
+def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex, converted: Converted | None) -> None:
     """Apply each step and register what it names in ``index``, so the zone's checks resolve against what was built.
 
     Instances are delivered the committed ``world_index.json``, not the build's copy, so a step may
@@ -228,6 +278,22 @@ def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex) ->
 
     made: set[str] = set()
     for n, step in enumerate(recipe.steps):
+        if step.build == STRUCTURE:
+            if converted is None:
+                raise LevelError(f"step {n} ({step.build} {step.spec}) has no converted cells; run prepare_structures first")
+            load(bridge, structure_spec(step, root), converted.cells)
+            continue
+        if step.build == FILL_SETS:
+            continue
+        if step.build == FILL_BOX:
+            try:
+                edits = fills.box_edits(json.loads(_input(root, step.spec).read_text(encoding="utf-8")))
+            except fills.FillError as exc:
+                raise LevelError(f"step {n} ({step.build} {step.spec}): {exc}") from exc
+            result = edits.apply(bridge)
+            if not result.ok:
+                raise LevelError(f"step {n} ({step.build} {step.spec}) failed: {result.errors[0]}")
+            continue
         spec = json.loads(_input(root, step.spec).read_text(encoding="utf-8"))
         edits = BUILDERS[step.build](spec, Palette.load(step.palette), fetch)
         locations, regions = edits.extras.get("locations", []), edits.extras.get("regions", [])
@@ -246,6 +312,22 @@ def _run_steps(bridge: Bridge, recipe: Recipe, root: Path, index: WorldIndex) ->
             raise LevelError(f"step {n} ({step.build} {step.spec}) failed: {result.errors[0]}")
         index.register(locations, regions, replace=True)
         made.update(e["name"] for e in (*locations, *regions))
+
+
+def _run_late_steps(bridge: Bridge, recipe: Recipe, root: Path, region: Region) -> None:
+    """The ``fill_sets`` steps, written to the server and painted onto ``region``, the read the lock's hash covers."""
+    for n, step in enumerate(recipe.steps):
+        if step.build != FILL_SETS:
+            continue
+        try:
+            edits = fills.set_edits(json.loads(_input(root, step.spec).read_text(encoding="utf-8")), root, region)
+        except fills.FillError as exc:
+            raise LevelError(f"step {n} ({step.build} {step.spec}): {exc}") from exc
+        result = edits.apply(bridge)
+        if not result.ok:
+            raise LevelError(f"step {n} ({step.build} {step.spec}) failed: {result.errors[0]}")
+        for op in edits.ops:
+            op.paint(region)
 
 
 def mines_config_path() -> Path:
@@ -321,7 +403,8 @@ def chorus_outside(region: Region, recipe: Recipe, root: Path) -> list[tuple[int
     return [cell for cell in cells if not any(box.contains(cell) for box in interiors)]
 
 
-def _run_checks(bridge: Bridge, recipe: Recipe, index: WorldIndex, all_specs: list[checks_mod.CheckSpec]) -> None:
+def _zone_checks(recipe: Recipe, index: WorldIndex, all_specs: list[checks_mod.CheckSpec]) -> list[checks_mod.CheckSpec]:
+    """The zone's checks, each resolved against the built index and reading the zone; any that does not refuses the build."""
     specs = [s for s in all_specs if s.zone == recipe.zone]
     if not specs:
         raise LevelError(f"checks.yaml has no check with zone {recipe.zone!r}; a zone is not built unchecked")
@@ -331,16 +414,27 @@ def _run_checks(bridge: Bridge, recipe: Recipe, index: WorldIndex, all_specs: li
         raise LevelError(f"checks.yaml has checks on {recipe.zone!r} naming nothing the built index resolves: {unresolved}")
     if elsewhere := [f"{i} reads {world!r}" for i, world in worlds if world != recipe.zone]:
         raise LevelError(f"checks.yaml has checks on {recipe.zone!r} that read another world: {elsewhere}")
+    return specs
+
+
+def _run_checks(bridge: Bridge, recipe: Recipe, index: WorldIndex, specs: list[checks_mod.CheckSpec], region: Region) -> dict[str, Any]:
+    """Run ``specs`` over ``region``, the whole recipe box, and answer the counts of those that report any."""
     # scan() refuses every finding, a stricter test than offdisk_clear, so running it here would only scan the zone twice.
-    if failed := checks_mod.run_checks(bridge, index, [s for s in specs if s.kind != "offdisk_clear"]).failed:
-        raise LevelError(f"{recipe.zone!r} failed {[f'{r.id}: {r.detail}' for r in failed]}")
+    report = checks_mod.run_checks(bridge, index, [s for s in specs if s.kind != "offdisk_clear"], loaded={recipe.zone: region})
+    if report.failed:
+        raise LevelError(f"{recipe.zone!r} failed {[f'{r.id}: {r.detail}' for r in report.failed]}")
+    return {r.id: r.counts for r in report.results if r.counts}
 
 
 def build_level(
     bridge: Bridge, zone: str, after_stop: Callable[[], Saved], *, root: Path = PROJECT_ROOT,
     index: WorldIndex | None = None, checks_path: Path | None = None, mines_config: Path | None = None,
+    converted: Converted | None = None,
 ) -> Path:
-    """Build ``zone`` on the server behind ``bridge`` and write its lock; the name, index and mine gate are checked before any call."""
+    """Build ``zone`` on the server behind ``bridge`` and write its lock; the name, index and mine gate are checked before any call.
+
+    ``converted`` is what ``prepare_structures`` made, whose directory the server mounts read-only at ``/structures``.
+    """
     recipe = load_recipe(zone, root)
     # The build registers its steps' names into its own copy, never into the caller's index or the committed file.
     index = WorldIndex.load() if index is None else copy.deepcopy(index)
@@ -351,10 +445,12 @@ def build_level(
     inputs = input_hashes(recipe, root)
     for tile in pregen_bounds(recipe.bounds).tiles():
         bridge.call_job("pregen", world=zone, bounds=tile.to_json())
-    _run_steps(bridge, recipe, root, index)
-    _run_checks(bridge, recipe, index, specs)
-    chunks = scan(bridge, zone)
+    _run_steps(bridge, recipe, root, index, converted)
+    zone_specs = _zone_checks(recipe, index, specs)
     region = fetch_region(bridge, zone, recipe.bounds)
+    counts = _run_checks(bridge, recipe, index, zone_specs, region)
+    _run_late_steps(bridge, recipe, root, region)
+    chunks = scan(bridge, zone)
     if flowers := chorus_outside(region, recipe, root):
         raise LevelError(f"{zone!r} has {len(flowers)} chorus flower(s) outside every mine interior, first at {flowers[0]}")
     saved = after_stop()
@@ -364,6 +460,13 @@ def build_level(
         "toolkit_commit": saved.toolkit_commit, "inputs": inputs, "chunks": chunks, "size_bytes": saved.size_bytes,
         "content_sha256": content_sha256(region, saved.npcs, saved.texts),
     }
+    if counts:
+        lock["counts"] = counts
+    if converted is not None:
+        lock["structure"] = {
+            "structure_sha256": converted.structure_sha256, "cells": len(converted.cells), "cells_sha256": converted.cells_sha256,
+            "substitutes": converted.mapping, "substituted": converted.substituted, "dropped_block_entities": converted.dropped_block_entities,
+        }
     path = root / "levels" / f"{zone}.lock.json"
     path.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     return path

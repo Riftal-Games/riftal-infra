@@ -3,14 +3,16 @@
 Plugins the `instance` service loads and `instance-b` loads only in part
 (`../../compose.yaml`). `RiftalDevBots.php` one level up is a single script
 both instances want; `RiftalMines` is not, because it resets the worlds
-`instance` hosts and no others. `RiftalEconomy` is wanted on both
-(riftal-infra#348), so `instance-b` takes it from here and nothing else.
+`instance` hosts and no others. `RiftalEconomy` and `RiftalPlots` are wanted
+on both (riftal-infra#348, #345), so `instance-b` takes those two from here and
+nothing else.
 
 Both instances see this folder through the shared `./plugins` bind, and
 PocketMine never loads from a subfolder. `instance-b` runs
 `../instance-b/start.sh`, which stages a copy of `start-instance.sh` in the
-container's own filesystem with `RiftalEconomy.phar` and its config alone
-beside it, so the rest of this folder never reaches its roster.
+container's own filesystem with `RiftalEconomy.phar`, its config and
+`RiftalPlots.phar` alone beside it, so the rest of this folder never reaches
+its roster.
 `instance` runs `start-instance.sh` instead of the image's `start-pocketmine`:
 it assembles its plugin roster in the container's own disposable filesystem
 and renders the config onto the volume as uid 1000. Both instances run it, and
@@ -26,18 +28,21 @@ this script's copy of that behaviour. `check-start-sh.sh` hashes the image's
 the version recorded in `start-sh.sha256`; carry the change into
 `start-instance.sh` by hand, then record the new hash and pmmp-core commit.
 `boot-selftest.sh` boots the pinned core image with the script as it ships,
-with the phar unbuilt, built with no password, and built with one. Nothing is
-bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
+with the Mines phar unbuilt, built with no password, and built with one, and
+with a Gangs stand-in that loads with a delivered world index, refuses
+without one, and refuses to boot with no `RIFTAL_DB_PASSWORD_GANGS`. Nothing
+is bind-mounted inside `/plugins` or `/data`, because Docker creates a missing
 mountpoint as root: a stray in `./plugins` that `instance-b` then fails to
 load, or a `/data/plugin_data` PocketMine cannot write in. `selftest.sh`
 fails on either.
 
 `*.phar` is gitignored by the repo root's `.gitignore`, and
 `RiftalMines.config.yml` by this folder's own, so a copy edited by hand to
-hold a database password is never committed. Three config files are tracked:
-`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml` and
-`RiftalEconomy.config.yml`, which hold no password because each login's
-comes from the environment (see below).
+hold a database password is never committed. Five config files are tracked:
+`RiftalMines.config.yml.template`, and `RiftalRanks.config.yml`,
+`RiftalEconomy.config.yml`, `RiftalPlots.config.yml` and
+`RiftalGangs.config.yml`, which hold no
+password because each login's comes from the environment (see below).
 
 ## Build `RiftalMines.phar` and `contracts.phar`
 
@@ -73,7 +78,8 @@ docker run --rm \
     set -e
     for pair in contracts:contracts mines:instance-only/RiftalMines; do
       cd "/build/${pair%%:*}"
-      php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev
+      php /composer.phar install --prefer-dist --no-interaction --no-progress --no-dev \
+        --ignore-platform-req=ext-webrtc
       sh /out/instance-only/link-replaced.sh
       php -dphar.readonly=0 /pharynx.phar -i . -c "-p=/out/${pair#*:}.phar"
     done
@@ -144,26 +150,28 @@ cp ../contracts.phar RiftalContracts.phar
 cp ../RiftalAccounts.phar RiftalAccounts.phar
 ```
 
-`start-instance.sh` copies only `RiftalMines.phar`, `RiftalRanks.phar` and
-`RiftalEconomy.phar` into the roster, so `instance` still loads
+`start-instance.sh` copies only `RiftalMines.phar`, `RiftalRanks.phar`,
+`RiftalEconomy.phar`, `RiftalPlots.phar`, `RiftalGangs.phar` and
+`RiftalCells.phar` into the roster, so `instance` still loads
 `RiftalContracts` and `RiftalAccounts` once each, from the top of
 `plugins/`.
 
 Rebuild `RiftalMines.phar`, `RiftalRanks.phar`, `RiftalEconomy.phar`,
-`contracts.phar` and `RiftalAccounts.phar` whenever riftal-game's `main`
-moves past them, then run both `cp` lines again. Every top-level phar a rig
-loads has to be copied in again after each rebuild, because a rig reads
-only the copy here: a phar older than its plugin's resources fails at
-enable, as a `RiftalMines.phar` built before `quarry` was registered does
+`RiftalPlots.phar`, `RiftalGangs.phar`, `RiftalCells.phar`, `contracts.phar` and `RiftalAccounts.phar` whenever
+riftal-game's `main` moves past them, then run both `cp` lines again. Every
+top-level phar a rig loads has to be copied in again after each rebuild,
+because a rig reads only the copy here: a phar older than its plugin's
+resources fails at enable, as a `RiftalMines.phar` built before `quarry` was registered does
 with `cannot read registered ... resource quarry.json` (riftal-infra#1062).
 
 ## The riftal-game snapshot
 
 `selftest.sh` compares this folder's configs and `RiftalMines.config.yml.template`
-with riftal-game's shipped `mines`, `ranks`, `accounts` and `economy` configs.
+with riftal-game's shipped `mines`, `ranks`, `accounts`, `economy`, `plots`,
+`gangs`, `cells` and `custody` configs.
 CI cannot read the private riftal-game, and a sibling checkout is whatever
 another job last left there, so the comparison reads
-`../../riftal-game-snapshot`: a copy of those four files, with the riftal-game
+`../../riftal-game-snapshot`: a copy of those eight files, with the riftal-game
 commit it came from in `SOURCE`. It runs on every checkout and skips nothing.
 
 A riftal-game change to one of those configs reaches this repository in one
@@ -173,7 +181,7 @@ plus the template or config edit the self-test then asks for. Merge that PR
 before the riftal-game one, or with it; the snapshot may name a commit
 riftal-game's `main` does not carry yet.
 
-`RIFTAL_GAME_DIR=<riftal-game checkout> bash selftest.sh` adds four checks
+`RIFTAL_GAME_DIR=<riftal-game checkout> bash selftest.sh` adds eight checks
 that the snapshot equals that checkout's configs. A riftal-game PR author runs
 it to learn the snapshot is behind; an unset `RIFTAL_GAME_DIR` reads no
 checkout at all.
@@ -260,6 +268,96 @@ the migration runner provisions `economy` with `riftal_role_economy`. Its
 sell locations come from the `world_index.json` `deliver-world-index.sh`
 puts in the same folder.
 
+## `RiftalCells`, and the pit as the default level
+
+`RiftalCells.phar` loads on `instance` once built (riftal-infra#1508). It has
+no database code yet, so it gets no login and no `RIFTAL_DB_PASSWORD_CELLS`:
+`start-instance.sh` copies the phar into the roster and renders nothing, and
+the plugin writes its own shipped config. It reads `pit_index.json` from
+`/data/plugin_data/RiftalCells/`, which `deliver-pit-index.sh` fills. The login
+arrives with the plugin's first database call. Build it with the recipe above,
+`cells:instance-only/RiftalCells` in place of the `mines` pair; it needs only
+`contracts` beside it, so no `lib` copy is made for it.
+
+`instance` boots `--level-name=pit --view-distance=16 --max-players=1869`.
+Neither `cells` nor `custody` is configured here: each runs on the config it
+ships, whose `pit-world` and `static-worlds` already name `pit`, and
+`selftest.sh` fails if that stops matching the level `instance` boots.
+`RiftalMines` registers no `pit` entry in `worlds`, since the pit's mines are the
+position sets `pit_index.json` delivers, so `selftest.sh` exempts `pit` from its
+every-seeded-zone-is-registered check.
+
+The pit's sell and rank-up blocks are four `world_index.json` locations in
+world `pit`, `sell_rim` and `rankup_rim` on the south rim and `sell_gate` and
+`rankup_gate` in the gate hall, tagged `sell` and `rankup`. `RiftalEconomy` and
+`RiftalRanks` read them from the index `deliver-world-index.sh` delivers, as
+they read `sell_npc_a` and `rankup_npc_a`. Each sits at the position
+`designer/specs/pit_index.json` gives, on a block of the structure.
+
+## `RiftalGangs` and the `gangs` login
+
+`RiftalGangs.phar`, gang founding, levels, the vault and the contested mine's
+break gate, loads on `instance` alone, like `RiftalRanks`. `instance` seeds
+the mine levels (`RIFTAL_LEVEL_ZONES` in `compose.yaml`) while `instance-b`
+runs only the flat `plots_b` world, and `designer/world_index.json` lists
+`contested` as a world beside the mines. Build it with the
+recipe above, `gangs` in place of `mines` in the copy loop and
+`gangs:instance-only/RiftalGangs` in place of the `mines` pair. It declares
+`depend: [RiftalContracts]` and `softdepend: [RiftalCustody]`, both met at the
+top of `plugins/`.
+
+`RiftalGangs.config.yml` carries every key the plugin's shipped config does,
+because `selftest.sh` holds the two equal but for the schema, comments and
+blank lines. `start-instance.sh` copies it to
+`/data/plugin_data/RiftalGangs/config.yml` on every boot. It differs from the
+shipped one only in its schema, `riftal_dev`, and holds no password: the gangs
+login's comes from `RIFTAL_DB_PASSWORD_GANGS`, which compose passes `instance`
+from `images/.env`. Unset, the boot stops before PocketMine starts and names the
+variable. The migration runner provisions `gangs` with `riftal_role_gangs`, as
+for `ranks`.
+
+It finds the contested mine in `/data/plugin_data/RiftalGangs/world_index.json`,
+which `../deliver-world-index.sh` copies there. Missing, it logs an ERROR and
+disables itself, and PocketMine stops the server before `Done`. Verified
+2026-11-13 against riftal-game `137b3ee`, the compose command chain on a fresh
+`/data` and a migrated MySQL. With the index delivered, the log reaches `Done`
+and carries `[RiftalGangs] contested-mine sweep flagged 0 gangs already at the
+eligibility level`. With none mounted and no delivery step:
+
+```
+[RiftalGangs] disabling, config or environment error: gangs: cannot read world index "/data/plugin_data/RiftalGangs/world_index.json"
+```
+
+`boot-selftest.sh` repeats both outcomes, and the unset-password refusal, in CI
+with a stand-in phar, since CI cannot read riftal-game.
+
+## `RiftalPlots` and the `plots` login
+
+`RiftalPlots.phar` loads on `instance` and on `instance-b`
+(riftal-infra#345), because spec 017 criterion 4 has a claim on either
+written to the shared database. Both are given the `plots` login from the
+same `images/.env` value. `instance-b` hosts `plots_b`, not the `plots`
+level, so it holds no plot grid and a claim there teleports nobody. Build it
+with the recipe above, `plots` in place of `mines` in the copy loop and
+`plots:instance-only/RiftalPlots` in place of the `mines` pair. Like `mines`,
+it pins `axolotl-pm/pocketmine-mp`, so `link-replaced.sh` is what gets it past
+pharynx. It declares `depend: [RiftalContracts]`, met by the `contracts.phar`
+at the top of `plugins/`, and `contracts/` is also copied for its Composer
+path repository.
+
+`start-instance.sh` copies `RiftalPlots.phar` into the roster, copies the
+tracked `RiftalPlots.config.yml` to `/data/plugin_data/RiftalPlots/config.yml`
+on every boot, and stops the boot naming `RIFTAL_DB_PASSWORD_PLOTS` when it is
+unset. The plugin opens its database on enable and the shipped config names
+the schema `riftal`, which this stack does not have, so the override sets
+`riftal_dev` as it does for `RiftalEconomy`. The password comes only from the
+environment. The migration runner provisions `plots` with
+`riftal_role_plots`, which `grants.sql` must create, with SELECT on `plots`
+and `plot_chunks` and EXECUTE on `plots_claim`. Run the runner with
+`-e RIFTAL_DB_PASSWORD_PLOTS` exported before the next boot. It exits
+non-zero for a login whose role the `grants.sql` it was given does not
+create.
+
 ## Why an override is required, not optional
 
 `mines/resources/config.yml`'s shipped default (`host: mysql, schema:
@@ -305,7 +403,7 @@ normally. It is a warning because a boot log check fails on any ERROR line
 such as an interrupted build with no `level.dat`, is a fault and is logged
 as an ERROR.
 
-A built zone (`lumber`, `mine_a`, `mine_b`, `mine_c`) reaches `worlds/<zone>` through `../seed-levels.sh`
+A built zone (`lumber`, `mine_a`, `mine_b`, `mine_c`, `quarry`, `farm`, `pit`) reaches `worlds/<zone>` through `../seed-levels.sh`
 (ADR 009 item 5), not by hand. For each zone in `RIFTAL_LEVEL_ZONES` whose
 folder is absent from `/data/worlds`, it checks the file tree mounted
 read-only at `/etc/riftal/levels/<zone>` against the `level-manifest.json` at
@@ -313,7 +411,9 @@ that folder's root, copies it into a temporary directory on the volume as the
 server's user, and renames it into place. It never touches a folder that
 exists, and it exits non-zero, before PocketMine starts, on a missing source or
 a failed check. `compose.yaml` runs it on `instance` alone, which mounts
-`riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`, `riftal_smoke_level_mine_b` and `riftal_smoke_level_mine_c` for it
+`riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`, `riftal_smoke_level_mine_b`,
+`riftal_smoke_level_mine_c`, `riftal_smoke_level_quarry`, `riftal_smoke_level_farm` and
+`riftal_smoke_level_pit` for it
 (`../../README.md`, "The built levels"), so
 `instance` on a fresh `riftal-world` boots with the folder and logs no such
 line. The build that fills that

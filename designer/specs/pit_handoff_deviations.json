@@ -1,0 +1,27 @@
+{
+  "07_ladders": {
+    "layer 1 ladder at x 108 z 54: 1 of 20 blocks are not a ladder facing west, first minecraft:stone_bricks at (108, 227, 54)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x 86 z 84: 15 of 20 blocks are not a ladder facing west, first minecraft:air at (86, 208, 84)": "The lower 14 blocks of the column are air, and the top block is under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x 54 z 108: 1 of 20 blocks are not a ladder facing north, first minecraft:cracked_stone_bricks at (54, 227, 108)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x -24 z 118: 1 of 20 blocks are not a ladder facing north, first minecraft:cracked_stone_bricks at (-24, 227, 118)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x -60 z 104: 1 of 20 blocks are not a ladder facing north, first minecraft:cracked_stone_bricks at (-60, 227, 104)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x -92 z 78: 1 of 20 blocks are not a ladder facing east, first minecraft:cracked_stone_bricks at (-92, 227, 78)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x -113 z 42: 1 of 20 blocks are not a ladder facing east, first minecraft:cracked_stone_bricks at (-113, 227, 42)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x -115 z -36: 1 of 20 blocks are not a ladder facing east, first minecraft:stone_bricks at (-115, 227, -36)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x -96 z -72: 1 of 20 blocks are not a ladder facing east, first minecraft:stone_bricks at (-96, 227, -72)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x -72 z -96: 1 of 20 blocks are not a ladder facing south, first minecraft:andesite at (-72, 227, -96)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x -36 z -115: 1 of 20 blocks are not a ladder facing south, first minecraft:stone_bricks at (-36, 227, -115)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x 42 z -113: 1 of 20 blocks are not a ladder facing south, first minecraft:andesite at (42, 227, -113)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x 78 z -92: 1 of 20 blocks are not a ladder facing south, first minecraft:polished_andesite at (78, 227, -92)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x 104 z -60: 1 of 20 blocks are not a ladder facing west, first minecraft:cracked_stone_bricks at (104, 227, -60)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 1 ladder at x 118 z -24: 1 of 20 blocks are not a ladder facing west, first minecraft:andesite at (118, 227, -24)": "The ladder ends one block under the rim walkway the hand-off lists as its top.",
+    "layer 11 ladder at x 43 z 42: 14 of 20 blocks are not a ladder facing west, first minecraft:air at (43, 8, 42)": "The lower 14 blocks of the column are air.",
+    "layer 13 ladder at x -38 z -30: 3 of 20 blocks are not a ladder facing east, first minecraft:iron_bars[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=true,minecraft:connection_west=false] at (-38, -25, -30)": "Three blocks of the column in the middle are iron bars."
+  },
+  "08_standable": {
+    "warp gate_outside at (0, 65, 162): minecraft:air below, minecraft:air to stand in, minecraft:air above": "The forecourt under the gate_outside warp is natural terrain, which the hand-off's structure does not carry."
+  },
+  "09_walkable": {
+    "gate_outside to gate_hall: start not standable, from (0, 65, 162) to (0, 68, 96)": "The forecourt under the gate_outside warp is natural terrain, which the hand-off's structure does not carry."
+  }
+}

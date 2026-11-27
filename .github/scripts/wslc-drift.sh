@@ -4,11 +4,12 @@
 # compose verb, so these commands are copies, and a copy drifts unseen.
 #
 # A command's `--name riftal-<service>` names its service. Its -e, -v, -p,
-# --memory, --cpus, --network, -i, image and command must match that service
-# in `docker compose config --no-interpolate`, so a ${VAR} compares as written
-# and no images/.env is needed. Restart policy and healthcheck have no wslc
-# flag and are not compared. A flag this script does not know fails the run
-# rather than slip past it.
+# --memory, --cpus, --network, -i, the five --health-* flags, image and command
+# must match that service in `docker compose config --no-interpolate`, so a
+# ${VAR} compares as written and no images/.env is needed. Health durations
+# compare as seconds, so 3m0s equals 180s. Restart policy is not compared
+# because wslc run has no restart flag. A flag this script does not know fails
+# the run rather than slip past it.
 #
 # Usage: wslc-drift.sh [doc ...], docs/dev-stack-two-instance.md by default.
 # Exits non-zero naming every difference. Needs docker compose and jq, and
@@ -18,10 +19,13 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$DIR/../.." && pwd)"
 COMPOSE="${WSLC_DRIFT_COMPOSE:-$ROOT/images/compose.yaml}"
+# A scratch copy of the compose file sets WSLC_DRIFT_PROJECT_DIR so its relative
+# bind paths resolve as they do for the real file.
 [ "$#" -gt 0 ] || set -- "$ROOT/docs/dev-stack-two-instance.md"
 command -v jq >/dev/null || { printf '::error::jq is required\n'; exit 1; }
 
-model="$(docker compose -f "$COMPOSE" config --format json --no-interpolate)"
+model="$(docker compose -f "$COMPOSE" --project-directory "${WSLC_DRIFT_PROJECT_DIR:-$(dirname "$COMPOSE")}" \
+  config --format json --no-interpolate)"
 
 # Prints one shell word per line for each `wslc run` in $1, its continuation
 # lines joined, with a blank line after each command. xargs strips the quotes
@@ -33,6 +37,24 @@ commands() {
       xargs printf '%s\n' <<<"${line#wslc run }"
       printf '\n'
     done
+}
+
+# Rewrites each --health-interval, --health-timeout and --health-start-period
+# line on stdin to whole seconds, from Go-style durations such as 3m0s or 1h.
+# A value it cannot read passes through unchanged and so compares as written.
+health_seconds() {
+  awk '/^--health-(interval|timeout|start-period) / {
+      flag = $1; rest = substr($0, length($1) + 2); total = 0; ok = (rest != "")
+      while (rest != "") {
+        if (match(rest, /^[0-9]+(h|m|s)/)) {
+          n = substr(rest, 1, RLENGTH - 1) + 0; u = substr(rest, RLENGTH, 1)
+          total += n * (u == "h" ? 3600 : u == "m" ? 60 : 1)
+          rest = substr(rest, RLENGTH + 1)
+        } else { ok = 0; break }
+      }
+      if (ok) { print flag " " total "s"; next }
+    }
+    { print }'
 }
 
 # The service's flags in the doc's form, one per line, sorted.
@@ -47,8 +69,15 @@ expected() {
       (if .mem_limit then "--memory \(.mem_limit)" else empty end),
       (if .cpus then "--cpus \(.cpus)" else empty end),
       (if .stdin_open then "-i" else empty end),
+      (.healthcheck // empty | select(.disable != true and .test != null) | (
+        (.test | if .[0] == "CMD" then "--health-cmd \(.[1:] | join(" "))"
+          elif .[0] == "CMD-SHELL" then "--health-cmd \(.[1])" else empty end),
+        (if .interval then "--health-interval \(.interval)" else empty end),
+        (if .timeout then "--health-timeout \(.timeout)" else empty end),
+        (if .retries then "--health-retries \(.retries)" else empty end),
+        (if .start_period then "--health-start-period \(.start_period)" else empty end))),
       "image \(.image)",
-      "command \(.command // [] | @json)"' <<<"$model" | sort
+      "command \(.command // [] | @json)"' <<<"$model" | health_seconds | sort
 }
 
 # Reads one command's words on stdin; prints its service, then its flags in
@@ -62,7 +91,7 @@ documented() {
       -i) flags+=("-i") ;;
       --name) IFS= read -r name ;;
       --network-alias) IFS= read -r word; flags+=("--network-alias $word") ;;
-      -e|-v|-p|--network|--memory|--cpus)
+      -e|-v|-p|--network|--memory|--cpus|--health-cmd|--health-interval|--health-retries|--health-start-period|--health-timeout)
         local flag="$word"
         IFS= read -r word
         if [ "$flag" = -p ] && [[ "$word" != */* ]]; then word="$word/tcp"; fi
@@ -78,7 +107,7 @@ documented() {
     [ "${#flags[@]}" -eq 0 ] || printf '%s\n' "${flags[@]}"
     printf 'image %s\n' "${rest[0]:-}"
     printf 'command %s\n' "$(printf '%s\n' "${rest[@]:1}" | jq -Rnc '[inputs | select(. != "")]')"
-  } | sort
+  } | health_seconds | sort
 }
 
 status=0

@@ -13,8 +13,8 @@ from designer.config import PROJECT_ROOT
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
-SPEC_WORLDS = {"mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm", "contested", "plots"}
-LEVEL_ZONES = ("lumber", "mine_a", "mine_b", "mine_c")
+SPEC_WORLDS = {"mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm", "contested", "plots", "pit"}
+LEVEL_ZONES = ("lumber", "mine_a", "mine_b", "mine_c", "quarry", "farm")
 STAMP = "2026-09-07T12:00:00+00:00"
 
 
@@ -30,17 +30,17 @@ def test_committed_file_names_the_spec_worlds(index: WorldIndex) -> None:
     mines = [NamedRegion(f"mine_{m}_safe_zone", f"mine_{m}", (-16, 40, -16), (15, 50, 15), ["mine", "safe_zone"]) for m in "abc"]
     assert index.regions == [NamedRegion("lumber_safe_zone", "lumber", (-32, 40, -32), (31, 63, 31), ["mine", "safe_zone"]), *mines]
     assert {w.name: w.extra["rank"] for w in index.worlds if w.role == "ore_mine"} == {"mine_a": "A", "mine_b": "B", "mine_c": "C"}
-    assert {(w.generator, w.seed) for w in index.worlds if w.name not in LEVEL_ZONES} == {("normal", 20260907)}
+    assert {(w.generator, w.seed) for w in index.worlds if w.name not in (*LEVEL_ZONES, "pit")} == {("normal", 20260907)}
     assert {(index.world(n).generator, index.world(n).seed) for n in LEVEL_ZONES} == {("normal", 23)}
     assert index.resolve_pos("spawn") == (256, 70, 256)
-    assert [(l.name, l.world) for l in index.locations_tagged("spawn")] == [("lumber_spawn", "lumber"), ("mine_a_spawn", "mine_a"), ("mine_b_spawn", "mine_b"), ("mine_c_spawn", "mine_c"), ("spawn", "design")]
+    assert [(l.name, l.world) for l in index.locations_tagged("spawn")] == [("farm_spawn", "farm"), ("lumber_spawn", "lumber"), ("mine_a_spawn", "mine_a"), ("mine_b_spawn", "mine_b"), ("mine_c_spawn", "mine_c"), ("quarry_spawn", "quarry"), ("spawn", "design")]
 
 
 def test_the_rankup_location_is_what_the_mine_builder_places_and_ranks_accepts(index: WorldIndex) -> None:
     # RiftalRanks opens a rank-up at a rankup-tagged location with a string world and a position of
     # three integers (RankupMarkers). The sign stands only where the mine builder puts it, and a
     # level build refuses a committed entry it does not reproduce exactly.
-    rankup = index.locations_tagged("rankup")
+    rankup = [l for l in index.locations_tagged("rankup") if l.world != "pit"]
     assert [l.name for l in rankup] == ["rankup_npc_a"]
     assert index.world(rankup[0].world).extra["rank"] == "A"
     spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8")))
@@ -53,13 +53,28 @@ def test_the_sell_location_is_what_the_mine_builder_places_and_economy_accepts(i
     # RiftalEconomy opens the sell shop at each sell-tagged location with a non-empty string world and a
     # position of exactly three integers (SellLocations). The sign stands only where the mine builder puts
     # it, and a level build refuses a committed entry it does not reproduce exactly.
-    sell = index.locations_tagged("sell")
+    sell = [l for l in index.locations_tagged("sell") if l.world != "pit"]
     assert [l.name for l in sell] == ["sell_npc_a"]
     assert index.world(sell[0].world).extra["rank"] == "A"
     spec = MineSpec.from_dict(json.loads((PROJECT_ROOT / "specs" / "mine_a.json").read_text(encoding="utf-8")))
     built = build_mine(spec, Palette.load("mine_stone")).extras["locations"]
     assert sell[0].to_json() == next(l for l in built if l["name"] == "sell_npc_a")
     assert sell[0].world != "" and len(sell[0].pos) == 3 and all(type(c) is int for c in sell[0].pos)
+
+
+def test_the_pit_sell_and_rankup_points_are_the_pit_index_points(index: WorldIndex) -> None:
+    # The south rim pair and the gate hall pair are the positions pit_index.json names, one sell
+    # block and one rankup block each, which economy and ranks read from this index.
+    points = json.loads((PROJECT_ROOT / "pit" / "pit_index.json").read_text(encoding="utf-8"))["points"]
+    found = {l.name: (l.world, list(l.pos), l.tags) for l in index.locations if l.world == "pit"}
+    assert found == {
+        "sell_rim": ("pit", points["sell_rim"], ["sell"]),
+        "rankup_rim": ("pit", points["rankup_rim"], ["rankup"]),
+        "sell_gate": ("pit", points["sell_gate"], ["sell"]),
+        "rankup_gate": ("pit", points["rankup_gate"], ["rankup"]),
+        "portal_lumber_out": ("pit", points["portal_lumber_out"], []),
+    }
+    assert index.resolve("portal_lumber_out").yaw == 180
 
 
 def test_the_lumber_arrival_is_what_the_mine_builder_places_at_the_stairway_foot(index: WorldIndex) -> None:
@@ -110,7 +125,7 @@ def test_save_is_byte_stable_and_name_ordered(index: WorldIndex, tmp_path: Path)
     assert first == other.save(tmp_path / "b.json", updated=STAMP).read_bytes()
     assert first == WorldIndex.load(tmp_path / "a.json").save(tmp_path / "c.json", updated=STAMP).read_bytes()
     assert b"\r" not in first and first.endswith(b"}\n")
-    assert [l.name for l in WorldIndex.load(tmp_path / "a.json").locations] == ["gate", "lumber_spawn", "mine_a_spawn", "mine_b_spawn", "mine_c_spawn", "rankup_npc_a", "sell_npc_a", "spawn"]
+    assert [l.name for l in WorldIndex.load(tmp_path / "a.json").locations] == ["farm_spawn", "gate", "lumber_spawn", "mine_a_spawn", "mine_b_spawn", "mine_c_spawn", "portal_lumber_out", "quarry_spawn", "rankup_gate", "rankup_npc_a", "rankup_rim", "sell_gate", "sell_npc_a", "sell_rim", "spawn"]
 
     index.save(tmp_path / "now.json")
     assert datetime.fromisoformat(index.updated).tzinfo is not None
@@ -268,7 +283,7 @@ def test_load_reports_a_bare_key_error_as_a_value_error(index: WorldIndex, tmp_p
         raise KeyError()
 
     monkeypatch.setattr(WorldIndex, "_admissible", refuse)
-    with pytest.raises(ValueError, match=r"^Location 'lumber_spawn': not admissible$"):
+    with pytest.raises(ValueError, match=r"^Location 'farm_spawn': not admissible$"):
         WorldIndex.load(path)
 
 
@@ -277,7 +292,7 @@ def test_tag_queries(index: WorldIndex) -> None:
     index.add_location(Location("seller", "mine_a", (1, 1, 1), tags=["npc", "sell"]))
     assert [r.name for r in index.regions_tagged("safe_zone")] == ["lumber_safe_zone", "mine_a_safe_zone", "mine_b_safe_zone", "mine_c_safe_zone", "pit"] and index.regions_tagged("spawn") == []
     assert [l.name for l in index.locations_tagged("npc")] == ["rankup_npc_a", "sell_npc_a", "seller"] and index.locations_tagged("mine") == []
-    assert [l.name for l in index.locations_tagged("spawn")] == ["lumber_spawn", "mine_a_spawn", "mine_b_spawn", "mine_c_spawn", "spawn"]
+    assert [l.name for l in index.locations_tagged("spawn")] == ["farm_spawn", "lumber_spawn", "mine_a_spawn", "mine_b_spawn", "mine_c_spawn", "quarry_spawn", "spawn"]
 
 
 def test_select_filters_by_kind_and_tag_in_name_order(index: WorldIndex) -> None:
@@ -289,7 +304,7 @@ def test_select_filters_by_kind_and_tag_in_name_order(index: WorldIndex) -> None
     assert list(index.select()) == ["worlds", "locations", "regions"]
     by_spawn = index.select(tag="spawn")
     assert list(by_spawn) == ["locations", "regions"]
-    assert [l["name"] for l in by_spawn["locations"]] == ["a_gate", "lumber_spawn", "mine_a_spawn", "mine_b_spawn", "mine_c_spawn", "spawn"] and by_spawn["regions"] == []
+    assert [l["name"] for l in by_spawn["locations"]] == ["a_gate", "farm_spawn", "lumber_spawn", "mine_a_spawn", "mine_b_spawn", "mine_c_spawn", "quarry_spawn", "spawn"] and by_spawn["regions"] == []
     assert list(index.select("regions", "safe_zone")) == ["regions"]
     assert [r["name"] for r in index.select("regions", "safe_zone")["regions"]] == ["lumber_safe_zone", "mine_a_safe_zone", "mine_b_safe_zone", "mine_c_safe_zone"]
     assert [r["name"] for r in index.select("regions", "mine")["regions"]] == ["a_pit", "lumber_safe_zone", "mine_a_safe_zone", "mine_b_safe_zone", "mine_c_safe_zone"]

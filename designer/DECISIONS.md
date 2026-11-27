@@ -1097,3 +1097,47 @@ has the geometry of `mine_a` and `mine_b`, so it takes the same recipe on seed 2
 `(0, 39, 23)` and `(0, 52, 36)` and the same surface goal `(13, 64, 36)`, and its index seed moves to 23 with
 it. `mine_c_spawn_to_surface` and `entity_clear` on `sell_npc_c` and `rankup_npc_c` mirror `mine_b`'s, and
 `tests/test_mine_a_access.py` runs over all three mines (#1412).
+
+## 2026-11-13 `quarry` and `farm` take lumber's yard on seed 23, and `farm` stands one row higher
+
+RiftalMines' `quarry` fragment is a 17 by 17 box from y 40 to 50 with `floor_y` 40 and the farm's is the
+single row y 41 over `floor_y` 40, which are lumber's footprint and height. Both build on lumber's recipe
+box, `(-10, 38, -10)` to `(10, 52, 10)`, its seed 23, and its two three-wide stairs legs, so the exit
+lane ends at `(0, 40, 16)` and the legs reach the plateau `lumber_spawn_to_surface` already walks to,
+`(14, 65, 30)`. `quarry`'s ores are cobblestone and andesite, as the fragment has them. `farm`'s spec sets
+`floor_y` 41: a crop mine's reset row is its bottom interior row and its `mine_reset` fragment names the
+farmland under it, so 41 gives the fragment's `floor_y` 40 and row y 41, and the farmland the builder
+writes at y 40 is the row `MineRefillTask.php` rewrites. Its exit platform is then y 40 and
+`farm_spawn` `(0, 41, 16)`, one above `quarry_spawn` `(0, 40, 16)`, so `farm`'s first leg starts from
+`(0, 40, 16)`, its second from `(0, 54, 30)` with a rise of 10, and its last tread is y 64 like lumber's.
+Both index seeds move to 23 with the recipes, and `tests/test_lumber_fragment.py` reads all three
+fragments from riftal-game. No safe-zone region is committed for either: riots is M3, so a region for
+each is a later change that names its extent.
+
+The dev stack's `instance` seeds both from `riftal_smoke_level_quarry` and `riftal_smoke_level_farm`
+and its RiftalMines `worlds` lists them. Its `travel` destinations name `quarry_spawn` and `farm_spawn`
+too (#1502); riftal-game#1852's `/quarry` and `/farm` commands read the same two spawn names (#1454).
+
+## 2026-11-27 `pit_matches_handoff` accepts twenty defects of the pinned hand-off, each by its exact text (#1506)
+
+The check reads the whole recipe box once, the region `content_sha256` already needs, and runs the eleven
+checks of the pit plan's 4.4 against `cells.json`, `routes.json`, `census.json` and the source cut again by
+`convert`. Every expected count comes from those files; the plan's own figures are asserted against them in
+`tests/test_pit_handoff.py`, so a changed pin shows there first. The real build read back 0 mismatches over
+46,567,062 cells and the plan's counts for checks 2 to 6, 10 and 11, but the hand-off disagrees with its own
+structure in three places the plan's "all" and "111 of 111" do not allow:
+
+- Seventeen of 111 ladders. Fourteen layer 1 ladders end one block under the rim walkway that `y_to` names, so
+  their top block is stone. The ladder at x 86 z 84 has only its top five blocks, the layer 11 ladder at x 43
+  z 42 only its top six, and the layer 13 ladder at x -38 z -30 has iron bars in the middle.
+- The `gate_outside` warp, `0 -1 162` local. The forecourt under it is the studio's natural terrain, which the
+  structure does not carry, so there is no block to stand on in a void level. The leg `gate_outside` to
+  `gate_hall` starts there and fails for the same reason.
+- The south stairway's layer 13 flight. Two steps have 2 and 3 free cells above them where every other south
+  flight has 4, and `path_exists` needs the cell above the next step clear.
+
+`specs/pit_handoff_deviations.json` lists each by the exact text the check prints, with the reason. A listed
+text is counted under `accepted_deviations` in the lock and does not fail the build. A listed text the check no
+longer finds fails it, and a defect of the same ladder that reads differently, say one more missing block, is
+not the listed text and fails. So the list can only shrink toward a fixed hand-off. The builder fixes these
+(plan section 14.1) and the pins and the list are refreshed together.

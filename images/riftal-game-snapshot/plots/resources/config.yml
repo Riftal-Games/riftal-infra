@@ -1,0 +1,16 @@
+# The world whose block interactions yield no item, docs/specs/018-plots-yields.md,
+# and where every death keeps inventory and experience, spec 022.
+# A world folder name, the same on every instance.
+plots-world: "plots"
+
+# The shared MySQL database spec 017's "Instance-split impact" section names,
+# as the plots login of ADR 008. riftal-infra overrides this section per
+# instance. `mysql` is the network alias every riftal-infra stack gives the
+# database.
+database:
+  host: "mysql"
+  schema: "riftal"
+  username: "plots"
+  password: ""
+  port: 3306
+  worker-limit: 1

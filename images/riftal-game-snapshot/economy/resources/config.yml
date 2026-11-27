@@ -1,7 +1,8 @@
 # Currency, sell shop, auction house, chest shops, design plan §8. This
-# scaffold owns only the balance ledger; the shared MySQL database is the
-# one named in docs/specs/002-economy-currency-and-balances.md,
-# "Instance-split impact". riftal-infra overrides this section per instance.
+# plugin owns the balance ledger, the sell shop and the auction house; the
+# shared MySQL database is the one named in
+# docs/specs/002-economy-currency-and-balances.md, "Instance-split impact".
+# riftal-infra overrides this section per instance.
 # `mysql` is the network alias every riftal-infra stack gives the database;
 # `riftal-mysql` is one stack's container name and resolves nowhere else.
 database:
@@ -15,8 +16,8 @@ database:
 # The sell shop's price table, docs/specs/003-sell-shop.md: a map from item
 # identifier (StringToItemParser, e.g. "minecraft:oak_log") to a per-unit
 # price in minor units. There is no default price; an identifier absent here
-# is unsellable, not free-priced. A key is the item a block drops, not the
-# block: iron ore breaks to raw iron, and a mature wheat crop to wheat. The
+# is unsellable, not free-priced. An entry names the item a block drops, not
+# the block: iron ore breaks to raw iron, and a mature wheat crop to wheat. The
 # entries cover M1's haul, spec 005's ores sold raw plus the lumber yard's
 # logs, spec 010's quarry and farm rows, and spec 021's contested mine gold
 # and diamond, each at the flat placeholder in docs/tuning-numbers.md, "Sell
@@ -47,3 +48,9 @@ sell-shop:
 # number from 0 to 100.
 auction-house:
   listing-tax-percent: 10
+
+# world: the world folder whose chests can be shop chests,
+# docs/specs/017-plots-protection-chest-shops.md. RiftalPlots' plots world,
+# the same name on every instance.
+shop-chests:
+  world: "plots"

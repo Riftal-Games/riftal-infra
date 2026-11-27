@@ -9,7 +9,7 @@ from designer.custody import classify, offdisk_clear
 from designer.world_index import WorldEntry, WorldIndex
 from tests.fake_bridge import FakeBridge, FakeWorld
 
-M1_ZONES = ("mine_a", "mine_b", "mine_c", "lumber")
+M1_ZONES = ("mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm", "pit")
 
 
 def _entity(save_id: Any, pos: tuple[int, int, int] = (1, 64, 2)) -> dict[str, Any]:
@@ -104,7 +104,7 @@ def test_a_zone_world_the_server_lacks_fails_only_its_own_offdisk_check(fake: Fa
     fake.worlds["mine_a"] = FakeWorld()
     _, offdisk = _full_run(bridge)
     assert offdisk["offdisk_clear_mine_a"].ok
-    for zone in ("mine_b", "mine_c", "lumber"):
+    for zone in ("mine_b", "mine_c", "lumber", "quarry", "farm"):
         result = offdisk[f"offdisk_clear_{zone}"]
         assert not result.ok and "WORLD_NOT_FOUND" in result.detail and zone in result.detail
 
@@ -114,8 +114,8 @@ def test_a_failed_scan_job_fails_only_its_own_offdisk_check(fake: FakeBridge, br
         fake.worlds[zone] = FakeWorld()
     fake.fail_next_job = "chunk 3,4 has no terrain"
     _, offdisk = _full_run(bridge)
-    assert [r.id for r in offdisk.values() if not r.ok] == ["offdisk_clear_lumber"]
-    assert "chunk 3,4 has no terrain" in offdisk["offdisk_clear_lumber"].detail
+    assert [r.id for r in offdisk.values() if not r.ok] == ["offdisk_clear_farm"]
+    assert "chunk 3,4 has no terrain" in offdisk["offdisk_clear_farm"].detail
 
 
 def test_a_connection_lost_during_a_scan_still_raises(fake: FakeBridge) -> None:

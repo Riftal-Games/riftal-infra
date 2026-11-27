@@ -14,9 +14,11 @@ A line over ``MAX_LINE_BYTES`` is answered ``BAD_REQUEST`` and the connection cl
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import threading
 from itertools import product
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -27,7 +29,7 @@ from designer.region import MAX_EDGE, Bounds, Bounds2D
 
 ALLOWED_BLOCKS = frozenset({
     "minecraft:air", "minecraft:stone", "minecraft:grass_block", "minecraft:dirt",
-    "minecraft:oak_planks", "minecraft:glass", "minecraft:diamond_block",
+    "minecraft:oak_planks", "minecraft:glass", "minecraft:diamond_block", "minecraft:bedrock", "minecraft:packed_mud",
 })
 
 
@@ -64,6 +66,13 @@ class FakeWorld:
         name = format_name(*parse_name(name))
         if name not in ALLOWED_BLOCKS:
             raise FakeOpError("BLOCK_INVALID", f"{where}: unknown block {name!r}")
+        if name not in self.palette:
+            self.palette.append(name)
+        return self.palette.index(name)
+
+    def place(self, name: str) -> int:
+        """The palette index of ``name`` without the allow list, since ``load_structure`` writes any state the core reads."""
+        name = format_name(*parse_name(name))
         if name not in self.palette:
             self.palette.append(name)
         return self.palette.index(name)
@@ -112,6 +121,7 @@ class FakeBridge:
         self.stale_chunks: list[tuple[int, int]] = []
         self.pregenerated: dict[str, set[tuple[int, int]]] = {}
         self.scan_findings: list[dict[str, Any]] = []
+        self.structure_dir: Path | None = None
         self.worlds: dict[str, FakeWorld] = {"design": FakeWorld()}
         self.texts: dict[str, dict[str, Any]] = {}
         self.entities: dict[str, dict[str, Any]] = {}
@@ -381,6 +391,36 @@ class FakeBridge:
         chunks = ((x1 >> 4) - (x0 >> 4) + 1) * ((z1 >> 4) - (z0 >> 4) + 1)
         self.pregenerated.setdefault(args["world"], set()).update(product(range(x0 >> 4, (x1 >> 4) + 1), range(z0 >> 4, (z1 >> 4) + 1)))
         return self._job("pregen", {"chunks": chunks}, total=chunks)
+
+    def op_load_structure(self, args: dict[str, Any]) -> dict[str, Any]:
+        """The checks of ``StructureOps`` and ``StructureLoadJob``: aligned corners, a box within ``MAX_EDGE``, generated chunks, each file's hash and shape, then every block the files hold."""
+        world = self._world(args["world"])
+        cells = args["cells"]
+        if self.structure_dir is None or not cells:
+            raise FakeOpError("BAD_ARGS", "no structure_dir or no cells")
+        ats = [tuple(c["at"]) for c in cells]
+        if any(v % 16 for at in ats for v in at) or len(set(ats)) != len(ats):
+            raise FakeOpError("BAD_ARGS", "a corner is not 16-aligned, or two cells share one")
+        lo, hi = [min(at[a] for at in ats) for a in range(3)], [max(at[a] for at in ats) + 15 for a in range(3)]
+        edges = [hi[a] - lo[a] + 1 for a in range(3)]
+        if max(edges) > MAX_EDGE:
+            raise FakeOpError("BOUNDS_TOO_LARGE", f"box edges {edges} over {MAX_EDGE}")
+        have = self.pregenerated.get(args["world"], set())
+        for chunk in product(range(lo[0] >> 4, (hi[0] >> 4) + 1), range(lo[2] >> 4, (hi[2] >> 4) + 1)):
+            if chunk not in have:
+                raise FakeOpError("CHUNK_NOT_GENERATED", f"chunk {chunk} is not generated")
+        for cell in cells:
+            raw = (self.structure_dir / cell["file"]).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != cell["sha256"]:
+                raise FakeOpError("BAD_ARGS", f"cell file {cell['file']} has another sha256")
+            doc = json.loads(raw)
+            if len(doc["blocks"]) != 4096 or any(set(e) != {"pos", "color"} for e in doc.get("block_entities", [])):
+                raise FakeOpError("BAD_ARGS", f"cell file {cell['file']} is not 4096 blocks and bed colours")
+            x0, y0, z0 = cell["at"]
+            for i, n in enumerate(doc["blocks"]):
+                if doc["palette"][n] != "minecraft:air":
+                    world.edits[(x0 + i % 16, y0 + i // 256, z0 + i // 16 % 16)] = world.place(doc["palette"][n])
+        return self._job("load_structure", {"cells": len(cells)}, total=len(cells))
 
     def op_scan_items(self, args: dict[str, Any]) -> dict[str, Any]:
         self._world(args["world"])

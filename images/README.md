@@ -114,8 +114,8 @@ failed durable chunk save is `devfaults-chunk-save-fail` above.
 read-only at `/etc/riftal/world_index.json` and start through
 `plugins/deliver-world-index.sh`, which copies it to
 `/data/plugin_data/RiftalRanks/`, `/data/plugin_data/RiftalRiots/`,
-`/data/plugin_data/RiftalEconomy/`, `/data/plugin_data/RiftalMines/`, `/data/plugin_data/RiftalGangs/` and
-`/data/plugin_data/RiftalPlots/` on every
+`/data/plugin_data/RiftalEconomy/`, `/data/plugin_data/RiftalMines/`,
+`/data/plugin_data/RiftalGangs/` and `/data/plugin_data/RiftalPlots/` on every
 boot, as uid 1000, before handing over to the instance's own start script.
 The designer file is the deploy's index. RiftalRanks and RiftalRiots bundle none;
 Ranks gates mine entry and finds its rank-up markers in the delivered copy, Riots
@@ -125,19 +125,32 @@ RiftalMines bundles none either; its join teleport, which the instance's
 rendered config switches on, reads the delivered copy and rejects every join
 without it. RiftalMines loads on `instance` alone, so on `instance-b` that copy
 sits unread. RiftalGangs bundles none; it finds the contested mine in the
-delivered copy and refuses to enable without it. RiftalPlots reads its
+delivered copy and refuses to enable without it. It loads on `instance` alone
+(riftal-infra#697), so on `instance-b` that copy sits unread. RiftalPlots reads its
 `plots_grid` region from the delivered copy (riftal-game#1657). It
 names worlds, never instances, so every instance gets the same one and a split
 changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
 path. A `wslc run` of either instance needs the same `-v` and command.
 
+## The pit index and mine sets
+
+`instance` and `instance-b` both mount `../designer/pit` read-only at
+`/etc/riftal/pit` and run `plugins/deliver-pit-index.sh` straight after the world
+index delivery. It checks every file against `pit.sha256`, stops the boot naming
+any that differs or is missing, then copies `pit_index.json` into
+`/data/plugin_data/RiftalMines/`, `RiftalRanks/` and `RiftalCells/`, with all 15
+sets (`mine_sets/layer_01.bin` to `layer_14.bin` and `contested.bin`) beside it in
+each. RiftalCustody gets no file (spec 026, ADR 014 item 4). A `wslc run` of either instance needs the
+same `-v` and command.
+
 ## The built levels
 
-`instance` runs `plugins/seed-levels.sh` straight after the delivery above,
-with `RIFTAL_LEVEL_ZONES="lumber mine_a mine_b mine_c"`, and mounts the named volumes
+`instance` runs `plugins/seed-levels.sh` straight after the deliveries above,
+with `RIFTAL_LEVEL_ZONES="lumber mine_a mine_b mine_c quarry farm pit"`, and mounts the named volumes
 `riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`,
-`riftal_smoke_level_mine_b` and `riftal_smoke_level_mine_c` read-only at
+`riftal_smoke_level_mine_b`, `riftal_smoke_level_mine_c`,
+`riftal_smoke_level_quarry`, `riftal_smoke_level_farm` and `riftal_smoke_level_pit` read-only at
 `/etc/riftal/levels/<zone>`
 (ADR 009 items 5 and 6). When `/data/worlds/<zone>` is absent the step checks
 the mounted level against its `level-manifest.json`, copies it onto
@@ -155,14 +168,14 @@ the `seed-levels:` line that names
 volume is a cache, and losing it costs one build run. A `riftal-world` that
 already holds a zone, generated or built, is never reseeded.
 
-`instance` boots `--level-name=mine_a`, so a `riftal-world` that has booted
-before already holds a generated `mine_a`, which the step leaves alone. The
-built one reaches it through `../deploy/LEVEL-REPLACE.md`, an operator
-procedure. The join teleport sends every join to `mine_a_spawn`, at the end of
-the built level's exit lane, so on that volume the switch is meaningful only
-after the swap. A fresh `riftal-world` is seeded with the built level directly.
-`mine_b` and `mine_c` are not a `--level-name`, so any `riftal-world` that lacks
-either folder is seeded with it on the next boot.
+`instance` boots `--level-name=pit` with `--view-distance=16` and
+`--max-players=1869`, the pit's cell count. A `riftal-world` that lacks `pit`
+is seeded with the built level on the next boot. `lumber`, `mine_a`, `mine_b`,
+`mine_c`, `quarry` and `farm` stay seeded and loaded for the plugins that still
+name them. A `riftal-world` that booted when `mine_a` was the default already
+holds a generated `mine_a`, which the step leaves alone; the built one reaches it
+through `../deploy/LEVEL-REPLACE.md`, an operator procedure. The join teleport
+still sends every join to `mine_a_spawn`.
 
 `riftal-pm`'s `devtools/instance-shape.js` mirrors `instance`'s command, mount
 destinations and environment names for the `wslc` bring-up, so a change to any

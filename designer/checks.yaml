@@ -32,6 +32,32 @@ checks:
   - check: warp_safe
     zone: lumber
     at: lumber_spawn
+  - check: travel_time
+    zone: quarry
+    from: quarry_spawn
+    to: quarry_exit
+  - check: warp_safe
+    zone: quarry
+    at: quarry_spawn
+  - check: travel_time
+    zone: farm
+    from: farm_spawn
+    to: farm_exit
+  - check: warp_safe
+    zone: farm
+    at: farm_spawn
+  - check: path_exists
+    id: quarry_spawn_to_surface
+    zone: quarry
+    world: quarry
+    from: quarry_spawn
+    to: "14,65,30"
+  - check: path_exists
+    id: farm_spawn_to_surface
+    zone: farm
+    world: farm
+    from: farm_spawn
+    to: "14,65,30"
   - check: path_exists
     id: mine_b_spawn_to_surface
     zone: mine_b
@@ -84,6 +110,14 @@ checks:
     zone: lumber
     region: lumber
     spec: specs/lumber.json
+  - check: mine_valid
+    zone: quarry
+    region: quarry
+    spec: specs/quarry.json
+  - check: mine_valid
+    zone: farm
+    region: farm
+    spec: specs/farm.json
   - check: path_exists
     id: lumber_spawn_to_surface
     zone: lumber
@@ -102,6 +136,21 @@ checks:
   - check: offdisk_clear
     zone: lumber
     world: lumber
+  - check: offdisk_clear
+    zone: quarry
+    world: quarry
+  - check: offdisk_clear
+    zone: farm
+    world: farm
+  - check: offdisk_clear
+    zone: pit
+    world: pit
+  - check: pit_matches_handoff
+    id: pit_matches_handoff
+    zone: pit
+    world: pit
+    spec: specs/pit_structure.json
+    deviations: specs/pit_handoff_deviations.json
   - check: no_holes
     region: plots_0_0
     floor_y: 65

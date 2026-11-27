@@ -1,0 +1,5 @@
+{
+  "world": "pit",
+  "bounds": {"min": [-184, -64, -184], "max": [184, -64, 184]},
+  "block": "minecraft:bedrock"
+}
