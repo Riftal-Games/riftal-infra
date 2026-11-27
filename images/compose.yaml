@@ -58,6 +58,10 @@ services:
       # Outside /data for the same root-mountpoint reason given below;
       # deliver-world-index.sh copies it into each consuming plugin's folder.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
+      # The pit index and the 14 mine position sets with their sha256 manifest;
+      # deliver-pit-index.sh checks them and copies each into the folders that
+      # read it, and stops the boot on any file that differs.
+      - ../designer/pit:/etc/riftal/pit:ro
       # The built levels, which seed-levels.sh copies onto riftal-world when
       # worlds/<zone> is absent (ADR 009 items 5 and 6). Read-only and outside
       # /data, for the same root-mountpoint reason as above.
@@ -87,6 +91,8 @@ services:
       - /plugins/restart/boot-gate.sh
       - bash
       - /plugins/deliver-world-index.sh
+      - bash
+      - /plugins/deliver-pit-index.sh
       - bash
       - /plugins/seed-levels.sh
       - bash
@@ -211,10 +217,12 @@ services:
       - riftal-capture:/capture:ro
       # The same file `instance` gets. It names worlds, never instances.
       - ../designer/world_index.json:/etc/riftal/world_index.json:ro
+      # See the pit mount on `instance`, above.
+      - ../designer/pit:/etc/riftal/pit:ro
     # See RiftalCustody on `instance`, above. instance-b/start.sh loads
     # RiftalEconomy and RiftalPlots beside the shared plugins and none of
     # RiftalMines, RiftalRanks or RiftalGangs.
-    command: ["bash", "/plugins/restart/boot-gate.sh", "bash", "/plugins/deliver-world-index.sh", "bash", "/plugins/require-accounts.sh", "bash", "/plugins/require-custody.sh", "bash", "/plugins/instance-b/start.sh"]
+    command: ["bash", "/plugins/restart/boot-gate.sh", "bash", "/plugins/deliver-world-index.sh", "bash", "/plugins/deliver-pit-index.sh", "bash", "/plugins/require-accounts.sh", "bash", "/plugins/require-custody.sh", "bash", "/plugins/instance-b/start.sh"]
     # See restart and healthcheck on `instance`, above.
     restart: on-failure
     healthcheck: *raknet-health

@@ -1,18 +1,20 @@
 #!/bin/bash
 # Runs ahead of each instance's start script: checks designer/pit/, mounted
 # read-only at /etc/riftal/pit, against the sha256 manifest it carries, then
-# copies pit_index.json and the 14 mine position sets into the data folder of
-# every plugin that reads them, and execs the command it was given. Any file
-# that is missing or differs stops the boot here, naming it, so no instance
-# starts on a set that is not the one the level was built with (riftal-infra#1507).
-# Every plugin gets every file: the index and the sets are identical on every
-# instance, and a split changes no map data.
+# copies pit_index.json into the data folders of RiftalMines, RiftalRanks and
+# RiftalCells and the 14 mine position sets into RiftalMines' alone, and execs
+# the command it was given. Any file that is missing or differs stops the boot
+# here, naming it, so no instance starts on a set that is not the one the level
+# was built with (riftal-infra#1507, spec 026). RiftalCustody gets no file: it
+# learns each set from RiftalMines' declaration and keeps no copy of the bounds
+# (ADR 014 item 4). The files are identical on every instance, so a split
+# changes no map data.
 set -euo pipefail
 
 src=/etc/riftal/pit
 manifest="$src/pit.sha256"
 if [ ! -f "$manifest" ]; then
-	echo "$manifest is not mounted; RiftalMines, RiftalCustody, RiftalRanks and RiftalCells have no pit index to read from their data folders" >&2
+	echo "$manifest is not mounted; RiftalMines, RiftalRanks and RiftalCells have no pit index to read from their data folders" >&2
 	exit 1
 fi
 
@@ -34,11 +36,13 @@ if ! report=$(cd "$src" && sha256sum --check --quiet "$manifest" 2>&1); then
 	exit 1
 fi
 
-for plugin in RiftalMines RiftalCustody RiftalRanks RiftalCells; do
-	mkdir -p "/data/plugin_data/$plugin/mine_sets"
-	for file in "${files[@]}"; do
-		cp "$src/$file" "/data/plugin_data/$plugin/$file"
-	done
+mkdir -p /data/plugin_data/RiftalMines/mine_sets
+for plugin in RiftalMines RiftalRanks RiftalCells; do
+	mkdir -p "/data/plugin_data/$plugin"
+	cp "$src/pit_index.json" "/data/plugin_data/$plugin/pit_index.json"
+done
+for file in "${files[@]:1}"; do
+	cp "$src/$file" "/data/plugin_data/RiftalMines/$file"
 done
 
 exec "$@"

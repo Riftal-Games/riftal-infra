@@ -50,7 +50,7 @@ check "a drifted --memory is caught" 'caught "s/--memory 2G/--memory 4G/" "< --m
 check "a dropped -i, without which stop on stdin cannot reach the server, is caught" \
   'caught "s/wslc run -d -i /wslc run -d /" "> -i"'
 check "a command chain missing a step is caught" \
-  'caught "s#bash /plugins/require-custody.sh ##" "< command [\"bash\",\"/plugins/restart/boot-gate.sh\",\"bash\",\"/plugins/deliver-world-index.sh\",\"bash\",\"/plugins/require-accounts.sh\",\"bash\",\"/plugins/instance-b/start.sh\"]"'
+  'caught "s#bash /plugins/require-custody.sh ##" "< command [\"bash\",\"/plugins/restart/boot-gate.sh\",\"bash\",\"/plugins/deliver-world-index.sh\",\"bash\",\"/plugins/deliver-pit-index.sh\",\"bash\",\"/plugins/require-accounts.sh\",\"bash\",\"/plugins/instance-b/start.sh\"]"'
 check "a flag the check does not know is caught" \
   'caught "s/--network riftal-dev/--network riftal-dev --privileged/" "< unknown --privileged"'
 check "a doc that drops the healthcheck is caught" \

@@ -145,7 +145,7 @@ def index_document(
     bays = {f"stair_bay_{n}": _box(markers[f"stair_{k}"]["min"], markers[f"stair_{k}"]["max"], origin) for k, n in zip("SENW", ("south", "east", "north", "west"), strict=True)}
     bridges = [
         {"bridge": b["bridge"], "terrace": b["terrace"], "end_a": _w(b["end_a"], origin), "end_b": _w(b["end_b"], origin), "deck_y": b["deck_y"] + origin[1],
-         "deck_width": b["deck_width"], **_box(markers[f"bridge_{b['bridge']}"]["min"], markers[f"bridge_{b['bridge']}"]["max"], origin)}
+         "deck_width": b["deck_width"]}
         for b in routes["bridges"]
     ]
     floor, radius = routes["pit_floor"], routes["pit_floor"]["arena_radius"]
@@ -188,7 +188,13 @@ def verify(directory: Path, source: Path = SOURCE_DIR) -> list[str]:
     """Every way ``directory`` differs from its own manifest, the index and routes.json; empty when none."""
     problems: list[str] = []
     manifest = (directory / MANIFEST).read_text(encoding="utf-8") if (directory / MANIFEST).is_file() else ""
-    named = dict(line.split("  ", 1)[::-1] for line in manifest.splitlines())
+    named: dict[str, str] = {}
+    for line in manifest.splitlines():
+        digest, separator, name = line.partition("  ")
+        if separator:
+            named[name] = digest
+        else:
+            problems.append(f"{MANIFEST}: malformed line {line!r}")
     levels = read_json(source / "routes.json")["levels"]
     for name in [INDEX, *(set_name(level["layer"]) for level in levels)]:
         path = directory / name

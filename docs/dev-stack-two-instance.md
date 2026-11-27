@@ -78,6 +78,7 @@ wslc run -d -i --name riftal-instance-b --network riftal-dev \
   -v riftal-world-b:/data -v "$INFRA/images/plugins:/plugins" \
   -v riftal-capture:/capture:ro \
   -v "$INFRA/designer/world_index.json:/etc/riftal/world_index.json:ro" \
+  -v "$INFRA/designer/pit:/etc/riftal/pit:ro" \
   -e "INSTANCE_ID=${INSTANCE_B_ID}" \
   -e "RIFTAL_DEV_ENV=1" \
   -e "RIFTAL_DB_PASSWORD_ACCOUNTS=${RIFTAL_DB_PASSWORD_ACCOUNTS}" \
@@ -85,8 +86,9 @@ wslc run -d -i --name riftal-instance-b --network riftal-dev \
   -e "RIFTAL_DB_PASSWORD_PLOTS=${RIFTAL_DB_PASSWORD_PLOTS}" \
   -e "POCKETMINE_ARGS=--level-name=plots_b --level-type=flat --xbox-auth=false --motd=riftal-dev-b --riftal-dev-bots=on --auto-report.enabled=0" \
   local-pocketmine-mp bash /plugins/restart/boot-gate.sh \
-  bash /plugins/deliver-world-index.sh bash /plugins/require-accounts.sh \
-  bash /plugins/require-custody.sh bash /plugins/instance-b/start.sh
+  bash /plugins/deliver-world-index.sh bash /plugins/deliver-pit-index.sh \
+  bash /plugins/require-accounts.sh bash /plugins/require-custody.sh \
+  bash /plugins/instance-b/start.sh
 
 wslc logs riftal-instance-b
 ```

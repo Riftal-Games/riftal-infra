@@ -22,7 +22,8 @@ from tests.test_structure import structure_bytes
 FIXTURE = Path(__file__).parent / "fixtures" / "set_4x2x3.bin"
 SCRIPT = Path(__file__).resolve().parents[2] / "images" / "plugins" / "deliver-pit-index.sh"
 BED_BLOCKS = [11757, 11004, 10249, 9634, 8720, 8186, 7269, 6419, 5888, 5217, 4115, 3724, 2953, 2260]
-PLUGINS = ("RiftalMines", "RiftalCustody", "RiftalRanks", "RiftalCells")
+INDEX_PLUGINS = ("RiftalMines", "RiftalRanks", "RiftalCells")
+SETS = tuple(set_name(layer) for layer in range(1, 15))
 # Bits 0, 3, 10, 17 and 20 of a 4 x 2 x 3 box at (10, 60, -3), i = ((y - oy) * 3 + (z - oz)) * 4 + (x - ox), worked by hand.
 FIXTURE_POINTS = [(10, 60, -3), (13, 60, -3), (12, 60, -1), (11, 61, -2), (10, 61, -1)]
 
@@ -143,12 +144,17 @@ def deliver(tmp_path: Path, pit: Path, *command: str) -> tuple[subprocess.Comple
 
 
 @needs_script
-def test_a_boot_delivers_the_index_and_every_set_to_the_four_data_folders_then_starts(tmp_path: Path) -> None:
+def test_a_boot_delivers_the_index_to_three_folders_and_the_sets_to_mines_alone_then_starts(tmp_path: Path) -> None:
     done, data = deliver(tmp_path, OUT_DIR, "printf", "%s|", "started")
     assert (done.returncode, done.stdout) == (0, "started|")
-    for plugin in PLUGINS:
-        for name in ("pit_index.json", *(set_name(layer) for layer in range(1, 15))):
-            assert (data / plugin / name).read_bytes() == (OUT_DIR / name).read_bytes()
+    for plugin in INDEX_PLUGINS:
+        assert (data / plugin / "pit_index.json").read_bytes() == (OUT_DIR / "pit_index.json").read_bytes()
+    for name in SETS:
+        assert (data / "RiftalMines" / name).read_bytes() == (OUT_DIR / name).read_bytes()
+    assert sorted(p.name for p in data.iterdir()) == sorted(INDEX_PLUGINS)
+    for plugin in ("RiftalRanks", "RiftalCells"):
+        assert sorted(p.name for p in (data / plugin).iterdir()) == ["pit_index.json"]
+    assert not (data / "RiftalCustody").exists()
 
 
 @needs_script
@@ -166,9 +172,10 @@ def test_a_missing_set_or_manifest_stops_the_boot(tmp_path: Path) -> None:
     short = tmp_path / "short"
     shutil.copytree(OUT_DIR, short)
     (short / set_name(9)).unlink()
-    done, _ = deliver(tmp_path, short, "printf", "started")
+    done, data = deliver(tmp_path, short, "printf", "started")
     assert done.returncode != 0 and "started" not in done.stdout
     assert "layer_09.bin" in done.stderr
+    assert not data.exists()
     bare = tmp_path / "bare"
     bare.mkdir()
     done, _ = deliver(tmp_path / "second", bare, "printf", "started")
@@ -184,3 +191,18 @@ def test_a_manifest_that_omits_a_set_stops_the_boot(tmp_path: Path) -> None:
     done, data = deliver(tmp_path, omitted, "printf", "started")
     assert done.returncode != 0 and "mine_sets/layer_05.bin is not named" in done.stderr
     assert not data.exists()
+
+
+def test_a_malformed_manifest_line_is_a_problem_line_not_an_exception(tmp_path: Path) -> None:
+    copy = tmp_path / "pit"
+    shutil.copytree(OUT_DIR, copy)
+    with (copy / MANIFEST).open("a", encoding="utf-8", newline="\n") as manifest:
+        manifest.write("not a manifest line\n")
+    assert pit_index.verify(copy) == [f"{MANIFEST}: malformed line 'not a manifest line'"]
+
+
+def test_a_bridge_strip_carries_its_end_points_deck_y_and_width_only() -> None:
+    index = json.loads((OUT_DIR / "pit_index.json").read_text(encoding="utf-8"))
+    assert len(index["bridges"]) == 4
+    for bridge in index["bridges"]:
+        assert sorted(bridge) == ["bridge", "deck_width", "deck_y", "end_a", "end_b", "terrace"]
