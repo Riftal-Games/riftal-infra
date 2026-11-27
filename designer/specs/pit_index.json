@@ -1,0 +1,25 @@
+{
+  "arena_height": 24,
+  "lumber_exit_margin": 2,
+  "transit": {
+    "gate_hall": {"min": [-20, 1, 82], "max": [20, 14, 110]},
+    "gate_arch_west": {"min": [-20, 2, 78], "max": [-16, 6, 82]},
+    "gate_arch_east": {"min": [16, 2, 78], "max": [20, 6, 82]}
+  },
+  "gate": {
+    "tunnel": {"min": [-7, 1, 110], "max": [7, 10, 150]},
+    "barbican": {"min": [-15, 1, 150], "max": [15, 12, 160]},
+    "forecourt": {"min": [-30, -2, 160], "max": [30, 8, 184]}
+  },
+  "doorways": {
+    "portal_lumber": {"world": "pit", "min": [52, 162, 120], "max": [54, 164, 122]},
+    "gate_closed": {"world": "pit", "min": [-7, 1, 110], "max": [7, 6, 112]}
+  },
+  "points": {
+    "sell_rim": [-4, 161, 127],
+    "rankup_rim": [4, 161, 127],
+    "sell_gate": [-4, 1, 96],
+    "rankup_gate": [4, 1, 96],
+    "portal_lumber_out": [53, 162, 117]
+  }
+}

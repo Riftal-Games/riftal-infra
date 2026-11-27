@@ -5,7 +5,7 @@
 # start-instance.sh and require-accounts.sh, the scripts that load them. Also pins crash
 # auto-report off on every PocketMine service, designer/stack's included, and
 # covers deliver-world-index.sh and the index mount both instances boot with
-# (riftal-infra#293), the memory and CPU limits on mysql and both
+# (riftal-infra#293), the pit delivery and mount beside them (riftal-infra#1507), the memory and CPU limits on mysql and both
 # instances (riftal-infra#460), and the seed step and lumber level mount that
 # `instance` alone carries (riftal-infra#1324). RiftalGangs (riftal-infra#697)
 # loads the way RiftalRanks does.
@@ -36,7 +36,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=116
+EXPECTED_ASSERTIONS=122
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -439,6 +439,30 @@ check "a missing index stops the boot before the start command, saying it is not
   '! deliver "" printf started && ! grep -q started "$work/deliver/out" &&
     grep -q "etc/world_index.json is not mounted;" "$work/deliver/out"'
 
+printf '\n== the pit index and mine sets are mounted and delivered on both instances (riftal-infra#1507)\n'
+# PocketMine services in images/compose.yaml that do not run the pit delivery
+# straight after the world index delivery or do not get designer/pit mounted
+# read-only for it.
+unpitted() {
+  jq -r '.services | to_entries[] | select(.value.image | test("pocketmine"))
+    | select((.value.command[4:6] != ["bash", "/plugins/deliver-pit-index.sh"])
+      or (any(.value.volumes[]?; .target == "/etc/riftal/pit"
+        and (.source | endswith("designer/pit")) and .read_only) | not))
+    | .key' <<<"$1"
+}
+check "instance and instance-b both run the pit delivery after the world index delivery, designer/pit mounted read-only" \
+  '[ -z "$(unpitted "$real")" ]'
+check "an instance without the pit mount is caught" \
+  '[ "$(unpitted "$(edited "0,/designer\/pit:/{/designer\/pit:/d}")")" = instance ]'
+check "an instance-b without the pit mount is caught" \
+  '[ "$(unpitted "$(edited "/designer\/pit:/{x;s/\$/x/;/^xx\$/{x;d};x}")")" = instance-b ]'
+check "a pit mount that lost :ro is caught" \
+  '[ "$(unpitted "$(edited "0,/etc\/riftal\/pit:ro/s#/etc/riftal/pit:ro#/etc/riftal/pit#")")" = instance ]'
+check "an instance without the pit delivery in its command is caught" \
+  '[ "$(unpitted "$(edited "/- \/plugins\/deliver-pit-index.sh/{N;d}")")" = instance ]'
+check "an instance-b without the pit delivery in its command is caught" \
+  '[ "$(unpitted "$(edited "s#\"bash\", \"/plugins/deliver-pit-index.sh\", ##")")" = instance-b ]'
+
 printf '\n== the built levels reach instance and no other service (ADR 009 item 6)\n'
 # Services with a zone list that do not run seed-levels.sh straight after the
 # delivery, or that lack, for some listed zone, one read-only mount of
@@ -447,7 +471,7 @@ printf '\n== the built levels reach instance and no other service (ADR 009 item 
 unseeded() {
   jq -r '. as $m | .services | to_entries[] | .value as $v
     | select(($v.environment.RIFTAL_LEVEL_ZONES // "") != "")
-    | select(($v.command[4:6] != ["bash", "/plugins/seed-levels.sh"])
+    | select(($v.command[6:8] != ["bash", "/plugins/seed-levels.sh"])
       or ([$v.environment.RIFTAL_LEVEL_ZONES | split(" ")[] | select(. != "")]
         | any(.[]; . as $z
           | ([$v.volumes[]? | select(.target == "/etc/riftal/levels/\($z)"

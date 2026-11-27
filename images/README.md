@@ -133,9 +133,20 @@ changes no map data. An
 instance started without the mount stops before PocketMine does, naming the
 path. A `wslc run` of either instance needs the same `-v` and command.
 
+## The pit index and mine sets
+
+`instance` and `instance-b` both mount `../designer/pit` read-only at
+`/etc/riftal/pit` and run `plugins/deliver-pit-index.sh` straight after the world
+index delivery. It checks every file against `pit.sha256`, stops the boot naming
+any that differs or is missing, then copies `pit_index.json` into
+`/data/plugin_data/RiftalMines/`, `RiftalRanks/` and `RiftalCells/`, and
+`mine_sets/layer_01.bin` to `layer_14.bin` into `RiftalMines/` alone. RiftalCustody
+gets no file (spec 026, ADR 014 item 4). A `wslc run` of either instance needs the
+same `-v` and command.
+
 ## The built levels
 
-`instance` runs `plugins/seed-levels.sh` straight after the delivery above,
+`instance` runs `plugins/seed-levels.sh` straight after the deliveries above,
 with `RIFTAL_LEVEL_ZONES="lumber mine_a mine_b mine_c quarry farm"`, and mounts the named volumes
 `riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`,
 `riftal_smoke_level_mine_b`, `riftal_smoke_level_mine_c`,

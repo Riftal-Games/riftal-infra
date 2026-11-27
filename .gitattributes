@@ -24,3 +24,7 @@ images/riftal-game-snapshot/SOURCE text eol=lf
 
 # Pinned by sha256 of the exact bytes the studio handed over, so no line-ending rewrite may touch them.
 designer/sources/rift_prison/* -text
+
+# Position sets are bitsets pinned by sha256; no conversion may touch them.
+designer/pit/mine_sets/*.bin binary
+designer/tests/fixtures/*.bin binary
