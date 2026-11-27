@@ -1,0 +1,471 @@
+{
+ "mine_layer_1": {
+  "kind": "region",
+  "min": [
+   -118,
+   137,
+   -118
+  ],
+  "max": [
+   118,
+   141,
+   118
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   141,
+   0
+  ],
+  "r_inner": 114,
+  "r_outer": 118,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_2": {
+  "kind": "region",
+  "min": [
+   -112,
+   117,
+   -112
+  ],
+  "max": [
+   112,
+   121,
+   112
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   121,
+   0
+  ],
+  "r_inner": 108,
+  "r_outer": 112,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_3": {
+  "kind": "region",
+  "min": [
+   -106,
+   97,
+   -106
+  ],
+  "max": [
+   106,
+   101,
+   106
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   101,
+   0
+  ],
+  "r_inner": 102,
+  "r_outer": 106,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_4": {
+  "kind": "region",
+  "min": [
+   -100,
+   77,
+   -100
+  ],
+  "max": [
+   100,
+   81,
+   100
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   81,
+   0
+  ],
+  "r_inner": 96,
+  "r_outer": 100,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_5": {
+  "kind": "region",
+  "min": [
+   -94,
+   57,
+   -94
+  ],
+  "max": [
+   94,
+   61,
+   94
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   61,
+   0
+  ],
+  "r_inner": 90,
+  "r_outer": 94,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_6": {
+  "kind": "region",
+  "min": [
+   -88,
+   37,
+   -88
+  ],
+  "max": [
+   88,
+   41,
+   88
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   41,
+   0
+  ],
+  "r_inner": 84,
+  "r_outer": 88,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_7": {
+  "kind": "region",
+  "min": [
+   -82,
+   17,
+   -82
+  ],
+  "max": [
+   82,
+   21,
+   82
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   21,
+   0
+  ],
+  "r_inner": 78,
+  "r_outer": 82,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_8": {
+  "kind": "region",
+  "min": [
+   -76,
+   -3,
+   -76
+  ],
+  "max": [
+   76,
+   1,
+   76
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   1,
+   0
+  ],
+  "r_inner": 72,
+  "r_outer": 76,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_9": {
+  "kind": "region",
+  "min": [
+   -70,
+   -23,
+   -70
+  ],
+  "max": [
+   70,
+   -19,
+   70
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   -19,
+   0
+  ],
+  "r_inner": 66,
+  "r_outer": 70,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_10": {
+  "kind": "region",
+  "min": [
+   -64,
+   -43,
+   -64
+  ],
+  "max": [
+   64,
+   -39,
+   64
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   -39,
+   0
+  ],
+  "r_inner": 60,
+  "r_outer": 64,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_11": {
+  "kind": "region",
+  "min": [
+   -58,
+   -63,
+   -58
+  ],
+  "max": [
+   58,
+   -59,
+   58
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   -59,
+   0
+  ],
+  "r_inner": 54,
+  "r_outer": 58,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_12": {
+  "kind": "region",
+  "min": [
+   -52,
+   -83,
+   -52
+  ],
+  "max": [
+   52,
+   -79,
+   52
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   -79,
+   0
+  ],
+  "r_inner": 48,
+  "r_outer": 52,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_13": {
+  "kind": "region",
+  "min": [
+   -46,
+   -103,
+   -46
+  ],
+  "max": [
+   46,
+   -99,
+   46
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   -99,
+   0
+  ],
+  "r_inner": 42,
+  "r_outer": 46,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "mine_layer_14": {
+  "kind": "region",
+  "min": [
+   -40,
+   -123,
+   -40
+  ],
+  "max": [
+   40,
+   -119,
+   40
+  ],
+  "block": "minecraft:packed_mud",
+  "shape": "annulus",
+  "centre": [
+   0,
+   -119,
+   0
+  ],
+  "r_inner": 36,
+  "r_outer": 40,
+  "note": "reset with a mask on the placeholder block inside this box (only the ring holds it)"
+ },
+ "stair_S": {
+  "kind": "region",
+  "min": [
+   -16,
+   -119,
+   40
+  ],
+  "max": [
+   16,
+   165,
+   126
+  ],
+  "note": "grand stairway S: one flight per layer from the rim to the pit floor"
+ },
+ "stair_E": {
+  "kind": "region",
+  "min": [
+   40,
+   -119,
+   -16
+  ],
+  "max": [
+   126,
+   165,
+   16
+  ],
+  "note": "grand stairway E: one flight per layer from the rim to the pit floor"
+ },
+ "stair_N": {
+  "kind": "region",
+  "min": [
+   -16,
+   -119,
+   -126
+  ],
+  "max": [
+   16,
+   165,
+   -40
+  ],
+  "note": "grand stairway N: one flight per layer from the rim to the pit floor"
+ },
+ "stair_W": {
+  "kind": "region",
+  "min": [
+   -126,
+   -119,
+   -16
+  ],
+  "max": [
+   -40,
+   165,
+   16
+  ],
+  "note": "grand stairway W: one flight per layer from the rim to the pit floor"
+ },
+ "bridge_1": {
+  "kind": "region",
+  "min": [
+   -57,
+   -4,
+   -57
+  ],
+  "max": [
+   57,
+   2,
+   57
+  ],
+  "terrace": 8
+ },
+ "bridge_2": {
+  "kind": "region",
+  "min": [
+   -74,
+   -24,
+   -3
+  ],
+  "max": [
+   74,
+   -18,
+   3
+  ],
+  "terrace": 9
+ },
+ "bridge_3": {
+  "kind": "region",
+  "min": [
+   -44,
+   -64,
+   -44
+  ],
+  "max": [
+   44,
+   -58,
+   44
+  ],
+  "terrace": 11
+ },
+ "bridge_4": {
+  "kind": "region",
+  "min": [
+   -3,
+   -84,
+   -56
+  ],
+  "max": [
+   3,
+   -78,
+   56
+  ],
+  "terrace": 12
+ },
+ "mine_contested": {
+  "kind": "region",
+  "min": [
+   -10,
+   -123,
+   -10
+  ],
+  "max": [
+   9,
+   -116,
+   9
+  ],
+  "block": "minecraft:terracotta",
+  "note": "raised contested mine on the pit floor; reset with the ore mix"
+ },
+ "rim_spawn": {
+  "kind": "point",
+  "pos": [
+   0,
+   162,
+   127
+  ],
+  "yaw": 180.0,
+  "note": "on the south rim, facing across the pit"
+ },
+ "gate": {
+  "kind": "point",
+  "pos": [
+   0,
+   -1,
+   162
+  ],
+  "yaw": 180.0,
+  "note": "outside the main gate on the forecourt, facing north into it"
+ }
+}
