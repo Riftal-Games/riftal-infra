@@ -34,3 +34,6 @@ sell-shop:
 
 auction-house:
   listing-tax-percent: 10
+
+shop-chests:
+  world: "plots"

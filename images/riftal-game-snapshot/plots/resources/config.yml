@@ -1,4 +1,5 @@
-# The world whose block interactions yield no item, docs/specs/018-plots-yields.md.
+# The world whose block interactions yield no item, docs/specs/018-plots-yields.md,
+# and where every death keeps inventory and experience, spec 022.
 # A world folder name, the same on every instance.
 plots-world: "plots"
 

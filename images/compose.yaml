@@ -71,6 +71,7 @@ services:
       - riftal_smoke_level_mine_c:/etc/riftal/levels/mine_c:ro
       - riftal_smoke_level_quarry:/etc/riftal/levels/quarry:ro
       - riftal_smoke_level_farm:/etc/riftal/levels/farm:ro
+      - riftal_smoke_level_pit:/etc/riftal/levels/pit:ro
     # RiftalMines resets the worlds this instance hosts and no others, and
     # RiftalRanks (riftal-infra#558) and RiftalGangs (riftal-infra#697) are
     # wanted on this instance alone, so instance-b holds neither of those
@@ -124,7 +125,7 @@ services:
       # The zones seed-levels.sh puts on /data/worlds before PocketMine starts,
       # each from /etc/riftal/levels/<zone>. instance-b sets none and mounts no
       # level.
-      RIFTAL_LEVEL_ZONES: lumber mine_a mine_b mine_c quarry farm
+      RIFTAL_LEVEL_ZONES: lumber mine_a mine_b mine_c quarry farm pit
       # RiftalMines connects as the mines login (ADR 008), and riftal-game's
       # DatabaseSettings reads its password from here, never from a file on
       # the volume. The migration runner provisions the login from the same
@@ -176,13 +177,20 @@ services:
       # and (bool) "false" is true. As a flag it leaves /data/pocketmine.yml
       # the full default file, where a hand-written one would drop keys such
       # as plugins.legacy-data-dir, whose absence reads as true.
+      #
+      # view-distance 16 is docs/pit/plan.md section 13's default: the pit's top
+      # is 240 blocks wide and 16 chunks reach across it from a layer 1 cell,
+      # with 12 and 8 as the fallbacks. max-players is the pit's cell count,
+      # the most a join can always find a cell for (plan section 8.1).
       POCKETMINE_ARGS: >-
-        --level-name=mine_a
+        --level-name=pit
         --level-type=normal
         --xbox-auth=false
         --motd=riftal-dev
         --riftal-dev-bots=on
         --auto-report.enabled=0
+        --view-distance=16
+        --max-players=1869
     # Rollout order, the same one /deploy-release uses: database, then
     # instances. With RiftalMines.phar built, the plugin connects to MySQL
     # synchronously on enable, and a database that does not answer yet takes
@@ -385,4 +393,7 @@ volumes:
     external: true
   riftal_smoke_level_farm:
     name: riftal_smoke_level_farm
+    external: true
+  riftal_smoke_level_pit:
+    name: riftal_smoke_level_pit
     external: true

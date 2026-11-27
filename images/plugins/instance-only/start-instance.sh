@@ -5,8 +5,8 @@
 # directory and /plugins is the ./plugins bind instance-b shares, so the
 # roster is assembled in the container's own disposable filesystem: every
 # plugin at the top of /plugins, plus RiftalMines.phar, RiftalRanks.phar,
-# RiftalEconomy.phar, RiftalPlots.phar and RiftalGangs.phar once built. It
-# mounts nothing and
+# RiftalEconomy.phar, RiftalPlots.phar, RiftalGangs.phar and RiftalCells.phar
+# once built. It mounts nothing and
 # runs as uid 1000, so /data/plugin_data on a fresh volume stays writable by
 # PocketMine.
 #
@@ -135,6 +135,15 @@ if [ -f "$here/RiftalGangs.phar" ]; then
 	mkdir -p /data/plugin_data/RiftalGangs
 	cp "$here/RiftalGangs.config.yml" /data/plugin_data/RiftalGangs/config.yml
 	cp "$here/RiftalGangs.phar" "$roster/"
+fi
+
+if [ -f "$here/RiftalCells.phar" ]; then
+	# RiftalCells declares depend: [RiftalContracts, RiftalAccounts], both at
+	# the top of /plugins and so already in the roster. It opens no database
+	# connection and carries no login, and its shipped config is the one it
+	# writes for itself, so nothing is rendered onto the volume. The pit index
+	# it reads is in its data folder from deliver-pit-index.sh.
+	cp "$here/RiftalCells.phar" "$roster/"
 fi
 
 cd /opt/pocketmine
