@@ -29,7 +29,7 @@ from designer.region import MAX_EDGE, Bounds, Bounds2D
 
 ALLOWED_BLOCKS = frozenset({
     "minecraft:air", "minecraft:stone", "minecraft:grass_block", "minecraft:dirt",
-    "minecraft:oak_planks", "minecraft:glass", "minecraft:diamond_block",
+    "minecraft:oak_planks", "minecraft:glass", "minecraft:diamond_block", "minecraft:bedrock", "minecraft:packed_mud",
 })
 
 

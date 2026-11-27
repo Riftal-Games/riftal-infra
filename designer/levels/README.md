@@ -67,7 +67,20 @@ read and written by `designer/level.py`.
   once per batch of cells whose box stays within `max_region_edge`, after `pregen`. The
   source's uncompressed sha256 must equal `structure_sha256` in its `pins.json`, which is
   also hashed into `inputs`. The pit's origin `0 66 0` is the pit's centre at ground level,
-  so its minimum corner, `-184 -59 -184`, is where the recipe's bounds start.
+  so its minimum corner, `-184 -63 -184`, is where the recipe's bounds start.
+- A step `{"build": "fill_box", "spec": "specs/<name>.json"}` has no palette. Its spec
+  (`world`, `bounds`, `block`) is one fill, written in order with the other steps. The
+  pit's `pit_bedrock.json` fills the layer at y -64, one below the recipe's bounds, so
+  `content_sha256` does not cover it.
+- A step `{"build": "fill_sets", "spec": "specs/<name>.json"}` has no palette and runs
+  after the zone's checks, whatever its place in `steps`, since they read the placeholder
+  it replaces. Its spec (`world`, `sets`, `manifest`, `layers`, `from`, `block`) names a
+  folder of `mine_sets/layer_NN.bin` and the `sha256sum` manifest in it, which hashes
+  every set before use. For each layer listed it replaces `from` with `block` in the set's
+  box, after reading the built level and refusing any set position that does not hold
+  `from`, or any `from` in the box that the set lacks. The manifest is hashed into `inputs`,
+  and `content_sha256` covers the level after the fill. The pit's `pit_stone.json` lists
+  layers 4 to 14, so layers 1 to 3 keep their placeholder for `mines` to fill.
 - A `pit_matches_handoff` check (`world`, `spec` the structure spec, optional `deviations`)
   reads the whole of `bounds` once, the same region `content_sha256` hashes, and runs the
   eleven checks of the pit plan's section 4.4 against the hand-off's `cells.json`,
