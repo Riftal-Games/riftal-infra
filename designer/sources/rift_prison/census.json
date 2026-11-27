@@ -1,0 +1,2934 @@
+{
+ "block_entities": {
+  "Barrel": 52,
+  "Bed": 3738,
+  "Campfire": 12,
+  "Cauldron": 26,
+  "Chest": 1869,
+  "Hopper": 50
+ },
+ "block_entities_holding_items": {},
+ "block_names": {
+  "minecraft:air": 6713778,
+  "minecraft:andesite": 1526257,
+  "minecraft:barrel": 52,
+  "minecraft:basalt": 76899,
+  "minecraft:bed": 3738,
+  "minecraft:blackstone": 188336,
+  "minecraft:blackstone_slab": 69,
+  "minecraft:campfire": 4,
+  "minecraft:cauldron": 26,
+  "minecraft:chest": 1869,
+  "minecraft:chiseled_stone_bricks": 17,
+  "minecraft:coarse_dirt": 2957,
+  "minecraft:cobbled_deepslate": 153042,
+  "minecraft:cobbled_deepslate_stairs": 71,
+  "minecraft:cobblestone": 627168,
+  "minecraft:cracked_deepslate_bricks": 2277,
+  "minecraft:cracked_polished_blackstone_bricks": 2596,
+  "minecraft:cracked_stone_bricks": 51368,
+  "minecraft:dark_oak_door": 20,
+  "minecraft:dark_oak_fence": 11436,
+  "minecraft:dark_oak_log": 4911,
+  "minecraft:dark_oak_slab": 28773,
+  "minecraft:dark_oak_stairs": 26,
+  "minecraft:deepslate": 995347,
+  "minecraft:deepslate_brick_slab": 2082,
+  "minecraft:deepslate_brick_stairs": 2154,
+  "minecraft:deepslate_brick_wall": 16,
+  "minecraft:deepslate_bricks": 90878,
+  "minecraft:deepslate_tile_slab": 256,
+  "minecraft:deepslate_tiles": 173896,
+  "minecraft:dirt_with_roots": 3000,
+  "minecraft:dripstone_block": 64492,
+  "minecraft:grass_block": 2943,
+  "minecraft:gravel": 1181,
+  "minecraft:hardened_clay": 3200,
+  "minecraft:hopper": 50,
+  "minecraft:iron_bars": 33807,
+  "minecraft:iron_block": 107,
+  "minecraft:iron_chain": 1325,
+  "minecraft:iron_door": 3738,
+  "minecraft:ladder": 2174,
+  "minecraft:lantern": 2235,
+  "minecraft:lava": 248,
+  "minecraft:magma": 60,
+  "minecraft:moss_block": 5991,
+  "minecraft:mossy_cobblestone": 297944,
+  "minecraft:mossy_stone_bricks": 26424,
+  "minecraft:packed_mud": 97395,
+  "minecraft:polished_andesite": 72790,
+  "minecraft:polished_basalt": 1253,
+  "minecraft:polished_blackstone": 29210,
+  "minecraft:polished_blackstone_brick_slab": 5951,
+  "minecraft:polished_blackstone_brick_stairs": 2015,
+  "minecraft:polished_blackstone_bricks": 47807,
+  "minecraft:polished_blackstone_wall": 3075,
+  "minecraft:polished_deepslate": 52494,
+  "minecraft:rail": 1550,
+  "minecraft:scaffolding": 291,
+  "minecraft:smooth_basalt": 149757,
+  "minecraft:soul_campfire": 8,
+  "minecraft:soul_lantern": 619,
+  "minecraft:spruce_fence": 1443,
+  "minecraft:spruce_planks": 152,
+  "minecraft:spruce_slab": 20,
+  "minecraft:stone": 1446781,
+  "minecraft:stone_brick_slab": 3809,
+  "minecraft:stone_brick_stairs": 7447,
+  "minecraft:stone_brick_wall": 520,
+  "minecraft:stone_bricks": 200945,
+  "minecraft:stone_button": 1869,
+  "minecraft:stone_pressure_plate": 1869,
+  "minecraft:stripped_dark_oak_log": 761,
+  "minecraft:tuff": 812187,
+  "minecraft:waxed_oxidized_copper": 649,
+  "minecraft:waxed_oxidized_cut_copper": 1696,
+  "minecraft:waxed_oxidized_cut_copper_slab": 156,
+  "minecraft:waxed_weathered_cut_copper": 1046,
+  "minecraft:yellow_terracotta": 1464
+ },
+ "cells": 46567062,
+ "cells_without_state": {
+  "layer_0": 32510795,
+  "layer_1": 46567062
+ },
+ "entities": {},
+ "resolution": {
+  "altered": [],
+  "block_entities_unknown": [],
+  "block_entity_types_checked": 6,
+  "core_image": "971d10b927eb280461ada08af5c07de3150c2e6b",
+  "states_checked": 243,
+  "unresolved": [
+   {
+    "count": 64492,
+    "error": "Unknown block ID \"minecraft:dripstone_block\"",
+    "key": "minecraft:dripstone_block"
+   },
+   {
+    "count": 5991,
+    "error": "Unknown block ID \"minecraft:moss_block\"",
+    "key": "minecraft:moss_block"
+   },
+   {
+    "count": 291,
+    "error": "Unknown block ID \"minecraft:scaffolding\"",
+    "key": "minecraft:scaffolding[stability=0,stability_check=true]"
+   }
+  ]
+ },
+ "size": [
+  369,
+  342,
+  369
+ ],
+ "source_sha256": "d9a8e396c4ae6c482ff4ad96c3af4e556369cd920cbc0a106008159f19ce2029",
+ "states": [
+  {
+   "count": 6713778,
+   "count_layer_1": 0,
+   "key": "minecraft:air",
+   "name": "minecraft:air",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 1526257,
+   "count_layer_1": 0,
+   "key": "minecraft:andesite",
+   "name": "minecraft:andesite",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 52,
+   "count_layer_1": 0,
+   "key": "minecraft:barrel[facing_direction=1,open_bit=false]",
+   "name": "minecraft:barrel",
+   "states": {
+    "facing_direction": 1,
+    "open_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 4,
+   "count_layer_1": 0,
+   "key": "minecraft:basalt[pillar_axis=x]",
+   "name": "minecraft:basalt",
+   "states": {
+    "pillar_axis": "x"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 76890,
+   "count_layer_1": 0,
+   "key": "minecraft:basalt[pillar_axis=y]",
+   "name": "minecraft:basalt",
+   "states": {
+    "pillar_axis": "y"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 5,
+   "count_layer_1": 0,
+   "key": "minecraft:basalt[pillar_axis=z]",
+   "name": "minecraft:basalt",
+   "states": {
+    "pillar_axis": "z"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 483,
+   "count_layer_1": 0,
+   "key": "minecraft:bed[direction=0,head_piece_bit=false,occupied_bit=false]",
+   "name": "minecraft:bed",
+   "states": {
+    "direction": 0,
+    "head_piece_bit": false,
+    "occupied_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 483,
+   "count_layer_1": 0,
+   "key": "minecraft:bed[direction=0,head_piece_bit=true,occupied_bit=false]",
+   "name": "minecraft:bed",
+   "states": {
+    "direction": 0,
+    "head_piece_bit": true,
+    "occupied_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 450,
+   "count_layer_1": 0,
+   "key": "minecraft:bed[direction=1,head_piece_bit=false,occupied_bit=false]",
+   "name": "minecraft:bed",
+   "states": {
+    "direction": 1,
+    "head_piece_bit": false,
+    "occupied_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 450,
+   "count_layer_1": 0,
+   "key": "minecraft:bed[direction=1,head_piece_bit=true,occupied_bit=false]",
+   "name": "minecraft:bed",
+   "states": {
+    "direction": 1,
+    "head_piece_bit": true,
+    "occupied_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 462,
+   "count_layer_1": 0,
+   "key": "minecraft:bed[direction=2,head_piece_bit=false,occupied_bit=false]",
+   "name": "minecraft:bed",
+   "states": {
+    "direction": 2,
+    "head_piece_bit": false,
+    "occupied_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 462,
+   "count_layer_1": 0,
+   "key": "minecraft:bed[direction=2,head_piece_bit=true,occupied_bit=false]",
+   "name": "minecraft:bed",
+   "states": {
+    "direction": 2,
+    "head_piece_bit": true,
+    "occupied_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 474,
+   "count_layer_1": 0,
+   "key": "minecraft:bed[direction=3,head_piece_bit=false,occupied_bit=false]",
+   "name": "minecraft:bed",
+   "states": {
+    "direction": 3,
+    "head_piece_bit": false,
+    "occupied_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 474,
+   "count_layer_1": 0,
+   "key": "minecraft:bed[direction=3,head_piece_bit=true,occupied_bit=false]",
+   "name": "minecraft:bed",
+   "states": {
+    "direction": 3,
+    "head_piece_bit": true,
+    "occupied_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 188336,
+   "count_layer_1": 0,
+   "key": "minecraft:blackstone",
+   "name": "minecraft:blackstone",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 69,
+   "count_layer_1": 0,
+   "key": "minecraft:blackstone_slab[minecraft:vertical_half=bottom]",
+   "name": "minecraft:blackstone_slab",
+   "states": {
+    "minecraft:vertical_half": "bottom"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:campfire[extinguished=false,minecraft:cardinal_direction=north]",
+   "name": "minecraft:campfire",
+   "states": {
+    "extinguished": false,
+    "minecraft:cardinal_direction": "north"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:campfire[extinguished=false,minecraft:cardinal_direction=south]",
+   "name": "minecraft:campfire",
+   "states": {
+    "extinguished": false,
+    "minecraft:cardinal_direction": "south"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 26,
+   "count_layer_1": 0,
+   "key": "minecraft:cauldron[cauldron_liquid=water,fill_level=0]",
+   "name": "minecraft:cauldron",
+   "states": {
+    "cauldron_liquid": "water",
+    "fill_level": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 450,
+   "count_layer_1": 0,
+   "key": "minecraft:chest[minecraft:cardinal_direction=east]",
+   "name": "minecraft:chest",
+   "states": {
+    "minecraft:cardinal_direction": "east"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 483,
+   "count_layer_1": 0,
+   "key": "minecraft:chest[minecraft:cardinal_direction=north]",
+   "name": "minecraft:chest",
+   "states": {
+    "minecraft:cardinal_direction": "north"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 462,
+   "count_layer_1": 0,
+   "key": "minecraft:chest[minecraft:cardinal_direction=south]",
+   "name": "minecraft:chest",
+   "states": {
+    "minecraft:cardinal_direction": "south"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 474,
+   "count_layer_1": 0,
+   "key": "minecraft:chest[minecraft:cardinal_direction=west]",
+   "name": "minecraft:chest",
+   "states": {
+    "minecraft:cardinal_direction": "west"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 17,
+   "count_layer_1": 0,
+   "key": "minecraft:chiseled_stone_bricks",
+   "name": "minecraft:chiseled_stone_bricks",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 2957,
+   "count_layer_1": 0,
+   "key": "minecraft:coarse_dirt",
+   "name": "minecraft:coarse_dirt",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 153042,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate",
+   "name": "minecraft:cobbled_deepslate",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=inner_left,upside_down_bit=false,weirdo_direction=0]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "inner_left",
+    "upside_down_bit": false,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=inner_left,upside_down_bit=false,weirdo_direction=3]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "inner_left",
+    "upside_down_bit": false,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=inner_right,upside_down_bit=false,weirdo_direction=3]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "inner_right",
+    "upside_down_bit": false,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 16,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=0]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 16,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=1]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 12,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=2]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 18,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=3]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=outer_left,upside_down_bit=false,weirdo_direction=1]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "outer_left",
+    "upside_down_bit": false,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=outer_left,upside_down_bit=false,weirdo_direction=3]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "outer_left",
+    "upside_down_bit": false,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=outer_right,upside_down_bit=false,weirdo_direction=1]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "outer_right",
+    "upside_down_bit": false,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:cobbled_deepslate_stairs[minecraft:corner=outer_right,upside_down_bit=false,weirdo_direction=3]",
+   "name": "minecraft:cobbled_deepslate_stairs",
+   "states": {
+    "minecraft:corner": "outer_right",
+    "upside_down_bit": false,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 627168,
+   "count_layer_1": 0,
+   "key": "minecraft:cobblestone",
+   "name": "minecraft:cobblestone",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 2277,
+   "count_layer_1": 0,
+   "key": "minecraft:cracked_deepslate_bricks",
+   "name": "minecraft:cracked_deepslate_bricks",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 2596,
+   "count_layer_1": 0,
+   "key": "minecraft:cracked_polished_blackstone_bricks",
+   "name": "minecraft:cracked_polished_blackstone_bricks",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 51368,
+   "count_layer_1": 0,
+   "key": "minecraft:cracked_stone_bricks",
+   "name": "minecraft:cracked_stone_bricks",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 4,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_door[door_hinge_bit=false,minecraft:cardinal_direction=east,open_bit=false,upper_block_bit=false]",
+   "name": "minecraft:dark_oak_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "east",
+    "open_bit": false,
+    "upper_block_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 4,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_door[door_hinge_bit=false,minecraft:cardinal_direction=east,open_bit=false,upper_block_bit=true]",
+   "name": "minecraft:dark_oak_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "east",
+    "open_bit": false,
+    "upper_block_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_door[door_hinge_bit=false,minecraft:cardinal_direction=north,open_bit=false,upper_block_bit=false]",
+   "name": "minecraft:dark_oak_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "north",
+    "open_bit": false,
+    "upper_block_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_door[door_hinge_bit=false,minecraft:cardinal_direction=north,open_bit=false,upper_block_bit=true]",
+   "name": "minecraft:dark_oak_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "north",
+    "open_bit": false,
+    "upper_block_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_door[door_hinge_bit=false,minecraft:cardinal_direction=south,open_bit=false,upper_block_bit=false]",
+   "name": "minecraft:dark_oak_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "south",
+    "open_bit": false,
+    "upper_block_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_door[door_hinge_bit=false,minecraft:cardinal_direction=south,open_bit=false,upper_block_bit=true]",
+   "name": "minecraft:dark_oak_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "south",
+    "open_bit": false,
+    "upper_block_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_door[door_hinge_bit=false,minecraft:cardinal_direction=west,open_bit=false,upper_block_bit=false]",
+   "name": "minecraft:dark_oak_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "west",
+    "open_bit": false,
+    "upper_block_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_door[door_hinge_bit=false,minecraft:cardinal_direction=west,open_bit=false,upper_block_bit=true]",
+   "name": "minecraft:dark_oak_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "west",
+    "open_bit": false,
+    "upper_block_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1653,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1222,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1191,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 584,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=true]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1212,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 588,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1173,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 12,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=true,minecraft:connection_west=true]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1219,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1364,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 602,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 12,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=true]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 580,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=true,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 12,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=true,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 12,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_fence[minecraft:connection_east=true,minecraft:connection_north=true,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:dark_oak_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2141,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_log[pillar_axis=x]",
+   "name": "minecraft:dark_oak_log",
+   "states": {
+    "pillar_axis": "x"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 678,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_log[pillar_axis=y]",
+   "name": "minecraft:dark_oak_log",
+   "states": {
+    "pillar_axis": "y"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2092,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_log[pillar_axis=z]",
+   "name": "minecraft:dark_oak_log",
+   "states": {
+    "pillar_axis": "z"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 136,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_slab[minecraft:vertical_half=bottom]",
+   "name": "minecraft:dark_oak_slab",
+   "states": {
+    "minecraft:vertical_half": "bottom"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 28637,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_slab[minecraft:vertical_half=top]",
+   "name": "minecraft:dark_oak_slab",
+   "states": {
+    "minecraft:vertical_half": "top"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 11,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=0]",
+   "name": "minecraft:dark_oak_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 10,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=1]",
+   "name": "minecraft:dark_oak_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=2]",
+   "name": "minecraft:dark_oak_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 4,
+   "count_layer_1": 0,
+   "key": "minecraft:dark_oak_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=3]",
+   "name": "minecraft:dark_oak_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 995347,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate[pillar_axis=y]",
+   "name": "minecraft:deepslate",
+   "states": {
+    "pillar_axis": "y"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2082,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_brick_slab[minecraft:vertical_half=top]",
+   "name": "minecraft:deepslate_brick_slab",
+   "states": {
+    "minecraft:vertical_half": "top"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 480,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=0]",
+   "name": "minecraft:deepslate_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 470,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=1]",
+   "name": "minecraft:deepslate_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 480,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=2]",
+   "name": "minecraft:deepslate_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 460,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=3]",
+   "name": "minecraft:deepslate_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 62,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=0]",
+   "name": "minecraft:deepslate_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 62,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=1]",
+   "name": "minecraft:deepslate_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 70,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=2]",
+   "name": "minecraft:deepslate_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 70,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=3]",
+   "name": "minecraft:deepslate_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 16,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_brick_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:deepslate_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 90878,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_bricks",
+   "name": "minecraft:deepslate_bricks",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 256,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_tile_slab[minecraft:vertical_half=bottom]",
+   "name": "minecraft:deepslate_tile_slab",
+   "states": {
+    "minecraft:vertical_half": "bottom"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 173896,
+   "count_layer_1": 0,
+   "key": "minecraft:deepslate_tiles",
+   "name": "minecraft:deepslate_tiles",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 3000,
+   "count_layer_1": 0,
+   "key": "minecraft:dirt_with_roots",
+   "name": "minecraft:dirt_with_roots",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 64492,
+   "count_layer_1": 0,
+   "key": "minecraft:dripstone_block",
+   "name": "minecraft:dripstone_block",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 2943,
+   "count_layer_1": 0,
+   "key": "minecraft:grass_block",
+   "name": "minecraft:grass_block",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 1181,
+   "count_layer_1": 0,
+   "key": "minecraft:gravel",
+   "name": "minecraft:gravel",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 3200,
+   "count_layer_1": 0,
+   "key": "minecraft:hardened_clay",
+   "name": "minecraft:hardened_clay",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 50,
+   "count_layer_1": 0,
+   "key": "minecraft:hopper[facing_direction=0,toggle_bit=false]",
+   "name": "minecraft:hopper",
+   "states": {
+    "facing_direction": 0,
+    "toggle_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 277,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2429,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2308,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 72,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=true]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2340,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 73,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 11171,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 79,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=true,minecraft:connection_west=true]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2411,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 12368,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 79,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 23,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=true]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 70,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=true,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 35,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=true,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 72,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_bars[minecraft:connection_east=true,minecraft:connection_north=true,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:iron_bars",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 107,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_block",
+   "name": "minecraft:iron_block",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 1325,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_chain[pillar_axis=y]",
+   "name": "minecraft:iron_chain",
+   "states": {
+    "pillar_axis": "y"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 462,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_door[door_hinge_bit=false,minecraft:cardinal_direction=east,open_bit=false,upper_block_bit=false]",
+   "name": "minecraft:iron_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "east",
+    "open_bit": false,
+    "upper_block_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 462,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_door[door_hinge_bit=false,minecraft:cardinal_direction=east,open_bit=false,upper_block_bit=true]",
+   "name": "minecraft:iron_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "east",
+    "open_bit": false,
+    "upper_block_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 450,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_door[door_hinge_bit=false,minecraft:cardinal_direction=north,open_bit=false,upper_block_bit=false]",
+   "name": "minecraft:iron_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "north",
+    "open_bit": false,
+    "upper_block_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 450,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_door[door_hinge_bit=false,minecraft:cardinal_direction=north,open_bit=false,upper_block_bit=true]",
+   "name": "minecraft:iron_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "north",
+    "open_bit": false,
+    "upper_block_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 474,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_door[door_hinge_bit=false,minecraft:cardinal_direction=south,open_bit=false,upper_block_bit=false]",
+   "name": "minecraft:iron_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "south",
+    "open_bit": false,
+    "upper_block_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 474,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_door[door_hinge_bit=false,minecraft:cardinal_direction=south,open_bit=false,upper_block_bit=true]",
+   "name": "minecraft:iron_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "south",
+    "open_bit": false,
+    "upper_block_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 483,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_door[door_hinge_bit=false,minecraft:cardinal_direction=west,open_bit=false,upper_block_bit=false]",
+   "name": "minecraft:iron_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "west",
+    "open_bit": false,
+    "upper_block_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 483,
+   "count_layer_1": 0,
+   "key": "minecraft:iron_door[door_hinge_bit=false,minecraft:cardinal_direction=west,open_bit=false,upper_block_bit=true]",
+   "name": "minecraft:iron_door",
+   "states": {
+    "door_hinge_bit": false,
+    "minecraft:cardinal_direction": "west",
+    "open_bit": false,
+    "upper_block_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 517,
+   "count_layer_1": 0,
+   "key": "minecraft:ladder[facing_direction=2]",
+   "name": "minecraft:ladder",
+   "states": {
+    "facing_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 576,
+   "count_layer_1": 0,
+   "key": "minecraft:ladder[facing_direction=3]",
+   "name": "minecraft:ladder",
+   "states": {
+    "facing_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 528,
+   "count_layer_1": 0,
+   "key": "minecraft:ladder[facing_direction=4]",
+   "name": "minecraft:ladder",
+   "states": {
+    "facing_direction": 4
+   },
+   "version": 18496512
+  },
+  {
+   "count": 553,
+   "count_layer_1": 0,
+   "key": "minecraft:ladder[facing_direction=5]",
+   "name": "minecraft:ladder",
+   "states": {
+    "facing_direction": 5
+   },
+   "version": 18496512
+  },
+  {
+   "count": 633,
+   "count_layer_1": 0,
+   "key": "minecraft:lantern[hanging=false]",
+   "name": "minecraft:lantern",
+   "states": {
+    "hanging": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1602,
+   "count_layer_1": 0,
+   "key": "minecraft:lantern[hanging=true]",
+   "name": "minecraft:lantern",
+   "states": {
+    "hanging": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 248,
+   "count_layer_1": 0,
+   "key": "minecraft:lava[liquid_depth=0]",
+   "name": "minecraft:lava",
+   "states": {
+    "liquid_depth": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 60,
+   "count_layer_1": 0,
+   "key": "minecraft:magma",
+   "name": "minecraft:magma",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 5991,
+   "count_layer_1": 0,
+   "key": "minecraft:moss_block",
+   "name": "minecraft:moss_block",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 297944,
+   "count_layer_1": 0,
+   "key": "minecraft:mossy_cobblestone",
+   "name": "minecraft:mossy_cobblestone",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 26424,
+   "count_layer_1": 0,
+   "key": "minecraft:mossy_stone_bricks",
+   "name": "minecraft:mossy_stone_bricks",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 97395,
+   "count_layer_1": 0,
+   "key": "minecraft:packed_mud",
+   "name": "minecraft:packed_mud",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 72790,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_andesite",
+   "name": "minecraft:polished_andesite",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 355,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_basalt[pillar_axis=x]",
+   "name": "minecraft:polished_basalt",
+   "states": {
+    "pillar_axis": "x"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 509,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_basalt[pillar_axis=y]",
+   "name": "minecraft:polished_basalt",
+   "states": {
+    "pillar_axis": "y"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 389,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_basalt[pillar_axis=z]",
+   "name": "minecraft:polished_basalt",
+   "states": {
+    "pillar_axis": "z"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 29210,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone",
+   "name": "minecraft:polished_blackstone",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 5951,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_brick_slab[minecraft:vertical_half=top]",
+   "name": "minecraft:polished_blackstone_brick_slab",
+   "states": {
+    "minecraft:vertical_half": "top"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 441,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=0]",
+   "name": "minecraft:polished_blackstone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 424,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=1]",
+   "name": "minecraft:polished_blackstone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 453,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=2]",
+   "name": "minecraft:polished_blackstone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 433,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=3]",
+   "name": "minecraft:polished_blackstone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 70,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=0]",
+   "name": "minecraft:polished_blackstone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 70,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=1]",
+   "name": "minecraft:polished_blackstone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 62,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=2]",
+   "name": "minecraft:polished_blackstone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 62,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=3]",
+   "name": "minecraft:polished_blackstone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 47807,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_bricks",
+   "name": "minecraft:polished_blackstone_bricks",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 402,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 283,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=short,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 288,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=short,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 171,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=short,wall_connection_type_west=short,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=tall,wall_connection_type_west=tall,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "tall",
+    "wall_connection_type_west": "tall",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 291,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=short,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 141,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=short,wall_connection_type_south=none,wall_connection_type_west=short,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 530,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=short,wall_connection_type_south=short,wall_connection_type_west=none,wall_post_bit=false]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 10,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=short,wall_connection_type_south=short,wall_connection_type_west=short,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=tall,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "tall",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=none,wall_connection_type_north=tall,wall_connection_type_south=none,wall_connection_type_west=tall,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "tall",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "tall",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 291,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=short,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 304,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=short,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=short,wall_post_bit=false]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=short,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=short,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 146,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=short,wall_connection_type_north=none,wall_connection_type_south=short,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 16,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=short,wall_connection_type_north=none,wall_connection_type_south=short,wall_connection_type_west=short,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 168,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=short,wall_connection_type_north=short,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 18,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=short,wall_connection_type_north=short,wall_connection_type_south=none,wall_connection_type_west=short,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 9,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=short,wall_connection_type_north=short,wall_connection_type_south=short,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=tall,wall_connection_type_north=none,wall_connection_type_south=tall,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "tall",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "tall",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=tall,wall_connection_type_north=none,wall_connection_type_south=tall,wall_connection_type_west=tall,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "tall",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "tall",
+    "wall_connection_type_west": "tall",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_blackstone_wall[wall_connection_type_east=tall,wall_connection_type_north=tall,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:polished_blackstone_wall",
+   "states": {
+    "wall_connection_type_east": "tall",
+    "wall_connection_type_north": "tall",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 52494,
+   "count_layer_1": 0,
+   "key": "minecraft:polished_deepslate",
+   "name": "minecraft:polished_deepslate",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 245,
+   "count_layer_1": 0,
+   "key": "minecraft:rail[rail_direction=0]",
+   "name": "minecraft:rail",
+   "states": {
+    "rail_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 242,
+   "count_layer_1": 0,
+   "key": "minecraft:rail[rail_direction=1]",
+   "name": "minecraft:rail",
+   "states": {
+    "rail_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 270,
+   "count_layer_1": 0,
+   "key": "minecraft:rail[rail_direction=6]",
+   "name": "minecraft:rail",
+   "states": {
+    "rail_direction": 6
+   },
+   "version": 18496512
+  },
+  {
+   "count": 264,
+   "count_layer_1": 0,
+   "key": "minecraft:rail[rail_direction=7]",
+   "name": "minecraft:rail",
+   "states": {
+    "rail_direction": 7
+   },
+   "version": 18496512
+  },
+  {
+   "count": 267,
+   "count_layer_1": 0,
+   "key": "minecraft:rail[rail_direction=8]",
+   "name": "minecraft:rail",
+   "states": {
+    "rail_direction": 8
+   },
+   "version": 18496512
+  },
+  {
+   "count": 262,
+   "count_layer_1": 0,
+   "key": "minecraft:rail[rail_direction=9]",
+   "name": "minecraft:rail",
+   "states": {
+    "rail_direction": 9
+   },
+   "version": 18496512
+  },
+  {
+   "count": 291,
+   "count_layer_1": 0,
+   "key": "minecraft:scaffolding[stability=0,stability_check=true]",
+   "name": "minecraft:scaffolding",
+   "states": {
+    "stability": 0,
+    "stability_check": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 149757,
+   "count_layer_1": 0,
+   "key": "minecraft:smooth_basalt",
+   "name": "minecraft:smooth_basalt",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:soul_campfire[extinguished=false,minecraft:cardinal_direction=east]",
+   "name": "minecraft:soul_campfire",
+   "states": {
+    "extinguished": false,
+    "minecraft:cardinal_direction": "east"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:soul_campfire[extinguished=false,minecraft:cardinal_direction=north]",
+   "name": "minecraft:soul_campfire",
+   "states": {
+    "extinguished": false,
+    "minecraft:cardinal_direction": "north"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:soul_campfire[extinguished=false,minecraft:cardinal_direction=south]",
+   "name": "minecraft:soul_campfire",
+   "states": {
+    "extinguished": false,
+    "minecraft:cardinal_direction": "south"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2,
+   "count_layer_1": 0,
+   "key": "minecraft:soul_campfire[extinguished=false,minecraft:cardinal_direction=west]",
+   "name": "minecraft:soul_campfire",
+   "states": {
+    "extinguished": false,
+    "minecraft:cardinal_direction": "west"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 101,
+   "count_layer_1": 0,
+   "key": "minecraft:soul_lantern[hanging=false]",
+   "name": "minecraft:soul_lantern",
+   "states": {
+    "hanging": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 518,
+   "count_layer_1": 0,
+   "key": "minecraft:soul_lantern[hanging=true]",
+   "name": "minecraft:soul_lantern",
+   "states": {
+    "hanging": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 209,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 191,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 192,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 63,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=false,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=true]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 183,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 58,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 114,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=false,minecraft:connection_north=true,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": false,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 173,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 119,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=true]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 63,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=true,minecraft:connection_west=false]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": false,
+    "minecraft:connection_south": true,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 78,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_fence[minecraft:connection_east=true,minecraft:connection_north=true,minecraft:connection_south=false,minecraft:connection_west=false]",
+   "name": "minecraft:spruce_fence",
+   "states": {
+    "minecraft:connection_east": true,
+    "minecraft:connection_north": true,
+    "minecraft:connection_south": false,
+    "minecraft:connection_west": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 152,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_planks",
+   "name": "minecraft:spruce_planks",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 20,
+   "count_layer_1": 0,
+   "key": "minecraft:spruce_slab[minecraft:vertical_half=top]",
+   "name": "minecraft:spruce_slab",
+   "states": {
+    "minecraft:vertical_half": "top"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1446781,
+   "count_layer_1": 0,
+   "key": "minecraft:stone",
+   "name": "minecraft:stone",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 1111,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_slab[minecraft:vertical_half=bottom]",
+   "name": "minecraft:stone_brick_slab",
+   "states": {
+    "minecraft:vertical_half": "bottom"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 2698,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_slab[minecraft:vertical_half=top]",
+   "name": "minecraft:stone_brick_slab",
+   "states": {
+    "minecraft:vertical_half": "top"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 528,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=0]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 524,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=1]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 524,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=2]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 664,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=3]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": false,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1287,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=0]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1287,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=1]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1262,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=2]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1331,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=none,upside_down_bit=true,weirdo_direction=3]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "none",
+    "upside_down_bit": true,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 4,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=outer_left,upside_down_bit=true,weirdo_direction=0]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "outer_left",
+    "upside_down_bit": true,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 4,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=outer_left,upside_down_bit=true,weirdo_direction=1]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "outer_left",
+    "upside_down_bit": true,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 6,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=outer_left,upside_down_bit=true,weirdo_direction=2]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "outer_left",
+    "upside_down_bit": true,
+    "weirdo_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 6,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=outer_left,upside_down_bit=true,weirdo_direction=3]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "outer_left",
+    "upside_down_bit": true,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 4,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=outer_right,upside_down_bit=true,weirdo_direction=0]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "outer_right",
+    "upside_down_bit": true,
+    "weirdo_direction": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 4,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=outer_right,upside_down_bit=true,weirdo_direction=1]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "outer_right",
+    "upside_down_bit": true,
+    "weirdo_direction": 1
+   },
+   "version": 18496512
+  },
+  {
+   "count": 6,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=outer_right,upside_down_bit=true,weirdo_direction=2]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "outer_right",
+    "upside_down_bit": true,
+    "weirdo_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 6,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_stairs[minecraft:corner=outer_right,upside_down_bit=true,weirdo_direction=3]",
+   "name": "minecraft:stone_brick_stairs",
+   "states": {
+    "minecraft:corner": "outer_right",
+    "upside_down_bit": true,
+    "weirdo_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 64,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 67,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=short,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 8,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=tall,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "tall",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 57,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=short,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 16,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=short,wall_connection_type_west=short,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 8,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=none,wall_connection_type_north=none,wall_connection_type_south=tall,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "tall",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 54,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=none,wall_connection_type_north=short,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 19,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=none,wall_connection_type_north=short,wall_connection_type_south=none,wall_connection_type_west=short,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 50,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=none,wall_connection_type_north=short,wall_connection_type_south=short,wall_connection_type_west=none,wall_post_bit=false]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 16,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=none,wall_connection_type_north=tall,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "none",
+    "wall_connection_type_north": "tall",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 73,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=short,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 51,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=short,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=short,wall_post_bit=false]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "short",
+    "wall_post_bit": false
+   },
+   "version": 18496512
+  },
+  {
+   "count": 13,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=short,wall_connection_type_north=none,wall_connection_type_south=short,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "short",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 16,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=short,wall_connection_type_north=short,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "short",
+    "wall_connection_type_north": "short",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 8,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_brick_wall[wall_connection_type_east=tall,wall_connection_type_north=none,wall_connection_type_south=none,wall_connection_type_west=none,wall_post_bit=true]",
+   "name": "minecraft:stone_brick_wall",
+   "states": {
+    "wall_connection_type_east": "tall",
+    "wall_connection_type_north": "none",
+    "wall_connection_type_south": "none",
+    "wall_connection_type_west": "none",
+    "wall_post_bit": true
+   },
+   "version": 18496512
+  },
+  {
+   "count": 200945,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_bricks",
+   "name": "minecraft:stone_bricks",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 483,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_button[button_pressed_bit=false,facing_direction=2]",
+   "name": "minecraft:stone_button",
+   "states": {
+    "button_pressed_bit": false,
+    "facing_direction": 2
+   },
+   "version": 18496512
+  },
+  {
+   "count": 462,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_button[button_pressed_bit=false,facing_direction=3]",
+   "name": "minecraft:stone_button",
+   "states": {
+    "button_pressed_bit": false,
+    "facing_direction": 3
+   },
+   "version": 18496512
+  },
+  {
+   "count": 474,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_button[button_pressed_bit=false,facing_direction=4]",
+   "name": "minecraft:stone_button",
+   "states": {
+    "button_pressed_bit": false,
+    "facing_direction": 4
+   },
+   "version": 18496512
+  },
+  {
+   "count": 450,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_button[button_pressed_bit=false,facing_direction=5]",
+   "name": "minecraft:stone_button",
+   "states": {
+    "button_pressed_bit": false,
+    "facing_direction": 5
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1869,
+   "count_layer_1": 0,
+   "key": "minecraft:stone_pressure_plate[redstone_signal=0]",
+   "name": "minecraft:stone_pressure_plate",
+   "states": {
+    "redstone_signal": 0
+   },
+   "version": 18496512
+  },
+  {
+   "count": 389,
+   "count_layer_1": 0,
+   "key": "minecraft:stripped_dark_oak_log[pillar_axis=x]",
+   "name": "minecraft:stripped_dark_oak_log",
+   "states": {
+    "pillar_axis": "x"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 372,
+   "count_layer_1": 0,
+   "key": "minecraft:stripped_dark_oak_log[pillar_axis=z]",
+   "name": "minecraft:stripped_dark_oak_log",
+   "states": {
+    "pillar_axis": "z"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 812187,
+   "count_layer_1": 0,
+   "key": "minecraft:tuff",
+   "name": "minecraft:tuff",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 649,
+   "count_layer_1": 0,
+   "key": "minecraft:waxed_oxidized_copper",
+   "name": "minecraft:waxed_oxidized_copper",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 1696,
+   "count_layer_1": 0,
+   "key": "minecraft:waxed_oxidized_cut_copper",
+   "name": "minecraft:waxed_oxidized_cut_copper",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 156,
+   "count_layer_1": 0,
+   "key": "minecraft:waxed_oxidized_cut_copper_slab[minecraft:vertical_half=top]",
+   "name": "minecraft:waxed_oxidized_cut_copper_slab",
+   "states": {
+    "minecraft:vertical_half": "top"
+   },
+   "version": 18496512
+  },
+  {
+   "count": 1046,
+   "count_layer_1": 0,
+   "key": "minecraft:waxed_weathered_cut_copper",
+   "name": "minecraft:waxed_weathered_cut_copper",
+   "states": {},
+   "version": 18496512
+  },
+  {
+   "count": 1464,
+   "count_layer_1": 0,
+   "key": "minecraft:yellow_terracotta",
+   "name": "minecraft:yellow_terracotta",
+   "states": {},
+   "version": 18496512
+  }
+ ]
+}

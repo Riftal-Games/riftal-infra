@@ -329,6 +329,23 @@ jobs:
         working-directory: designer
         run: uv run --frozen python -m designer.tools_doc --check
 
+      # Every committed source against its sha256, the gzip's unpacked bytes
+      # against the pinned structure hash, and census.json against a fresh
+      # stream of that structure.
+      - name: rift_prison sources match their pins and the census
+        working-directory: designer
+        run: uv run --frozen python -I -m designer.pit_census check
+
+      # Needs the pinned core image on the runner's daemon, like the steps that
+      # boot it. The container has no network and publishes nothing.
+      - name: Self-test, prove the census resolution against the core can fail
+        timeout-minutes: 5
+        run: bash designer/sources/resolve-selftest.sh
+
+      - name: rift_prison census resolves on the pinned core as recorded
+        timeout-minutes: 5
+        run: bash designer/sources/resolve.sh check
+
       # Both need the PyYAML that designer/uv.lock pins, so they follow the sync.
       - name: Self-test, prove the exposure=pending order check can fail
         run: uv run --frozen --project designer python .github/scripts/exposure_pending_selftest.py

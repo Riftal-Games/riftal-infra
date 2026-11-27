@@ -1,0 +1,2519 @@
+{
+ "anchor_world": [
+  -870,
+  66,
+  -1230
+ ],
+ "transform": "world = paste_origin + local. In the studio test worlds paste_origin = anchor_world.",
+ "build_box_local": {
+  "min": [
+   -184,
+   -125,
+   -184
+  ],
+  "max": [
+   184,
+   216,
+   184
+  ]
+ },
+ "rim": {
+  "walkway_y": 161,
+  "stand_y": 162,
+  "world_stand_y": 228,
+  "walkway_r": [
+   120,
+   134
+  ]
+ },
+ "pit_floor": {
+  "surface_y": -119,
+  "world_surface_y": -53,
+  "arena_radius": 36
+ },
+ "levels": [
+  {
+   "layer": 1,
+   "terrace_surface_y": 141,
+   "stand_y": 142,
+   "world_terrace_surface_y": 207,
+   "wall_radius": 120,
+   "walkway_r": [
+    118,
+    120
+   ],
+   "bed_r": [
+    114,
+    118
+   ],
+   "bed_y": [
+    137,
+    141
+   ],
+   "world_bed_y": [
+    203,
+    207
+   ],
+   "bed_blocks": 11757,
+   "cells": true,
+   "cell_row_floors_y": [
+    141,
+    146,
+    151
+   ],
+   "catwalk_deck_y": [
+    146,
+    151
+   ]
+  },
+  {
+   "layer": 2,
+   "terrace_surface_y": 121,
+   "stand_y": 122,
+   "world_terrace_surface_y": 187,
+   "wall_radius": 114,
+   "walkway_r": [
+    112,
+    114
+   ],
+   "bed_r": [
+    108,
+    112
+   ],
+   "bed_y": [
+    117,
+    121
+   ],
+   "world_bed_y": [
+    183,
+    187
+   ],
+   "bed_blocks": 11004,
+   "cells": true,
+   "cell_row_floors_y": [
+    121,
+    126,
+    131
+   ],
+   "catwalk_deck_y": [
+    126,
+    131
+   ]
+  },
+  {
+   "layer": 3,
+   "terrace_surface_y": 101,
+   "stand_y": 102,
+   "world_terrace_surface_y": 167,
+   "wall_radius": 108,
+   "walkway_r": [
+    106,
+    108
+   ],
+   "bed_r": [
+    102,
+    106
+   ],
+   "bed_y": [
+    97,
+    101
+   ],
+   "world_bed_y": [
+    163,
+    167
+   ],
+   "bed_blocks": 10249,
+   "cells": true,
+   "cell_row_floors_y": [
+    101,
+    106,
+    111
+   ],
+   "catwalk_deck_y": [
+    106,
+    111
+   ]
+  },
+  {
+   "layer": 4,
+   "terrace_surface_y": 81,
+   "stand_y": 82,
+   "world_terrace_surface_y": 147,
+   "wall_radius": 102,
+   "walkway_r": [
+    100,
+    102
+   ],
+   "bed_r": [
+    96,
+    100
+   ],
+   "bed_y": [
+    77,
+    81
+   ],
+   "world_bed_y": [
+    143,
+    147
+   ],
+   "bed_blocks": 9634,
+   "cells": true,
+   "cell_row_floors_y": [
+    81,
+    86,
+    91
+   ],
+   "catwalk_deck_y": [
+    86,
+    91
+   ]
+  },
+  {
+   "layer": 5,
+   "terrace_surface_y": 61,
+   "stand_y": 62,
+   "world_terrace_surface_y": 127,
+   "wall_radius": 96,
+   "walkway_r": [
+    94,
+    96
+   ],
+   "bed_r": [
+    90,
+    94
+   ],
+   "bed_y": [
+    57,
+    61
+   ],
+   "world_bed_y": [
+    123,
+    127
+   ],
+   "bed_blocks": 8720,
+   "cells": true,
+   "cell_row_floors_y": [
+    61,
+    66,
+    71
+   ],
+   "catwalk_deck_y": [
+    66,
+    71
+   ]
+  },
+  {
+   "layer": 6,
+   "terrace_surface_y": 41,
+   "stand_y": 42,
+   "world_terrace_surface_y": 107,
+   "wall_radius": 90,
+   "walkway_r": [
+    88,
+    90
+   ],
+   "bed_r": [
+    84,
+    88
+   ],
+   "bed_y": [
+    37,
+    41
+   ],
+   "world_bed_y": [
+    103,
+    107
+   ],
+   "bed_blocks": 8186,
+   "cells": true,
+   "cell_row_floors_y": [
+    41,
+    46,
+    51
+   ],
+   "catwalk_deck_y": [
+    46,
+    51
+   ]
+  },
+  {
+   "layer": 7,
+   "terrace_surface_y": 21,
+   "stand_y": 22,
+   "world_terrace_surface_y": 87,
+   "wall_radius": 84,
+   "walkway_r": [
+    82,
+    84
+   ],
+   "bed_r": [
+    78,
+    82
+   ],
+   "bed_y": [
+    17,
+    21
+   ],
+   "world_bed_y": [
+    83,
+    87
+   ],
+   "bed_blocks": 7269,
+   "cells": true,
+   "cell_row_floors_y": [
+    21,
+    26,
+    31
+   ],
+   "catwalk_deck_y": [
+    26,
+    31
+   ]
+  },
+  {
+   "layer": 8,
+   "terrace_surface_y": 1,
+   "stand_y": 2,
+   "world_terrace_surface_y": 67,
+   "wall_radius": 78,
+   "walkway_r": [
+    76,
+    78
+   ],
+   "bed_r": [
+    72,
+    76
+   ],
+   "bed_y": [
+    -3,
+    1
+   ],
+   "world_bed_y": [
+    63,
+    67
+   ],
+   "bed_blocks": 6419,
+   "cells": true,
+   "cell_row_floors_y": [
+    1,
+    6,
+    11
+   ],
+   "catwalk_deck_y": [
+    6,
+    11
+   ]
+  },
+  {
+   "layer": 9,
+   "terrace_surface_y": -19,
+   "stand_y": -18,
+   "world_terrace_surface_y": 47,
+   "wall_radius": 72,
+   "walkway_r": [
+    70,
+    72
+   ],
+   "bed_r": [
+    66,
+    70
+   ],
+   "bed_y": [
+    -23,
+    -19
+   ],
+   "world_bed_y": [
+    43,
+    47
+   ],
+   "bed_blocks": 5888,
+   "cells": true,
+   "cell_row_floors_y": [
+    -19,
+    -14,
+    -9
+   ],
+   "catwalk_deck_y": [
+    -14,
+    -9
+   ]
+  },
+  {
+   "layer": 10,
+   "terrace_surface_y": -39,
+   "stand_y": -38,
+   "world_terrace_surface_y": 27,
+   "wall_radius": 66,
+   "walkway_r": [
+    64,
+    66
+   ],
+   "bed_r": [
+    60,
+    64
+   ],
+   "bed_y": [
+    -43,
+    -39
+   ],
+   "world_bed_y": [
+    23,
+    27
+   ],
+   "bed_blocks": 5217,
+   "cells": true,
+   "cell_row_floors_y": [
+    -39,
+    -34,
+    -29
+   ],
+   "catwalk_deck_y": [
+    -34,
+    -29
+   ]
+  },
+  {
+   "layer": 11,
+   "terrace_surface_y": -59,
+   "stand_y": -58,
+   "world_terrace_surface_y": 7,
+   "wall_radius": 60,
+   "walkway_r": [
+    58,
+    60
+   ],
+   "bed_r": [
+    54,
+    58
+   ],
+   "bed_y": [
+    -63,
+    -59
+   ],
+   "world_bed_y": [
+    3,
+    7
+   ],
+   "bed_blocks": 4115,
+   "cells": true,
+   "cell_row_floors_y": [
+    -59,
+    -54,
+    -49
+   ],
+   "catwalk_deck_y": [
+    -54,
+    -49
+   ]
+  },
+  {
+   "layer": 12,
+   "terrace_surface_y": -79,
+   "stand_y": -78,
+   "world_terrace_surface_y": -13,
+   "wall_radius": 54,
+   "walkway_r": [
+    52,
+    54
+   ],
+   "bed_r": [
+    48,
+    52
+   ],
+   "bed_y": [
+    -83,
+    -79
+   ],
+   "world_bed_y": [
+    -17,
+    -13
+   ],
+   "bed_blocks": 3724,
+   "cells": true,
+   "cell_row_floors_y": [
+    -79,
+    -74,
+    -69
+   ],
+   "catwalk_deck_y": [
+    -74,
+    -69
+   ]
+  },
+  {
+   "layer": 13,
+   "terrace_surface_y": -99,
+   "stand_y": -98,
+   "world_terrace_surface_y": -33,
+   "wall_radius": 48,
+   "walkway_r": [
+    46,
+    48
+   ],
+   "bed_r": [
+    42,
+    46
+   ],
+   "bed_y": [
+    -103,
+    -99
+   ],
+   "world_bed_y": [
+    -37,
+    -33
+   ],
+   "bed_blocks": 2953,
+   "cells": false,
+   "cell_row_floors_y": [],
+   "catwalk_deck_y": []
+  },
+  {
+   "layer": 14,
+   "terrace_surface_y": -119,
+   "stand_y": -118,
+   "world_terrace_surface_y": -53,
+   "wall_radius": 42,
+   "walkway_r": [
+    40,
+    42
+   ],
+   "bed_r": [
+    36,
+    40
+   ],
+   "bed_y": [
+    -123,
+    -119
+   ],
+   "world_bed_y": [
+    -57,
+    -53
+   ],
+   "bed_blocks": 2260,
+   "cells": false,
+   "cell_row_floors_y": [],
+   "catwalk_deck_y": []
+  }
+ ],
+ "stairs": [
+  {
+   "stair": "north",
+   "layer": 1,
+   "top_landing": [
+    11,
+    162,
+    -122
+   ],
+   "bottom_landing": [
+    -11,
+    142,
+    -122
+   ],
+   "world_top": [
+    -859,
+    228,
+    -1352
+   ],
+   "world_bottom": [
+    -881,
+    208,
+    -1352
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 2,
+   "top_landing": [
+    -11,
+    142,
+    -116
+   ],
+   "bottom_landing": [
+    11,
+    122,
+    -116
+   ],
+   "world_top": [
+    -881,
+    208,
+    -1346
+   ],
+   "world_bottom": [
+    -859,
+    188,
+    -1346
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 3,
+   "top_landing": [
+    11,
+    122,
+    -110
+   ],
+   "bottom_landing": [
+    -11,
+    102,
+    -110
+   ],
+   "world_top": [
+    -859,
+    188,
+    -1340
+   ],
+   "world_bottom": [
+    -881,
+    168,
+    -1340
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 4,
+   "top_landing": [
+    -11,
+    102,
+    -104
+   ],
+   "bottom_landing": [
+    11,
+    82,
+    -104
+   ],
+   "world_top": [
+    -881,
+    168,
+    -1334
+   ],
+   "world_bottom": [
+    -859,
+    148,
+    -1334
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 5,
+   "top_landing": [
+    11,
+    82,
+    -98
+   ],
+   "bottom_landing": [
+    -11,
+    62,
+    -98
+   ],
+   "world_top": [
+    -859,
+    148,
+    -1328
+   ],
+   "world_bottom": [
+    -881,
+    128,
+    -1328
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 6,
+   "top_landing": [
+    -11,
+    62,
+    -92
+   ],
+   "bottom_landing": [
+    11,
+    42,
+    -92
+   ],
+   "world_top": [
+    -881,
+    128,
+    -1322
+   ],
+   "world_bottom": [
+    -859,
+    108,
+    -1322
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 7,
+   "top_landing": [
+    11,
+    42,
+    -86
+   ],
+   "bottom_landing": [
+    -11,
+    22,
+    -86
+   ],
+   "world_top": [
+    -859,
+    108,
+    -1316
+   ],
+   "world_bottom": [
+    -881,
+    88,
+    -1316
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 8,
+   "top_landing": [
+    -11,
+    22,
+    -80
+   ],
+   "bottom_landing": [
+    11,
+    2,
+    -80
+   ],
+   "world_top": [
+    -881,
+    88,
+    -1310
+   ],
+   "world_bottom": [
+    -859,
+    68,
+    -1310
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 9,
+   "top_landing": [
+    11,
+    2,
+    -74
+   ],
+   "bottom_landing": [
+    -11,
+    -18,
+    -74
+   ],
+   "world_top": [
+    -859,
+    68,
+    -1304
+   ],
+   "world_bottom": [
+    -881,
+    48,
+    -1304
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 10,
+   "top_landing": [
+    -11,
+    -18,
+    -68
+   ],
+   "bottom_landing": [
+    11,
+    -38,
+    -68
+   ],
+   "world_top": [
+    -881,
+    48,
+    -1298
+   ],
+   "world_bottom": [
+    -859,
+    28,
+    -1298
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 11,
+   "top_landing": [
+    11,
+    -38,
+    -62
+   ],
+   "bottom_landing": [
+    -11,
+    -58,
+    -62
+   ],
+   "world_top": [
+    -859,
+    28,
+    -1292
+   ],
+   "world_bottom": [
+    -881,
+    8,
+    -1292
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 12,
+   "top_landing": [
+    -11,
+    -58,
+    -56
+   ],
+   "bottom_landing": [
+    11,
+    -78,
+    -56
+   ],
+   "world_top": [
+    -881,
+    8,
+    -1286
+   ],
+   "world_bottom": [
+    -859,
+    -12,
+    -1286
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 13,
+   "top_landing": [
+    11,
+    -78,
+    -50
+   ],
+   "bottom_landing": [
+    -11,
+    -98,
+    -50
+   ],
+   "world_top": [
+    -859,
+    -12,
+    -1280
+   ],
+   "world_bottom": [
+    -881,
+    -32,
+    -1280
+   ]
+  },
+  {
+   "stair": "north",
+   "layer": 14,
+   "top_landing": [
+    -11,
+    -98,
+    -44
+   ],
+   "bottom_landing": [
+    11,
+    -118,
+    -44
+   ],
+   "world_top": [
+    -881,
+    -32,
+    -1274
+   ],
+   "world_bottom": [
+    -859,
+    -52,
+    -1274
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 1,
+   "top_landing": [
+    122,
+    162,
+    11
+   ],
+   "bottom_landing": [
+    122,
+    142,
+    -11
+   ],
+   "world_top": [
+    -748,
+    228,
+    -1219
+   ],
+   "world_bottom": [
+    -748,
+    208,
+    -1241
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 2,
+   "top_landing": [
+    116,
+    142,
+    -11
+   ],
+   "bottom_landing": [
+    116,
+    122,
+    11
+   ],
+   "world_top": [
+    -754,
+    208,
+    -1241
+   ],
+   "world_bottom": [
+    -754,
+    188,
+    -1219
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 3,
+   "top_landing": [
+    110,
+    122,
+    11
+   ],
+   "bottom_landing": [
+    110,
+    102,
+    -11
+   ],
+   "world_top": [
+    -760,
+    188,
+    -1219
+   ],
+   "world_bottom": [
+    -760,
+    168,
+    -1241
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 4,
+   "top_landing": [
+    104,
+    102,
+    -11
+   ],
+   "bottom_landing": [
+    104,
+    82,
+    11
+   ],
+   "world_top": [
+    -766,
+    168,
+    -1241
+   ],
+   "world_bottom": [
+    -766,
+    148,
+    -1219
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 5,
+   "top_landing": [
+    98,
+    82,
+    11
+   ],
+   "bottom_landing": [
+    98,
+    62,
+    -11
+   ],
+   "world_top": [
+    -772,
+    148,
+    -1219
+   ],
+   "world_bottom": [
+    -772,
+    128,
+    -1241
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 6,
+   "top_landing": [
+    92,
+    62,
+    -11
+   ],
+   "bottom_landing": [
+    92,
+    42,
+    11
+   ],
+   "world_top": [
+    -778,
+    128,
+    -1241
+   ],
+   "world_bottom": [
+    -778,
+    108,
+    -1219
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 7,
+   "top_landing": [
+    86,
+    42,
+    11
+   ],
+   "bottom_landing": [
+    86,
+    22,
+    -11
+   ],
+   "world_top": [
+    -784,
+    108,
+    -1219
+   ],
+   "world_bottom": [
+    -784,
+    88,
+    -1241
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 8,
+   "top_landing": [
+    80,
+    22,
+    -11
+   ],
+   "bottom_landing": [
+    80,
+    2,
+    11
+   ],
+   "world_top": [
+    -790,
+    88,
+    -1241
+   ],
+   "world_bottom": [
+    -790,
+    68,
+    -1219
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 9,
+   "top_landing": [
+    74,
+    2,
+    11
+   ],
+   "bottom_landing": [
+    74,
+    -18,
+    -11
+   ],
+   "world_top": [
+    -796,
+    68,
+    -1219
+   ],
+   "world_bottom": [
+    -796,
+    48,
+    -1241
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 10,
+   "top_landing": [
+    68,
+    -18,
+    -11
+   ],
+   "bottom_landing": [
+    68,
+    -38,
+    11
+   ],
+   "world_top": [
+    -802,
+    48,
+    -1241
+   ],
+   "world_bottom": [
+    -802,
+    28,
+    -1219
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 11,
+   "top_landing": [
+    62,
+    -38,
+    11
+   ],
+   "bottom_landing": [
+    62,
+    -58,
+    -11
+   ],
+   "world_top": [
+    -808,
+    28,
+    -1219
+   ],
+   "world_bottom": [
+    -808,
+    8,
+    -1241
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 12,
+   "top_landing": [
+    56,
+    -58,
+    -11
+   ],
+   "bottom_landing": [
+    56,
+    -78,
+    11
+   ],
+   "world_top": [
+    -814,
+    8,
+    -1241
+   ],
+   "world_bottom": [
+    -814,
+    -12,
+    -1219
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 13,
+   "top_landing": [
+    50,
+    -78,
+    11
+   ],
+   "bottom_landing": [
+    50,
+    -98,
+    -11
+   ],
+   "world_top": [
+    -820,
+    -12,
+    -1219
+   ],
+   "world_bottom": [
+    -820,
+    -32,
+    -1241
+   ]
+  },
+  {
+   "stair": "east",
+   "layer": 14,
+   "top_landing": [
+    44,
+    -98,
+    -11
+   ],
+   "bottom_landing": [
+    44,
+    -118,
+    11
+   ],
+   "world_top": [
+    -826,
+    -32,
+    -1241
+   ],
+   "world_bottom": [
+    -826,
+    -52,
+    -1219
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 1,
+   "top_landing": [
+    -11,
+    162,
+    122
+   ],
+   "bottom_landing": [
+    11,
+    142,
+    122
+   ],
+   "world_top": [
+    -881,
+    228,
+    -1108
+   ],
+   "world_bottom": [
+    -859,
+    208,
+    -1108
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 2,
+   "top_landing": [
+    11,
+    142,
+    116
+   ],
+   "bottom_landing": [
+    -11,
+    122,
+    116
+   ],
+   "world_top": [
+    -859,
+    208,
+    -1114
+   ],
+   "world_bottom": [
+    -881,
+    188,
+    -1114
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 3,
+   "top_landing": [
+    -11,
+    122,
+    110
+   ],
+   "bottom_landing": [
+    11,
+    102,
+    110
+   ],
+   "world_top": [
+    -881,
+    188,
+    -1120
+   ],
+   "world_bottom": [
+    -859,
+    168,
+    -1120
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 4,
+   "top_landing": [
+    11,
+    102,
+    104
+   ],
+   "bottom_landing": [
+    -11,
+    82,
+    104
+   ],
+   "world_top": [
+    -859,
+    168,
+    -1126
+   ],
+   "world_bottom": [
+    -881,
+    148,
+    -1126
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 5,
+   "top_landing": [
+    -11,
+    82,
+    98
+   ],
+   "bottom_landing": [
+    11,
+    62,
+    98
+   ],
+   "world_top": [
+    -881,
+    148,
+    -1132
+   ],
+   "world_bottom": [
+    -859,
+    128,
+    -1132
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 6,
+   "top_landing": [
+    11,
+    62,
+    92
+   ],
+   "bottom_landing": [
+    -11,
+    42,
+    92
+   ],
+   "world_top": [
+    -859,
+    128,
+    -1138
+   ],
+   "world_bottom": [
+    -881,
+    108,
+    -1138
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 7,
+   "top_landing": [
+    -11,
+    42,
+    86
+   ],
+   "bottom_landing": [
+    11,
+    22,
+    86
+   ],
+   "world_top": [
+    -881,
+    108,
+    -1144
+   ],
+   "world_bottom": [
+    -859,
+    88,
+    -1144
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 8,
+   "top_landing": [
+    11,
+    22,
+    80
+   ],
+   "bottom_landing": [
+    -11,
+    2,
+    80
+   ],
+   "world_top": [
+    -859,
+    88,
+    -1150
+   ],
+   "world_bottom": [
+    -881,
+    68,
+    -1150
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 9,
+   "top_landing": [
+    -11,
+    2,
+    74
+   ],
+   "bottom_landing": [
+    11,
+    -18,
+    74
+   ],
+   "world_top": [
+    -881,
+    68,
+    -1156
+   ],
+   "world_bottom": [
+    -859,
+    48,
+    -1156
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 10,
+   "top_landing": [
+    11,
+    -18,
+    68
+   ],
+   "bottom_landing": [
+    -11,
+    -38,
+    68
+   ],
+   "world_top": [
+    -859,
+    48,
+    -1162
+   ],
+   "world_bottom": [
+    -881,
+    28,
+    -1162
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 11,
+   "top_landing": [
+    -11,
+    -38,
+    62
+   ],
+   "bottom_landing": [
+    11,
+    -58,
+    62
+   ],
+   "world_top": [
+    -881,
+    28,
+    -1168
+   ],
+   "world_bottom": [
+    -859,
+    8,
+    -1168
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 12,
+   "top_landing": [
+    11,
+    -58,
+    56
+   ],
+   "bottom_landing": [
+    -11,
+    -78,
+    56
+   ],
+   "world_top": [
+    -859,
+    8,
+    -1174
+   ],
+   "world_bottom": [
+    -881,
+    -12,
+    -1174
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 13,
+   "top_landing": [
+    -11,
+    -78,
+    50
+   ],
+   "bottom_landing": [
+    11,
+    -98,
+    50
+   ],
+   "world_top": [
+    -881,
+    -12,
+    -1180
+   ],
+   "world_bottom": [
+    -859,
+    -32,
+    -1180
+   ]
+  },
+  {
+   "stair": "south",
+   "layer": 14,
+   "top_landing": [
+    11,
+    -98,
+    44
+   ],
+   "bottom_landing": [
+    -11,
+    -118,
+    44
+   ],
+   "world_top": [
+    -859,
+    -32,
+    -1186
+   ],
+   "world_bottom": [
+    -881,
+    -52,
+    -1186
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 1,
+   "top_landing": [
+    -122,
+    162,
+    -11
+   ],
+   "bottom_landing": [
+    -122,
+    142,
+    11
+   ],
+   "world_top": [
+    -992,
+    228,
+    -1241
+   ],
+   "world_bottom": [
+    -992,
+    208,
+    -1219
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 2,
+   "top_landing": [
+    -116,
+    142,
+    11
+   ],
+   "bottom_landing": [
+    -116,
+    122,
+    -11
+   ],
+   "world_top": [
+    -986,
+    208,
+    -1219
+   ],
+   "world_bottom": [
+    -986,
+    188,
+    -1241
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 3,
+   "top_landing": [
+    -110,
+    122,
+    -11
+   ],
+   "bottom_landing": [
+    -110,
+    102,
+    11
+   ],
+   "world_top": [
+    -980,
+    188,
+    -1241
+   ],
+   "world_bottom": [
+    -980,
+    168,
+    -1219
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 4,
+   "top_landing": [
+    -104,
+    102,
+    11
+   ],
+   "bottom_landing": [
+    -104,
+    82,
+    -11
+   ],
+   "world_top": [
+    -974,
+    168,
+    -1219
+   ],
+   "world_bottom": [
+    -974,
+    148,
+    -1241
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 5,
+   "top_landing": [
+    -98,
+    82,
+    -11
+   ],
+   "bottom_landing": [
+    -98,
+    62,
+    11
+   ],
+   "world_top": [
+    -968,
+    148,
+    -1241
+   ],
+   "world_bottom": [
+    -968,
+    128,
+    -1219
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 6,
+   "top_landing": [
+    -92,
+    62,
+    11
+   ],
+   "bottom_landing": [
+    -92,
+    42,
+    -11
+   ],
+   "world_top": [
+    -962,
+    128,
+    -1219
+   ],
+   "world_bottom": [
+    -962,
+    108,
+    -1241
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 7,
+   "top_landing": [
+    -86,
+    42,
+    -11
+   ],
+   "bottom_landing": [
+    -86,
+    22,
+    11
+   ],
+   "world_top": [
+    -956,
+    108,
+    -1241
+   ],
+   "world_bottom": [
+    -956,
+    88,
+    -1219
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 8,
+   "top_landing": [
+    -80,
+    22,
+    11
+   ],
+   "bottom_landing": [
+    -80,
+    2,
+    -11
+   ],
+   "world_top": [
+    -950,
+    88,
+    -1219
+   ],
+   "world_bottom": [
+    -950,
+    68,
+    -1241
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 9,
+   "top_landing": [
+    -74,
+    2,
+    -11
+   ],
+   "bottom_landing": [
+    -74,
+    -18,
+    11
+   ],
+   "world_top": [
+    -944,
+    68,
+    -1241
+   ],
+   "world_bottom": [
+    -944,
+    48,
+    -1219
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 10,
+   "top_landing": [
+    -68,
+    -18,
+    11
+   ],
+   "bottom_landing": [
+    -68,
+    -38,
+    -11
+   ],
+   "world_top": [
+    -938,
+    48,
+    -1219
+   ],
+   "world_bottom": [
+    -938,
+    28,
+    -1241
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 11,
+   "top_landing": [
+    -62,
+    -38,
+    -11
+   ],
+   "bottom_landing": [
+    -62,
+    -58,
+    11
+   ],
+   "world_top": [
+    -932,
+    28,
+    -1241
+   ],
+   "world_bottom": [
+    -932,
+    8,
+    -1219
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 12,
+   "top_landing": [
+    -56,
+    -58,
+    11
+   ],
+   "bottom_landing": [
+    -56,
+    -78,
+    -11
+   ],
+   "world_top": [
+    -926,
+    8,
+    -1219
+   ],
+   "world_bottom": [
+    -926,
+    -12,
+    -1241
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 13,
+   "top_landing": [
+    -50,
+    -78,
+    -11
+   ],
+   "bottom_landing": [
+    -50,
+    -98,
+    11
+   ],
+   "world_top": [
+    -920,
+    -12,
+    -1241
+   ],
+   "world_bottom": [
+    -920,
+    -32,
+    -1219
+   ]
+  },
+  {
+   "stair": "west",
+   "layer": 14,
+   "top_landing": [
+    -44,
+    -98,
+    11
+   ],
+   "bottom_landing": [
+    -44,
+    -118,
+    -11
+   ],
+   "world_top": [
+    -914,
+    -32,
+    -1219
+   ],
+   "world_bottom": [
+    -914,
+    -52,
+    -1241
+   ]
+  }
+ ],
+ "bridges": [
+  {
+   "bridge": 1,
+   "terrace": 8,
+   "deck_y": 1,
+   "world_deck_y": 67,
+   "end_a": [
+    52,
+    2,
+    -52
+   ],
+   "end_b": [
+    -52,
+    2,
+    52
+   ],
+   "world_end_a": [
+    -818,
+    68,
+    -1282
+   ],
+   "world_end_b": [
+    -922,
+    68,
+    -1178
+   ],
+   "length": 144,
+   "deck_width": 5,
+   "walk_width": 3,
+   "direction": "NE-SW"
+  },
+  {
+   "bridge": 2,
+   "terrace": 9,
+   "deck_y": -19,
+   "world_deck_y": 47,
+   "end_a": [
+    68,
+    -18,
+    0
+   ],
+   "end_b": [
+    -68,
+    -18,
+    0
+   ],
+   "world_end_a": [
+    -802,
+    48,
+    -1230
+   ],
+   "world_end_b": [
+    -938,
+    48,
+    -1230
+   ],
+   "length": 132,
+   "deck_width": 5,
+   "walk_width": 3,
+   "direction": "E-W"
+  },
+  {
+   "bridge": 3,
+   "terrace": 11,
+   "deck_y": -59,
+   "world_deck_y": 7,
+   "end_a": [
+    40,
+    -58,
+    40
+   ],
+   "end_b": [
+    -40,
+    -58,
+    -40
+   ],
+   "world_end_a": [
+    -830,
+    8,
+    -1190
+   ],
+   "world_end_b": [
+    -910,
+    8,
+    -1270
+   ],
+   "length": 108,
+   "deck_width": 5,
+   "walk_width": 3,
+   "direction": "NW-SE"
+  },
+  {
+   "bridge": 4,
+   "terrace": 12,
+   "deck_y": -79,
+   "world_deck_y": -13,
+   "end_a": [
+    0,
+    -78,
+    50
+   ],
+   "end_b": [
+    0,
+    -78,
+    -50
+   ],
+   "world_end_a": [
+    -870,
+    -12,
+    -1180
+   ],
+   "world_end_b": [
+    -870,
+    -12,
+    -1280
+   ],
+   "length": 96,
+   "deck_width": 5,
+   "walk_width": 3,
+   "direction": "N-S"
+  }
+ ],
+ "warps": {
+  "gate_outside": {
+   "local": [
+    0,
+    -1,
+    162
+   ],
+   "world": [
+    -870,
+    65,
+    -1068
+   ],
+   "yaw": 180.0
+  },
+  "gate_hall": {
+   "local": [
+    0,
+    2,
+    96
+   ],
+   "world": [
+    -870,
+    68,
+    -1134
+   ],
+   "yaw": 180.0
+  },
+  "rim_south": {
+   "local": [
+    0,
+    162,
+    127
+   ],
+   "world": [
+    -870,
+    228,
+    -1103
+   ],
+   "yaw": 180.0
+  },
+  "pit_floor": {
+   "local": [
+    0,
+    -118,
+    30
+   ],
+   "world": [
+    -870,
+    -52,
+    -1200
+   ],
+   "yaw": 180.0
+  },
+  "contested_mine_top": {
+   "local": [
+    0,
+    -115,
+    0
+   ],
+   "world": [
+    -870,
+    -49,
+    -1230
+   ],
+   "yaw": 180.0
+  },
+  "layer_1": {
+   "local": [
+    0,
+    142,
+    111
+   ],
+   "world": [
+    -870,
+    208,
+    -1119
+   ],
+   "yaw": 180.0
+  },
+  "layer_2": {
+   "local": [
+    0,
+    122,
+    105
+   ],
+   "world": [
+    -870,
+    188,
+    -1125
+   ],
+   "yaw": 180.0
+  },
+  "layer_3": {
+   "local": [
+    0,
+    102,
+    99
+   ],
+   "world": [
+    -870,
+    168,
+    -1131
+   ],
+   "yaw": 180.0
+  },
+  "layer_4": {
+   "local": [
+    0,
+    82,
+    93
+   ],
+   "world": [
+    -870,
+    148,
+    -1137
+   ],
+   "yaw": 180.0
+  },
+  "layer_5": {
+   "local": [
+    0,
+    62,
+    87
+   ],
+   "world": [
+    -870,
+    128,
+    -1143
+   ],
+   "yaw": 180.0
+  },
+  "layer_6": {
+   "local": [
+    0,
+    42,
+    81
+   ],
+   "world": [
+    -870,
+    108,
+    -1149
+   ],
+   "yaw": 180.0
+  },
+  "layer_7": {
+   "local": [
+    0,
+    22,
+    75
+   ],
+   "world": [
+    -870,
+    88,
+    -1155
+   ],
+   "yaw": 180.0
+  },
+  "layer_8": {
+   "local": [
+    0,
+    2,
+    69
+   ],
+   "world": [
+    -870,
+    68,
+    -1161
+   ],
+   "yaw": 180.0
+  },
+  "layer_9": {
+   "local": [
+    0,
+    -18,
+    63
+   ],
+   "world": [
+    -870,
+    48,
+    -1167
+   ],
+   "yaw": 180.0
+  },
+  "layer_10": {
+   "local": [
+    0,
+    -38,
+    57
+   ],
+   "world": [
+    -870,
+    28,
+    -1173
+   ],
+   "yaw": 180.0
+  },
+  "layer_11": {
+   "local": [
+    0,
+    -58,
+    51
+   ],
+   "world": [
+    -870,
+    8,
+    -1179
+   ],
+   "yaw": 180.0
+  },
+  "layer_12": {
+   "local": [
+    0,
+    -78,
+    45
+   ],
+   "world": [
+    -870,
+    -12,
+    -1185
+   ],
+   "yaw": 180.0
+  },
+  "layer_13": {
+   "local": [
+    0,
+    -98,
+    39
+   ],
+   "world": [
+    -870,
+    -32,
+    -1191
+   ],
+   "yaw": 180.0
+  },
+  "layer_14": {
+   "local": [
+    0,
+    -118,
+    33
+   ],
+   "world": [
+    -870,
+    -52,
+    -1197
+   ],
+   "yaw": 180.0
+  }
+ },
+ "towers": [
+  {
+   "tower": 1,
+   "centre": [
+    127,
+    162,
+    53
+   ],
+   "world": [
+    -743,
+    228,
+    -1177
+   ],
+   "bearing": 112.7,
+   "height": 38
+  },
+  {
+   "tower": 2,
+   "centre": [
+    53,
+    162,
+    127
+   ],
+   "world": [
+    -817,
+    228,
+    -1103
+   ],
+   "bearing": 157.3,
+   "height": 48
+  },
+  {
+   "tower": 3,
+   "centre": [
+    -53,
+    162,
+    127
+   ],
+   "world": [
+    -923,
+    228,
+    -1103
+   ],
+   "bearing": 202.7,
+   "height": 48
+  },
+  {
+   "tower": 4,
+   "centre": [
+    -127,
+    162,
+    53
+   ],
+   "world": [
+    -997,
+    228,
+    -1177
+   ],
+   "bearing": 247.3,
+   "height": 30
+  },
+  {
+   "tower": 5,
+   "centre": [
+    -127,
+    162,
+    -53
+   ],
+   "world": [
+    -997,
+    228,
+    -1283
+   ],
+   "bearing": 292.7,
+   "height": 38
+  },
+  {
+   "tower": 6,
+   "centre": [
+    -53,
+    162,
+    -127
+   ],
+   "world": [
+    -923,
+    228,
+    -1357
+   ],
+   "bearing": 337.3,
+   "height": 30
+  },
+  {
+   "tower": 7,
+   "centre": [
+    53,
+    162,
+    -127
+   ],
+   "world": [
+    -817,
+    228,
+    -1357
+   ],
+   "bearing": 22.7,
+   "height": 38
+  },
+  {
+   "tower": 8,
+   "centre": [
+    127,
+    162,
+    -53
+   ],
+   "world": [
+    -743,
+    228,
+    -1283
+   ],
+   "bearing": 67.3,
+   "height": 30
+  }
+ ],
+ "contested_mine": {
+  "min": [
+   -10,
+   -123,
+   -10
+  ],
+  "max": [
+   9,
+   -116,
+   9
+  ],
+  "block": "minecraft:terracotta",
+  "world_min": [
+   -880,
+   -57,
+   -1240
+  ],
+  "world_max": [
+   -861,
+   -50,
+   -1221
+  ],
+  "blocks": 3200
+ },
+ "placeholders": {
+  "terrace_beds": "minecraft:packed_mud",
+  "contested_mine": "minecraft:terracotta"
+ },
+ "entities": [
+  {
+   "type": "minecraft:minecart",
+   "local": [
+    1.5,
+    -117.94,
+    27.5
+   ]
+  },
+  {
+   "type": "minecraft:chest_minecart",
+   "local": [
+    -29.5,
+    -117.94,
+    -5.5
+   ]
+  },
+  {
+   "type": "minecraft:minecart",
+   "local": [
+    -19.5,
+    -117.94,
+    -23.5
+   ]
+  },
+  {
+   "type": "minecraft:chest_minecart",
+   "local": [
+    11.5,
+    -117.94,
+    -24.5
+   ]
+  },
+  {
+   "type": "minecraft:minecart",
+   "local": [
+    -7.5,
+    -117.94,
+    18.5
+   ]
+  },
+  {
+   "type": "minecraft:minecart",
+   "local": [
+    106.5,
+    102.06,
+    18.5
+   ]
+  },
+  {
+   "type": "minecraft:minecart",
+   "local": [
+    -35.5,
+    102.06,
+    101.5
+   ]
+  },
+  {
+   "type": "minecraft:chest_minecart",
+   "local": [
+    -38.5,
+    102.06,
+    -99.5
+   ]
+  },
+  {
+   "type": "minecraft:chest_minecart",
+   "local": [
+    106.5,
+    102.06,
+    -17.5
+   ]
+  },
+  {
+   "type": "minecraft:minecart",
+   "local": [
+    88.5,
+    42.06,
+    18.5
+   ]
+  },
+  {
+   "type": "minecraft:chest_minecart",
+   "local": [
+    57.5,
+    42.06,
+    69.5
+   ]
+  },
+  {
+   "type": "minecraft:chest_minecart",
+   "local": [
+    -75.5,
+    42.06,
+    47.5
+   ]
+  },
+  {
+   "type": "minecraft:chest_minecart",
+   "local": [
+    -35.5,
+    42.06,
+    -81.5
+   ]
+  },
+  {
+   "type": "minecraft:chest_minecart",
+   "local": [
+    87.5,
+    42.06,
+    -19.5
+   ]
+  },
+  {
+   "type": "minecraft:minecart",
+   "local": [
+    63.5,
+    -37.94,
+    18.5
+   ]
+  },
+  {
+   "type": "minecraft:chest_minecart",
+   "local": [
+    -53.5,
+    -37.94,
+    37.5
+   ]
+  },
+  {
+   "type": "minecraft:minecart",
+   "local": [
+    -55.5,
+    -37.94,
+    -33.5
+   ]
+  },
+  {
+   "type": "minecraft:chest_minecart",
+   "local": [
+    -29.5,
+    -37.94,
+    -57.5
+   ]
+  },
+  {
+   "type": "minecraft:minecart",
+   "local": [
+    41.5,
+    -37.94,
+    -50.5
+   ]
+  }
+ ]
+}

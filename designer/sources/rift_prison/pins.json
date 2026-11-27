@@ -1,0 +1,10 @@
+{
+ "files": {
+  "cells.json": "8799a1f9d35edc8f486e3f82e1f6ea4d3c278779d8bc7618bc704285a026d347",
+  "markers.json": "bdbd9d9f811c1852e2390aa3a51e66713a5176c240fc007144daa6f01dbcd719",
+  "rift_prison_bedrock.mcstructure.gz": "8fe63813bbad596a43d31576ebb271784c22d31dcdf5deee9db9780aef85e507",
+  "routes.json": "37baa50424e510e3fefab853749c1a8d1f0a2a92c678e152539360548fdea12f"
+ },
+ "structure_bytes": 373116853,
+ "structure_sha256": "d9a8e396c4ae6c482ff4ad96c3af4e556369cd920cbc0a106008159f19ce2029"
+}

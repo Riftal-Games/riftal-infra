@@ -21,3 +21,6 @@ migrations/fixtures/lock-pipe/stdbuf text eol=lf
 images/riftal-game-snapshot/SOURCE text eol=lf
 .github/ci-fixtures/good/alpha/instances/*/image text eol=lf
 .github/ci-fixtures/good/alpha/instances/*/instance.env text eol=lf
+
+# Pinned by sha256 of the exact bytes the studio handed over, so no line-ending rewrite may touch them.
+designer/sources/rift_prison/* -text
