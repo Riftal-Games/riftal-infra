@@ -22,7 +22,8 @@
 # RIFTAL_LEVEL_ZONES and POCKETMINE_ARGS that level-args.sh, the rule CI applies
 # to every instance definition, finds fault with. It then delivers the index and
 # seeds the zones with the scripts in /opt/riftal/boot. No variable skips any of
-# these steps.
+# these steps, and one that moves where seed-levels.sh reads or writes
+# (RIFTAL_LEVELS_DIR, RIFTAL_WORLDS_DIR, RIFTAL_SEED_CHOWN) stops the boot.
 #
 # The image also carries RiftalGangs, RiftalRiots, RiftalPlots and RiftalAnvil.
 # This script gives them no login and no config, so none is offered here. The
@@ -47,6 +48,15 @@ refuse() {
 content_sha256() {
 	sed -n 's/^ *"content_sha256": *"\([0-9a-f]\{64\}\)",\{0,1\} *$/\1/p' "$1" 2>/dev/null || true
 }
+
+# seed-levels.sh reads these to serve deploy/wipe-volumes.sh. A boot that
+# honoured them would seed from a folder this image did not verify, or away from
+# /data/worlds.
+for var in RIFTAL_LEVELS_DIR RIFTAL_WORLDS_DIR RIFTAL_SEED_CHOWN; do
+	if [ -n "${!var+x}" ]; then
+		refuse "$var is set; it belongs to deploy/wipe-volumes.sh and no instance sets it"
+	fi
+done
 
 for var in RIFTAL_DB_HOST RIFTAL_DB_SCHEMA; do
 	if ! [[ "${!var:-}" =~ ^[A-Za-z0-9._-]+$ ]]; then

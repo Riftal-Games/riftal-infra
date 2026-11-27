@@ -259,6 +259,12 @@ expect_level_refusal "a --worlds token beside a valid --level-name" "token '--wo
 expect_level_refusal "a value token before --level-name" "token 'false' is not a single long option" "POCKETMINE_ARGS=--xbox-auth false --level-name=smoke_a"
 expect_level_refusal "a zone outside [a-z0-9_]+" "zone 'Smoke_a' is not a name matching" "RIFTAL_LEVEL_ZONES=Smoke_a smoke_b"
 expect_level_refusal "a repeated zone" "lists zone smoke_a more than once" "RIFTAL_LEVEL_ZONES=smoke_a smoke_a"
+expect_level_refusal "RIFTAL_LEVELS_DIR set" "RIFTAL_LEVELS_DIR is set" RIFTAL_LEVELS_DIR=/build
+expect_level_refusal "RIFTAL_LEVELS_DIR set empty" "RIFTAL_LEVELS_DIR is set" RIFTAL_LEVELS_DIR=
+expect_level_refusal "RIFTAL_WORLDS_DIR set" "RIFTAL_WORLDS_DIR is set" RIFTAL_WORLDS_DIR=/data/other
+expect_level_refusal "RIFTAL_WORLDS_DIR set empty" "RIFTAL_WORLDS_DIR is set" RIFTAL_WORLDS_DIR=
+expect_level_refusal "RIFTAL_SEED_CHOWN set" "RIFTAL_SEED_CHOWN is set" RIFTAL_SEED_CHOWN=1234:5678
+expect_level_refusal "RIFTAL_SEED_CHOWN set empty" "RIFTAL_SEED_CHOWN is set" RIFTAL_SEED_CHOWN=
 
 # $1 tag, $2 RIFTAL_PLUGINS, $3 log file. Boots on the shared volumes.
 boot() {

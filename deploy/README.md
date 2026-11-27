@@ -603,7 +603,7 @@ The image also carries what an instance needs to join a level (ADR 043):
   zone's `level-manifest.json`, the record of what the tag delivers.
 
 All of it is owned by root, files 0444, scripts 0555 and directories 0755, so
-`pocketmine` can replace none of it. Two labels join the five below:
+`pocketmine` can replace none of it. Two labels join the six below:
 `org.riftal.world-index-sha256` and `org.riftal.levels`, each zone as
 `<zone>=<content_sha256>:<tree_sha256>`, comma separated. One image carries every zone
 and `RIFTAL_LEVEL_ZONES` selects, so one tag serves every instance.
@@ -713,8 +713,9 @@ commit), when git cannot report its status, or when a tracked file differs from
 not inputs and do not refuse it. Build from a committed, clean checkout of the
 commit being released.
 
-The image records what it holds in seven labels: `org.riftal.core-image`,
-`org.riftal.phars` (each phar's sha256), `org.riftal.game-commit`,
+The image records what it holds in eight labels: `org.riftal.core-image`,
+`org.riftal.phars` (each phar's sha256), `org.riftal.script-plugins` (each
+script plugin's sha256), `org.riftal.game-commit`,
 `org.riftal.infra-commit`, `org.riftal.grants-sha256`,
 `org.riftal.world-index-sha256` and `org.riftal.levels`.
 Recording the tag in `../instances/<id>/image` is a deploy, and an instance
@@ -752,7 +753,7 @@ list checks and lists the index and each manifest, that everything under
 `release-start-selftest.sh` builds two tags over stub plugins, ten of them as in
 `REQUIRED_PHARS`, that differ in version, then boots tag N, N+1 and N on one named `/data` volume and one reused
 `/plugins` volume that holds stale copies. Each boot must report the sha256s its
-own image's `org.riftal.phars` label names and enable exactly its roster at its
+own image's `org.riftal.phars` and `org.riftal.script-plugins` labels name and enable exactly its roster at its
 tag's version. It also checks the refusals above, the rendered configs and that
 the server's user cannot add a file to `/opt/riftal/plugins`. The tags carry two
 zones copied from one level the core image generates into `riftal_smoke_`
@@ -765,7 +766,9 @@ the `/data` it was given empty: an index or a zone manifest mounted over the
 image's, a zone the image lacks, and every unset, empty or bad-character value of
 `RIFTAL_LEVEL_ZONES` and `POCKETMINE_ARGS`, a `--level-name` outside the list, two
 of them, none, a bare one, a `--worlds` token, a value token before it, a zone
-outside `[a-z0-9_]+` and a repeated zone. A volume over a zone whose manifest is
+outside `[a-z0-9_]+` and a repeated zone. `RIFTAL_LEVELS_DIR`, `RIFTAL_WORLDS_DIR`
+and `RIFTAL_SEED_CHOWN` set to any value, empty included, are refused too, since
+`seed-levels.sh` reads them only for `wipe-volumes.sh`. A volume over a zone whose manifest is
 the tag's and whose tree is not is refused by `seed-levels.sh` with nothing under
 `/data/worlds`. `instance-levels-check-selftest.sh` runs unchanged against the
 shared `level-args.sh`.
