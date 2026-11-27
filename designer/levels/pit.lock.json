@@ -1,0 +1,50 @@
+{
+  "bounds": {
+    "max": [
+      184,
+      282,
+      184
+    ],
+    "min": [
+      -184,
+      -59,
+      -184
+    ]
+  },
+  "chunks": 784,
+  "content_sha256": "363409031d5e398d5a316635943f3b522067707f08241ae07d8955ff84032200",
+  "core_image": "sha256:679fc6aadb7cd30710a192af0d6bf4d9e71f9b1443fd89e2d0b0b5b0106dc1be",
+  "designbridge_commit": "ed9ef7a2c67c7f650d428d2588d494017cfbddf0",
+  "generator": "void",
+  "inputs": {
+    "levels/pit.json": "5f8aee807a0f212ac322df9016f54b2e158425aa65a79b4fefad978474ae389e",
+    "sources/rift_prison/pins.json": "41ba2d40851cf20a4514b5b02a01394e6fde270226945d032efacc7083fa6cea",
+    "specs/pit_structure.json": "da9b070507c65a387405e6fbdab6155a2832d854404c2523d24118e3f6e624d4"
+  },
+  "seed": 0,
+  "size_bytes": 8643983,
+  "structure": {
+    "cells": 3547,
+    "cells_sha256": "ccb2ee78bac2658a0dc977b01cac3da2eb4d5837befb1ed11a98e751893db2cb",
+    "dropped_block_entities": {
+      "Barrel": 52,
+      "Campfire": 12,
+      "Cauldron": 26,
+      "Chest": 1869,
+      "Hopper": 50
+    },
+    "structure_sha256": "d9a8e396c4ae6c482ff4ad96c3af4e556369cd920cbc0a106008159f19ce2029",
+    "substituted": {
+      "minecraft:dripstone_block": 64492,
+      "minecraft:moss_block": 5991,
+      "minecraft:scaffolding": 291
+    },
+    "substitutes": {
+      "minecraft:dripstone_block": "minecraft:brown_terracotta",
+      "minecraft:moss_block": "minecraft:green_terracotta",
+      "minecraft:scaffolding": "minecraft:bamboo_planks"
+    }
+  },
+  "toolkit_commit": "b1e3b7a4d402a78ed7dbeb17ce15bb48eae0e5cb",
+  "zone": "pit"
+}
