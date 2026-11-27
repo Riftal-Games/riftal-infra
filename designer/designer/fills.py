@@ -1,10 +1,8 @@
-"""The two fill steps of a level recipe: ``fill_box`` and ``fill_sets``.
+"""The recipe's ``fill_box`` and ``fill_sets`` steps.
 
-``fill_box`` writes one block over a committed box, before the zone's checks. ``fill_sets``
-runs after them, because the checks read the placeholder of every mine, and replaces that
-placeholder with a stone block in the mines whose layers the spec names (spec 026, Q8).
-Each mine is a position set committed in ``designer/pit/``, read only when the manifest
-vouches for its bytes.
+``fill_sets`` runs after the zone's checks, which read the placeholder it replaces with a stone
+block in the mines of the layers its spec names (spec 026, Q8). Each mine is a position set
+in ``designer/pit/``, read only when the manifest vouches for its bytes.
 """
 
 from __future__ import annotations
@@ -52,9 +50,9 @@ def read_sets(directory: Path, manifest_name: str, layers: list[int]) -> dict[in
     named, out = manifest(directory, manifest_name), {}
     for layer in layers:
         name = set_name(layer)
-        data = (directory / name).read_bytes() if (directory / name).is_file() else None
-        if data is None:
+        if not (directory / name).is_file():
             raise FillError(f"{directory / name} does not exist")
+        data = (directory / name).read_bytes()
         if hashlib.sha256(data).hexdigest() != named.get(name):
             raise FillError(f"{name} differs from the sha256 {manifest_name} names")
         try:

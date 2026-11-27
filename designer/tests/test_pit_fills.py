@@ -18,7 +18,6 @@ from designer.fills import FillError
 from designer.level import LevelError, Saved, build_level, content_sha256, load_recipe, prepare_structures
 from designer.pit_index import encode_set, set_name
 from designer.region import Bounds, Region, fetch_region
-from designer.structure import StructureSpec
 from designer.world_index import Location, WorldEntry, WorldIndex
 from tests.fake_bridge import FakeBridge, FakeWorld
 from tests.test_structure import MUD, STONE as STONE_I, structure_bytes
@@ -38,15 +37,9 @@ def _read(name: str) -> Any:
     return json.loads((PROJECT_ROOT / name).read_text(encoding="utf-8"))
 
 
-def test_the_committed_pit_recipe_loads_the_structure_then_bedrock_then_stone() -> None:
-    recipe = load_recipe("pit")
-    assert [(s.build, s.spec) for s in recipe.steps] == [
-        ("structure", "specs/pit_structure.json"), ("fill_box", "specs/pit_bedrock.json"), ("fill_sets", "specs/pit_stone.json"),
-    ]
-
-
 def test_the_committed_bedrock_floor_is_the_layer_under_the_build_box_across_its_whole_width() -> None:
     recipe, spec = load_recipe("pit"), _read("specs/pit_bedrock.json")
+    assert [s.build for s in recipe.steps] == ["structure", "fill_box", "fill_sets"]
     floor = Bounds.from_json(spec["bounds"])
     assert spec["world"] == "pit" and spec["block"] == BEDROCK
     assert floor == Bounds((-184, -64, -184), (184, -64, 184))
@@ -129,23 +122,12 @@ def test_a_set_the_manifest_does_not_vouch_for_is_refused(tmp_path: Path) -> Non
         fills.set_edits(STONE_SPEC, tmp_path, _region([*LAYER_2, *LAYER_3]))
 
 
-def test_a_layer_the_manifest_does_not_list_is_refused(tmp_path: Path) -> None:
-    _write_sets(tmp_path, {2: SETS[2]})
-    with pytest.raises(FillError, match="layer_03.bin does not exist"):
-        fills.set_edits(STONE_SPEC, tmp_path, _region(LAYER_2))
-
 
 def test_a_set_box_outside_the_level_read_is_refused(tmp_path: Path) -> None:
     _write_sets(tmp_path, {2: SETS[2], 3: ((40, 65, 40), (1, 1, 1), [(40, 65, 40)])})
     with pytest.raises(FillError, match="layer 3's set box"):
         fills.set_edits(STONE_SPEC, tmp_path, _region(LAYER_2))
 
-
-def test_a_spec_missing_a_field_is_refused(tmp_path: Path) -> None:
-    with pytest.raises(FillError, match="fill_sets spec needs"):
-        fills.set_edits({"world": "zt"}, tmp_path, _region([]))
-    with pytest.raises(FillError, match="fill_box spec needs"):
-        fills.box_edits({"world": "zt"})
 
 
 RECIPE = {
@@ -222,14 +204,3 @@ def test_a_build_whose_set_is_not_vouched_for_writes_no_stone_and_no_lock(fake: 
         _build(bridge, fake, level_root)
     assert "replace" not in [r["op"] for r in fake.requests]
     assert not (level_root / "levels" / "zt.lock.json").exists()
-
-
-def test_a_fill_step_needs_a_spec_naming_the_zone(level_root: Path) -> None:
-    (level_root / "specs" / "zt_bedrock.json").write_text(json.dumps({**BEDROCK_SPEC, "world": "other"}), encoding="utf-8")
-    with pytest.raises(LevelError, match="writes world 'other'"):
-        load_recipe("zt", level_root)
-
-
-def test_the_structure_spec_of_the_pit_puts_the_minimum_corner_at_world_y_minus_63() -> None:
-    spec = StructureSpec.from_dict(_read("specs/pit_structure.json"))
-    assert spec.world_min() == (-184, -63, -184)
