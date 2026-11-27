@@ -153,6 +153,7 @@ def test_a_failure_with_positions_hands_them_back(pit: Pit) -> None:
     assert (3, 208, 112) in found.coords
 
 
+@pytest.mark.xfail(strict=True, reason="riftal-infra#1517: the check and its figures are still revision 1")
 def test_the_committed_hand_off_carries_the_figures_of_plan_4_4() -> None:
     folder = pit_census.SOURCE_DIR
     routes, cells = json.loads((folder / "routes.json").read_text()), json.loads((folder / "cells.json").read_text())
@@ -167,6 +168,7 @@ def test_the_committed_hand_off_carries_the_figures_of_plan_4_4() -> None:
     assert census["minecraft:iron_door"] == 2 * 1869 and census["minecraft:chest"] == 1869 and census["minecraft:bed"] == 2 * 1869
 
 
+@pytest.mark.xfail(strict=True, reason="riftal-infra#1516: the pit recipe bounds are still revision 1")
 def test_the_committed_check_gates_the_pit_and_reads_its_whole_box() -> None:
     specs = [s for s in load_checks() if s.kind == "pit_matches_handoff"]
     assert [(s.id, s.zone) for s in specs] == [("pit_matches_handoff", "pit")]

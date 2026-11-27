@@ -1,0 +1,3703 @@
+{
+ "anchor": "local (0,0,0) = where you stand when pasting",
+ "min_corner": [
+  -184,
+  -129,
+  -184
+ ],
+ "size": [
+  369,
+  346,
+  369
+ ],
+ "markers": {
+  "stair_S": {
+   "kind": "region",
+   "min": [
+    -16,
+    -119,
+    40
+   ],
+   "max": [
+    16,
+    165,
+    126
+   ],
+   "note": "grand stairway S: one flight per layer from the rim to the pit floor"
+  },
+  "stair_E": {
+   "kind": "region",
+   "min": [
+    40,
+    -119,
+    -16
+   ],
+   "max": [
+    126,
+    165,
+    16
+   ],
+   "note": "grand stairway E: one flight per layer from the rim to the pit floor"
+  },
+  "stair_N": {
+   "kind": "region",
+   "min": [
+    -16,
+    -119,
+    -126
+   ],
+   "max": [
+    16,
+    165,
+    -40
+   ],
+   "note": "grand stairway N: one flight per layer from the rim to the pit floor"
+  },
+  "stair_W": {
+   "kind": "region",
+   "min": [
+    -126,
+    -119,
+    -16
+   ],
+   "max": [
+    -40,
+    165,
+    16
+   ],
+   "note": "grand stairway W: one flight per layer from the rim to the pit floor"
+  },
+  "mine_deck_1": {
+   "kind": "region",
+   "min": [
+    -33,
+    136,
+    -33
+   ],
+   "max": [
+    32,
+    141,
+    32
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    141,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 33,
+   "pillars": [
+    [
+     17,
+     4
+    ],
+    [
+     4,
+     17
+    ],
+    [
+     -14,
+     13
+    ],
+    [
+     -18,
+     -5
+    ],
+    [
+     -5,
+     -18
+    ],
+    [
+     13,
+     -14
+    ]
+   ],
+   "stair_tops": [
+    [
+     32,
+     140,
+     1
+    ],
+    [
+     23,
+     140,
+     22
+    ],
+    [
+     -1,
+     140,
+     32
+    ],
+    [
+     -24,
+     140,
+     20
+    ],
+    [
+     -33,
+     140,
+     -1
+    ],
+    [
+     -24,
+     140,
+     -23
+    ],
+    [
+     1,
+     140,
+     -33
+    ],
+    [
+     23,
+     140,
+     -21
+    ]
+   ],
+   "wall_gaps": 12,
+   "outer_radius": 38,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_2": {
+   "kind": "region",
+   "min": [
+    -32,
+    116,
+    -32
+   ],
+   "max": [
+    31,
+    121,
+    31
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    121,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 32,
+   "pillars": [
+    [
+     17,
+     4
+    ],
+    [
+     4,
+     17
+    ],
+    [
+     -13,
+     12
+    ],
+    [
+     -18,
+     -5
+    ],
+    [
+     -5,
+     -18
+    ],
+    [
+     12,
+     -13
+    ]
+   ],
+   "stair_tops": [
+    [
+     31,
+     120,
+     1
+    ],
+    [
+     23,
+     120,
+     21
+    ],
+    [
+     -1,
+     120,
+     31
+    ],
+    [
+     -24,
+     120,
+     19
+    ],
+    [
+     -32,
+     120,
+     -1
+    ],
+    [
+     -24,
+     120,
+     -22
+    ],
+    [
+     1,
+     120,
+     -32
+    ],
+    [
+     23,
+     120,
+     -20
+    ]
+   ],
+   "wall_gaps": 12,
+   "outer_radius": 37,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_3": {
+   "kind": "region",
+   "min": [
+    -31,
+    96,
+    -31
+   ],
+   "max": [
+    30,
+    101,
+    30
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    101,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 31,
+   "pillars": [
+    [
+     16,
+     4
+    ],
+    [
+     4,
+     16
+    ],
+    [
+     -13,
+     12
+    ],
+    [
+     -17,
+     -5
+    ],
+    [
+     -5,
+     -17
+    ],
+    [
+     12,
+     -13
+    ]
+   ],
+   "stair_tops": [
+    [
+     30,
+     100,
+     1
+    ],
+    [
+     22,
+     100,
+     20
+    ],
+    [
+     -1,
+     100,
+     30
+    ],
+    [
+     -23,
+     100,
+     18
+    ],
+    [
+     -31,
+     100,
+     -1
+    ],
+    [
+     -23,
+     100,
+     -21
+    ],
+    [
+     1,
+     100,
+     -31
+    ],
+    [
+     22,
+     100,
+     -19
+    ]
+   ],
+   "wall_gaps": 12,
+   "outer_radius": 36,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_4": {
+   "kind": "region",
+   "min": [
+    -30,
+    76,
+    -30
+   ],
+   "max": [
+    29,
+    81,
+    29
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    81,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 30,
+   "pillars": [
+    [
+     16,
+     4
+    ],
+    [
+     4,
+     16
+    ],
+    [
+     -13,
+     12
+    ],
+    [
+     -17,
+     -5
+    ],
+    [
+     -5,
+     -17
+    ],
+    [
+     12,
+     -13
+    ]
+   ],
+   "stair_tops": [
+    [
+     29,
+     80,
+     1
+    ],
+    [
+     21,
+     80,
+     20
+    ],
+    [
+     -1,
+     80,
+     29
+    ],
+    [
+     -22,
+     80,
+     18
+    ],
+    [
+     -30,
+     80,
+     -1
+    ],
+    [
+     -22,
+     80,
+     -21
+    ],
+    [
+     1,
+     80,
+     -30
+    ],
+    [
+     21,
+     80,
+     -19
+    ]
+   ],
+   "wall_gaps": 12,
+   "outer_radius": 35,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_5": {
+   "kind": "region",
+   "min": [
+    -29,
+    56,
+    -29
+   ],
+   "max": [
+    28,
+    61,
+    28
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    61,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 29,
+   "pillars": [
+    [
+     15,
+     4
+    ],
+    [
+     4,
+     15
+    ],
+    [
+     -12,
+     11
+    ],
+    [
+     -16,
+     -5
+    ],
+    [
+     -5,
+     -16
+    ],
+    [
+     11,
+     -12
+    ]
+   ],
+   "stair_tops": [
+    [
+     28,
+     60,
+     1
+    ],
+    [
+     20,
+     60,
+     19
+    ],
+    [
+     -1,
+     60,
+     28
+    ],
+    [
+     -21,
+     60,
+     17
+    ],
+    [
+     -29,
+     60,
+     -1
+    ],
+    [
+     -21,
+     60,
+     -20
+    ],
+    [
+     1,
+     60,
+     -29
+    ],
+    [
+     20,
+     60,
+     -18
+    ]
+   ],
+   "wall_gaps": 11,
+   "outer_radius": 34,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_6": {
+   "kind": "region",
+   "min": [
+    -28,
+    36,
+    -28
+   ],
+   "max": [
+    27,
+    41,
+    27
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    41,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 28,
+   "pillars": [
+    [
+     15,
+     4
+    ],
+    [
+     4,
+     15
+    ],
+    [
+     -12,
+     11
+    ],
+    [
+     -16,
+     -5
+    ],
+    [
+     -5,
+     -16
+    ],
+    [
+     11,
+     -12
+    ]
+   ],
+   "stair_tops": [
+    [
+     27,
+     40,
+     1
+    ],
+    [
+     20,
+     40,
+     18
+    ],
+    [
+     -1,
+     40,
+     27
+    ],
+    [
+     -21,
+     40,
+     16
+    ],
+    [
+     -28,
+     40,
+     -1
+    ],
+    [
+     -21,
+     40,
+     -19
+    ],
+    [
+     1,
+     40,
+     -28
+    ],
+    [
+     20,
+     40,
+     -17
+    ]
+   ],
+   "wall_gaps": 12,
+   "outer_radius": 33,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_7": {
+   "kind": "region",
+   "min": [
+    -27,
+    16,
+    -27
+   ],
+   "max": [
+    26,
+    21,
+    26
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    21,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 27,
+   "pillars": [
+    [
+     14,
+     4
+    ],
+    [
+     4,
+     14
+    ],
+    [
+     -11,
+     10
+    ],
+    [
+     -15,
+     -5
+    ],
+    [
+     -5,
+     -15
+    ],
+    [
+     10,
+     -11
+    ]
+   ],
+   "stair_tops": [
+    [
+     26,
+     20,
+     1
+    ],
+    [
+     20,
+     20,
+     17
+    ],
+    [
+     -1,
+     20,
+     26
+    ],
+    [
+     -21,
+     20,
+     15
+    ],
+    [
+     -27,
+     20,
+     -1
+    ],
+    [
+     -21,
+     20,
+     -18
+    ],
+    [
+     1,
+     20,
+     -27
+    ],
+    [
+     20,
+     20,
+     -16
+    ]
+   ],
+   "wall_gaps": 9,
+   "outer_radius": 32,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_8": {
+   "kind": "region",
+   "min": [
+    -26,
+    -4,
+    -26
+   ],
+   "max": [
+    25,
+    1,
+    25
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    1,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 26,
+   "pillars": [
+    [
+     14,
+     3
+    ],
+    [
+     3,
+     14
+    ],
+    [
+     -11,
+     10
+    ],
+    [
+     -15,
+     -4
+    ],
+    [
+     -4,
+     -15
+    ],
+    [
+     10,
+     -11
+    ]
+   ],
+   "stair_tops": [
+    [
+     25,
+     0,
+     1
+    ],
+    [
+     18,
+     0,
+     17
+    ],
+    [
+     -1,
+     0,
+     25
+    ],
+    [
+     -19,
+     0,
+     15
+    ],
+    [
+     -26,
+     0,
+     -1
+    ],
+    [
+     -19,
+     0,
+     -18
+    ],
+    [
+     1,
+     0,
+     -26
+    ],
+    [
+     18,
+     0,
+     -16
+    ]
+   ],
+   "wall_gaps": 10,
+   "outer_radius": 31,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_9": {
+   "kind": "region",
+   "min": [
+    -25,
+    -24,
+    -25
+   ],
+   "max": [
+    24,
+    -19,
+    24
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    -19,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 25,
+   "pillars": [
+    [
+     14,
+     3
+    ],
+    [
+     3,
+     14
+    ],
+    [
+     -11,
+     10
+    ],
+    [
+     -15,
+     -4
+    ],
+    [
+     -4,
+     -15
+    ],
+    [
+     10,
+     -11
+    ]
+   ],
+   "stair_tops": [
+    [
+     24,
+     -20,
+     1
+    ],
+    [
+     18,
+     -20,
+     16
+    ],
+    [
+     -1,
+     -20,
+     24
+    ],
+    [
+     -19,
+     -20,
+     14
+    ],
+    [
+     -25,
+     -20,
+     -1
+    ],
+    [
+     -19,
+     -20,
+     -17
+    ],
+    [
+     1,
+     -20,
+     -25
+    ],
+    [
+     18,
+     -20,
+     -15
+    ]
+   ],
+   "wall_gaps": 12,
+   "outer_radius": 30,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_10": {
+   "kind": "region",
+   "min": [
+    -24,
+    -44,
+    -24
+   ],
+   "max": [
+    23,
+    -39,
+    23
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    -39,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 24,
+   "pillars": [
+    [
+     13,
+     3
+    ],
+    [
+     3,
+     13
+    ],
+    [
+     -10,
+     9
+    ],
+    [
+     -14,
+     -4
+    ],
+    [
+     -4,
+     -14
+    ],
+    [
+     9,
+     -10
+    ]
+   ],
+   "stair_tops": [
+    [
+     23,
+     -40,
+     1
+    ],
+    [
+     17,
+     -40,
+     15
+    ],
+    [
+     -1,
+     -40,
+     23
+    ],
+    [
+     -18,
+     -40,
+     13
+    ],
+    [
+     -24,
+     -40,
+     -1
+    ],
+    [
+     -18,
+     -40,
+     -16
+    ],
+    [
+     1,
+     -40,
+     -24
+    ],
+    [
+     17,
+     -40,
+     -14
+    ]
+   ],
+   "wall_gaps": 8,
+   "outer_radius": 29,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_11": {
+   "kind": "region",
+   "min": [
+    -23,
+    -64,
+    -23
+   ],
+   "max": [
+    22,
+    -59,
+    22
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    -59,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 23,
+   "pillars": [
+    [
+     13,
+     3
+    ],
+    [
+     3,
+     13
+    ],
+    [
+     -10,
+     9
+    ],
+    [
+     -14,
+     -4
+    ],
+    [
+     -4,
+     -14
+    ],
+    [
+     9,
+     -10
+    ]
+   ],
+   "stair_tops": [
+    [
+     22,
+     -60,
+     1
+    ],
+    [
+     16,
+     -60,
+     15
+    ],
+    [
+     -1,
+     -60,
+     22
+    ],
+    [
+     -17,
+     -60,
+     13
+    ],
+    [
+     -23,
+     -60,
+     -1
+    ],
+    [
+     -17,
+     -60,
+     -16
+    ],
+    [
+     1,
+     -60,
+     -23
+    ],
+    [
+     16,
+     -60,
+     -14
+    ]
+   ],
+   "wall_gaps": 8,
+   "outer_radius": 28,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_12": {
+   "kind": "region",
+   "min": [
+    -22,
+    -84,
+    -22
+   ],
+   "max": [
+    21,
+    -79,
+    21
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    -79,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 22,
+   "pillars": [
+    [
+     12,
+     3
+    ],
+    [
+     3,
+     12
+    ],
+    [
+     -10,
+     9
+    ],
+    [
+     -13,
+     -4
+    ],
+    [
+     -4,
+     -13
+    ],
+    [
+     9,
+     -10
+    ]
+   ],
+   "stair_tops": [
+    [
+     21,
+     -80,
+     1
+    ],
+    [
+     16,
+     -80,
+     14
+    ],
+    [
+     -1,
+     -80,
+     21
+    ],
+    [
+     -17,
+     -80,
+     12
+    ],
+    [
+     -22,
+     -80,
+     -1
+    ],
+    [
+     -17,
+     -80,
+     -15
+    ],
+    [
+     1,
+     -80,
+     -22
+    ],
+    [
+     16,
+     -80,
+     -13
+    ]
+   ],
+   "wall_gaps": 4,
+   "outer_radius": 27,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "mine_deck_13": {
+   "kind": "region",
+   "min": [
+    -21,
+    -104,
+    -21
+   ],
+   "max": [
+    20,
+    -99,
+    20
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    -99,
+    -0.5
+   ],
+   "r_inner": 4,
+   "r_outer": 21,
+   "pillars": [
+    [
+     12,
+     3
+    ],
+    [
+     3,
+     12
+    ],
+    [
+     -9,
+     8
+    ],
+    [
+     -13,
+     -4
+    ],
+    [
+     -4,
+     -13
+    ],
+    [
+     8,
+     -9
+    ]
+   ],
+   "stair_tops": [
+    [
+     20,
+     -100,
+     1
+    ],
+    [
+     15,
+     -100,
+     13
+    ],
+    [
+     -1,
+     -100,
+     20
+    ],
+    [
+     -16,
+     -100,
+     11
+    ],
+    [
+     -21,
+     -100,
+     -1
+    ],
+    [
+     -16,
+     -100,
+     -14
+    ],
+    [
+     1,
+     -100,
+     -21
+    ],
+    [
+     15,
+     -100,
+     -12
+    ]
+   ],
+   "wall_gaps": 4,
+   "outer_radius": 26,
+   "note": "deck mine bed: the placeholder fills the ring between the 8x8 spine and the walkway; the six 3x3 pillars and eight stairways inside it are not placeholder and stay"
+  },
+  "tower": {
+   "kind": "region",
+   "min": [
+    -39,
+    -119,
+    -39
+   ],
+   "max": [
+    38,
+    191,
+    38
+   ],
+   "centre": [
+    -0.5,
+    -0.5
+   ],
+   "note": "the mine tower: 13 decks (layers 1..13) on a spine and 8 piers"
+  },
+  "bridge_1_east": {
+   "kind": "region",
+   "min": [
+    36,
+    141,
+    -3
+   ],
+   "max": [
+    104,
+    144,
+    3
+   ],
+   "layer": 1,
+   "bearing": "east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 141,
+   "deck_end": [
+    36,
+    142,
+    0
+   ],
+   "terrace_end": [
+    105,
+    142,
+    0
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_1_east": {
+   "kind": "region",
+   "min": [
+    105,
+    141,
+    -6
+   ],
+   "max": [
+    113,
+    144,
+    6
+   ],
+   "layer": 1,
+   "bearing": "east"
+  },
+  "bridge_1_south": {
+   "kind": "region",
+   "min": [
+    -3,
+    141,
+    36
+   ],
+   "max": [
+    3,
+    144,
+    104
+   ],
+   "layer": 1,
+   "bearing": "south",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 141,
+   "deck_end": [
+    0,
+    142,
+    36
+   ],
+   "terrace_end": [
+    0,
+    142,
+    105
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_1_south": {
+   "kind": "region",
+   "min": [
+    -6,
+    141,
+    105
+   ],
+   "max": [
+    6,
+    144,
+    113
+   ],
+   "layer": 1,
+   "bearing": "south"
+  },
+  "bridge_1_west": {
+   "kind": "region",
+   "min": [
+    -104,
+    141,
+    -3
+   ],
+   "max": [
+    -37,
+    144,
+    3
+   ],
+   "layer": 1,
+   "bearing": "west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 141,
+   "deck_end": [
+    -36,
+    142,
+    0
+   ],
+   "terrace_end": [
+    -105,
+    142,
+    0
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_1_west": {
+   "kind": "region",
+   "min": [
+    -113,
+    141,
+    -6
+   ],
+   "max": [
+    -105,
+    144,
+    6
+   ],
+   "layer": 1,
+   "bearing": "west"
+  },
+  "bridge_1_north": {
+   "kind": "region",
+   "min": [
+    -3,
+    141,
+    -104
+   ],
+   "max": [
+    3,
+    144,
+    -37
+   ],
+   "layer": 1,
+   "bearing": "north",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 141,
+   "deck_end": [
+    0,
+    142,
+    -36
+   ],
+   "terrace_end": [
+    0,
+    142,
+    -105
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_1_north": {
+   "kind": "region",
+   "min": [
+    -6,
+    141,
+    -113
+   ],
+   "max": [
+    6,
+    144,
+    -105
+   ],
+   "layer": 1,
+   "bearing": "north"
+  },
+  "bridge_2_southeast": {
+   "kind": "region",
+   "min": [
+    22,
+    121,
+    22
+   ],
+   "max": [
+    72,
+    124,
+    72
+   ],
+   "layer": 2,
+   "bearing": "south-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 121,
+   "deck_end": [
+    25,
+    122,
+    25
+   ],
+   "terrace_end": [
+    70,
+    122,
+    70
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_2_southeast": {
+   "kind": "region",
+   "min": [
+    66,
+    121,
+    66
+   ],
+   "max": [
+    80,
+    124,
+    80
+   ],
+   "layer": 2,
+   "bearing": "south-east"
+  },
+  "bridge_2_southwest": {
+   "kind": "region",
+   "min": [
+    -72,
+    121,
+    23
+   ],
+   "max": [
+    -23,
+    124,
+    72
+   ],
+   "layer": 2,
+   "bearing": "south-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 121,
+   "deck_end": [
+    -25,
+    122,
+    25
+   ],
+   "terrace_end": [
+    -70,
+    122,
+    70
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_2_southwest": {
+   "kind": "region",
+   "min": [
+    -80,
+    121,
+    66
+   ],
+   "max": [
+    -66,
+    124,
+    80
+   ],
+   "layer": 2,
+   "bearing": "south-west"
+  },
+  "bridge_2_northwest": {
+   "kind": "region",
+   "min": [
+    -72,
+    121,
+    -72
+   ],
+   "max": [
+    -23,
+    124,
+    -23
+   ],
+   "layer": 2,
+   "bearing": "north-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 121,
+   "deck_end": [
+    -25,
+    122,
+    -25
+   ],
+   "terrace_end": [
+    -70,
+    122,
+    -70
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_2_northwest": {
+   "kind": "region",
+   "min": [
+    -80,
+    121,
+    -80
+   ],
+   "max": [
+    -66,
+    124,
+    -66
+   ],
+   "layer": 2,
+   "bearing": "north-west"
+  },
+  "bridge_2_northeast": {
+   "kind": "region",
+   "min": [
+    23,
+    121,
+    -72
+   ],
+   "max": [
+    72,
+    124,
+    -23
+   ],
+   "layer": 2,
+   "bearing": "north-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 121,
+   "deck_end": [
+    25,
+    122,
+    -25
+   ],
+   "terrace_end": [
+    70,
+    122,
+    -70
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_2_northeast": {
+   "kind": "region",
+   "min": [
+    66,
+    121,
+    -80
+   ],
+   "max": [
+    80,
+    124,
+    -66
+   ],
+   "layer": 2,
+   "bearing": "north-east"
+  },
+  "bridge_3_east": {
+   "kind": "region",
+   "min": [
+    34,
+    101,
+    -3
+   ],
+   "max": [
+    92,
+    104,
+    3
+   ],
+   "layer": 3,
+   "bearing": "east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 101,
+   "deck_end": [
+    34,
+    102,
+    0
+   ],
+   "terrace_end": [
+    93,
+    102,
+    0
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_3_east": {
+   "kind": "region",
+   "min": [
+    93,
+    101,
+    -6
+   ],
+   "max": [
+    101,
+    104,
+    6
+   ],
+   "layer": 3,
+   "bearing": "east"
+  },
+  "bridge_3_south": {
+   "kind": "region",
+   "min": [
+    -3,
+    101,
+    34
+   ],
+   "max": [
+    3,
+    104,
+    92
+   ],
+   "layer": 3,
+   "bearing": "south",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 101,
+   "deck_end": [
+    0,
+    102,
+    34
+   ],
+   "terrace_end": [
+    0,
+    102,
+    93
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_3_south": {
+   "kind": "region",
+   "min": [
+    -6,
+    101,
+    93
+   ],
+   "max": [
+    6,
+    104,
+    101
+   ],
+   "layer": 3,
+   "bearing": "south"
+  },
+  "bridge_3_west": {
+   "kind": "region",
+   "min": [
+    -92,
+    101,
+    -3
+   ],
+   "max": [
+    -35,
+    104,
+    3
+   ],
+   "layer": 3,
+   "bearing": "west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 101,
+   "deck_end": [
+    -34,
+    102,
+    0
+   ],
+   "terrace_end": [
+    -93,
+    102,
+    0
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_3_west": {
+   "kind": "region",
+   "min": [
+    -101,
+    101,
+    -6
+   ],
+   "max": [
+    -93,
+    104,
+    6
+   ],
+   "layer": 3,
+   "bearing": "west"
+  },
+  "bridge_3_north": {
+   "kind": "region",
+   "min": [
+    -3,
+    101,
+    -92
+   ],
+   "max": [
+    3,
+    104,
+    -35
+   ],
+   "layer": 3,
+   "bearing": "north",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 101,
+   "deck_end": [
+    0,
+    102,
+    -34
+   ],
+   "terrace_end": [
+    0,
+    102,
+    -93
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_3_north": {
+   "kind": "region",
+   "min": [
+    -6,
+    101,
+    -101
+   ],
+   "max": [
+    6,
+    104,
+    -93
+   ],
+   "layer": 3,
+   "bearing": "north"
+  },
+  "bridge_4_southeast": {
+   "kind": "region",
+   "min": [
+    21,
+    81,
+    21
+   ],
+   "max": [
+    63,
+    84,
+    63
+   ],
+   "layer": 4,
+   "bearing": "south-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 81,
+   "deck_end": [
+    23,
+    82,
+    23
+   ],
+   "terrace_end": [
+    62,
+    82,
+    62
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_4_southeast": {
+   "kind": "region",
+   "min": [
+    57,
+    81,
+    57
+   ],
+   "max": [
+    72,
+    84,
+    72
+   ],
+   "layer": 4,
+   "bearing": "south-east"
+  },
+  "bridge_4_southwest": {
+   "kind": "region",
+   "min": [
+    -63,
+    81,
+    21
+   ],
+   "max": [
+    -21,
+    84,
+    63
+   ],
+   "layer": 4,
+   "bearing": "south-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 81,
+   "deck_end": [
+    -23,
+    82,
+    23
+   ],
+   "terrace_end": [
+    -62,
+    82,
+    62
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_4_southwest": {
+   "kind": "region",
+   "min": [
+    -72,
+    81,
+    57
+   ],
+   "max": [
+    -57,
+    84,
+    72
+   ],
+   "layer": 4,
+   "bearing": "south-west"
+  },
+  "bridge_4_northwest": {
+   "kind": "region",
+   "min": [
+    -63,
+    81,
+    -63
+   ],
+   "max": [
+    -22,
+    84,
+    -22
+   ],
+   "layer": 4,
+   "bearing": "north-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 81,
+   "deck_end": [
+    -23,
+    82,
+    -23
+   ],
+   "terrace_end": [
+    -62,
+    82,
+    -62
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_4_northwest": {
+   "kind": "region",
+   "min": [
+    -72,
+    81,
+    -72
+   ],
+   "max": [
+    -57,
+    84,
+    -57
+   ],
+   "layer": 4,
+   "bearing": "north-west"
+  },
+  "bridge_4_northeast": {
+   "kind": "region",
+   "min": [
+    21,
+    81,
+    -63
+   ],
+   "max": [
+    63,
+    84,
+    -21
+   ],
+   "layer": 4,
+   "bearing": "north-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 81,
+   "deck_end": [
+    23,
+    82,
+    -23
+   ],
+   "terrace_end": [
+    62,
+    82,
+    -62
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_4_northeast": {
+   "kind": "region",
+   "min": [
+    57,
+    81,
+    -72
+   ],
+   "max": [
+    72,
+    84,
+    -57
+   ],
+   "layer": 4,
+   "bearing": "north-east"
+  },
+  "bridge_5_east": {
+   "kind": "region",
+   "min": [
+    32,
+    61,
+    -3
+   ],
+   "max": [
+    80,
+    64,
+    3
+   ],
+   "layer": 5,
+   "bearing": "east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 61,
+   "deck_end": [
+    32,
+    62,
+    0
+   ],
+   "terrace_end": [
+    81,
+    62,
+    0
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_5_east": {
+   "kind": "region",
+   "min": [
+    81,
+    61,
+    -6
+   ],
+   "max": [
+    89,
+    64,
+    6
+   ],
+   "layer": 5,
+   "bearing": "east"
+  },
+  "bridge_5_south": {
+   "kind": "region",
+   "min": [
+    -3,
+    61,
+    32
+   ],
+   "max": [
+    3,
+    64,
+    80
+   ],
+   "layer": 5,
+   "bearing": "south",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 61,
+   "deck_end": [
+    0,
+    62,
+    32
+   ],
+   "terrace_end": [
+    0,
+    62,
+    81
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_5_south": {
+   "kind": "region",
+   "min": [
+    -6,
+    61,
+    81
+   ],
+   "max": [
+    6,
+    64,
+    89
+   ],
+   "layer": 5,
+   "bearing": "south"
+  },
+  "bridge_5_west": {
+   "kind": "region",
+   "min": [
+    -80,
+    61,
+    -3
+   ],
+   "max": [
+    -33,
+    64,
+    3
+   ],
+   "layer": 5,
+   "bearing": "west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 61,
+   "deck_end": [
+    -32,
+    62,
+    0
+   ],
+   "terrace_end": [
+    -81,
+    62,
+    0
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_5_west": {
+   "kind": "region",
+   "min": [
+    -89,
+    61,
+    -6
+   ],
+   "max": [
+    -81,
+    64,
+    6
+   ],
+   "layer": 5,
+   "bearing": "west"
+  },
+  "bridge_5_north": {
+   "kind": "region",
+   "min": [
+    -3,
+    61,
+    -80
+   ],
+   "max": [
+    3,
+    64,
+    -33
+   ],
+   "layer": 5,
+   "bearing": "north",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 61,
+   "deck_end": [
+    0,
+    62,
+    -32
+   ],
+   "terrace_end": [
+    0,
+    62,
+    -81
+   ],
+   "truss_depth": 7,
+   "through_truss": true
+  },
+  "landing_5_north": {
+   "kind": "region",
+   "min": [
+    -6,
+    61,
+    -89
+   ],
+   "max": [
+    6,
+    64,
+    -81
+   ],
+   "layer": 5,
+   "bearing": "north"
+  },
+  "bridge_6_southeast": {
+   "kind": "region",
+   "min": [
+    19,
+    41,
+    19
+   ],
+   "max": [
+    55,
+    44,
+    55
+   ],
+   "layer": 6,
+   "bearing": "south-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 41,
+   "deck_end": [
+    22,
+    42,
+    22
+   ],
+   "terrace_end": [
+    53,
+    42,
+    53
+   ],
+   "truss_depth": 5,
+   "through_truss": true
+  },
+  "landing_6_southeast": {
+   "kind": "region",
+   "min": [
+    49,
+    41,
+    49
+   ],
+   "max": [
+    63,
+    44,
+    63
+   ],
+   "layer": 6,
+   "bearing": "south-east"
+  },
+  "bridge_6_southwest": {
+   "kind": "region",
+   "min": [
+    -55,
+    41,
+    20
+   ],
+   "max": [
+    -20,
+    44,
+    55
+   ],
+   "layer": 6,
+   "bearing": "south-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 41,
+   "deck_end": [
+    -22,
+    42,
+    22
+   ],
+   "terrace_end": [
+    -53,
+    42,
+    53
+   ],
+   "truss_depth": 5,
+   "through_truss": true
+  },
+  "landing_6_southwest": {
+   "kind": "region",
+   "min": [
+    -63,
+    41,
+    49
+   ],
+   "max": [
+    -49,
+    44,
+    63
+   ],
+   "layer": 6,
+   "bearing": "south-west"
+  },
+  "bridge_6_northwest": {
+   "kind": "region",
+   "min": [
+    -55,
+    41,
+    -55
+   ],
+   "max": [
+    -20,
+    44,
+    -20
+   ],
+   "layer": 6,
+   "bearing": "north-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 41,
+   "deck_end": [
+    -22,
+    42,
+    -22
+   ],
+   "terrace_end": [
+    -53,
+    42,
+    -53
+   ],
+   "truss_depth": 5,
+   "through_truss": true
+  },
+  "landing_6_northwest": {
+   "kind": "region",
+   "min": [
+    -63,
+    41,
+    -63
+   ],
+   "max": [
+    -49,
+    44,
+    -49
+   ],
+   "layer": 6,
+   "bearing": "north-west"
+  },
+  "bridge_6_northeast": {
+   "kind": "region",
+   "min": [
+    20,
+    41,
+    -55
+   ],
+   "max": [
+    55,
+    44,
+    -20
+   ],
+   "layer": 6,
+   "bearing": "north-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 41,
+   "deck_end": [
+    22,
+    42,
+    -22
+   ],
+   "terrace_end": [
+    53,
+    42,
+    -53
+   ],
+   "truss_depth": 5,
+   "through_truss": true
+  },
+  "landing_6_northeast": {
+   "kind": "region",
+   "min": [
+    49,
+    41,
+    -63
+   ],
+   "max": [
+    63,
+    44,
+    -49
+   ],
+   "layer": 6,
+   "bearing": "north-east"
+  },
+  "bridge_7_east": {
+   "kind": "region",
+   "min": [
+    30,
+    21,
+    -3
+   ],
+   "max": [
+    68,
+    24,
+    3
+   ],
+   "layer": 7,
+   "bearing": "east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 21,
+   "deck_end": [
+    30,
+    22,
+    0
+   ],
+   "terrace_end": [
+    69,
+    22,
+    0
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_7_east": {
+   "kind": "region",
+   "min": [
+    69,
+    21,
+    -6
+   ],
+   "max": [
+    77,
+    24,
+    6
+   ],
+   "layer": 7,
+   "bearing": "east"
+  },
+  "bridge_7_south": {
+   "kind": "region",
+   "min": [
+    -3,
+    21,
+    30
+   ],
+   "max": [
+    3,
+    24,
+    68
+   ],
+   "layer": 7,
+   "bearing": "south",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 21,
+   "deck_end": [
+    0,
+    22,
+    30
+   ],
+   "terrace_end": [
+    0,
+    22,
+    69
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_7_south": {
+   "kind": "region",
+   "min": [
+    -6,
+    21,
+    69
+   ],
+   "max": [
+    6,
+    24,
+    77
+   ],
+   "layer": 7,
+   "bearing": "south"
+  },
+  "bridge_7_west": {
+   "kind": "region",
+   "min": [
+    -68,
+    21,
+    -3
+   ],
+   "max": [
+    -31,
+    24,
+    3
+   ],
+   "layer": 7,
+   "bearing": "west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 21,
+   "deck_end": [
+    -30,
+    22,
+    0
+   ],
+   "terrace_end": [
+    -69,
+    22,
+    0
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_7_west": {
+   "kind": "region",
+   "min": [
+    -77,
+    21,
+    -6
+   ],
+   "max": [
+    -69,
+    24,
+    6
+   ],
+   "layer": 7,
+   "bearing": "west"
+  },
+  "bridge_7_north": {
+   "kind": "region",
+   "min": [
+    -3,
+    21,
+    -68
+   ],
+   "max": [
+    3,
+    24,
+    -31
+   ],
+   "layer": 7,
+   "bearing": "north",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 21,
+   "deck_end": [
+    0,
+    22,
+    -30
+   ],
+   "terrace_end": [
+    0,
+    22,
+    -69
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_7_north": {
+   "kind": "region",
+   "min": [
+    -6,
+    21,
+    -77
+   ],
+   "max": [
+    6,
+    24,
+    -69
+   ],
+   "layer": 7,
+   "bearing": "north"
+  },
+  "bridge_8_southeast": {
+   "kind": "region",
+   "min": [
+    18,
+    1,
+    18
+   ],
+   "max": [
+    46,
+    4,
+    46
+   ],
+   "layer": 8,
+   "bearing": "south-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 1,
+   "deck_end": [
+    21,
+    2,
+    21
+   ],
+   "terrace_end": [
+    45,
+    2,
+    45
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_8_southeast": {
+   "kind": "region",
+   "min": [
+    40,
+    1,
+    40
+   ],
+   "max": [
+    55,
+    4,
+    55
+   ],
+   "layer": 8,
+   "bearing": "south-east"
+  },
+  "bridge_8_southwest": {
+   "kind": "region",
+   "min": [
+    -46,
+    1,
+    18
+   ],
+   "max": [
+    -18,
+    4,
+    46
+   ],
+   "layer": 8,
+   "bearing": "south-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 1,
+   "deck_end": [
+    -21,
+    2,
+    21
+   ],
+   "terrace_end": [
+    -45,
+    2,
+    45
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_8_southwest": {
+   "kind": "region",
+   "min": [
+    -55,
+    1,
+    40
+   ],
+   "max": [
+    -40,
+    4,
+    55
+   ],
+   "layer": 8,
+   "bearing": "south-west"
+  },
+  "bridge_8_northwest": {
+   "kind": "region",
+   "min": [
+    -46,
+    1,
+    -46
+   ],
+   "max": [
+    -19,
+    4,
+    -19
+   ],
+   "layer": 8,
+   "bearing": "north-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 1,
+   "deck_end": [
+    -21,
+    2,
+    -21
+   ],
+   "terrace_end": [
+    -45,
+    2,
+    -45
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_8_northwest": {
+   "kind": "region",
+   "min": [
+    -55,
+    1,
+    -55
+   ],
+   "max": [
+    -40,
+    4,
+    -40
+   ],
+   "layer": 8,
+   "bearing": "north-west"
+  },
+  "bridge_8_northeast": {
+   "kind": "region",
+   "min": [
+    18,
+    1,
+    -46
+   ],
+   "max": [
+    46,
+    4,
+    -18
+   ],
+   "layer": 8,
+   "bearing": "north-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": 1,
+   "deck_end": [
+    21,
+    2,
+    -21
+   ],
+   "terrace_end": [
+    45,
+    2,
+    -45
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_8_northeast": {
+   "kind": "region",
+   "min": [
+    40,
+    1,
+    -55
+   ],
+   "max": [
+    55,
+    4,
+    -40
+   ],
+   "layer": 8,
+   "bearing": "north-east"
+  },
+  "bridge_9_east": {
+   "kind": "region",
+   "min": [
+    28,
+    -19,
+    -3
+   ],
+   "max": [
+    56,
+    -16,
+    3
+   ],
+   "layer": 9,
+   "bearing": "east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -19,
+   "deck_end": [
+    28,
+    -18,
+    0
+   ],
+   "terrace_end": [
+    57,
+    -18,
+    0
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_9_east": {
+   "kind": "region",
+   "min": [
+    57,
+    -19,
+    -6
+   ],
+   "max": [
+    65,
+    -16,
+    6
+   ],
+   "layer": 9,
+   "bearing": "east"
+  },
+  "bridge_9_south": {
+   "kind": "region",
+   "min": [
+    -3,
+    -19,
+    28
+   ],
+   "max": [
+    3,
+    -16,
+    56
+   ],
+   "layer": 9,
+   "bearing": "south",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -19,
+   "deck_end": [
+    0,
+    -18,
+    28
+   ],
+   "terrace_end": [
+    0,
+    -18,
+    57
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_9_south": {
+   "kind": "region",
+   "min": [
+    -6,
+    -19,
+    57
+   ],
+   "max": [
+    6,
+    -16,
+    65
+   ],
+   "layer": 9,
+   "bearing": "south"
+  },
+  "bridge_9_west": {
+   "kind": "region",
+   "min": [
+    -56,
+    -19,
+    -3
+   ],
+   "max": [
+    -29,
+    -16,
+    3
+   ],
+   "layer": 9,
+   "bearing": "west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -19,
+   "deck_end": [
+    -28,
+    -18,
+    0
+   ],
+   "terrace_end": [
+    -57,
+    -18,
+    0
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_9_west": {
+   "kind": "region",
+   "min": [
+    -65,
+    -19,
+    -6
+   ],
+   "max": [
+    -57,
+    -16,
+    6
+   ],
+   "layer": 9,
+   "bearing": "west"
+  },
+  "bridge_9_north": {
+   "kind": "region",
+   "min": [
+    -3,
+    -19,
+    -56
+   ],
+   "max": [
+    3,
+    -16,
+    -29
+   ],
+   "layer": 9,
+   "bearing": "north",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -19,
+   "deck_end": [
+    0,
+    -18,
+    -28
+   ],
+   "terrace_end": [
+    0,
+    -18,
+    -57
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_9_north": {
+   "kind": "region",
+   "min": [
+    -6,
+    -19,
+    -65
+   ],
+   "max": [
+    6,
+    -16,
+    -57
+   ],
+   "layer": 9,
+   "bearing": "north"
+  },
+  "bridge_10_southeast": {
+   "kind": "region",
+   "min": [
+    16,
+    -39,
+    16
+   ],
+   "max": [
+    38,
+    -36,
+    38
+   ],
+   "layer": 10,
+   "bearing": "south-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -39,
+   "deck_end": [
+    19,
+    -38,
+    19
+   ],
+   "terrace_end": [
+    36,
+    -38,
+    36
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_10_southeast": {
+   "kind": "region",
+   "min": [
+    32,
+    -39,
+    32
+   ],
+   "max": [
+    46,
+    -36,
+    46
+   ],
+   "layer": 10,
+   "bearing": "south-east"
+  },
+  "bridge_10_southwest": {
+   "kind": "region",
+   "min": [
+    -38,
+    -39,
+    17
+   ],
+   "max": [
+    -17,
+    -36,
+    38
+   ],
+   "layer": 10,
+   "bearing": "south-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -39,
+   "deck_end": [
+    -19,
+    -38,
+    19
+   ],
+   "terrace_end": [
+    -36,
+    -38,
+    36
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_10_southwest": {
+   "kind": "region",
+   "min": [
+    -46,
+    -39,
+    32
+   ],
+   "max": [
+    -32,
+    -36,
+    46
+   ],
+   "layer": 10,
+   "bearing": "south-west"
+  },
+  "bridge_10_northwest": {
+   "kind": "region",
+   "min": [
+    -38,
+    -39,
+    -38
+   ],
+   "max": [
+    -17,
+    -36,
+    -17
+   ],
+   "layer": 10,
+   "bearing": "north-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -39,
+   "deck_end": [
+    -19,
+    -38,
+    -19
+   ],
+   "terrace_end": [
+    -36,
+    -38,
+    -36
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_10_northwest": {
+   "kind": "region",
+   "min": [
+    -46,
+    -39,
+    -46
+   ],
+   "max": [
+    -32,
+    -36,
+    -32
+   ],
+   "layer": 10,
+   "bearing": "north-west"
+  },
+  "bridge_10_northeast": {
+   "kind": "region",
+   "min": [
+    17,
+    -39,
+    -38
+   ],
+   "max": [
+    38,
+    -36,
+    -17
+   ],
+   "layer": 10,
+   "bearing": "north-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -39,
+   "deck_end": [
+    19,
+    -38,
+    -19
+   ],
+   "terrace_end": [
+    36,
+    -38,
+    -36
+   ],
+   "truss_depth": 5,
+   "through_truss": false
+  },
+  "landing_10_northeast": {
+   "kind": "region",
+   "min": [
+    32,
+    -39,
+    -46
+   ],
+   "max": [
+    46,
+    -36,
+    -32
+   ],
+   "layer": 10,
+   "bearing": "north-east"
+  },
+  "bridge_11_east": {
+   "kind": "region",
+   "min": [
+    26,
+    -59,
+    -3
+   ],
+   "max": [
+    44,
+    -56,
+    3
+   ],
+   "layer": 11,
+   "bearing": "east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -59,
+   "deck_end": [
+    26,
+    -58,
+    0
+   ],
+   "terrace_end": [
+    45,
+    -58,
+    0
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_11_east": {
+   "kind": "region",
+   "min": [
+    45,
+    -59,
+    -6
+   ],
+   "max": [
+    53,
+    -56,
+    6
+   ],
+   "layer": 11,
+   "bearing": "east"
+  },
+  "bridge_11_south": {
+   "kind": "region",
+   "min": [
+    -3,
+    -59,
+    26
+   ],
+   "max": [
+    3,
+    -56,
+    44
+   ],
+   "layer": 11,
+   "bearing": "south",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -59,
+   "deck_end": [
+    0,
+    -58,
+    26
+   ],
+   "terrace_end": [
+    0,
+    -58,
+    45
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_11_south": {
+   "kind": "region",
+   "min": [
+    -6,
+    -59,
+    45
+   ],
+   "max": [
+    6,
+    -56,
+    53
+   ],
+   "layer": 11,
+   "bearing": "south"
+  },
+  "bridge_11_west": {
+   "kind": "region",
+   "min": [
+    -44,
+    -59,
+    -3
+   ],
+   "max": [
+    -27,
+    -56,
+    3
+   ],
+   "layer": 11,
+   "bearing": "west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -59,
+   "deck_end": [
+    -26,
+    -58,
+    0
+   ],
+   "terrace_end": [
+    -45,
+    -58,
+    0
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_11_west": {
+   "kind": "region",
+   "min": [
+    -53,
+    -59,
+    -6
+   ],
+   "max": [
+    -45,
+    -56,
+    6
+   ],
+   "layer": 11,
+   "bearing": "west"
+  },
+  "bridge_11_north": {
+   "kind": "region",
+   "min": [
+    -3,
+    -59,
+    -44
+   ],
+   "max": [
+    3,
+    -56,
+    -27
+   ],
+   "layer": 11,
+   "bearing": "north",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -59,
+   "deck_end": [
+    0,
+    -58,
+    -26
+   ],
+   "terrace_end": [
+    0,
+    -58,
+    -45
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_11_north": {
+   "kind": "region",
+   "min": [
+    -6,
+    -59,
+    -53
+   ],
+   "max": [
+    6,
+    -56,
+    -45
+   ],
+   "layer": 11,
+   "bearing": "north"
+  },
+  "bridge_12_southeast": {
+   "kind": "region",
+   "min": [
+    15,
+    -79,
+    15
+   ],
+   "max": [
+    29,
+    -76,
+    29
+   ],
+   "layer": 12,
+   "bearing": "south-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -79,
+   "deck_end": [
+    18,
+    -78,
+    18
+   ],
+   "terrace_end": [
+    28,
+    -78,
+    28
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_12_southeast": {
+   "kind": "region",
+   "min": [
+    23,
+    -79,
+    23
+   ],
+   "max": [
+    38,
+    -76,
+    38
+   ],
+   "layer": 12,
+   "bearing": "south-east"
+  },
+  "bridge_12_southwest": {
+   "kind": "region",
+   "min": [
+    -29,
+    -79,
+    16
+   ],
+   "max": [
+    -15,
+    -76,
+    29
+   ],
+   "layer": 12,
+   "bearing": "south-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -79,
+   "deck_end": [
+    -18,
+    -78,
+    18
+   ],
+   "terrace_end": [
+    -28,
+    -78,
+    28
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_12_southwest": {
+   "kind": "region",
+   "min": [
+    -38,
+    -79,
+    23
+   ],
+   "max": [
+    -23,
+    -76,
+    38
+   ],
+   "layer": 12,
+   "bearing": "south-west"
+  },
+  "bridge_12_northwest": {
+   "kind": "region",
+   "min": [
+    -29,
+    -79,
+    -29
+   ],
+   "max": [
+    -16,
+    -76,
+    -16
+   ],
+   "layer": 12,
+   "bearing": "north-west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -79,
+   "deck_end": [
+    -18,
+    -78,
+    -18
+   ],
+   "terrace_end": [
+    -28,
+    -78,
+    -28
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_12_northwest": {
+   "kind": "region",
+   "min": [
+    -38,
+    -79,
+    -38
+   ],
+   "max": [
+    -23,
+    -76,
+    -23
+   ],
+   "layer": 12,
+   "bearing": "north-west"
+  },
+  "bridge_12_northeast": {
+   "kind": "region",
+   "min": [
+    16,
+    -79,
+    -29
+   ],
+   "max": [
+    29,
+    -76,
+    -15
+   ],
+   "layer": 12,
+   "bearing": "north-east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -79,
+   "deck_end": [
+    18,
+    -78,
+    -18
+   ],
+   "terrace_end": [
+    28,
+    -78,
+    -28
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_12_northeast": {
+   "kind": "region",
+   "min": [
+    23,
+    -79,
+    -38
+   ],
+   "max": [
+    38,
+    -76,
+    -23
+   ],
+   "layer": 12,
+   "bearing": "north-east"
+  },
+  "bridge_13_east": {
+   "kind": "region",
+   "min": [
+    24,
+    -99,
+    -3
+   ],
+   "max": [
+    32,
+    -96,
+    3
+   ],
+   "layer": 13,
+   "bearing": "east",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -99,
+   "deck_end": [
+    24,
+    -98,
+    0
+   ],
+   "terrace_end": [
+    33,
+    -98,
+    0
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_13_east": {
+   "kind": "region",
+   "min": [
+    33,
+    -99,
+    -6
+   ],
+   "max": [
+    41,
+    -96,
+    6
+   ],
+   "layer": 13,
+   "bearing": "east"
+  },
+  "bridge_13_south": {
+   "kind": "region",
+   "min": [
+    -3,
+    -99,
+    24
+   ],
+   "max": [
+    3,
+    -96,
+    32
+   ],
+   "layer": 13,
+   "bearing": "south",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -99,
+   "deck_end": [
+    0,
+    -98,
+    24
+   ],
+   "terrace_end": [
+    0,
+    -98,
+    33
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_13_south": {
+   "kind": "region",
+   "min": [
+    -6,
+    -99,
+    33
+   ],
+   "max": [
+    6,
+    -96,
+    41
+   ],
+   "layer": 13,
+   "bearing": "south"
+  },
+  "bridge_13_west": {
+   "kind": "region",
+   "min": [
+    -32,
+    -99,
+    -3
+   ],
+   "max": [
+    -25,
+    -96,
+    3
+   ],
+   "layer": 13,
+   "bearing": "west",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -99,
+   "deck_end": [
+    -24,
+    -98,
+    0
+   ],
+   "terrace_end": [
+    -33,
+    -98,
+    0
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_13_west": {
+   "kind": "region",
+   "min": [
+    -41,
+    -99,
+    -6
+   ],
+   "max": [
+    -33,
+    -96,
+    6
+   ],
+   "layer": 13,
+   "bearing": "west"
+  },
+  "bridge_13_north": {
+   "kind": "region",
+   "min": [
+    -3,
+    -99,
+    -32
+   ],
+   "max": [
+    3,
+    -96,
+    -25
+   ],
+   "layer": 13,
+   "bearing": "north",
+   "walk_width": 5,
+   "width": 7,
+   "deck_y": -99,
+   "deck_end": [
+    0,
+    -98,
+    -24
+   ],
+   "terrace_end": [
+    0,
+    -98,
+    -33
+   ],
+   "truss_depth": 3,
+   "through_truss": false
+  },
+  "landing_13_north": {
+   "kind": "region",
+   "min": [
+    -6,
+    -99,
+    -41
+   ],
+   "max": [
+    6,
+    -96,
+    -33
+   ],
+   "layer": 13,
+   "bearing": "north"
+  },
+  "mine_contested": {
+   "kind": "region",
+   "min": [
+    -16,
+    -129,
+    -16
+   ],
+   "max": [
+    15,
+    -122,
+    15
+   ],
+   "block": "minecraft:terracotta",
+   "shape": "cylinder",
+   "centre": [
+    -0.5,
+    -122,
+    -0.5
+   ],
+   "radius": 16,
+   "note": "contested mine in the hall under the tower, 32 across and 8 deep (its bottom rests on the world's bedrock); four stairways inside it are not placeholder"
+  },
+  "mine_layer_14": {
+   "kind": "region",
+   "min": [
+    -39,
+    -124,
+    -39
+   ],
+   "max": [
+    39,
+    -119,
+    39
+   ],
+   "block": "minecraft:packed_mud",
+   "shape": "annulus",
+   "centre": [
+    -0.5,
+    -119,
+    -0.5
+   ],
+   "r_inner": 26,
+   "r_outer": 39,
+   "note": "layer 14 mine: the ring round the pit floor between the tower's piers and the wall walkway; the causeways, their lava troughs and eight stairways cross it and are not placeholder"
+  },
+  "rim_spawn": {
+   "kind": "point",
+   "pos": [
+    0,
+    162,
+    127
+   ],
+   "yaw": 180.0,
+   "note": "on the south rim, facing across the pit"
+  },
+  "gate": {
+   "kind": "point",
+   "pos": [
+    0,
+    -1,
+    162
+   ],
+   "yaw": 180.0,
+   "note": "outside the main gate on the forecourt, facing north into it"
+  }
+ }
+}

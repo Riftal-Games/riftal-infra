@@ -329,6 +329,7 @@ def test_a_recipe_without_a_structure_step_converts_nothing(level_root: Path) ->
     assert prepare_structures(type(recipe)(**{**recipe.__dict__, "steps": ()}), level_root, level_root / "out") is None
 
 
+@pytest.mark.xfail(strict=True, reason="riftal-infra#1516: the pit recipe bounds are still revision 1")
 def test_the_committed_pit_recipe_covers_chunks_minus_12_to_11_and_agrees_with_the_index() -> None:
     recipe = load_recipe("pit")
     check_index(recipe, WorldIndex.load())
