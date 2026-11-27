@@ -1117,3 +1117,27 @@ each is a later change that names its extent.
 The dev stack's `instance` seeds both from `riftal_smoke_level_quarry` and `riftal_smoke_level_farm`
 and its RiftalMines `worlds` lists them. Its `travel` destinations name `quarry_spawn` and `farm_spawn`
 too (#1502); riftal-game#1852's `/quarry` and `/farm` commands read the same two spawn names (#1454).
+
+## 2026-11-27 `pit_matches_handoff` accepts twenty defects of the pinned hand-off, each by its exact text (#1506)
+
+The check reads the whole recipe box once, the region `content_sha256` already needs, and runs the eleven
+checks of the pit plan's 4.4 against `cells.json`, `routes.json`, `census.json` and the source cut again by
+`convert`. Every expected count comes from those files; the plan's own figures are asserted against them in
+`tests/test_pit_handoff.py`, so a changed pin shows there first. The real build read back 0 mismatches over
+46,567,062 cells and the plan's counts for checks 2 to 6, 10 and 11, but the hand-off disagrees with its own
+structure in three places the plan's "all" and "111 of 111" do not allow:
+
+- Seventeen of 111 ladders. Fourteen layer 1 ladders end one block under the rim walkway that `y_to` names, so
+  their top block is stone. The ladder at x 86 z 84 has only its top five blocks, the layer 11 ladder at x 43
+  z 42 only its top six, and the layer 13 ladder at x -38 z -30 has iron bars in the middle.
+- The `gate_outside` warp, `0 -1 162` local. The forecourt under it is the studio's natural terrain, which the
+  structure does not carry, so there is no block to stand on in a void level. The leg `gate_outside` to
+  `gate_hall` starts there and fails for the same reason.
+- The south stairway's layer 13 flight. Two steps have 2 and 3 free cells above them where every other south
+  flight has 4, and `path_exists` needs the cell above the next step clear.
+
+`specs/pit_handoff_deviations.json` lists each by the exact text the check prints, with the reason. A listed
+text is counted under `accepted_deviations` in the lock and does not fail the build. A listed text the check no
+longer finds fails it, and a defect of the same ladder that reads differently, say one more missing block, is
+not the listed text and fails. So the list can only shrink toward a fixed hand-off. The builder fixes these
+(plan section 14.1) and the pins and the list are refreshed together.
