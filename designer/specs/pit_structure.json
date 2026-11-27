@@ -1,0 +1,12 @@
+{
+  "world": "pit",
+  "source": "sources/rift_prison",
+  "file": "rift_prison_bedrock.mcstructure.gz",
+  "origin": [0, 66, 0],
+  "min_corner": [-184, -125, -184],
+  "substitutes": {
+    "minecraft:dripstone_block": "minecraft:brown_terracotta",
+    "minecraft:moss_block": "minecraft:green_terracotta",
+    "minecraft:scaffolding": "minecraft:bamboo_planks"
+  }
+}

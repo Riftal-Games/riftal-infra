@@ -142,6 +142,9 @@ checks:
   - check: offdisk_clear
     zone: farm
     world: farm
+  - check: offdisk_clear
+    zone: pit
+    world: pit
   - check: no_holes
     region: plots_0_0
     floor_y: 65

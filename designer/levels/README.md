@@ -55,6 +55,19 @@ read and written by `designer/level.py`.
   every zone is refused. Both refusals come before any engine call.
 - After the checks, a chorus flower anywhere in `bounds` outside every `mine` step's
   interior refuses the build: a projectile breaks one with no cancellable event.
+- A step `{"build": "structure", "spec": "specs/<name>.json"}` has no palette. Its spec
+  names a pinned source (`source` folder, `file`), the `origin` the source's local
+  coordinates are added to, the source's `min_corner` in those local coordinates, and
+  `substitutes`, a map from a block name to the block name written in place of every state
+  of it. Before the server boots the toolkit cuts the source into 16^3 cell files on the
+  world's 16 grid, not the source's, under a folder the server mounts read-only at
+  `/structures` (`designer level build --structures`, default a temporary folder). A cell
+  of air is not written. The only block entity a cell file carries is a bed's colour; every
+  other tile and every item field is dropped (hard rule 1). The build runs `load_structure`
+  once per batch of cells whose box stays within `max_region_edge`, after `pregen`. The
+  source's uncompressed sha256 must equal `structure_sha256` in its `pins.json`, which is
+  also hashed into `inputs`. The pit's origin `0 66 0` is the pit's centre at ground level,
+  so its minimum corner, `-184 -59 -184`, is where the recipe's bounds start.
 
 ## Lock, `<zone>.lock.json`
 
@@ -67,6 +80,7 @@ read and written by `designer/level.py`.
 | `chunks` | Chunks `scan_items` walked: every chunk the saved level holds |
 | `size_bytes` | Uncompressed size of the saved level folder |
 | `content_sha256` | Block states in `bounds`, then `design_npcs.json` and `design_texts.json` when present |
+| `structure` | Only with a `structure` step: `structure_sha256` of the source, the number of `cells` written and `cells_sha256` over their positions and file hashes, the `substitutes` map and how many blocks of each name it replaced (`substituted`), and the count of each block entity type dropped (`dropped_block_entities`) |
 
 `chunks` and `size_bytes` count more than the recipe bounds. They include the boot
 spawn area around (256, 256), the one-chunk margin `pregen` populates around the

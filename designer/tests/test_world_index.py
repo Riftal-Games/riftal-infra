@@ -13,7 +13,7 @@ from designer.config import PROJECT_ROOT
 from designer.region import Bounds
 from designer.world_index import Location, NamedRegion, WorldEntry, WorldIndex
 
-SPEC_WORLDS = {"mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm", "contested", "plots"}
+SPEC_WORLDS = {"mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm", "contested", "plots", "pit"}
 LEVEL_ZONES = ("lumber", "mine_a", "mine_b", "mine_c", "quarry", "farm")
 STAMP = "2026-09-07T12:00:00+00:00"
 
@@ -30,7 +30,7 @@ def test_committed_file_names_the_spec_worlds(index: WorldIndex) -> None:
     mines = [NamedRegion(f"mine_{m}_safe_zone", f"mine_{m}", (-16, 40, -16), (15, 50, 15), ["mine", "safe_zone"]) for m in "abc"]
     assert index.regions == [NamedRegion("lumber_safe_zone", "lumber", (-32, 40, -32), (31, 63, 31), ["mine", "safe_zone"]), *mines]
     assert {w.name: w.extra["rank"] for w in index.worlds if w.role == "ore_mine"} == {"mine_a": "A", "mine_b": "B", "mine_c": "C"}
-    assert {(w.generator, w.seed) for w in index.worlds if w.name not in LEVEL_ZONES} == {("normal", 20260907)}
+    assert {(w.generator, w.seed) for w in index.worlds if w.name not in (*LEVEL_ZONES, "pit")} == {("normal", 20260907)}
     assert {(index.world(n).generator, index.world(n).seed) for n in LEVEL_ZONES} == {("normal", 23)}
     assert index.resolve_pos("spawn") == (256, 70, 256)
     assert [(l.name, l.world) for l in index.locations_tagged("spawn")] == [("farm_spawn", "farm"), ("lumber_spawn", "lumber"), ("mine_a_spawn", "mine_a"), ("mine_b_spawn", "mine_b"), ("mine_c_spawn", "mine_c"), ("quarry_spawn", "quarry"), ("spawn", "design")]

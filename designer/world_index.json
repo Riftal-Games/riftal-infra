@@ -257,6 +257,12 @@
       "seed": 23
     },
     {
+      "generator": "void",
+      "name": "pit",
+      "role": "pit",
+      "seed": 0
+    },
+    {
       "generator": "normal",
       "name": "plots",
       "role": "plots",

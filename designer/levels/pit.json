@@ -1,0 +1,8 @@
+{
+  "generator": "void",
+  "seed": 0,
+  "bounds": {"min": [-184, -59, -184], "max": [184, 282, 184]},
+  "steps": [
+    {"build": "structure", "spec": "specs/pit_structure.json"}
+  ]
+}
