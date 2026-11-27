@@ -14,16 +14,17 @@ import pytest
 
 from designer import mcstructure, pit_index
 from designer.pit_census import SOURCE_DIR, read_json
-from designer.pit_index import MANIFEST, OUT_DIR, PitIndexError, decode_set, encode_set, set_name
+from designer.pit_index import CONTESTED, CONTESTED_PLACEHOLDER, MANIFEST, OUT_DIR, PLACEHOLDER, PitIndexError, decode_set, encode_set, set_name
 from designer.structure import StructureSpec
 from tests import test_structure
 from tests.test_structure import structure_bytes
 
 FIXTURE = Path(__file__).parent / "fixtures" / "set_4x2x3.bin"
 SCRIPT = Path(__file__).resolve().parents[2] / "images" / "plugins" / "deliver-pit-index.sh"
-BED_BLOCKS = [11757, 11004, 10249, 9634, 8720, 8186, 7269, 6419, 5888, 5217, 4115, 3724, 2953, 2260]
+BED_BLOCKS = [19140, 17916, 16668, 15492, 14388, 13356, 12324, 11292, 10404, 9348, 8508, 7740, 6900, 11718]
+CONTESTED_BLOCKS = 5824
 INDEX_PLUGINS = ("RiftalMines", "RiftalRanks", "RiftalCells")
-SETS = tuple(set_name(layer) for layer in range(1, 15))
+SETS = (*(set_name(layer) for layer in range(1, 15)), CONTESTED)
 # Bits 0, 3, 10, 17 and 20 of a 4 x 2 x 3 box at (10, 60, -3), i = ((y - oy) * 3 + (z - oz)) * 4 + (x - ox), worked by hand.
 FIXTURE_POINTS = [(10, 60, -3), (13, 60, -3), (12, 60, -1), (11, 61, -2), (10, 61, -1)]
 
@@ -69,38 +70,63 @@ def test_the_scan_returns_each_placeholder_in_world_coordinates(mud: None, tmp_p
     path = tmp_path / "s.mcstructure.gz"
     path.write_bytes(gzip.compress(structure_bytes((3, 2, 4), placed, {}), mtime=0))
     spec = StructureSpec("pit", "s", "s", (0, 66, 0), (-1, -1, -2), {})
-    found = pit_index.placeholder_positions(path, spec)
-    assert sorted(map(tuple, found.tolist())) == [(-1, 65, -2), (1, 66, 1)]
+    found = pit_index.placeholder_positions(path, spec, (PLACEHOLDER,))
+    assert sorted(map(tuple, found[PLACEHOLDER].tolist())) == [(-1, 65, -2), (1, 66, 1)]
 
 
-def level(layer: int, blocks: int) -> dict[str, Any]:
-    return {"layer": layer, "bed_r": [0, 1], "bed_y": [0, 1], "bed_blocks": blocks}
+TOWER = [-0.5, -0.5]
+ORIGIN = (0, 66, 0)
+MINI = {
+    "decks": [{"deck": 1, "centre": TOWER, "bed_r": [1, 3], "bed_y": [0, 1], "bed_blocks": 1}],
+    "pit_floor": {"layer14_ring": {"r": [26, 39], "y": [-5, -4], "blocks": 1}},
+    "contested_mine": {"centre": TOWER, "radius": 2, "box_min": [-2, -9, -2], "box_max": [1, -8, 1], "blocks": 1},
+}
+BED, RING, CYLINDER = (1, 66, 0), (30, 61, 0), (0, 57, 0)
 
 
-def test_a_layer_whose_count_is_not_bed_blocks_is_refused() -> None:
-    points = np.array([(0, 66, 0), (1, 67, 1)])
-    assert len(pit_index.split_layers(points, [level(1, 2)], (0, 66, 0))) == 1
-    with pytest.raises(PitIndexError, match="layer 1: 2 placeholders, routes.json says 3"):
-        pit_index.split_layers(points, [level(1, 3)], (0, 66, 0))
+def mini(mud: list[tuple[int, int, int]], **override: Any) -> dict[str, bytes]:
+    found = {PLACEHOLDER: np.array(mud), CONTESTED_PLACEHOLDER: np.array([CYLINDER])}
+    return pit_index.split_mines(found, {**MINI, **override}, ORIGIN)
 
 
-def test_a_placeholder_in_no_layers_bed_box_is_refused() -> None:
-    with pytest.raises(PitIndexError, match="1 placeholders lie in no layer"):
-        pit_index.split_layers(np.array([(0, 66, 0), (9, 66, 9)]), [level(1, 1)], (0, 66, 0))
+def test_each_placeholder_goes_to_the_set_whose_shape_holds_it() -> None:
+    files = mini([BED, RING])
+    assert sorted(files) == [CONTESTED, set_name(1), set_name(14)]
+    for name, want in ((set_name(1), BED), (set_name(14), RING), (CONTESTED, CYLINDER)):
+        assert decode_set(files[name])[2].tolist() == [list(want)]
 
 
-@pytest.mark.xfail(strict=True, reason="riftal-infra#1518: the pit index and sets are still built from revision 1")
-def test_the_14_committed_counts_equal_routes_json_bed_blocks() -> None:
+def test_a_mine_whose_count_is_not_routes_jsons_is_refused() -> None:
+    deck = {**MINI["decks"][0], "bed_blocks": 2}
+    with pytest.raises(PitIndexError, match="layer 1: 1 placeholders, routes.json says 2"):
+        mini([BED, RING], decks=[deck])
+
+
+def test_a_placeholder_in_no_mines_shape_is_refused() -> None:
+    inside_the_spine = (0, 66, 0)
+    with pytest.raises(PitIndexError, match="1 placeholders lie in no mine's shape"):
+        mini([BED, RING, inside_the_spine])
+
+
+def test_the_ring_stops_before_pit_radius_39() -> None:
+    with pytest.raises(PitIndexError, match="1 placeholders lie in no mine's shape"):
+        mini([BED, RING, (39, 61, 0)])
+
+
+def test_the_15_committed_counts_equal_routes_json() -> None:
     routes = read_json(SOURCE_DIR / "routes.json")
-    assert [lv["bed_blocks"] for lv in routes["levels"]] == BED_BLOCKS
+    assert [d["bed_blocks"] for d in routes["decks"]] + [routes["pit_floor"]["layer14_ring"]["blocks"]] == BED_BLOCKS
+    assert routes["contested_mine"]["blocks"] == CONTESTED_BLOCKS
+    assert sum(BED_BLOCKS) == routes["mines"]["total_packed_mud"] == 175194
     index = json.loads((OUT_DIR / "pit_index.json").read_text(encoding="utf-8"))
-    assert [e["set"]["count"] for e in index["layers"]] == BED_BLOCKS
+    assert [e["mine"]["set"]["count"] for e in index["layers"]] == BED_BLOCKS
+    assert index["contested"]["set"]["count"] == CONTESTED_BLOCKS
     for layer, wanted in enumerate(BED_BLOCKS, 1):
         assert len(decode_set((OUT_DIR / set_name(layer)).read_bytes())[2]) == wanted
+    assert len(decode_set((OUT_DIR / CONTESTED).read_bytes())[2]) == CONTESTED_BLOCKS
     assert pit_index.verify(OUT_DIR) == []
 
 
-@pytest.mark.xfail(strict=True, reason="riftal-infra#1518: the pit index and sets are still built from revision 1")
 def test_the_committed_files_are_what_the_pinned_structure_builds() -> None:
     built = pit_index.build_files()
     assert {n: (OUT_DIR / n).read_bytes() for n in built} == built
@@ -111,8 +137,9 @@ def test_the_index_holds_the_positions_integration_md_quotes() -> None:
     south = next(s for s in index["stairs"] if s["stair"] == "south" and s["layer"] == 1)
     assert south["bottom"] == [11, 208, 122]
     assert next(c for c in index["cells"] if c["id"] == "L08-R2-010")["door_lower"] == [75, 73, -24]
-    assert index["warps"]["contested_mine_top"]["pos"] == [0, -49, 0]
-    assert index["counts"] == {"layers": 14, "cells": 1869, "ladders": 111, "stairs": 56, "bridges": 4}
+    warps = {name: warp["pos"] for name, warp in index["warps"].items()}
+    assert (warps["contested_mine_top"], warps["deck_1"], warps["hall"]) == ([0, -55, 6], [0, 208, 34], [0, -52, 23])
+    assert index["counts"] == {"layers": 14, "decks": 13, "cells": 1869, "ladders": 111, "stairs": 56, "bridges": 52, "transit": 139}
 
 
 def tampered(tmp_path: Path, name: str) -> Path:
@@ -124,8 +151,7 @@ def tampered(tmp_path: Path, name: str) -> Path:
     return copy
 
 
-@pytest.mark.parametrize("name", [set_name(3), "pit_index.json"])
-@pytest.mark.xfail(strict=True, reason="riftal-infra#1518: the pit index and sets are still built from revision 1")
+@pytest.mark.parametrize("name", [set_name(3), CONTESTED, "pit_index.json"])
 def test_the_verifier_fails_a_tampered_file_by_name(tmp_path: Path, name: str) -> None:
     problems = pit_index.verify(tampered(tmp_path, name))
     assert len(problems) == 1
@@ -161,7 +187,7 @@ def test_a_boot_delivers_the_index_to_three_folders_and_the_sets_to_mines_alone_
 
 
 @needs_script
-@pytest.mark.parametrize("name", [set_name(3), set_name(14), "pit_index.json"])
+@pytest.mark.parametrize("name", [set_name(3), set_name(14), CONTESTED, "pit_index.json"])
 def test_a_tampered_file_stops_the_boot_before_the_start_command_and_delivers_nothing(tmp_path: Path, name: str) -> None:
     done, data = deliver(tmp_path, tampered(tmp_path, name), "printf", "started")
     assert done.returncode != 0
@@ -196,7 +222,6 @@ def test_a_manifest_that_omits_a_set_stops_the_boot(tmp_path: Path) -> None:
     assert not data.exists()
 
 
-@pytest.mark.xfail(strict=True, reason="riftal-infra#1518: the pit index and sets are still built from revision 1")
 def test_a_malformed_manifest_line_is_a_problem_line_not_an_exception(tmp_path: Path) -> None:
     copy = tmp_path / "pit"
     shutil.copytree(OUT_DIR, copy)
@@ -205,8 +230,58 @@ def test_a_malformed_manifest_line_is_a_problem_line_not_an_exception(tmp_path: 
     assert pit_index.verify(copy) == [f"{MANIFEST}: malformed line 'not a manifest line'"]
 
 
-def test_a_bridge_strip_carries_its_end_points_deck_y_and_width_only() -> None:
-    index = json.loads((OUT_DIR / "pit_index.json").read_text(encoding="utf-8"))
-    assert len(index["bridges"]) == 4
+def committed_index() -> dict[str, Any]:
+    return json.loads((OUT_DIR / "pit_index.json").read_text(encoding="utf-8"))
+
+
+def test_a_bridge_carries_its_ends_deck_y_widths_and_landing() -> None:
+    bridges = committed_index()["bridges"]
+    assert len({b["name"] for b in bridges}) == 52
+    for bridge in bridges:
+        assert sorted(bridge) == ["bearing", "deck", "deck_y", "landing", "name", "terrace_end", "tower_end", "walk_width", "width"]
+        assert bridge["landing"]["name"] == bridge["name"].replace("bridge", "landing")
+
+
+def transit_at(index: dict[str, Any], points: np.ndarray) -> np.ndarray:
+    """Which of ``points`` lie in any transit region; ``r`` is the pit radius from the origin's x and z."""
+    held = np.zeros(len(points), dtype=bool)
+    for region in index["transit"]:
+        inside = ((points >= np.array(region["min"])) & (points <= np.array(region["max"]))).all(axis=1)
+        if "r" in region:
+            radius = np.hypot(points[:, 0] - index["origin"][0], points[:, 2] - index["origin"][2])
+            inside &= (radius >= region["r"][0]) & (radius <= region["r"][1])
+        held |= inside
+    return held
+
+
+def strip(bridge: dict[str, Any]) -> np.ndarray:
+    """Every block from the tower end up to, not including, the terrace end, within half the width across, deck y to deck y + 3."""
+    a, b = np.array(bridge["tower_end"])[[0, 2]], np.array(bridge["terrace_end"])[[0, 2]]
+    length = float(np.hypot(*(b - a)))
+    along = (b - a) / length
+    low, high = np.minimum(a, b) - 8, np.maximum(a, b) + 8
+    xs, zs = np.meshgrid(np.arange(low[0], high[0] + 1), np.arange(low[1], high[1] + 1))
+    flat = np.stack([xs.ravel(), zs.ravel()], axis=1)
+    reach, across = (flat - a) @ along, np.abs((flat - a) @ np.array([-along[1], along[0]]))
+    kept = flat[(reach >= 0) & (reach < length) & (across <= bridge["width"] / 2)]
+    return np.array([(x, y, z) for x, z in kept.tolist() for y in range(bridge["deck_y"], bridge["deck_y"] + 4)])
+
+
+def test_no_transit_region_holds_a_bridge_strip() -> None:
+    index = committed_index()
     for bridge in index["bridges"]:
-        assert sorted(bridge) == ["bridge", "deck_width", "deck_y", "end_a", "end_b", "terrace"]
+        points = strip(bridge)
+        held = transit_at(index, points)
+        assert len(points) > 0
+        assert not held.any(), f"{bridge['name']} has {int(held.sum())} blocks in transit, first at {points[held][0].tolist()}"
+
+
+def test_transit_holds_both_ends_of_every_flight_the_gate_hall_and_the_first_decks_south_landing() -> None:
+    index = committed_index()
+    ends = np.array([s[end] for s in index["stairs"] for end in ("top", "bottom")])
+    assert transit_at(index, ends).all()
+    assert transit_at(index, np.array([index["warps"]["gate_hall"]["pos"], [0, 208, 109]])).all()
+
+
+def test_the_open_pit_in_front_of_a_bay_and_the_middle_of_bridge_1_south_are_not_transit() -> None:
+    assert not transit_at(committed_index(), np.array([[0, 208, 70], [0, 150, 80], [0, 208, 104]])).any()
