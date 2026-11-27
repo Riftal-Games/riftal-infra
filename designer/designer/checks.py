@@ -18,7 +18,9 @@ from designer.builders.mine_spec import MineSpec
 from designer.config import PROJECT_ROOT, REPORTS_DIR
 from designer.coords import int_coord, whole_int
 from designer.custody import offdisk_clear
+from designer.pit_handoff import Handoff, build_box, pit_matches_handoff, source_cells
 from designer.region import Bounds, LightRegion, Region, fetch_light, fetch_region
+from designer.structure import StructureSpec
 from designer.verify import MARGIN_Y, WALK_SPEED, Check, Pos, entity_clear, light_ok, mine_valid, no_holes, path_exists
 from designer.verify import region_inside, travel_time, warp_safe
 from designer.world_index import NAME_RE, NamedRegion, WorldIndex, resolve_at
@@ -41,6 +43,7 @@ KINDS: dict[str, tuple[tuple[str, ...], dict[str, str], tuple[str, ...]]] = {
     "no_holes": (("region", "floor_y"), {}, ("inset",)),
     "mine_valid": (("region", "spec"), {}, ()),
     "offdisk_clear": (("world",), {}, ()),
+    "pit_matches_handoff": (("world", "spec"), {}, ("deviations",)),
 }
 TOP_LEVEL = ("version", "defaults", "checks")
 DEFAULT_KEYS = sorted({source for _, optional, _ in KINDS.values() for source in optional.values()})
@@ -63,6 +66,7 @@ class CheckResult:
     detail: str
     coords: list[Pos] = field(default_factory=list)
     seconds: float = 0.0
+    counts: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -161,6 +165,23 @@ def _mine_spec(args: dict[str, Any]) -> MineSpec:
     return MineSpec.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
 
+def _pit_spec(args: dict[str, Any]) -> StructureSpec:
+    path = PROJECT_ROOT / str(args["spec"])
+    if not path.is_file():
+        raise ValueError(f"structure spec {path} does not exist")
+    return StructureSpec.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _accepted(args: dict[str, Any]) -> dict[str, list[str]]:
+    """The problem texts ``args["deviations"]`` accepts, by check, or none when the check names no file."""
+    if "deviations" not in args:
+        return {}
+    path = PROJECT_ROOT / str(args["deviations"])
+    if not path.is_file():
+        raise ValueError(f"deviations file {path} does not exist")
+    return {name: list(texts) for name, texts in json.loads(path.read_text(encoding="utf-8")).items()}
+
+
 def _needs(index: WorldIndex, spec: CheckSpec) -> tuple[str, Bounds, bool] | None:
     """The world, the blocks and whether light is wanted for one check; ``None`` when it reads no blocks."""
     if spec.kind in ("path_exists", "travel_time"):
@@ -171,6 +192,8 @@ def _needs(index: WorldIndex, spec: CheckSpec) -> tuple[str, Bounds, bool] | Non
         return world, Bounds.from_center(pos, SAFETY_SIZE), False
     if spec.kind in ("region_inside", "offdisk_clear"):
         return None
+    if spec.kind == "pit_matches_handoff":
+        return index.world(str(spec.args["world"])).name, build_box(_pit_spec(spec.args), PROJECT_ROOT), False
     named = _region(index, spec.args["region"])
     if spec.kind == "mine_valid":
         geo = _mine_spec(spec.args).geometry()
@@ -222,8 +245,13 @@ class RunContext:
     scan_errors: dict[str, str] = field(default_factory=dict)
 
     @classmethod
-    def fetch(cls, bridge: Bridge, plan: dict[str, Fetch], scans: Iterable[str] = ()) -> RunContext:
-        regions = {world: fetch_region(bridge, world, f.bounds) for world, f in plan.items()}
+    def fetch(cls, bridge: Bridge, plan: dict[str, Fetch], scans: Iterable[str] = (), loaded: dict[str, Region] | None = None) -> RunContext:
+        """``loaded`` holds regions already read, which stand in for a fetch of any box they cover."""
+        held = loaded or {}
+        regions = {
+            world: held[world] if world in held and held[world].bounds.intersect(f.bounds) == f.bounds else fetch_region(bridge, world, f.bounds)
+            for world, f in plan.items()
+        }
         lights = {world: fetch_light(bridge, world, f.bounds) for world, f in plan.items() if f.light}
         findings: dict[str, list[dict[str, Any]]] = {}
         errors: dict[str, str] = {}
@@ -327,10 +355,20 @@ def _run_offdisk(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Ch
     return offdisk_clear(ctx.findings(index.world(str(args["world"])).name))
 
 
+def _run_pit(ctx: RunContext, index: WorldIndex, args: dict[str, Any]) -> Check:
+    spec, zone = _pit_spec(args), index.world(str(args["world"])).name
+    if spec.world != zone:
+        raise ValueError(f"{args['spec']} builds {spec.world!r}, not {zone!r}")
+    ref = Handoff.load(spec, PROJECT_ROOT)
+    docs = source_cells(PROJECT_ROOT / spec.source / spec.file, spec)
+    return pit_matches_handoff(ctx.region(zone, ref.box), ref, docs, _accepted(args))
+
+
 CHECK_RUNNERS: dict[str, Callable[[RunContext, WorldIndex, dict[str, Any]], Check]] = {
     "path_exists": _run_path, "travel_time": _run_travel, "warp_safe": _run_safety(warp_safe),
     "entity_clear": _run_safety(entity_clear), "region_inside": _run_inside, "light_ok": _run_light,
     "no_holes": _run_holes, "mine_valid": _run_mine, "offdisk_clear": _run_offdisk,
+    "pit_matches_handoff": _run_pit,
 }
 
 
@@ -341,11 +379,17 @@ def run_one(ctx: RunContext, index: WorldIndex, spec: CheckSpec) -> CheckResult:
         found = CHECK_RUNNERS[spec.kind](ctx, index, spec.args)
     except (KeyError, ValueError) as exc:
         found = Check(False, str(exc.args[0]) if isinstance(exc, KeyError) and exc.args else str(exc))
-    return CheckResult(spec.id, spec.kind, found.ok, found.detail, list(found.coords), time.perf_counter() - start)
+    counts = found.data.get("counts", {})
+    return CheckResult(spec.id, spec.kind, found.ok, found.detail, list(found.coords), time.perf_counter() - start, counts)
 
 
-def run_checks(bridge: Bridge, index: WorldIndex, checks: Iterable[CheckSpec], *, only: Iterable[str] | None = None) -> Report:
-    """Fetch every world's union once, run the checks, or those whose id is in ``only``, and report."""
+def run_checks(
+    bridge: Bridge, index: WorldIndex, checks: Iterable[CheckSpec], *, only: Iterable[str] | None = None, loaded: dict[str, Region] | None = None,
+) -> Report:
+    """Fetch every world's union once, run the checks, or those whose id is in ``only``, and report.
+
+    A world in ``loaded`` is not fetched again for any box its region covers.
+    """
     checks = list(checks)
     if only is not None:
         wanted = set(only)
@@ -353,7 +397,7 @@ def run_checks(bridge: Bridge, index: WorldIndex, checks: Iterable[CheckSpec], *
             raise ValueError(f"no such check {sorted(unknown)}")
         checks = [c for c in checks if c.id in wanted]
     started = datetime.now(UTC)
-    ctx = RunContext.fetch(bridge, plan_fetches(checks, index), plan_scans(checks, index))
+    ctx = RunContext.fetch(bridge, plan_fetches(checks, index), plan_scans(checks, index), loaded)
     return Report([run_one(ctx, index, spec) for spec in checks], started)
 
 

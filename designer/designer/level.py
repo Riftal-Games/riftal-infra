@@ -367,7 +367,8 @@ def chorus_outside(region: Region, recipe: Recipe, root: Path) -> list[tuple[int
     return [cell for cell in cells if not any(box.contains(cell) for box in interiors)]
 
 
-def _run_checks(bridge: Bridge, recipe: Recipe, index: WorldIndex, all_specs: list[checks_mod.CheckSpec]) -> None:
+def _zone_checks(recipe: Recipe, index: WorldIndex, all_specs: list[checks_mod.CheckSpec]) -> list[checks_mod.CheckSpec]:
+    """The zone's checks, each resolved against the built index and reading the zone; any that does not refuses the build."""
     specs = [s for s in all_specs if s.zone == recipe.zone]
     if not specs:
         raise LevelError(f"checks.yaml has no check with zone {recipe.zone!r}; a zone is not built unchecked")
@@ -377,9 +378,16 @@ def _run_checks(bridge: Bridge, recipe: Recipe, index: WorldIndex, all_specs: li
         raise LevelError(f"checks.yaml has checks on {recipe.zone!r} naming nothing the built index resolves: {unresolved}")
     if elsewhere := [f"{i} reads {world!r}" for i, world in worlds if world != recipe.zone]:
         raise LevelError(f"checks.yaml has checks on {recipe.zone!r} that read another world: {elsewhere}")
+    return specs
+
+
+def _run_checks(bridge: Bridge, recipe: Recipe, index: WorldIndex, specs: list[checks_mod.CheckSpec], region: Region) -> dict[str, Any]:
+    """Run ``specs`` over ``region``, the whole recipe box, and answer the counts of those that report any."""
     # scan() refuses every finding, a stricter test than offdisk_clear, so running it here would only scan the zone twice.
-    if failed := checks_mod.run_checks(bridge, index, [s for s in specs if s.kind != "offdisk_clear"]).failed:
-        raise LevelError(f"{recipe.zone!r} failed {[f'{r.id}: {r.detail}' for r in failed]}")
+    report = checks_mod.run_checks(bridge, index, [s for s in specs if s.kind != "offdisk_clear"], loaded={recipe.zone: region})
+    if report.failed:
+        raise LevelError(f"{recipe.zone!r} failed {[f'{r.id}: {r.detail}' for r in report.failed]}")
+    return {r.id: r.counts for r in report.results if r.counts}
 
 
 def build_level(
@@ -402,9 +410,10 @@ def build_level(
     for tile in pregen_bounds(recipe.bounds).tiles():
         bridge.call_job("pregen", world=zone, bounds=tile.to_json())
     _run_steps(bridge, recipe, root, index, converted)
-    _run_checks(bridge, recipe, index, specs)
-    chunks = scan(bridge, zone)
+    zone_specs = _zone_checks(recipe, index, specs)
     region = fetch_region(bridge, zone, recipe.bounds)
+    counts = _run_checks(bridge, recipe, index, zone_specs, region)
+    chunks = scan(bridge, zone)
     if flowers := chorus_outside(region, recipe, root):
         raise LevelError(f"{zone!r} has {len(flowers)} chorus flower(s) outside every mine interior, first at {flowers[0]}")
     saved = after_stop()
@@ -414,6 +423,8 @@ def build_level(
         "toolkit_commit": saved.toolkit_commit, "inputs": inputs, "chunks": chunks, "size_bytes": saved.size_bytes,
         "content_sha256": content_sha256(region, saved.npcs, saved.texts),
     }
+    if counts:
+        lock["counts"] = counts
     if converted is not None:
         lock["structure"] = {
             "structure_sha256": converted.structure_sha256, "cells": len(converted.cells), "cells_sha256": converted.cells_sha256,

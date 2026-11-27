@@ -70,6 +70,13 @@ class FakeWorld:
             self.palette.append(name)
         return self.palette.index(name)
 
+    def place(self, name: str) -> int:
+        """The palette index of ``name`` without the allow list, since ``load_structure`` writes any state the core reads."""
+        name = format_name(*parse_name(name))
+        if name not in self.palette:
+            self.palette.append(name)
+        return self.palette.index(name)
+
     def blocks(self, bounds: Bounds) -> np.ndarray:
         """Palette indices ``[y][z][x]`` inside ``bounds``."""
         xs, ys, zs = (np.arange(lo, hi + 1) for lo, hi in zip(bounds.min, bounds.max))
@@ -386,8 +393,8 @@ class FakeBridge:
         return self._job("pregen", {"chunks": chunks}, total=chunks)
 
     def op_load_structure(self, args: dict[str, Any]) -> dict[str, Any]:
-        """The checks of ``StructureOps`` and ``StructureLoadJob``: aligned corners, a box within ``MAX_EDGE``, generated chunks, each file's hash and shape."""
-        self._world(args["world"])
+        """The checks of ``StructureOps`` and ``StructureLoadJob``: aligned corners, a box within ``MAX_EDGE``, generated chunks, each file's hash and shape, then every block the files hold."""
+        world = self._world(args["world"])
         cells = args["cells"]
         if self.structure_dir is None or not cells:
             raise FakeOpError("BAD_ARGS", "no structure_dir or no cells")
@@ -409,6 +416,10 @@ class FakeBridge:
             doc = json.loads(raw)
             if len(doc["blocks"]) != 4096 or any(set(e) != {"pos", "color"} for e in doc.get("block_entities", [])):
                 raise FakeOpError("BAD_ARGS", f"cell file {cell['file']} is not 4096 blocks and bed colours")
+            x0, y0, z0 = cell["at"]
+            for i, n in enumerate(doc["blocks"]):
+                if doc["palette"][n] != "minecraft:air":
+                    world.edits[(x0 + i % 16, y0 + i // 256, z0 + i // 16 % 16)] = world.place(doc["palette"][n])
         return self._job("load_structure", {"cells": len(cells)}, total=len(cells))
 
     def op_scan_items(self, args: dict[str, Any]) -> dict[str, Any]:

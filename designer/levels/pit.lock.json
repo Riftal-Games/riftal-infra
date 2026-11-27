@@ -14,6 +14,91 @@
   "chunks": 784,
   "content_sha256": "363409031d5e398d5a316635943f3b522067707f08241ae07d8955ff84032200",
   "core_image": "sha256:679fc6aadb7cd30710a192af0d6bf4d9e71f9b1443fd89e2d0b0b5b0106dc1be",
+  "counts": {
+    "pit_matches_handoff": {
+      "01_read_back": {
+        "cells": 46567062,
+        "mismatches": 0
+      },
+      "02_bed_placeholders": {
+        "per_layer": {
+          "layer 1": 11757,
+          "layer 10": 5217,
+          "layer 11": 4115,
+          "layer 12": 3724,
+          "layer 13": 2953,
+          "layer 14": 2260,
+          "layer 2": 11004,
+          "layer 3": 10249,
+          "layer 4": 9634,
+          "layer 5": 8720,
+          "layer 6": 8186,
+          "layer 7": 7269,
+          "layer 8": 6419,
+          "layer 9": 5888
+        },
+        "total": 97395
+      },
+      "03_placeholders_elsewhere": {
+        "count": 0
+      },
+      "04_contested_mine": {
+        "elsewhere": 0,
+        "in_cuboid": 3200
+      },
+      "05_cells": {
+        "cells": 1869,
+        "cells_ok": 1869,
+        "per_layer": {
+          "1": 234,
+          "10": 108,
+          "11": 96,
+          "12": 72,
+          "2": 222,
+          "3": 204,
+          "4": 204,
+          "5": 174,
+          "6": 162,
+          "7": 144,
+          "8": 126,
+          "9": 123
+        }
+      },
+      "06_census": {
+        "beds": 3738,
+        "chests": 1869,
+        "iron_door_halves": 3738
+      },
+      "07_ladders": {
+        "accepted_deviations": 17,
+        "ladders": 111,
+        "ladders_ok": 94
+      },
+      "08_standable": {
+        "accepted_deviations": 1,
+        "points": 139,
+        "points_ok": 138
+      },
+      "09_walkable": {
+        "accepted_deviations": 2,
+        "legs": 31,
+        "legs_ok": 29
+      },
+      "10_samples": {
+        "samples": 3,
+        "samples_ok": 3
+      },
+      "11_liquids": {
+        "bubble_column": 0,
+        "flowing_lava": 0,
+        "flowing_water": 0,
+        "kelp": 0,
+        "lava": 248,
+        "seagrass": 0,
+        "water": 0
+      }
+    }
+  },
   "designbridge_commit": "ed9ef7a2c67c7f650d428d2588d494017cfbddf0",
   "generator": "void",
   "inputs": {
@@ -22,7 +107,7 @@
     "specs/pit_structure.json": "da9b070507c65a387405e6fbdab6155a2832d854404c2523d24118e3f6e624d4"
   },
   "seed": 0,
-  "size_bytes": 8643983,
+  "size_bytes": 6675350,
   "structure": {
     "cells": 3547,
     "cells_sha256": "ccb2ee78bac2658a0dc977b01cac3da2eb4d5837befb1ed11a98e751893db2cb",
@@ -45,6 +130,6 @@
       "minecraft:scaffolding": "minecraft:bamboo_planks"
     }
   },
-  "toolkit_commit": "b1e3b7a4d402a78ed7dbeb17ce15bb48eae0e5cb",
+  "toolkit_commit": "8cc578e26ca38006867797b6cfe2e20e680dc274",
   "zone": "pit"
 }
