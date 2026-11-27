@@ -145,6 +145,12 @@ checks:
   - check: offdisk_clear
     zone: pit
     world: pit
+  - check: pit_matches_handoff
+    id: pit_matches_handoff
+    zone: pit
+    world: pit
+    spec: specs/pit_structure.json
+    deviations: specs/pit_handoff_deviations.json
   - check: no_holes
     region: plots_0_0
     floor_y: 65

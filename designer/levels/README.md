@@ -68,6 +68,21 @@ read and written by `designer/level.py`.
   source's uncompressed sha256 must equal `structure_sha256` in its `pins.json`, which is
   also hashed into `inputs`. The pit's origin `0 66 0` is the pit's centre at ground level,
   so its minimum corner, `-184 -59 -184`, is where the recipe's bounds start.
+- A `pit_matches_handoff` check (`world`, `spec` the structure spec, optional `deviations`)
+  reads the whole of `bounds` once, the same region `content_sha256` hashes, and runs the
+  eleven checks of the pit plan's section 4.4 against the hand-off's `cells.json`,
+  `routes.json` and `census.json` and the source cut again by `convert`: the read-back
+  against the source cell by cell (01), `packed_mud` in each layer's bed box (02) and
+  nowhere else (03), the contested mine's terracotta (04), every cell's blocks and gray
+  bed (05), the census totals of iron door halves, chests and beds (06), each ladder
+  (07), a solid block under and two air blocks at every stair landing, warp and bridge
+  end (08), `path_exists` along the south stairway and from the gate (09), the three
+  positions INTEGRATION.md quotes (10), and no liquid the source lacks (11). A failure names the cell or
+  position. A bed's colour is not in the read-back, so 05 reads it from the cell files.
+  `deviations` is a file of `{"<check>": {"<exact problem text>": "<why>"}}`: a problem
+  whose text is listed is counted under `accepted_deviations` and does not fail the
+  build, and a listed text that is no longer found fails it. `specs/pit_handoff_deviations.json`
+  lists what the pinned hand-off itself gets wrong.
 
 ## Lock, `<zone>.lock.json`
 
@@ -80,6 +95,7 @@ read and written by `designer/level.py`.
 | `chunks` | Chunks `scan_items` walked: every chunk the saved level holds |
 | `size_bytes` | Uncompressed size of the saved level folder |
 | `content_sha256` | Block states in `bounds`, then `design_npcs.json` and `design_texts.json` when present |
+| `counts` | Only when a zone check reports counts: each such check's id, then each of its numbered checks with what it measured |
 | `structure` | Only with a `structure` step: `structure_sha256` of the source, the number of `cells` written and `cells_sha256` over their positions and file hashes, the `substitutes` map and how many blocks of each name it replaced (`substituted`), and the count of each block entity type dropped (`dropped_block_entities`) |
 
 `chunks` and `size_bytes` count more than the recipe bounds. They include the boot
