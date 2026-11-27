@@ -25,9 +25,9 @@ DRIPSTONE, SCAFFOLDING = "minecraft:dripstone_block", "minecraft:scaffolding[sta
 BED = "minecraft:bed[direction=0,head_piece_bit=true,occupied_bit=false]"
 PALETTE = [
     "minecraft:air", "minecraft:stone", "minecraft:chest[facing_direction=2]", "minecraft:campfire[direction=0,extinguished=false]",
-    BED, DRIPSTONE, SCAFFOLDING, "minecraft:moss_block",
+    BED, DRIPSTONE, SCAFFOLDING, "minecraft:moss_block", "minecraft:packed_mud",
 ]
-AIR, STONE, CHEST, CAMPFIRE, BED_I, DRIP, SCAFF, MOSS = range(8)
+AIR, STONE, CHEST, CAMPFIRE, BED_I, DRIP, SCAFF, MOSS, MUD = range(9)
 SUBSTITUTES = {
     "minecraft:dripstone_block": "minecraft:brown_terracotta",
     "minecraft:moss_block": "minecraft:green_terracotta",
@@ -329,11 +329,10 @@ def test_a_recipe_without_a_structure_step_converts_nothing(level_root: Path) ->
     assert prepare_structures(type(recipe)(**{**recipe.__dict__, "steps": ()}), level_root, level_root / "out") is None
 
 
-@pytest.mark.xfail(strict=True, reason="riftal-infra#1516: the pit recipe bounds are still revision 1")
 def test_the_committed_pit_recipe_covers_chunks_minus_12_to_11_and_agrees_with_the_index() -> None:
     recipe = load_recipe("pit")
     check_index(recipe, WorldIndex.load())
-    assert (recipe.generator, recipe.bounds) == ("void", Bounds((-184, -59, -184), (184, 282, 184)))
+    assert (recipe.generator, recipe.bounds) == ("void", Bounds((-184, -63, -184), (184, 282, 184)))
     pre = pregen_bounds(recipe.bounds)
     assert pre.min[0] >> 4 <= -12 and pre.min[1] >> 4 <= -12 and pre.max[0] >> 4 >= 11 and pre.max[1] >> 4 >= 11
     spec = StructureSpec.from_dict(json.loads((pit_census.SOURCE_DIR.parents[1] / recipe.steps[0].spec).read_text()))
