@@ -161,17 +161,20 @@ def in_shape(mine: Mine, points: np.ndarray, origin: Vec) -> np.ndarray:
 def split_mines(found: dict[str, np.ndarray], routes: dict[str, Any], origin: Vec) -> dict[str, bytes]:
     """One set file per mine; each holds ``routes.json``'s count and every placeholder lies in exactly one."""
     files: dict[str, bytes] = {}
-    claimed = {block: np.zeros(len(points), dtype=bool) for block, points in found.items()}
+    claimed = {block: np.zeros(len(points), dtype=np.int64) for block, points in found.items()}
     for mine in mines(routes):
         inside = in_shape(mine, found[mine.block], origin)
         if int(inside.sum()) != mine.count:
             raise PitIndexError(f"{mine.label}: {int(inside.sum())} placeholders, routes.json says {mine.count}")
         low = (mine.low[0] + origin[0], mine.low[1] + origin[1], mine.low[2] + origin[2])
         files[mine.file] = encode_set(low, mine.size, found[mine.block][inside])
-        claimed[mine.block] = claimed[mine.block] | inside
-    stray = sum(int((~c).sum()) for c in claimed.values())
+        claimed[mine.block] += inside
+    stray = sum(int((c == 0).sum()) for c in claimed.values())
     if stray:
         raise PitIndexError(f"{stray} placeholders lie in no mine's shape")
+    shared = sum(int((c > 1).sum()) for c in claimed.values())
+    if shared:
+        raise PitIndexError(f"{shared} placeholders lie in more than one mine's shape")
     return files
 
 
@@ -222,8 +225,9 @@ def transit_regions(routes: dict[str, Any], layout: dict[str, Any], origin: Vec)
     """Each stairway's flights and balconies, the odd decks' landings, the gate hall and its arches.
 
     A flight or balcony is a band box plus ``r``, an inclusive range of the pit radius
-    ``sqrt((x - ox)^2 + (z - oz)^2)`` over integer block x and z. The band stops at the rim's outer edge, so a flight
-    never covers a bridge strip or the open pit in front of its bay. A region without ``r`` is the box alone.
+    ``sqrt((x - ox)^2 + (z - oz)^2)`` over integer block x and z. A flight's lower bound is its terrace's wall radius,
+    so it never covers a bridge strip or the open pit in front of its bay; the upper bound is the rim's outer edge.
+    A region without ``r`` is the box alone.
     """
     terrace_y = {t["layer"]: t["surface_y"] for t in routes["terraces"]}
     terrace_y[0] = routes["rim"]["walkway_y"]

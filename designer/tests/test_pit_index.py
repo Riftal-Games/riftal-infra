@@ -1,4 +1,4 @@
-"""The pit index, the 14 mine position sets and their delivery before the server starts (riftal-infra#1507)."""
+"""The pit index, the 15 mine position sets and their delivery before the server starts (riftal-infra#1507)."""
 
 from __future__ import annotations
 
@@ -113,6 +113,11 @@ def test_the_ring_stops_before_pit_radius_39() -> None:
         mini([BED, RING, (39, 61, 0)])
 
 
+def test_the_ring_outer_edge_is_the_pit_radius_not_the_tower_radius() -> None:
+    with pytest.raises(PitIndexError, match="1 placeholders lie in no mine's shape"):
+        mini([BED, RING, (-39, 61, 0)])
+
+
 def test_the_15_committed_counts_equal_routes_json() -> None:
     routes = read_json(SOURCE_DIR / "routes.json")
     assert [d["bed_blocks"] for d in routes["decks"]] + [routes["pit_floor"]["layer14_ring"]["blocks"]] == BED_BLOCKS
@@ -173,16 +178,16 @@ def deliver(tmp_path: Path, pit: Path, *command: str) -> tuple[subprocess.Comple
 
 
 @needs_script
-def test_a_boot_delivers_the_index_to_three_folders_and_the_sets_to_mines_alone_then_starts(tmp_path: Path) -> None:
+def test_a_boot_delivers_the_index_and_all_15_sets_to_three_folders_then_starts(tmp_path: Path) -> None:
     done, data = deliver(tmp_path, OUT_DIR, "printf", "%s|", "started")
     assert (done.returncode, done.stdout) == (0, "started|")
+    assert sorted(p.name for p in data.iterdir()) == sorted(INDEX_PLUGINS)
     for plugin in INDEX_PLUGINS:
         assert (data / plugin / "pit_index.json").read_bytes() == (OUT_DIR / "pit_index.json").read_bytes()
-    for name in SETS:
-        assert (data / "RiftalMines" / name).read_bytes() == (OUT_DIR / name).read_bytes()
-    assert sorted(p.name for p in data.iterdir()) == sorted(INDEX_PLUGINS)
-    for plugin in ("RiftalRanks", "RiftalCells"):
-        assert sorted(p.name for p in (data / plugin).iterdir()) == ["pit_index.json"]
+        for name in SETS:
+            assert (data / plugin / name).read_bytes() == (OUT_DIR / name).read_bytes()
+        assert sorted(p.name for p in (data / plugin).iterdir()) == ["mine_sets", "pit_index.json"]
+        assert len(list((data / plugin / "mine_sets").iterdir())) == 15
     assert not (data / "RiftalCustody").exists()
 
 

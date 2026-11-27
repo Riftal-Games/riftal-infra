@@ -139,9 +139,9 @@ path. A `wslc run` of either instance needs the same `-v` and command.
 `/etc/riftal/pit` and run `plugins/deliver-pit-index.sh` straight after the world
 index delivery. It checks every file against `pit.sha256`, stops the boot naming
 any that differs or is missing, then copies `pit_index.json` into
-`/data/plugin_data/RiftalMines/`, `RiftalRanks/` and `RiftalCells/`, and
-`mine_sets/layer_01.bin` to `layer_14.bin` into `RiftalMines/` alone. RiftalCustody
-gets no file (spec 026, ADR 014 item 4). A `wslc run` of either instance needs the
+`/data/plugin_data/RiftalMines/`, `RiftalRanks/` and `RiftalCells/`, with all 15
+sets (`mine_sets/layer_01.bin` to `layer_14.bin` and `contested.bin`) beside it in
+each. RiftalCustody gets no file (spec 026, ADR 014 item 4). A `wslc run` of either instance needs the
 same `-v` and command.
 
 ## The built levels
