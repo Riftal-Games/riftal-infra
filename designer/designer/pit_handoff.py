@@ -1,6 +1,6 @@
 """``pit_matches_handoff``: the pit read back from the server against the studio's hand-off (plan 4.4).
 
-Eleven numbered checks over one ``Region`` of the whole build box, each returning its counts
+Thirteen numbered checks over one ``Region`` of the whole build box, each returning its counts
 and the positions that break it. The counts go into the level's lock, so a build records what
 it was measured against. Coordinates in the hand-off's data files are local, and
 ``world = local + origin``.
@@ -36,12 +36,18 @@ LIQUIDS = (
 FACING = {"north": "2", "south": "3", "west": "4", "east": "5"}
 # Layers 1 to 8 hang a lantern, 9 and deeper a soul lantern.
 LANTERN_LAYERS = 8
-# The three positions INTEGRATION.md quotes after the origin shift, as (local, world).
+# The floor ring is the fourteenth layer's mine.
+RING_LAYER = 14
+# The positions INTEGRATION.md quotes after the origin shift, as (local, world).
 SAMPLES = {
     "south stairway layer 1 bottom landing": ((11, 142, 122), (11, 208, 122)),
-    "contested_mine_top": ((0, -115, 0), (0, -49, 0)),
+    "contested_mine_top": ((0, -121, 6), (0, -55, 6)),
+    "deck_1": ((0, 142, 34), (0, 208, 34)),
+    "hall": ((0, -118, 23), (0, -52, 23)),
     "cell L08-R2-010 door_lower": ((75, 7, -24), (75, 73, -24)),
 }
+# The first layers walked from terrace to deck over a bridge.
+BRIDGE_LEGS = 3
 LEG_MARGIN = 16
 SHOWN = 5
 
@@ -49,6 +55,7 @@ Problem = tuple[str, Pos | None]
 Found = dict[str, tuple[dict[str, Any], list[Problem]]]
 Test = Callable[[str, dict[str, str]], bool]
 Cells = dict[Pos, dict[str, Any]]
+Shape = tuple[str, Bounds, Sequence[str], Sequence[float], str, Callable[[np.ndarray, np.ndarray], np.ndarray]]
 
 
 @dataclass(frozen=True)
@@ -188,20 +195,34 @@ def _placed(view: View, bases: Sequence[str], boxes: list[tuple[str, Bounds, int
     return got, short, int(mask.sum()), [(f"{what} at {pos}, outside every box", pos) for pos in view.first(mask)]
 
 
+def _box(ref: Handoff, radius: int, y: Sequence[int]) -> Bounds:
+    """The square of half-width ``radius`` round the pit axis over local ``y``, clipped to the build box."""
+    low, high = ref.at((-radius, y[0], -radius)), ref.at((radius, y[1], radius))
+    if (box := ref.box.intersect(Bounds(low, high))) is None:
+        raise ValueError(f"the square of radius {radius} at y {tuple(y)} lies outside the build box")
+    return box
+
+
+def _mines(ref: Handoff) -> list[tuple[str, Bounds, int]]:
+    """Each layer's placeholder box and count: the 13 deck beds, then the floor ring."""
+    decks, ring = ref.routes["decks"], ref.routes["pit_floor"]["layer14_ring"]
+    boxes = [(f"layer {d['deck']}", _box(ref, d["bed_r"][1], d["bed_y"]), d["bed_blocks"]) for d in decks]
+    return [*boxes, (f"layer {RING_LAYER}", _box(ref, ring["r"][1], ring["y"]), ring["blocks"])]
+
+
 def _mud(view: View, ref: Handoff, docs: Cells) -> Found:
-    boxes = []
-    for level in ref.routes["levels"]:
-        radius, (y0, y1) = level["bed_r"][1], level["bed_y"]
-        low, high = ref.at((-radius, y0, -radius)), ref.at((radius, y1, radius))
-        boxes.append((f"layer {level['layer']}", Bounds(low, high), level["bed_blocks"]))
-    got, short, elsewhere, stray = _placed(view, (PLACEHOLDER,), boxes, "packed_mud")
+    got, short, elsewhere, stray = _placed(view, (PLACEHOLDER,), _mines(ref), "packed_mud")
     return {"02_bed_placeholders": ({"per_layer": got, "total": sum(got.values())}, short), "03_placeholders_elsewhere": ({"count": elsewhere}, stray)}
+
+
+def _contested(ref: Handoff) -> Bounds:
+    mine = ref.routes["contested_mine"]
+    return Bounds(ref.at(mine["box_min"]), ref.at(mine["box_max"]))
 
 
 def _terracotta(view: View, ref: Handoff, docs: Cells) -> Found:
     mine = ref.routes["contested_mine"]
-    box = Bounds(ref.at(mine["min"]), ref.at(mine["max"]))
-    got, short, elsewhere, stray = _placed(view, TERRACOTTA, [("the contested mine", box, mine["blocks"])], "terracotta")
+    got, short, elsewhere, stray = _placed(view, TERRACOTTA, [("the contested mine", _contested(ref), mine["blocks"])], "terracotta")
     return {"04_contested_mine": ({"in_cuboid": sum(got.values()), "elsewhere": elsewhere}, short + stray)}
 
 
@@ -280,7 +301,7 @@ def _standable(view: View, ref: Handoff, docs: Cells) -> Found:
     routes = ref.routes
     points = [(f"{s['stair']} stairway layer {s['layer']} {end}", ref.at(s[end])) for s in routes["stairs"] for end in ("top_landing", "bottom_landing")]
     points += [(f"warp {name}", ref.at(warp["local"])) for name, warp in routes["warps"].items()]
-    points += [(f"bridge {b['bridge']} {end}", ref.at(b[end])) for b in routes["bridges"] for end in ("end_a", "end_b")]
+    points += [(f"bridge {b['name']} {end}", ref.at(b[end])) for b in routes["bridges"] for end in ("tower_end", "terrace_end")]
     at = np.array([p for _, p in points])
     below, feet, head = (view.class_at(at + (0, dy, 0)) for dy in (-1, 0, 1))
     good = (below == BlockClass.SOLID) & (feet == BlockClass.AIR) & (head == BlockClass.AIR)
@@ -301,25 +322,44 @@ def _legs(ref: Handoff) -> list[tuple[str, Pos, Pos]]:
         legs.append((f"south stairway layer {here['layer']} bottom landing onward", ref.at(here["bottom_landing"]), end))
     legs.append(("gate_outside to gate_hall", ref.at(warps["gate_outside"]["local"]), ref.at(warps["gate_hall"]["local"])))
     legs.append(("gate_hall to terrace 8", ref.at(warps["gate_hall"]["local"]), ref.at(warps["layer_8"]["local"])))
+    legs.append(("pit_floor to hall", ref.at(warps["pit_floor"]["local"]), ref.at(warps["hall"]["local"])))
     return legs
 
 
+def _deck_legs(ref: Handoff) -> list[tuple[str, Pos, Pos, tuple[Pos, Pos]]]:
+    """A terrace's warp to its deck's warp, with the ends of the deck's bridge nearest the terrace warp, so the search corridor holds the bridge."""
+    warps, legs = ref.routes["warps"], []
+    for k in (deck["deck"] for deck in ref.routes["decks"][:BRIDGE_LEGS]):
+        a, b = ref.at(warps[f"layer_{k}"]["local"]), ref.at(warps[f"deck_{k}"]["local"])
+        ends = [(ref.at(x["tower_end"]), ref.at(x["terrace_end"])) for x in ref.routes["bridges"] if x["layer"] == k]
+        legs.append((f"layer_{k} to deck_{k}", a, b, min(ends, key=lambda e: abs(e[1][0] - a[0]) + abs(e[1][2] - a[2]))))
+    return legs
+
+
+def _walk(view: View, label: str, a: Pos, b: Pos, via: Sequence[Pos] = ()) -> Problem | None:
+    box = Bounds(a, b)
+    for pos in via:
+        box = box.union(Bounds(pos, pos))
+    corridor = view.region.bounds.intersect(box.expand(LEG_MARGIN, "xz").expand(MARGIN_Y, "y"))
+    found = path_exists(view.region.sub(corridor), a, b, corridor=corridor) if corridor else None
+    if found is not None and found.ok:
+        return None
+    return f"{label}: {'outside the read-back' if found is None else found.detail}, from {a} to {b}", a
+
+
 def _walkable(view: View, ref: Handoff, docs: Cells) -> Found:
-    legs, problems = _legs(ref), []
-    for label, a, b in legs:
-        corridor = view.region.bounds.intersect(Bounds(a, b).expand(LEG_MARGIN, "xz").expand(MARGIN_Y, "y"))
-        found = path_exists(view.region.sub(corridor), a, b, margin=LEG_MARGIN) if corridor else None
-        if found is None or not found.ok:
-            problems.append((f"{label}: {'outside the read-back' if found is None else found.detail}, from {a} to {b}", a))
+    legs = [(*leg, ()) for leg in _legs(ref)] + _deck_legs(ref)
+    problems = [found for label, a, b, via in legs if (found := _walk(view, label, a, b, via))]
     return {"09_walkable": ({"legs": len(legs), "legs_ok": len(legs) - len(problems)}, problems)}
 
 
 def _samples(view: View, ref: Handoff, docs: Cells) -> Found:
     flight = next(s for s in ref.routes["stairs"] if s["stair"] == "south" and s["layer"] == 1)
     door = next(c for c in ref.cells if c["id"] == "L08-R2-010")
+    warps = ref.routes["warps"]
     data = {
-        "south stairway layer 1 bottom landing": flight["bottom_landing"], "contested_mine_top": ref.routes["warps"]["contested_mine_top"]["local"],
-        "cell L08-R2-010 door_lower": door["door_lower"],
+        "south stairway layer 1 bottom landing": flight["bottom_landing"], "contested_mine_top": warps["contested_mine_top"]["local"],
+        "deck_1": warps["deck_1"]["local"], "hall": warps["hall"]["local"], "cell L08-R2-010 door_lower": door["door_lower"],
     }
     problems: list[Problem] = []
     for name, (local, world) in SAMPLES.items():
@@ -343,11 +383,59 @@ def _liquids(view: View, ref: Handoff, docs: Cells) -> Found:
     return {"11_liquids": ({base.removeprefix("minecraft:"): have[base] for base in LIQUIDS}, problems)}
 
 
-RUNNERS = (_read_back, _mud, _terracotta, _cells, _census, _ladders, _standable, _walkable, _samples, _liquids)
+def _cells_in(view: View, box: Bounds, bases: Sequence[str]) -> np.ndarray:
+    """World ``(x, y, z)`` of each cell of ``bases`` in ``box``, one row per cell."""
+    ys, zs, xs = np.nonzero(np.isin(view.region.blocks[view.region.bounds.slices(box)], view.indices(bases)))
+    return np.stack([xs + box.min[0], ys + box.min[1], zs + box.min[2]], axis=1)
+
+
+def _distance(ref: Handoff, at: np.ndarray, centre: Sequence[float]) -> np.ndarray:
+    """Horizontal distance of each row of ``at`` from ``centre``, local ``(x, z)``."""
+    return np.hypot(at[:, 0] - ref.origin[0] - centre[0], at[:, 2] - ref.origin[2] - centre[1])
+
+
+def _shapes(ref: Handoff) -> list[Shape]:
+    """Where each placeholder may lie: ``t`` is the distance from the tower axis, ``p`` from the pit axis."""
+    routes = ref.routes
+    mines, mine = _mines(ref), routes["contested_mine"]
+    shapes: list[Shape] = []
+    for deck, (label, box, _) in zip(routes["decks"], mines, strict=False):
+        low, high = deck["bed_r"]
+        shapes.append((label, box, (PLACEHOLDER,), deck["centre"], f"r_t {low} to {high}", lambda t, p, low=low, high=high: (t >= low) & (t <= high)))
+    inner, outer = routes["pit_floor"]["layer14_ring"]["r"]
+    ring = (mines[-1][0], mines[-1][1], (PLACEHOLDER,), routes["decks"][0]["centre"], f"r_t {inner} or more and r under {outer}")
+    shapes.append((*ring, lambda t, p: (t >= inner) & (p < outer)))
+    shapes.append(("the contested mine", _contested(ref), TERRACOTTA, mine["centre"], f"r_t under {mine['radius']}", lambda t, p: t < mine["radius"]))
+    return shapes
+
+
+def _centres(view: View, ref: Handoff, docs: Cells) -> Found:
+    seen, bad, problems = 0, 0, []
+    for label, box, bases, centre, rule, inside in _shapes(ref):
+        at = _cells_in(view, box, bases)
+        wrong = ~inside(_distance(ref, at, centre), _distance(ref, at, (0, 0)))
+        seen, bad = seen + len(at), bad + int(wrong.sum())
+        for x, y, z in at[wrong][:SHOWN].tolist():
+            problems.append((f"{label} placeholder at {(x, y, z)} lies outside {rule}", (x, y, z)))
+    return {"12_two_centres": ({"placeholders": seen, "placeholders_ok": seen - bad}, problems)}
+
+
+def _bridges(view: View, ref: Handoff, docs: Cells) -> Found:
+    bridges, ok, problems = ref.routes["bridges"], 0, []
+    for bridge in bridges:
+        name, end, landing = bridge["name"], ref.at(bridge["terrace_end"]), bridge["landing"]
+        found = [walk] if (walk := _walk(view, f"bridge {name} tower end to terrace end", ref.at(bridge["tower_end"]), end)) else []
+        if not Bounds(ref.at(landing["box_min"]), ref.at(landing["box_max"])).contains(end):
+            found.append((f"bridge {name} terrace end {end} lies outside the box of {landing['name']}", end))
+        ok, problems = ok + (not found), problems + found
+    return {"13_bridges": ({"bridges": len(bridges), "bridges_ok": ok}, problems)}
+
+
+RUNNERS = (_read_back, _mud, _terracotta, _cells, _census, _ladders, _standable, _walkable, _samples, _liquids, _centres, _bridges)
 
 
 def pit_matches_handoff(region: Region, ref: Handoff, docs: Cells, accepted: dict[str, list[str]] | None = None) -> Check:
-    """The eleven checks of plan 4.4 over ``region``, the whole build box, against ``docs``, the source's cell documents.
+    """The thirteen checks of plan 4.4 over ``region``, the whole build box, against ``docs``, the source's cell documents.
 
     ``accepted`` maps a check's number and name to the exact problem texts the hand-off is known to have, so
     those do not fail the build. An accepted text the check no longer finds fails it, so the list cannot go stale.
@@ -366,7 +454,7 @@ def pit_matches_handoff(region: Region, ref: Handoff, docs: Cells, accepted: dic
     counts = {name: count for name, (count, _) in found.items()}
     failed = {name: problems for name, (_, problems) in found.items() if problems}
     if not failed:
-        return Check(True, "all eleven checks hold", [], {"counts": counts})
+        return Check(True, "all thirteen checks hold", [], {"counts": counts})
     detail = "; ".join(
         f"check {name}: " + " | ".join(text for text, _ in problems[:SHOWN]) + (f" | and {len(problems) - SHOWN} more" if len(problems) > SHOWN else "")
         for name, problems in failed.items()

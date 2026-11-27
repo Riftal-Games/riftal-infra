@@ -1,4 +1,4 @@
-"""``pit_matches_handoff``: each of plan 4.4's eleven checks fails by name, and a build through the fake bridge is gated by it."""
+"""``pit_matches_handoff``: each of plan 4.4's thirteen checks fails by name, and a build through the fake bridge is gated by it."""
 
 from __future__ import annotations
 
@@ -11,20 +11,26 @@ from pathlib import Path
 import pytest
 
 from designer import checks as checks_mod
-from designer import pit_census
+from designer import pit_census, pit_handoff
 from designer.bridge import Bridge
 from designer.checks import CheckSpec, RunContext, check_world, load_checks, plan_fetches, run_one
 from designer.level import LevelError, Saved, build_level, load_recipe, prepare_structures
+from designer.pit_handoff import SAMPLES as REAL_SAMPLES
 from designer.pit_handoff import pit_matches_handoff
 from designer.world_index import Location, WorldEntry, WorldIndex
 from tests.fake_bridge import FakeBridge, FakeWorld
-from tests.pit_fixture import BOX, CELLS, CENSUS, LADDERS, MUD, MUD_AT, ORIGIN, ROUTES, Pit, bed_colours, build, layout, structure_file, world
+from tests.pit_fixture import BOX, CELLS, CENSUS, LADDERS, MUD, MUD_AT, ORIGIN, ROUTES, SAMPLES, Pit, bed_colours, build, layout, structure_file, world
 
 AIR, STONE, CLAY = "minecraft:air", "minecraft:stone", "minecraft:hardened_clay"
 IRON_DOOR = "minecraft:iron_door[door_hinge_bit=false,minecraft:cardinal_direction=west,open_bit=false,upper_block_bit=false]"
 LADDER_NORTH = "minecraft:ladder[facing_direction=2]"
 WATER = "minecraft:water[liquid_depth=0]"
 CELL_A, CELL_B = CELLS
+
+
+@pytest.fixture(autouse=True)
+def _miniature_samples(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pit_handoff, "SAMPLES", SAMPLES)
 
 
 def _set(pit: Pit, local: tuple[int, int, int], name: str) -> None:
@@ -35,6 +41,15 @@ def _walls_off_the_gate(pit: Pit) -> None:
     for x in range(-8, 9):
         for y in (2, 3, 4):
             _set(pit, (x, y, 80), STONE)
+
+
+def _a_cut_across_the_bridge(pit: Pit) -> None:
+    for x in range(-2, 3):
+        _set(pit, (x, 141, 60), AIR)
+
+
+def _a_landing_that_misses_the_terrace_end(pit: Pit) -> None:
+    pit.ref.routes["bridges"][0]["landing"]["box_min"] = [5, 141, 96]
 
 
 def _a_wrong_sample_in_the_data(pit: Pit) -> None:
@@ -66,11 +81,17 @@ CASES: list[tuple[str, Callable[[Pit], None], str]] = [
     ("07_ladders", lambda p: _set(p, (LADDERS[0]["x"], 144, LADDERS[0]["z"]), AIR), "layer 1 ladder at x -14 z 110: 1 of 5 blocks are not a ladder facing east, first minecraft:air at (-14, 210, 110)"),
     ("07_ladders", _a_ladder_the_wrong_way, "not a ladder facing east, first minecraft:ladder[facing_direction=2] at (-14, 210, 110)"),
     ("08_standable", lambda p: _set(p, (0, 143, 110), STONE), "warp rim_south at (0, 208, 110)"),
-    ("08_standable", lambda p: _set(p, (12, 141, 104), AIR), "bridge 1 end_a at (12, 208, 104)"),
+    ("08_standable", lambda p: _set(p, (0, 141, 36), AIR), "bridge bridge_1 tower_end at (0, 208, 36)"),
     ("09_walkable", _walls_off_the_gate, "gate_hall to terrace 8: no path"),
+    ("09_walkable", _a_cut_across_the_bridge, "layer_1 to deck_1: no path"),
     ("10_samples", lambda p: _set(p, tuple(CELL_A["door_lower"]), AIR), "cell L08-R2-010 door_lower at (75, 73, -24) holds minecraft:air, not an iron door"),
     ("10_samples", _a_wrong_sample_in_the_data, "south stairway layer 1 bottom landing: the data has local (11, 142, 121)"),
     ("11_liquids", lambda p: p.region.set(20, 216, 20, WATER), "1 minecraft:water, the source has 0, first at (20, 216, 20)"),
+    ("12_two_centres", lambda p: p.region.set(*world((5, 62, 0)), MUD), "layer 1 placeholder at (5, 128, 0) lies outside r_t 3 to 5"),
+    ("12_two_centres", lambda p: p.region.set(*world((20, -118, 0)), MUD), "layer 14 placeholder at (20, -52, 0) lies outside r_t 26 or more and r under 39"),
+    ("12_two_centres", lambda p: p.ref.routes["contested_mine"].update(radius=1), "the contested mine placeholder at (1, -51, -1) lies outside r_t under 1"),
+    ("13_bridges", _a_cut_across_the_bridge, "bridge bridge_1 tower end to terrace end: no path"),
+    ("13_bridges", _a_landing_that_misses_the_terrace_end, "bridge bridge_1 terrace end (0, 208, 96) lies outside the box of landing_1"),
 ]
 
 
@@ -85,22 +106,24 @@ def pit() -> Pit:
     return build()
 
 
-def test_the_miniature_passes_all_eleven_and_reports_each_count(pit: Pit) -> None:
+def test_the_miniature_passes_all_thirteen_and_reports_each_count(pit: Pit) -> None:
     found = pit_matches_handoff(pit.region, pit.ref, pit.docs)
     assert found.ok, found.detail
     counts = found.data["counts"]
-    assert [name.partition("_")[0] for name in counts] == [f"{n:02d}" for n in range(1, 12)]
+    assert [name.partition("_")[0] for name in counts] == [f"{n:02d}" for n in range(1, 14)]
     assert counts["01_read_back"] == {"cells": BOX.volume, "mismatches": 0}
-    assert counts["02_bed_placeholders"] == {"per_layer": {"layer 1": 3, "layer 2": 2}, "total": 5}
+    assert counts["02_bed_placeholders"] == {"per_layer": {"layer 1": 3, "layer 2": 2, "layer 14": 3}, "total": 8}
     assert counts["03_placeholders_elsewhere"] == {"count": 0}
     assert counts["04_contested_mine"] == {"in_cuboid": 18, "elsewhere": 0}
     assert counts["05_cells"] == {"cells": 2, "cells_ok": 2, "per_layer": {"8": 1, "9": 1}}
     assert counts["06_census"] == {"iron_door_halves": 4, "chests": 2, "beds": 4}
     assert counts["07_ladders"] == {"ladders": 1, "ladders_ok": 1}
-    assert counts["08_standable"] == {"points": 12, "points_ok": 12}
-    assert counts["09_walkable"] == {"legs": 7, "legs_ok": 7}
-    assert counts["10_samples"] == {"samples": 3, "samples_ok": 3}
+    assert counts["08_standable"] == {"points": 19, "points_ok": 19}
+    assert counts["09_walkable"] == {"legs": 10, "legs_ok": 10}
+    assert counts["10_samples"] == {"samples": 5, "samples_ok": 5}
     assert counts["11_liquids"]["water"] == 0
+    assert counts["12_two_centres"] == {"placeholders": 26, "placeholders_ok": 26}
+    assert counts["13_bridges"] == {"bridges": 2, "bridges_ok": 2}
 
 
 @pytest.mark.parametrize(("check", "break_it", "names"), CASES, ids=[f"{c}-{i}" for i, (c, _, _) in enumerate(CASES)])
@@ -153,19 +176,30 @@ def test_a_failure_with_positions_hands_them_back(pit: Pit) -> None:
     assert (3, 208, 112) in found.coords
 
 
-@pytest.mark.xfail(strict=True, reason="riftal-infra#1517: the check and its figures are still revision 1")
 def test_the_committed_hand_off_carries_the_figures_of_plan_4_4() -> None:
     folder = pit_census.SOURCE_DIR
     routes, cells = json.loads((folder / "routes.json").read_text()), json.loads((folder / "cells.json").read_text())
     census = json.loads((folder / "census.json").read_text())["block_names"]
-    beds = [level["bed_blocks"] for level in routes["levels"]]
-    assert beds == [11757, 11004, 10249, 9634, 8720, 8186, 7269, 6419, 5888, 5217, 4115, 3724, 2953, 2260]
-    assert sum(beds) == census["minecraft:packed_mud"] == 97395
-    assert routes["contested_mine"]["blocks"] == census["minecraft:hardened_clay"] == 3200
+    beds = [deck["bed_blocks"] for deck in routes["decks"]]
+    assert beds == [19140, 17916, 16668, 15492, 14388, 13356, 12324, 11292, 10404, 9348, 8508, 7740, 6900]
+    ring = routes["pit_floor"]["layer14_ring"]["blocks"]
+    assert (sum(beds), ring) == (163476, 11718)
+    assert sum(beds) + ring == census["minecraft:packed_mud"] == routes["mines"]["total_packed_mud"] == 175194
+    assert routes["contested_mine"]["blocks"] == census["minecraft:hardened_clay"] == 5824
     assert len(cells["cells"]) == 1869 and len(cells["ladders"]) == 111
     assert [sum(1 for c in cells["cells"] if c["layer"] == n) for n in range(1, 13)] == [234, 222, 204, 204, 174, 162, 144, 126, 123, 108, 96, 72]
-    assert (len(routes["stairs"]), len(routes["warps"]), len(routes["bridges"])) == (56, 19, 4)
+    assert (len(routes["stairs"]), len(routes["warps"]), len(routes["bridges"])) == (56, 32, 52)
     assert census["minecraft:iron_door"] == 2 * 1869 and census["minecraft:chest"] == 1869 and census["minecraft:bed"] == 2 * 1869
+
+
+def test_the_committed_hand_off_holds_the_sample_positions_and_every_bridge_lands_in_its_box() -> None:
+    folder = pit_census.SOURCE_DIR
+    routes = json.loads((folder / "routes.json").read_text())
+    for name in ("contested_mine_top", "deck_1", "hall"):
+        assert tuple(routes["warps"][name]["local"]) == REAL_SAMPLES[name][0]
+    for bridge in routes["bridges"]:
+        low, high = bridge["landing"]["box_min"], bridge["landing"]["box_max"]
+        assert all(a <= p <= b for a, p, b in zip(low, bridge["terrace_end"], high, strict=True)), bridge["name"]
 
 
 def test_the_committed_check_gates_the_pit_and_reads_its_whole_box() -> None:
@@ -237,7 +271,7 @@ def test_a_clean_build_passes_the_gate_and_writes_every_count_into_the_lock(fake
     _level(tmp_path, fake, monkeypatch, layout())
     lock = json.loads(_build(bridge, fake, tmp_path).read_text(encoding="utf-8"))
     counts = lock["counts"]["pit_matches_handoff"]
-    assert [name.partition("_")[0] for name in counts] == [f"{n:02d}" for n in range(1, 12)]
+    assert [name.partition("_")[0] for name in counts] == [f"{n:02d}" for n in range(1, 14)]
     assert counts["01_read_back"] == {"cells": BOX.volume, "mismatches": 0}
     assert counts["05_cells"]["cells_ok"] == 2
 
