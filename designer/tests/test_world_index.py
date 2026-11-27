@@ -72,7 +72,9 @@ def test_the_pit_sell_and_rankup_points_are_the_pit_index_points(index: WorldInd
         "rankup_rim": ("pit", points["rankup_rim"], ["rankup"]),
         "sell_gate": ("pit", points["sell_gate"], ["sell"]),
         "rankup_gate": ("pit", points["rankup_gate"], ["rankup"]),
+        "portal_lumber_out": ("pit", points["portal_lumber_out"], []),
     }
+    assert index.resolve("portal_lumber_out").yaw == 180
 
 
 def test_the_lumber_arrival_is_what_the_mine_builder_places_at_the_stairway_foot(index: WorldIndex) -> None:
@@ -123,7 +125,7 @@ def test_save_is_byte_stable_and_name_ordered(index: WorldIndex, tmp_path: Path)
     assert first == other.save(tmp_path / "b.json", updated=STAMP).read_bytes()
     assert first == WorldIndex.load(tmp_path / "a.json").save(tmp_path / "c.json", updated=STAMP).read_bytes()
     assert b"\r" not in first and first.endswith(b"}\n")
-    assert [l.name for l in WorldIndex.load(tmp_path / "a.json").locations] == ["farm_spawn", "gate", "lumber_spawn", "mine_a_spawn", "mine_b_spawn", "mine_c_spawn", "quarry_spawn", "rankup_gate", "rankup_npc_a", "rankup_rim", "sell_gate", "sell_npc_a", "sell_rim", "spawn"]
+    assert [l.name for l in WorldIndex.load(tmp_path / "a.json").locations] == ["farm_spawn", "gate", "lumber_spawn", "mine_a_spawn", "mine_b_spawn", "mine_c_spawn", "portal_lumber_out", "quarry_spawn", "rankup_gate", "rankup_npc_a", "rankup_rim", "sell_gate", "sell_npc_a", "sell_rim", "spawn"]
 
     index.save(tmp_path / "now.json")
     assert datetime.fromisoformat(index.updated).tzinfo is not None
