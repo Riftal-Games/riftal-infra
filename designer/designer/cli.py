@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -137,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     default_bridge = stack_mod.STACK_DIR.parent.parent.parent / "riftal-game" / "designbridge"
     level_build.add_argument("--designbridge", type=Path, default=default_bridge, metavar="PATH", help="DesignBridge source folder.")
     level_build.add_argument("--plugins", type=Path, default=stack_mod.STACK_DIR / "plugins", metavar="PATH", help="Folder holding DevTools.phar.")
+    level_build.add_argument("--structures", type=Path, default=None, metavar="PATH", help="Empty folder the structure step's cell files are written to and the build server mounts read-only; default a temporary folder.")
     level_build.add_argument("--bridge-port", type=int, default=level_engine.DEFAULT_BRIDGE_PORT, metavar="PORT", help="Loopback port the build's bridge publishes on.")
     limits = level_engine.Limits()
     level_build.add_argument("--memory", default=limits.memory, metavar="SIZE", help="Memory cap of the build server; 0 for none.")
@@ -349,9 +351,11 @@ def _level(options: argparse.Namespace) -> str:
         raise LevelError(f"no DesignBridge source at {options.designbridge}; pass --designbridge")
     if not (options.plugins / "DevTools.phar").is_file():
         raise LevelError(f"{options.plugins} holds no DevTools.phar, which loads DesignBridge from source; run 'designer stack build-devtools'")
-    sources = level_engine.Sources(options.designbridge.resolve(), options.plugins.resolve(), options.bridge_port)
     limits = level_engine.Limits(options.memory, options.cpus, options.tool_memory, options.tool_cpus)
-    lock = level_engine.build(options.zone, stack_mod.runtime_name(), sources, limits=limits)
+    with tempfile.TemporaryDirectory(prefix="riftal-structures-", ignore_cleanup_errors=True) as scratch:
+        structures = options.structures if options.structures is not None else Path(scratch) / "cells"
+        sources = level_engine.Sources(options.designbridge.resolve(), options.plugins.resolve(), options.bridge_port, structures.resolve())
+        lock = level_engine.build(options.zone, stack_mod.runtime_name(), sources, limits=limits)
     return f"{lock}\ncontent_sha256={json.loads(lock.read_text(encoding='utf-8'))['content_sha256']}"
 
 

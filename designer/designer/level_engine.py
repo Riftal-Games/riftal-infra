@@ -14,7 +14,7 @@ import subprocess
 import tarfile
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,7 @@ from designer.bridge import Bridge
 from designer.config import PROJECT_ROOT
 from designer.level import (
     LevelError, Saved, build_level, check_index, check_mine_gate, check_reset_states, load_recipe, mines_config_path,
+    prepare_structures,
 )
 from designer.world_index import WorldIndex
 
@@ -105,6 +106,7 @@ class Sources:
     designbridge: Path
     plugins: Path
     bridge_port: int = DEFAULT_BRIDGE_PORT
+    structures: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -191,6 +193,7 @@ def run_args(zone: str, generator: str, seed: int, token: str, sources: Sources,
         "run", "-d", "-i", *limits.server(), "--name", name, "-p", f"127.0.0.1:{sources.bridge_port}:19140/tcp",
         "-v", f"{name}:/data", "-v", f"{sources.plugins.as_posix()}:/plugins",
         "-v", f"{sources.designbridge.as_posix()}:/plugins/DesignBridge:ro",
+        *([] if sources.structures is None else ["-v", f"{sources.structures.as_posix()}:/structures:ro"]),
         "-e", f"DESIGNBRIDGE_TOKEN={token}", "-e", f"POCKETMINE_ARGS={flags}", stack.IMAGE,
     ]
 
@@ -288,6 +291,13 @@ def build(
     specs = checks_mod.load_checks(checks_path)
     check_mine_gate(recipe, specs, mines_config_path() if mines_config is None else mines_config, root)
     check_reset_states(recipe, root)
+    converted = None
+    if any(step.build == "structure" for step in recipe.steps):
+        if sources.structures is None:
+            raise LevelError(f"{zone!r} has a structure step; pass the directory to convert into as Sources.structures")
+        converted = prepare_structures(recipe, root, sources.structures)
+    else:
+        sources = replace(sources, structures=None)
     engine, name, token = Engine(runtime, runner), WORK_PREFIX + zone, secrets.token_urlsafe(24)
     check_unmounted(engine, PREFIX + zone)
     fresh_volume(engine, name)
@@ -305,7 +315,9 @@ def build(
     try:
         _until(lambda: all(map(_clean(name, engine.text("logs", name)).__contains__, READY)), BOOT_TIMEOUT, f"{name} logged no {READY}")
         with (connect or (lambda port, key: Bridge("127.0.0.1", port, key)))(sources.bridge_port, token) as bridge:
-            lock_path = build_level(bridge, zone, after_stop, root=root, index=index, checks_path=checks_path, mines_config=mines_config)
+            lock_path = build_level(
+                bridge, zone, after_stop, root=root, index=index, checks_path=checks_path, mines_config=mines_config, converted=converted,
+            )
     finally:
         if not state["stopped"]:
             stop(engine, name)

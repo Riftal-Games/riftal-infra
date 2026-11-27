@@ -9,7 +9,7 @@ from designer.custody import classify, offdisk_clear
 from designer.world_index import WorldEntry, WorldIndex
 from tests.fake_bridge import FakeBridge, FakeWorld
 
-M1_ZONES = ("mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm")
+M1_ZONES = ("mine_a", "mine_b", "mine_c", "lumber", "quarry", "farm", "pit")
 
 
 def _entity(save_id: Any, pos: tuple[int, int, int] = (1, 64, 2)) -> dict[str, Any]:
