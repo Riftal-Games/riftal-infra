@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Copies riftal-game's shipped mines, ranks, accounts, economy, plots and gangs
-# configs from the checkout in $1 into images/riftal-game-snapshot and records
+# Copies riftal-game's shipped mines, ranks, accounts, economy, plots, gangs,
+# cells and custody configs from the checkout in $1 into images/riftal-game-snapshot and records
 # the commit in SOURCE. Run it in the same PR as the riftal-infra template change that
 # follows a riftal-game config change, then run
 # plugins/instance-only/selftest.sh, which compares the template to the copy.
@@ -10,7 +10,7 @@ set -euo pipefail
 
 game="${1:?usage: refresh-riftal-game-snapshot.sh <riftal-game checkout>}"
 dest="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/riftal-game-snapshot"
-plugins=(mines ranks accounts economy plots gangs)
+plugins=(mines ranks accounts economy plots gangs cells custody)
 
 paths=()
 for plugin in "${plugins[@]}"; do

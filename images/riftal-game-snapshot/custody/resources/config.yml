@@ -1,0 +1,20 @@
+# The one world where custody leaves placement and crafting-table drops to
+# ADR 012, docs/decisions/013-item-yielding-entities-are-never-saved.md item 7.
+# A world folder name, the same on every instance.
+plots-world: "plots"
+
+# The worlds where nothing burns, spreads, flows or takes a random tick,
+# docs/specs/026-pit-world-and-ring-mines.md. A list of world folder names,
+# the same on every instance. [] guards none.
+static-worlds: [pit]
+
+# The most player files pickups may flush in one server tick, together, ADR
+# 017 item 2. At least 2. Bounded above by that ADR's proof P11, which shows K
+# flushes fit a tick. docs/tuning-numbers.md.
+pickup-flushes-per-tick: 2
+
+# W, the most moves into or out of an opened tile in one server tick across
+# the instance, ADR 025 item 8, and at most one a mover. At least 1. Bounded
+# above by that ADR's proof P7, which shows W moves fit a tick beside K
+# flushes. docs/tuning-numbers.md.
+tile-moves-per-tick: 2

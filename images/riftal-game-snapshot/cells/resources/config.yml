@@ -1,0 +1,17 @@
+# Prison cells in the pit, docs/specs/027-cells-stash-and-join.md.
+# pit-name is spec 026's pit key prefix, the pit cell_last rows name.
+pit-world: "pit"
+pit-name: "pit"
+
+# A copy of ranks' rank-to-layer map under spec 026, which must equal it on
+# every pit instance. A player with no rank row takes the first entry.
+rank-layers:
+  A: 1
+  B: 2
+  C: 3
+
+# docs/tuning-numbers.md's stash slots, cell door open time and cell
+# assignment wait.
+stash-slots: 27
+door-open-seconds: 5
+assign-timeout-seconds: 15

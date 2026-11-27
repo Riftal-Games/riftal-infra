@@ -240,7 +240,7 @@ cleared, and leaves both as they were.
 On the dev stack, with the `mysql` service up, both instances stopped, and
 the variables set as in `README.md`'s Running it locally. Mount both instance
 volumes as the `backup` service does, and each zone's `riftal_smoke_level_<zone>`
-volume read-only at `/builds/<zone>`, the six in `images/compose.yaml`'s
+volume read-only at `/builds/<zone>`, the seven in `images/compose.yaml`'s
 `RIFTAL_LEVEL_ZONES`. Without them the wipe refuses at the first built level:
 
 ```sh
@@ -249,7 +249,7 @@ wslc run --rm --network riftal-dev \
   -v riftal-backups:/backups:ro -v "$INFRA/designer/levels:/levels:ro" \
   -v riftal_smoke_level_lumber:/builds/lumber:ro -v riftal_smoke_level_mine_a:/builds/mine_a:ro \
   -v riftal_smoke_level_mine_b:/builds/mine_b:ro -v riftal_smoke_level_mine_c:/builds/mine_c:ro \
-  -v riftal_smoke_level_quarry:/builds/quarry:ro -v riftal_smoke_level_farm:/builds/farm:ro \
+  -v riftal_smoke_level_quarry:/builds/quarry:ro -v riftal_smoke_level_farm:/builds/farm:ro -v riftal_smoke_level_pit:/builds/pit:ro \
   -v riftal-world:/worlds/riftal-world -v riftal-world-b:/worlds/riftal-world-b \
   -e MYSQL_HOST=mysql -e MYSQL_USER=root -e MYSQL_PASSWORD="$MYSQL_ROOT_PASSWORD" \
   -e MYSQL_DATABASE=riftal_dev -e WIPE_CONFIRM=riftal_dev -e RIFTAL_DEV_ENV=1 \

@@ -147,10 +147,10 @@ same `-v` and command.
 ## The built levels
 
 `instance` runs `plugins/seed-levels.sh` straight after the deliveries above,
-with `RIFTAL_LEVEL_ZONES="lumber mine_a mine_b mine_c quarry farm"`, and mounts the named volumes
+with `RIFTAL_LEVEL_ZONES="lumber mine_a mine_b mine_c quarry farm pit"`, and mounts the named volumes
 `riftal_smoke_level_lumber`, `riftal_smoke_level_mine_a`,
 `riftal_smoke_level_mine_b`, `riftal_smoke_level_mine_c`,
-`riftal_smoke_level_quarry` and `riftal_smoke_level_farm` read-only at
+`riftal_smoke_level_quarry`, `riftal_smoke_level_farm` and `riftal_smoke_level_pit` read-only at
 `/etc/riftal/levels/<zone>`
 (ADR 009 items 5 and 6). When `/data/worlds/<zone>` is absent the step checks
 the mounted level against its `level-manifest.json`, copies it onto
@@ -168,14 +168,14 @@ the `seed-levels:` line that names
 volume is a cache, and losing it costs one build run. A `riftal-world` that
 already holds a zone, generated or built, is never reseeded.
 
-`instance` boots `--level-name=mine_a`, so a `riftal-world` that has booted
-before already holds a generated `mine_a`, which the step leaves alone. The
-built one reaches it through `../deploy/LEVEL-REPLACE.md`, an operator
-procedure. The join teleport sends every join to `mine_a_spawn`, at the end of
-the built level's exit lane, so on that volume the switch is meaningful only
-after the swap. A fresh `riftal-world` is seeded with the built level directly.
-`mine_b`, `mine_c`, `quarry` and `farm` are not a `--level-name`, so any
-`riftal-world` that lacks one of those folders is seeded with it on the next boot.
+`instance` boots `--level-name=pit` with `--view-distance=16` and
+`--max-players=1869`, the pit's cell count. A `riftal-world` that lacks `pit`
+is seeded with the built level on the next boot. `lumber`, `mine_a`, `mine_b`,
+`mine_c`, `quarry` and `farm` stay seeded and loaded for the plugins that still
+name them. A `riftal-world` that booted when `mine_a` was the default already
+holds a generated `mine_a`, which the step leaves alone; the built one reaches it
+through `../deploy/LEVEL-REPLACE.md`, an operator procedure. The join teleport
+still sends every join to `mine_a_spawn`.
 
 `riftal-pm`'s `devtools/instance-shape.js` mirrors `instance`'s command, mount
 destinations and environment names for the `wslc` bring-up, so a change to any

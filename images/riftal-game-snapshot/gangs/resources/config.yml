@@ -1,10 +1,14 @@
 # Gangs and gang levels, design plan §4.5-§4.7; contested mine, §7. The
 # plugin owns gang founding, joining, money contribution, material deposit,
 # gang levels, deposits into, viewing of and the founder's withdrawals from
-# the gang vault, and the contested-mine eligibility flag,
-# docs/specs/013-gangs-and-gang-levels.md.
-# The shared MySQL database is the one that spec's "Instance-split impact"
-# section requires. riftal-infra overrides this section per instance.
+# the gang vault, the contested-mine eligibility flag, the contested mine's
+# block-break gate, its capture attempts, from the alert the controlling
+# gang's members get as one starts through to the transfer of control, and
+# each gang's daily shield window with the notice a rival member gets
+# inside it, docs/specs/013-gangs-and-gang-levels.md and
+# docs/specs/014-contested-mine.md.
+# The shared MySQL database is the one both specs' "Instance-split impact"
+# sections require. riftal-infra overrides this section per instance.
 # `mysql` is the network alias every riftal-infra stack gives the database;
 # `riftal-mysql` is one stack's container name and resolves nowhere else.
 database:
