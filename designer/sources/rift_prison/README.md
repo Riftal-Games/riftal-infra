@@ -1,13 +1,14 @@
 # rift_prison sources
 
-The studio's hand-off for the pit, pinned by sha256 in `pins.json`. Every file
+The studio's hand-off for the pit, map revision 2 (the mine tower), pinned by sha256 in `pins.json`. Every file
 here is a byte copy and is excluded from line-ending rewrites in `.gitattributes`,
 since the pins are of those exact bytes.
 
 | File | From the hand-off |
 |---|---|
-| `cells.json`, `routes.json`, `markers.json` | the top level of `builds/rift_prison/`. `export/markers.json` holds the same markers wrapped with `anchor`, `size` and `min_corner`. |
-| `rift_prison_bedrock.mcstructure.gz` | `export/rift_prison_bedrock.mcstructure`, 373,116,853 bytes, gzipped. |
+| `cells.json`, `routes.json`, `markers.json` | the top level of `builds/rift_prison/`. |
+| `export_markers.json` | `export/markers.json`, the same markers wrapped with `anchor`, `size` and `min_corner`. |
+| `rift_prison_bedrock.mcstructure.gz` | `export/rift_prison_bedrock.mcstructure`, 377,484,269 bytes, gzipped. |
 | `pins.json` | the sha256 of each file above, and `structure_sha256`, the sha256 of the structure's uncompressed bytes. That one names the content, since two gzips of the same bytes differ. |
 | `census.json` | every block state and block-entity type with its count, and `resolution`, the pinned core image's verdict on each. |
 

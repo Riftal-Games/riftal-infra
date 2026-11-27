@@ -1,10 +1,11 @@
 {
  "files": {
   "cells.json": "8799a1f9d35edc8f486e3f82e1f6ea4d3c278779d8bc7618bc704285a026d347",
-  "markers.json": "bdbd9d9f811c1852e2390aa3a51e66713a5176c240fc007144daa6f01dbcd719",
-  "rift_prison_bedrock.mcstructure.gz": "8fe63813bbad596a43d31576ebb271784c22d31dcdf5deee9db9780aef85e507",
-  "routes.json": "37baa50424e510e3fefab853749c1a8d1f0a2a92c678e152539360548fdea12f"
+  "export_markers.json": "a050bbe01b643348d674f01045c56cccb6214e57707e3131389d0f452f5a7270",
+  "markers.json": "b78a44fcf7eb7ec8b0014a77ecc16538fca4a7159cadf363d2688f57dc5d7b86",
+  "rift_prison_bedrock.mcstructure.gz": "bad29d7ad4400f90470d12eec46c5c0fd8227e655121f3654494cd24917a71ea",
+  "routes.json": "5914b779ed7b639daeb7c20188b192aabaf15ce1eee97a61da610514d153fe14"
  },
- "structure_bytes": 373116853,
- "structure_sha256": "d9a8e396c4ae6c482ff4ad96c3af4e556369cd920cbc0a106008159f19ce2029"
+ "structure_bytes": 377484269,
+ "structure_sha256": "e21a724c3fa38a0f663d7439d4d98cb37de462fec995c2809a99d6167abda295"
 }

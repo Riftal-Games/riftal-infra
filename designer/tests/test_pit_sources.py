@@ -129,13 +129,13 @@ def test_committed_sources_match_their_pins() -> None:
 def test_committed_census_holds_the_hand_off_headline() -> None:
     census = json.loads((SOURCES / "census.json").read_text())
     names = census["block_names"]
-    assert names["minecraft:packed_mud"] == 97395
-    assert names["minecraft:hardened_clay"] == 3200
+    assert names["minecraft:packed_mud"] == 175194
+    assert names["minecraft:hardened_clay"] == 5824
     assert names["minecraft:iron_door"] >= 3738
     assert names["minecraft:chest"] >= 1869
     assert census["block_entities"]["Chest"] == names["minecraft:chest"]
     assert census["block_entities"]["Bed"] == names["minecraft:bed"]
-    assert sum(names.values()) + census["cells_without_state"]["layer_0"] == census["cells"] == 46567062
+    assert sum(names.values()) + census["cells_without_state"]["layer_0"] == census["cells"] == 47111706
 
 
 def test_committed_resolution_names_exactly_the_listed_unresolved_states() -> None:
