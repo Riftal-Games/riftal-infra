@@ -17,7 +17,8 @@ Set in `images/.env`, copied from `.env.example`. Never commit `.env`.
 | `CAPTURE_ACK_TIMEOUT_SECONDS`, `CAPTURE_HOLD_MAX_SECONDS` | How long a running instance has to ack the backup's capture request through `riftal-capture`, and the lease that ends its hold (ADR 015). |
 | `RIFTAL_DB_PASSWORD_BACKUP` | Password of `backup`, the login the `backup` service dumps with. The `dump-login` service runs `../migrations/run-migrations.sh` with it on every `docker compose up`, creating or rotating the login, which writes no table directly (its exceptions are the capture fence procedures and trigger DDL), and `backup` starts only once that run succeeds. Empty or unset, `dump-login` exits 1 naming the variable and `backup` never starts. `dump-login-selftest.sh` proves both. See `../deploy/README.md`. |
 | `RIFTAL_DB_PASSWORD_ACCOUNTS` | The `accounts` MySQL login's password (ADR 008). The migration runner provisions the login with it, and compose hands it to both instances, where `RiftalAccounts` reads it from the environment, never from its config. At least 24 characters, `[A-Za-z0-9]` only. See RiftalAccounts below. |
-| `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). `plugins/RiftalDevFaults.php` exists under the same gate, or not at all. It is also reserved at wipe time: see Reserved for the dev stack, below. |
+| `RIFTAL_DEV_ENV` | `plugins/RiftalDevBots.php`'s second admission signal, independent of `--riftal-dev-bots` and `xbox-auth`. Fixed to `1` in `compose.yaml` itself, not read from `.env`, because it marks the dev stack shape and is never something an operator tunes. No production deploy path may set it (riftal-infra#113). `plugins/RiftalDevFaults.php` and `plugins/RiftalDevProofs.php` exist under the same gate, or not at all. It is also reserved at wipe time: see Reserved for the dev stack, below. |
+| `RIFTAL_DEV_PROOFS` | `plugins/RiftalDevProofs.php`'s opt-in, read beside the dev gate and admitting only the exact value `1`. It is required on top of the full dev gate (`--riftal-dev-bots=on`, xbox-auth off, `RIFTAL_DEV_ENV=1`), never in place of it. With it unset, or set to anything else, the plugin registers no listener and logs `dev proofs off`, so a client on the shared dev stack gets no proof sequence and core answers its settings request. Nothing committed sets it: not `compose.yaml`, not `.env.example`, not the release image. A journey that needs the proofs sets it for its own run on the one instance it joins, and that instance is restarted without it afterwards. Never a PocketMine flag or a `server.properties` value. |
 
 ## Reserved for the dev stack
 
@@ -82,6 +83,31 @@ ADR 017 P8 (riftal-infra#932). From the server console only:
   rejected|not_applied|failed>` for each answer. It only debits, takes no
   reason argument and is registered under the same conditions as the chunk
   fault.
+
+## Dev proofs
+
+`plugins/RiftalDevProofs.php` sends the effects proofs of
+`docs/effects/plan.md` section 10 to every real client that joins, for
+riftal-infra#1537. It has no command. It exists under the same gate as
+`RiftalDevFaults` and only when `RIFTAL_DEV_PROOFS=1` is also set (see the
+environment table), and the release image's allowlist does not name it. Every
+join that is not a dev bot starts its own sequence, 20 seconds after it, so
+only one client should be on the instance during a proof. It runs, in order: fog (a vanilla id, the pack's
+`riftal:proof_fog`, an empty stack, a switch between two stacks), a 2 second
+camera shake, `bbstudio:ash_burst` and `riftal:proof_dust` in two colours
+passed as Molang, and the pack sound `riftal.proof.tone` (by name, carried
+over a walk, stopped, re-sent, with `loopCount`, and far away with and
+without `bypassListenerRangeCheck`). The sequence is about 4 minutes long.
+
+It also answers the client's settings request with the two-row form of plan
+section 6 (Ambient sound: Full, Quiet, Off; Screen effects: Full, Soft, Off)
+and logs the answer, which a client sends when its Settings screen
+is opened, at any time after joining. Every send and answer is one server log
+line starting `dev-proofs`, with an epoch time in milliseconds, the player's
+position and the packet's fields, so a journey reads the send log. The
+tone's length is `ProofSequence::TONE_SECONDS`, and the studio's proof tone
+must match it. `plugins/dev-proofs/selftest.sh` holds the gate, the sequence
+and the settings answer.
 
 ## Dev bots tile contents
 
