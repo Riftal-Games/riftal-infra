@@ -13,6 +13,8 @@
   },
   "doorways": {
     "portal_lumber": {"world": "pit", "min": [52, 162, 120], "max": [54, 164, 122]},
+    "portal_quarry": {"world": "pit", "min": [-24, -1, 172], "max": [-22, 1, 174]},
+    "portal_farm": {"world": "pit", "min": [22, -1, 172], "max": [24, 1, 174]},
     "gate_closed": {"world": "pit", "min": [-7, 1, 110], "max": [7, 6, 112]}
   },
   "points": {
