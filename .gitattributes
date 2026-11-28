@@ -28,3 +28,6 @@ designer/sources/rift_prison/* -text
 # Position sets are bitsets pinned by sha256; no conversion may touch them.
 designer/pit/mine_sets/*.bin binary
 designer/tests/fixtures/*.bin binary
+
+# The studio pack is pinned by sha256 of the exact bytes handed over; no conversion may touch it.
+images/plugins/resource_packs/*.mcpack binary

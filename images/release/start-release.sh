@@ -16,6 +16,11 @@
 # Every script plugin in SCRIPTS loads on every instance, and a missing one
 # stops the boot. It gates itself on the instance's flags.
 #
+# The resource pack in /opt/riftal/resource_packs is staged into
+# /data/resource_packs on every boot, with the resource_packs.yml that forces
+# it, so every joining client is sent the pack the image holds and a client
+# that declines is refused.
+#
 # The image also carries RiftalGangs, RiftalRiots, RiftalPlots and RiftalAnvil.
 # This script gives them no login and no config, so none is offered here. The
 # dev stack's `instance` loads Gangs from plugins/instance-only/, not from the
@@ -79,6 +84,11 @@ for name in "${SCRIPTS[@]}"; do
 	cp "$ROOT/plugins/$name" "$roster/"
 done
 (cd "$roster" && sha256sum -- *.phar *.php | sed 's/^/roster /')
+
+if [ ! -s "$ROOT/resource_packs/stage-resource-pack.sh" ]; then
+	refuse "$ROOT/resource_packs/stage-resource-pack.sh is missing from this image"
+fi
+bash "$ROOT/resource_packs/stage-resource-pack.sh" /data/resource_packs
 
 for name in "${with_login[@]}"; do
 	mkdir -p "/data/plugin_data/$name"

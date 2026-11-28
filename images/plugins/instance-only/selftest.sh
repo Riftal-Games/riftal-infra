@@ -36,7 +36,7 @@ printf 'MYSQL_ROOT_PASSWORD=x\nINSTANCE_ID=a\nINSTANCE_B_ID=b\nDESIGNBRIDGE_TOKE
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=130
+EXPECTED_ASSERTIONS=135
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
@@ -180,6 +180,17 @@ boot() {
   if [ -n "${CELLS:-}" ]; then
     : > "$root/RiftalCells.phar"
   fi
+  cp -R "$DIR/../resource_packs" "$root/plugins/"
+  # One byte past the committed pack, which staging must refuse.
+  if [ -n "${TAMPER:-}" ]; then
+    printf x >> "$root/plugins/resource_packs/bbstudio_RP.mcpack"
+  fi
+  # The pack and yml an earlier boot with the pack on left on the volume.
+  if [ -n "${STALE:-}" ]; then
+    mkdir -p "$root/data/resource_packs"
+    : > "$root/data/resource_packs/bbstudio_RP.mcpack"
+    : > "$root/data/resource_packs/resource_packs.yml"
+  fi
   # A source folder DevTools would load, and two it would refuse.
   if [ -n "${FOLDERS:-}" ]; then
     mkdir -p "$root/plugins/Folder/src" "$root/plugins/NoSrc" "$root/plugins/NoManifest/src"
@@ -231,7 +242,7 @@ check "the roster is made under the scratch root, so no boot leaves one in /tmp"
 check "an unset POCKETMINE_ARGS boots, as it does under start-pocketmine" \
   'boot "$me" && ! grep -q unbound "$b/out"'
 check "POCKETMINE_PLUGINS writes nothing into the shared /plugins" \
-  'boot "$me" POCKETMINE_PLUGINS="Foo Bar" && [ "$(ls "$b/plugins")" = Cached.phar ]'
+  'boot "$me" POCKETMINE_PLUGINS="Foo Bar" && [ "$(ls "$b/plugins")" = "$(printf "%s\n" Cached.phar resource_packs)" ]'
 check "a file in /plugins not owned by pocketmine is warned about" \
   'boot "$((me + 1))" && grep -q "=== WARNING ===" "$b/out" && grep -q "Cached.phar" "$b/out"'
 check "no ownership warning when pocketmine owns everything" \
@@ -297,6 +308,24 @@ check "with RiftalCells.phar built it joins the roster, and boots with no cells 
   'CELLS=1 boot "$me" && grep -qx RiftalCells.phar "$b/roster" && [ ! -e "$b/data/plugin_data/RiftalCells/config.yml" ]'
 check "without RiftalCells.phar the roster has no cells" \
   'boot "$me" && ! grep -q RiftalCells "$b/roster"'
+
+printf '\n== RIFTAL_RESOURCE_PACK stages and forces the logo pack, or leaves none (riftal-infra#1534)\n'
+packs="$DIR/../resource_packs"
+check "with RIFTAL_RESOURCE_PACK=on the data folder holds the pack and the forcing yml byte for byte" \
+  'boot "$me" RIFTAL_RESOURCE_PACK=on &&
+    cmp -s "$packs/bbstudio_RP.mcpack" "$b/data/resource_packs/bbstudio_RP.mcpack" &&
+    cmp -s "$packs/resource_packs.yml" "$b/data/resource_packs/resource_packs.yml"'
+check "with RIFTAL_RESOURCE_PACK unset or off no resource_packs folder is made" \
+  'boot "$me" && [ ! -e "$b/data/resource_packs" ] &&
+    boot "$me" RIFTAL_RESOURCE_PACK=off && [ ! -e "$b/data/resource_packs" ]'
+check "with RIFTAL_RESOURCE_PACK off a pack and yml an earlier boot staged are removed" \
+  'STALE=1 boot "$me" RIFTAL_RESOURCE_PACK=off &&
+    [ ! -e "$b/data/resource_packs/resource_packs.yml" ] && [ ! -e "$b/data/resource_packs/bbstudio_RP.mcpack" ]'
+check "RIFTAL_RESOURCE_PACK=yes stops the boot before php, naming the variable" \
+  '! boot "$me" RIFTAL_RESOURCE_PACK=yes && [ ! -e "$b/args" ] && grep -q "RIFTAL_RESOURCE_PACK is \"yes\"" "$b/out"'
+check "with RIFTAL_RESOURCE_PACK=on a pack that differs from its sha256 stops the boot before php" \
+  '! TAMPER=1 boot "$me" RIFTAL_RESOURCE_PACK=on && [ ! -e "$b/args" ] &&
+    grep -q "differs from bbstudio_RP.mcpack.sha256" "$b/out"'
 
 printf '\n== RiftalEconomy connects as the economy login, its password only in the environment (riftal-infra#887)\n'
 ECONOMY_CONFIG="$DIR/RiftalEconomy.config.yml"

@@ -663,9 +663,10 @@ commit), when git cannot report its status, or when a tracked file differs from
 not inputs and do not refuse it. Build from a committed, clean checkout of the
 commit being released.
 
-The image records what it holds in five labels: `org.riftal.core-image`,
+The image records what it holds in six labels: `org.riftal.core-image`,
 `org.riftal.phars` (each phar's sha256), `org.riftal.game-commit`,
-`org.riftal.infra-commit` and `org.riftal.grants-sha256`.
+`org.riftal.infra-commit`, `org.riftal.grants-sha256` and
+`org.riftal.resource-pack` (the sha256 of the studio's pack).
 Recording the tag in `../instances/<id>/image` is a deploy, and an instance
 started from the image runs the image's own phars.
 
@@ -693,6 +694,23 @@ file, checks `org.riftal.game-commit`, `org.riftal.infra-commit` and
 own image's `org.riftal.phars` label names and enable exactly its roster at its
 tag's version. It also checks the refusals above, the rendered configs and that
 the server's user cannot add a file to `/opt/riftal/plugins`.
+
+### Resource pack
+
+The pit's logo is drawn by the studio's resource pack (spec 028), so the image
+carries `bbstudio_RP.mcpack` and a `resource_packs.yml` with `force_resources:
+true` in `/opt/riftal/resource_packs`, read-only to `pocketmine`. Each boot
+runs `stage-resource-pack.sh`, which checks the pack against its recorded
+sha256 and installs both files into `/data/resource_packs`, where PocketMine
+reads them, so the image tag decides which pack a client is sent. A client that
+declines the pack is refused at login. The source is `images/plugins/resource_packs/`,
+and `images/resource-pack-selftest.sh` pins the pack's sha256, manifest, the
+yml and the staging, with no container engine. The dev stack's instance stages
+the same files when `RIFTAL_RESOURCE_PACK=on`. Otherwise it boots without
+them and removes any pack and `resource_packs.yml` an earlier boot with `on`
+left on the volume; `devtools/test-server/rebuild.sh` in riftal-pm sets it on
+`riftal-test-instance`. A new studio export replaces the file, its `.sha256`
+and the three constants in the self-test together.
 
 ## Environment
 
