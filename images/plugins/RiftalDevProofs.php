@@ -7,7 +7,7 @@
  * @api 5.0.0
  * @depend RiftalDevBots
  * @softdepend RiftalCustody
- * @description Dev stack only. Sends one client the effects proofs of docs/effects/plan.md section 10, 20 seconds after it joins, and answers the client's settings request.
+ * @description Dev stack only. Sends every client that joins (a dev bot excepted) the effects proofs of docs/effects/plan.md section 10, 20 seconds after it joins, and answers the client's settings request.
  */
 
 declare(strict_types=1);
@@ -139,11 +139,11 @@ final class ProofSequence{
 
 	/** The Settings screen's form: the two rows of plan section 6. */
 	public static function settingsForm() : string{
-		$row = static fn(string $text) : array => ["type" => "dropdown", "text" => $text, "options" => ["Full", "Quiet", "Off"], "default" => 0];
+		$row = static fn(string $text, string ...$options) : array => ["type" => "dropdown", "text" => $text, "options" => array_values($options), "default" => 0];
 		return json_encode([
 			"type" => "custom_form",
 			"title" => "Riftal",
-			"content" => [$row("Ambient sound"), $row("Screen effects")],
+			"content" => [$row("Ambient sound", "Full", "Quiet", "Off"), $row("Screen effects", "Full", "Soft", "Off")],
 		], JSON_THROW_ON_ERROR);
 	}
 

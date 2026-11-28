@@ -128,7 +128,7 @@ far="$(count 1 "$tone pos=110\.00,64\.00,10\.00 volume=1\.00 pitch=1\.00 loopCou
   && pass "proof 5 logs the request it answered and the answer it received" \
   || fail "boot 1 should log one settings request and one answer, got: $(grep -E 'dev-proofs 5-settings' "$work/log-1" || echo none)"
 probe_line "the settings form has the two rows, takes the request and its own answer and leaves another form's alone" 1 \
-  'dev-proofs-probe settings request_cancelled=yes answered=yes form_id=fixed rows=dropdown:Full/Quiet/Off,dropdown:Full/Quiet/Off answer_cancelled=yes other_form_cancelled=no'
+  'dev-proofs-probe settings request_cancelled=yes answered=yes form_id=fixed rows=dropdown:Full/Quiet/Off,dropdown:Full/Soft/Off answer_cancelled=yes other_form_cancelled=no'
 
 printf '\n== RIFTAL_DEV_ENV unset: no listener, nothing sent, no settings answer\n'
 boot "$PLUGIN" "" 2 >/dev/null
