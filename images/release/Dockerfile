@@ -21,9 +21,10 @@ FROM ${CORE_REPO}:${CORE_TAG}
 # of whoever built the image does not decide them.
 COPY --chown=0:0 plugins/ /opt/riftal/plugins/
 COPY --chown=0:0 plugin_data/ /opt/riftal/plugin_data/
+COPY --chown=0:0 resource_packs/ /opt/riftal/resource_packs/
 COPY --chown=0:0 start-release.sh /opt/riftal/start-release.sh
 USER root
-RUN chmod 0755 /opt/riftal /opt/riftal/plugins /opt/riftal/plugin_data /opt/riftal/plugin_data/*
+RUN chmod 0755 /opt/riftal /opt/riftal/plugins /opt/riftal/plugin_data /opt/riftal/plugin_data/* /opt/riftal/resource_packs
 USER pocketmine
 
 CMD ["/opt/riftal/start-release.sh"]

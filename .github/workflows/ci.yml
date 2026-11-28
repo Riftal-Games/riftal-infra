@@ -170,6 +170,9 @@ jobs:
       - name: Pinned core image self-test
         run: bash images/core-image-selftest.sh
 
+      - name: Resource pack self-test
+        run: bash images/resource-pack-selftest.sh
+
       - name: Release image self-test
         run: bash deploy/release-image-selftest.sh
 

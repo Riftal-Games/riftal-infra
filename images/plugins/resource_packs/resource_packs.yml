@@ -1,0 +1,10 @@
+# PocketMine reads this file from <data>/resource_packs/resource_packs.yml.
+# stage-resource-pack.sh puts it there on every boot together with the pack it
+# names, so the image tag decides which pack a joining client is sent.
+#
+# force_resources makes the server tell the client it must accept the stack. A
+# client that declines is disconnected, and a client that completes the
+# sequence without downloading is let through, which is why a bot passes.
+force_resources: true
+resource_stack:
+  - bbstudio_RP.mcpack

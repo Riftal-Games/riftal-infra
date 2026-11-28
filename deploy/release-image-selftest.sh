@@ -14,7 +14,9 @@
 # in REQUIRED_PHARS intact in /opt/riftal/plugins, owned by root, mode 0444 and
 # in a root-owned 0755 directory pocketmine cannot write, holds none in
 # /plugins, has pocketmine as its configured user and is never tagged latest.
-# Each file of SHIPPED_PLUGINS is held in /opt/riftal/plugins likewise.
+# Each file of SHIPPED_PLUGINS is held in /opt/riftal/plugins likewise. The
+# committed resource pack, its yml and the staging script are held in
+# /opt/riftal/resource_packs read-only, and the pack's sha256 is a label.
 # Builds on the local daemon under a riftal_smoke_ name and removes it. Needs
 # the core image pinned in images/core-image.sha.
 set -euo pipefail
@@ -23,7 +25,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=52
+EXPECTED_ASSERTIONS=54
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -37,6 +39,7 @@ copy_release_files() {
   cp "$DIR/../images/core-image.sh" "$DIR/../images/core-image.sha" "$1/images/"
   cp "$DIR/../images/release/Dockerfile" "$DIR/../images/release/start-release.sh" "$1/images/release/"
   cp "$DIR/../images/plugins/RiftalAccounts.config.yml" "$DIR/../images/plugins/RiftalDownstreamLimit.php" "$1/images/plugins/"
+  cp -R "$DIR/../images/plugins/resource_packs" "$1/images/plugins/"
   cp "$DIR/../images/plugins/instance-only/RiftalMines.config.yml.template"     "$DIR/../images/plugins/instance-only/RiftalRanks.config.yml"     "$DIR/../images/plugins/instance-only/RiftalEconomy.config.yml"     "$1/images/plugins/instance-only/"
 }
 # $1 a new repository root holding one commit of the release files.
@@ -286,6 +289,24 @@ else
     pass "pocketmine can write none of /opt/riftal, /opt/riftal/plugins or a file in it"
   else
     fail "pocketmine can write: $writable"
+  fi
+  pack_dir=/opt/riftal/resource_packs
+  want_pack="$(sha256sum "$DIR/../images/plugins/resource_packs/bbstudio_RP.mcpack" | cut -d' ' -f1)"
+  got_pack="$(docker run --rm -m 1g --cpus 1 --entrypoint sha256sum "$image:$tag" "$pack_dir/bbstudio_RP.mcpack" | cut -d' ' -f1 || true)"
+  label_pack="$(docker image inspect --format '{{index .Config.Labels "org.riftal.resource-pack"}}' "$image:$tag")"
+  if [ "$got_pack" = "$want_pack" ] && [ "$label_pack" = "$want_pack" ]; then
+    pass "the image holds the committed resource pack and names its sha256 in org.riftal.resource-pack"
+  else
+    fail "resource pack in the image: $got_pack, label: $label_pack, committed: $want_pack"
+  fi
+  want_packs="$(printf '%s\n' "$pack_dir" "$pack_dir/bbstudio_RP.mcpack" "$pack_dir/bbstudio_RP.mcpack.sha256" "$pack_dir/resource_packs.yml" "$pack_dir/stage-resource-pack.sh" | sort)"
+  got_packs="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c "find $pack_dir | sort")"
+  pack_modes="$(docker run --rm -m 1g --cpus 1 --entrypoint sh "$image:$tag" -c "find $pack_dir \( -type f ! -user root -o -type f ! -perm 444 -o -type d ! -user root -o -type d ! -perm 755 \)")"
+  pack_writable="$(docker run --rm -m 1g --cpus 1 --user pocketmine --entrypoint sh "$image:$tag" -c "for p in $pack_dir $pack_dir/*; do [ -w \"\$p\" ] && echo \"\$p\"; done; true")"
+  if [ "$got_packs" = "$want_packs" ] && [ -z "$pack_modes" ] && [ -z "$pack_writable" ]; then
+    pass "$pack_dir holds exactly the pack, its sha256, its yml and the staging script, read-only to pocketmine"
+  else
+    fail "$pack_dir holds: $got_packs / wrong owner or mode: $pack_modes / writable: $pack_writable"
   fi
   # A phar under /plugins would be hidden by a mount or outlived by a reused
   # volume, so the tag would not decide which build runs.

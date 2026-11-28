@@ -6,8 +6,9 @@
 # phars of its own tag: the sha256 the start command reports for every roster
 # file equals its entry in the image's labels, the log enables exactly the
 # roster's plugins at the tag's version, and no stale copy is touched. Also
-# checks the refusals that stop a boot before PocketMine, the rendered configs
-# and that /opt/riftal/plugins cannot be written by the server's user.
+# checks the refusals that stop a boot before PocketMine, the rendered configs,
+# the resource pack and the yml that forces it staged into /data, and that
+# /opt/riftal/plugins cannot be written by the server's user.
 # Needs the core image pinned in images/core-image.sha and a committed, clean
 # checkout, since the tags name the riftal-infra commit. Everything it creates
 # is named riftal_smoke_ and removed on exit.
@@ -18,7 +19,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=27
+EXPECTED_ASSERTIONS=28
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -215,6 +216,15 @@ if [ "$(grep -c '^  password: ""' <<<"$cfg")" -eq 2 ]; then
   pass "the rendered configs hold no password"
 else
   fail "a rendered config holds a password: $cfg"
+fi
+want_pack="$(sha256sum "$DIR/../images/plugins/resource_packs/bbstudio_RP.mcpack" | cut -d' ' -f1)"
+staged="$(docker run --rm -m 1g --cpus 1 -v "$data_vol:/data" --entrypoint sh "$image:$tag_n" -c \
+  'sha256sum /data/resource_packs/bbstudio_RP.mcpack; cat /data/resource_packs/resource_packs.yml' || true)"
+if [ "$(sed -n 1p <<<"$staged" | cut -d' ' -f1)" = "$want_pack" ] \
+  && grep -q '^force_resources: true$' <<<"$staged" && grep -q '^  - bbstudio_RP.mcpack$' <<<"$staged"; then
+  pass "the boot staged the committed pack and a resource_packs.yml that forces it into /data"
+else
+  fail "/data/resource_packs after the boot: $staged"
 fi
 check_boot "$tag_m" "RiftalEconomy" 2.0.0
 check_boot "$tag_n" "" 1.0.0

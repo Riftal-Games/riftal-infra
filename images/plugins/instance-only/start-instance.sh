@@ -146,6 +146,19 @@ if [ -f "$here/RiftalCells.phar" ]; then
 	cp "$here/RiftalCells.phar" "$roster/"
 fi
 
+# RIFTAL_RESOURCE_PACK=on stages the pack in /plugins/resource_packs into
+# /data/resource_packs, with the resource_packs.yml that forces it, so a joining
+# client is sent the pack and refused when it declines. It is off unless asked
+# for, so no rig or dev stack boots with a forced pack by accident.
+case "${RIFTAL_RESOURCE_PACK:-off}" in
+on) bash /plugins/resource_packs/stage-resource-pack.sh /data/resource_packs ;;
+off) ;;
+*)
+	echo "start-instance.sh: RIFTAL_RESOURCE_PACK is \"$RIFTAL_RESOURCE_PACK\"; the choices are on and off" >&2
+	exit 1
+	;;
+esac
+
 cd /opt/pocketmine
 read -ra pm_args <<<"${POCKETMINE_ARGS:-}"
 

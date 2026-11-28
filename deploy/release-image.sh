@@ -3,6 +3,7 @@
 # pinned by images/core-image.sha plus the ten production phars in
 # /opt/riftal/plugins, under an immutable tag on the local daemon. Nothing is
 # pushed anywhere. The script plugins of SHIPPED_PLUGINS go in the same place.
+# The resource pack and its resource_packs.yml go in /opt/riftal/resource_packs.
 #
 #   release-image.sh <directory holding the built phars>
 #
@@ -111,7 +112,7 @@ main() {
   local phars="${1:?usage: release-image.sh <directory holding the built phars>}"
   local image="${RELEASE_IMAGE:-riftal/pocketmine-mp}"
   local date="${RELEASE_DATE:-$(date -u +%F)}"
-  local name tag ref ctx sums="" scripts="" id
+  local name tag ref ctx sums="" scripts="" id pack
   local commit="${GAME_COMMIT:-}" grants="${GRANTS_SQL:-}" grants_sha infra
 
   for name in "${REQUIRED_PHARS[@]}"; do
@@ -163,6 +164,9 @@ main() {
 
   cp "$SCRIPT_DIR/../images/release/start-release.sh" "$ctx/start-release.sh"
   chmod 0555 "$ctx/start-release.sh"
+  cp -R "$SCRIPT_DIR/../images/plugins/resource_packs" "$ctx/resource_packs"
+  chmod 0444 "$ctx/resource_packs"/*
+  pack="$(sha256sum "$ctx/resource_packs/bbstudio_RP.mcpack" | cut -d' ' -f1)"
   for name in RiftalAccounts RiftalMines RiftalRanks RiftalEconomy; do
     mkdir -p "$ctx/plugin_data/$name"
     cp "$(plugin_config "$name")" "$ctx/plugin_data/$name/config.yml"
@@ -175,6 +179,7 @@ main() {
     --label "org.riftal.core-image=$CORE_IMAGE" \
     --label "org.riftal.phars=$sums" \
     --label "org.riftal.script-plugins=$scripts" \
+    --label "org.riftal.resource-pack=$pack" \
     --label "org.riftal.game-commit=$commit" \
     --label "org.riftal.infra-commit=$infra" \
     --label "org.riftal.grants-sha256=$grants_sha" \
