@@ -22,6 +22,8 @@
     "rankup_rim": [4, 161, 127],
     "sell_gate": [-4, 1, 96],
     "rankup_gate": [4, 1, 96],
-    "portal_lumber_out": [53, 162, 117]
+    "portal_lumber_out": [53, 162, 117],
+    "portal_quarry_out": [-23, -1, 169],
+    "portal_farm_out": [23, -1, 169]
   }
 }

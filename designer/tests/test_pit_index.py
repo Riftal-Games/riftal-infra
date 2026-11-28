@@ -301,3 +301,27 @@ def test_the_quarry_and_farm_doorways_are_disjoint_walk_in_boxes_inside_the_fore
         assert all(forecourt["min"][i] <= door["min"][i] <= door["max"][i] <= forecourt["max"][i] for i in range(3))
         assert [door["max"][i] - door["min"][i] + 1 for i in range(3)] == [3, 3, 3]
     assert quarry["max"][0] < farm["min"][0]
+
+
+def test_each_yard_exit_surrounds_the_yards_spawn_and_names_the_way_back_to_its_doorway() -> None:
+    index = committed_index()
+    locations = json.loads((Path(__file__).resolve().parents[1] / "world_index.json").read_text(encoding="utf-8"))["locations"]
+    spawns = {l["world"]: l["pos"] for l in locations if l["name"].endswith("_spawn")}
+    for yard in ("lumber", "quarry", "farm"):
+        area = index["doorways"][f"{yard}_exit"]
+        assert area["world"] == yard
+        assert all(area["min"][i] <= spawns[yard][i] <= area["max"][i] for i in range(3))
+        assert [area["max"][i] - area["min"][i] + 1 for i in range(3)] == [5, 3, 5]
+        assert f"portal_{yard}_out" in index["points"]
+    assert (index["doorways"]["quarry_exit"]["min"][1], index["doorways"]["farm_exit"]["min"][1]) == (40, 41)
+
+
+def test_the_quarry_and_farm_out_points_stand_in_front_of_their_doorways_inside_the_forecourt() -> None:
+    index = committed_index()
+    forecourt = index["gate"]["forecourt"]
+    for yard in ("quarry", "farm"):
+        door, out = index["doorways"][f"portal_{yard}"], index["points"][f"portal_{yard}_out"]
+        assert all(forecourt["min"][i] <= out[i] <= forecourt["max"][i] for i in range(3))
+        assert out[1] == door["min"][1] and out[0] == (door["min"][0] + door["max"][0]) // 2
+        assert out[2] < door["min"][2]
+        assert not all(door["min"][i] <= out[i] <= door["max"][i] for i in range(3))
