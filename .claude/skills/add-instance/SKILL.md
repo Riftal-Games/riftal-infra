@@ -29,6 +29,9 @@ Instances are containers from one shared image. There is no host to build and no
 - [ ] Run the core image **at the same tag every other instance runs**. Mixed core versions behind one proxy is a protocol mismatch waiting to happen, and with containers there is no excuse for it, because the tag is right there.
 - [ ] Mount the plugin phars for this instance's worlds. An instance loads only the plugins it needs, but the shared library version must match everywhere, because they share a schema.
 - [ ] Mount the world directory on a volume. Never in the container layer. A world in a container layer is a world that a redeploy destroys.
+- [ ] Mount that volume read-only in `backup` too, as `/worlds/<volume>` beside the others in `images/compose.yaml`. `backup.sh` captures whatever it finds under `/worlds`, so a volume left off that list is never backed up (ADR 015).
+- [ ] Mount `riftal-capture:/capture:ro` in the new instance. `RiftalCapture` reads the backup's request there and stages its answer on the instance's own volume (ADR 015 item 2).
+- [ ] Load `RiftalCapture` in the new instance's roster. It loads from the top of `./plugins`, so the `./plugins:/plugins` mount carries it. A backup run against an instance without it fails after `CAPTURE_ACK_TIMEOUT_SECONDS`.
 - [ ] Join it to the stack network.
 - [ ] Downstream config, both required:
   - `server.properties`: `xbox-auth=false`
@@ -94,3 +97,5 @@ At any point before cut-over: point the proxy back at the source instance, unfre
 The new container can simply be stopped and removed. It holds no state that matters, which is the property to preserve.
 
 After cut-over, rollback means moving the world back the same way. The window for a cheap rollback closes when players start writing to the new copy, so verify before you cut over, not after.
+
+To restore a backup set onto the new instance's volume, stop the instance first. A restore under a running instance is overwritten by its next save, so `restore.sh` refuses any volume whose `server.lock` is held (ADR 015 item 7).
