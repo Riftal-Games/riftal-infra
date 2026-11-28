@@ -72,12 +72,36 @@
       "yaw": 180
     },
     {
+      "name": "portal_farm_out",
+      "pitch": 0,
+      "pos": [
+        23,
+        65,
+        169
+      ],
+      "tags": [],
+      "world": "pit",
+      "yaw": 180
+    },
+    {
       "name": "portal_lumber_out",
       "pitch": 0,
       "pos": [
         53,
         228,
         117
+      ],
+      "tags": [],
+      "world": "pit",
+      "yaw": 180
+    },
+    {
+      "name": "portal_quarry_out",
+      "pitch": 0,
+      "pos": [
+        -23,
+        65,
+        169
       ],
       "tags": [],
       "world": "pit",

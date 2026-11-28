@@ -265,12 +265,13 @@ def index_document(
     ]
     floor, cylinder = routes["pit_floor"], routes["contested_mine"]
     hall, ring, tower = floor["hall"], floor["layer14_ring"], routes["decks"][0]["centre"]
-    spawn = next(p for p in world_index["locations"] if p["name"] == "lumber_spawn" and p["world"] == "lumber")["pos"]
     margin = layout["lumber_exit_margin"]
     doorways = {n: {"world": d["world"], **_box(d["min"], d["max"], origin)} for n, d in layout["doorways"].items()}
-    doorways["lumber_exit"] = {
-        "world": "lumber", "min": [spawn[0] - margin, spawn[1], spawn[2] - margin], "max": [spawn[0] + margin, spawn[1] + 2, spawn[2] + margin],
-    }
+    for yard in ("lumber", "quarry", "farm"):
+        spawn = next(p for p in world_index["locations"] if p["name"] == f"{yard}_spawn" and p["world"] == yard)["pos"]
+        doorways[f"{yard}_exit"] = {
+            "world": yard, "min": [spawn[0] - margin, spawn[1], spawn[2] - margin], "max": [spawn[0] + margin, spawn[1] + 2, spawn[2] + margin],
+        }
     transit = transit_regions(routes, layout, origin)
     counts = {"layers": 14, "decks": len(routes["decks"]), "cells": len(cells), "ladders": len(ladders), "stairs": len(stairs), "bridges": len(bridges), "transit": len(transit)}
     return {
