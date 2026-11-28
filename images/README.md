@@ -83,6 +83,28 @@ ADR 017 P8 (riftal-infra#932). From the server console only:
   reason argument and is registered under the same conditions as the chunk
   fault.
 
+## Dev proofs
+
+`plugins/RiftalDevProofs.php` sends the effects proofs of
+`docs/effects/plan.md` section 10 to one real client, for riftal-infra#1537.
+It has no command. It exists under the same gate as `RiftalDevFaults`, and
+the release image's allowlist does not name it. 20 seconds after a client
+joins (a dev bot is skipped) it runs, in order: fog (a vanilla id, the pack's
+`riftal:proof_fog`, an empty stack, a switch between two stacks), a 2 second
+camera shake, `bbstudio:ash_burst` and `riftal:proof_dust` in two colours
+passed as Molang, and the pack sound `riftal.proof.tone` (by name, carried
+over a walk, stopped, re-sent, with `loopCount`, and far away with and
+without `bypassListenerRangeCheck`). The sequence is about 3.5 minutes long.
+
+It also answers the client's settings request with the two-row form of plan
+section 6 and logs the answer, which a client sends when its Settings screen
+is opened, at any time after joining. Every send and answer is one server log
+line starting `dev-proofs`, with an epoch time in milliseconds, the player's
+position and the packet's fields, so a journey reads the send log. The
+tone's length is `ProofSequence::TONE_SECONDS`, and the studio's proof tone
+must match it. `plugins/dev-proofs/selftest.sh` holds the gate, the sequence
+and the settings answer.
+
 ## Dev bots tile contents
 
 `plugins/RiftalDevBots.php` registers `devbots-tile <x> <y> <z> [level]`

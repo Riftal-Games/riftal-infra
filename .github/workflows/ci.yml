@@ -259,6 +259,9 @@ jobs:
       - name: Dev faults hook self-test
         run: bash images/plugins/dev-faults/selftest.sh
 
+      - name: Dev proof sender self-test
+        run: bash images/plugins/dev-proofs/selftest.sh
+
       - name: RiftalCustody on every instance self-test
         run: bash images/custody-selftest.sh
 
