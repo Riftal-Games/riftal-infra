@@ -290,3 +290,14 @@ def test_transit_holds_both_ends_of_every_flight_the_gate_hall_and_the_first_dec
 
 def test_the_open_pit_in_front_of_a_bay_and_the_middle_of_bridge_1_south_are_not_transit() -> None:
     assert not transit_at(committed_index(), np.array([[0, 208, 70], [0, 150, 80], [0, 208, 104]])).any()
+
+
+def test_the_quarry_and_farm_doorways_are_disjoint_walk_in_boxes_inside_the_forecourt() -> None:
+    index = committed_index()
+    forecourt = index["gate"]["forecourt"]
+    quarry, farm = index["doorways"]["portal_quarry"], index["doorways"]["portal_farm"]
+    for door in (quarry, farm):
+        assert door["world"] == "pit"
+        assert all(forecourt["min"][i] <= door["min"][i] <= door["max"][i] <= forecourt["max"][i] for i in range(3))
+        assert [door["max"][i] - door["min"][i] + 1 for i in range(3)] == [3, 3, 3]
+    assert quarry["max"][0] < farm["min"][0]
