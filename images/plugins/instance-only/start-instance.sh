@@ -149,10 +149,12 @@ fi
 # RIFTAL_RESOURCE_PACK=on stages the pack in /plugins/resource_packs into
 # /data/resource_packs, with the resource_packs.yml that forces it, so a joining
 # client is sent the pack and refused when it declines. It is off unless asked
-# for, so no rig or dev stack boots with a forced pack by accident.
+# for, so no rig or dev stack boots with a forced pack by accident. /data is a
+# volume that outlives the container, so off removes what an earlier boot with
+# on staged, or the volume would keep forcing the pack.
 case "${RIFTAL_RESOURCE_PACK:-off}" in
 on) bash /plugins/resource_packs/stage-resource-pack.sh /data/resource_packs ;;
-off) ;;
+off) rm -f /data/resource_packs/resource_packs.yml /data/resource_packs/bbstudio_RP.mcpack ;;
 *)
 	echo "start-instance.sh: RIFTAL_RESOURCE_PACK is \"$RIFTAL_RESOURCE_PACK\"; the choices are on and off" >&2
 	exit 1

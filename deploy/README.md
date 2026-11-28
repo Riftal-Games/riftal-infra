@@ -706,8 +706,9 @@ reads them, so the image tag decides which pack a client is sent. A client that
 declines the pack is refused at login. The source is `images/plugins/resource_packs/`,
 and `images/resource-pack-selftest.sh` pins the pack's sha256, manifest, the
 yml and the staging, with no container engine. The dev stack's instance stages
-the same files when `RIFTAL_RESOURCE_PACK=on`, and boots without them
-otherwise; `devtools/test-server/rebuild.sh` in riftal-pm sets it on
+the same files when `RIFTAL_RESOURCE_PACK=on`. Otherwise it boots without
+them and removes any pack and `resource_packs.yml` an earlier boot with `on`
+left on the volume; `devtools/test-server/rebuild.sh` in riftal-pm sets it on
 `riftal-test-instance`. A new studio export replaces the file, its `.sha256`
 and the three constants in the self-test together.
 

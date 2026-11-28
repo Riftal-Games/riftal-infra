@@ -127,8 +127,10 @@ services:
       # level.
       RIFTAL_LEVEL_ZONES: lumber mine_a mine_b mine_c quarry farm pit
       # on sends every joining client the logo pack and refuses one that
-      # declines it (start-instance.sh). Off here so the bots are not asked to
-      # download it; set it in images/.env to play the pack on this stack.
+      # declines it (start-instance.sh). A bot that completes the pack sequence
+      # without downloading is let through (resource_packs.yml), so the pack
+      # proves nothing on a bot stack; it is off here so no rig boots with a
+      # forced pack. Set it in images/.env to play the pack on this stack.
       RIFTAL_RESOURCE_PACK: ${RIFTAL_RESOURCE_PACK:-off}
       # RiftalMines connects as the mines login (ADR 008), and riftal-game's
       # DatabaseSettings reads its password from here, never from a file on
