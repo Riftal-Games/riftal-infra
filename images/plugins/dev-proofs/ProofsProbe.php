@@ -121,7 +121,7 @@ final class Main extends PluginBase{
 
 	public const NAME = "ProofsProbe";
 
-	/** Runs the whole 226 s sequence in about five seconds. */
+	/** Runs the whole 232 s sequence in about five seconds. */
 	private const SPEED = 50.0;
 
 	protected function onEnable() : void{

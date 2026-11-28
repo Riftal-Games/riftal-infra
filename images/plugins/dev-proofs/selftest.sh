@@ -2,7 +2,7 @@
 # Self-test for RiftalDevProofs.php (riftal-infra#1537), the effects proof
 # sender of docs/effects/plan.md section 10.
 #
-# Boots the pinned core image five times on one throwaway /data volume, with
+# Boots the pinned core image six times on one throwaway /data volume, with
 # the shipped RiftalDevBots.php and RiftalDevProofs.php beside ProofsProbe.php.
 # The probe builds and encodes every packet of the sequence, joins a dev bot
 # and then a client through PocketMine's own PlayerJoinEvent, runs the whole
@@ -11,11 +11,14 @@
 # The packets are recorded on a session with no socket, so the self-test holds
 # what is sent and logged, not what a client renders, which is the journey's.
 #
-# The first boot is gated open. The second leaves RIFTAL_DEV_ENV unset and the
-# third leaves --riftal-dev-bots off, and neither may register a listener or
-# send anything. The fourth leaves RiftalDevBots out, and core must refuse
-# RiftalDevProofs. The fifth runs a copy that ignores its gate on a closed
-# boot, so the closed-boot check is known to see it.
+# Every boot but the second sets RIFTAL_DEV_PROOFS=1, the plugin's opt-in on
+# top of the dev gate. The first is gated open. The second is gated open with
+# the opt-in unset, as the shared dev stack is, and must register no listener
+# and send nothing. The third leaves RIFTAL_DEV_ENV unset and the fourth leaves
+# --riftal-dev-bots off, so the opt-in alone admits nothing. The fifth leaves
+# RiftalDevBots out, and core must refuse RiftalDevProofs. The sixth runs a
+# copy that ignores its gate on a closed boot, so the closed-boot check is
+# known to see it.
 #
 # It also holds that the release image does not carry the plugin: the
 # allowlist the image copies from names no dev plugin, and nothing under
@@ -35,7 +38,7 @@ IMAGE="$CORE_IMAGE"
 
 FAILURES=0
 PASSES=0
-EXPECTED_ASSERTIONS=20
+EXPECTED_ASSERTIONS=22
 pass() { printf '  ok    %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf '::error::%s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
@@ -45,20 +48,21 @@ docker volume create "$volume" >/dev/null
 trap 'rm -rf "$work"; docker volume rm "$volume" >/dev/null' EXIT
 
 # $1 RiftalDevProofs.php to load, $2 RIFTAL_DEV_ENV, $3 a boot number, $4
-# "nobots" to leave RiftalDevBots out or "noflag" to leave --riftal-dev-bots
-# off. Keeps the log at $work/log-$3 and prints the probe's lines, or the log
-# tail when there are none.
+# "nobots" to leave RiftalDevBots out, "noflag" to leave --riftal-dev-bots off
+# or "noproofs" to leave RIFTAL_DEV_PROOFS unset. Keeps the log at $work/log-$3
+# and prints the probe's lines, or the log tail when there are none.
 boot() {
-  local plugins="$work/plugins-$3" name="riftal_selftest_dev_proofs_$$_$RANDOM" log flag="--riftal-dev-bots=on"
+  local plugins="$work/plugins-$3" name="riftal_selftest_dev_proofs_$$_$RANDOM" log flag="--riftal-dev-bots=on" optin=(-e RIFTAL_DEV_PROOFS=1)
   mkdir -p "$plugins"
   [ "${4:-}" = nobots ] || cp "$DIR/../RiftalDevBots.php" "$plugins/"
   [ "${4:-}" != noflag ] || flag=""
+  [ "${4:-}" != noproofs ] || optin=()
   cp "$DIR/ProofsProbe.php" "$plugins/ProofsProbe.php"
   cp "$1" "$plugins/RiftalDevProofs.php"
   chmod -R a+rX "$plugins"
   if ! log="$(timeout 180 docker run --rm --pull never --name "$name" -m 2g --cpus 2 \
       -v "$plugins:/plugins:ro" -v "$volume:/data" \
-      -e "RIFTAL_DEV_ENV=$2" \
+      -e "RIFTAL_DEV_ENV=$2" ${optin[@]+"${optin[@]}"} \
       -e "POCKETMINE_ARGS=--xbox-auth=false $flag --auto-report.enabled=0 --level-type=flat" \
       "$IMAGE" 2>&1)"; then
     docker stop -t 60 "$name" >/dev/null 2>&1 || true
@@ -130,24 +134,29 @@ far="$(count 1 "$tone pos=110\.00,64\.00,10\.00 volume=1\.00 pitch=1\.00 loopCou
 probe_line "the settings form has the two rows, takes the request and its own answer and leaves another form's alone" 1 \
   'dev-proofs-probe settings request_cancelled=yes answered=yes form_id=fixed rows=dropdown:Full/Quiet/Off,dropdown:Full/Soft/Off answer_cancelled=yes other_form_cancelled=no'
 
-printf '\n== RIFTAL_DEV_ENV unset: no listener, nothing sent, no settings answer\n'
-boot "$PLUGIN" "" 2 >/dev/null
-probe_line "a boot without the environment signal has no listener" 2 'dev-proofs-probe listeners join=0 packet=0'
+printf '\n== gate open, RIFTAL_DEV_PROOFS unset: no listener, nothing sent, no settings answer\n'
+boot "$PLUGIN" 1 2 noproofs >/dev/null
+probe_line "a boot without the opt-in has no listener" 2 'dev-proofs-probe listeners join=0 packet=0'
 probe_line "and sends nothing" 2 "$closed"
 probe_line "and leaves the settings request to core" 2 "$nosettings"
 [ "$(count 2 'dev-proofs [0-9a-z]')" = 0 ] && grep -q 'dev proofs off' "$work/log-2" \
   && pass "the log says dev proofs off and has no dev-proofs line" \
   || fail "boot 2 should say dev proofs off and log no dev-proofs line"
 
-printf '\n== --riftal-dev-bots off: the same\n'
-boot "$PLUGIN" 1 3 noflag >/dev/null
-probe_line "a boot without the flag has no listener and sends nothing" 3 'dev-proofs-probe listeners join=0 packet=0'
+printf '\n== RIFTAL_DEV_ENV unset, opt-in set: the opt-in does not replace the gate\n'
+boot "$PLUGIN" "" 3 >/dev/null
+probe_line "a boot without the environment signal has no listener" 3 'dev-proofs-probe listeners join=0 packet=0'
 probe_line "and sends nothing" 3 "$closed"
 
+printf '\n== --riftal-dev-bots off, opt-in set: the same\n'
+boot "$PLUGIN" 1 4 noflag >/dev/null
+probe_line "a boot without the flag has no listener" 4 'dev-proofs-probe listeners join=0 packet=0'
+probe_line "and sends nothing" 4 "$closed"
+
 printf '\n== without RiftalDevBots: core refuses RiftalDevProofs, so no hook runs\n'
-boot "$PLUGIN" 1 4 nobots >/dev/null
-grep -qE "/CRITICAL\]: .*RiftalDevProofs.*RiftalDevBots" "$work/log-4" \
-  && ! grep -qE 'dev proofs (on|off)|dev-proofs ' "$work/log-4" \
+boot "$PLUGIN" 1 5 nobots >/dev/null
+grep -qE "/CRITICAL\]: .*RiftalDevProofs.*RiftalDevBots" "$work/log-5" \
+  && ! grep -qE 'dev proofs (on|off)|dev-proofs ' "$work/log-5" \
   && pass "a boot without RiftalDevBots names the missing dependency and loads no hook" \
   || fail "a boot without RiftalDevBots should refuse RiftalDevProofs for the missing dependency"
 
@@ -157,8 +166,8 @@ sed 's/if(!\$this->on){/if(false){/' "$PLUGIN" > "$copy"
 [ "$(grep -c 'if(false){' "$copy")" = 2 ] && [ "$(grep -c 'if(!\$this->on){' "$PLUGIN")" = 2 ] \
   && pass "the copy ignores the gate at exactly the two places it is read" \
   || fail "could not find exactly two gate checks in $PLUGIN"
-boot "$copy" "" 5 >/dev/null
-probe_line "the closed-boot check sees the copy's listeners" 5 'dev-proofs-probe listeners join=1 packet=1'
+boot "$copy" "" 6 >/dev/null
+probe_line "the closed-boot check sees the copy's listeners" 6 'dev-proofs-probe listeners join=1 packet=1'
 
 printf '\n== the release image does not carry it\n'
 shipped="$(cd "$ROOT" && . deploy/release-image.sh && printf '%s\n' "${SHIPPED_PLUGINS[@]}")"
@@ -179,4 +188,4 @@ if [ "$FAILURES" -ne 0 ]; then
   printf '%s self-test assertion(s) failed\n' "$FAILURES"
   exit 1
 fi
-printf 'all %s assertions passed: the proof sequence is built, sent and logged, and the settings form answered, only on a dev-shaped boot, and the release image does not carry it.\n' "$PASSES"
+printf 'all %s assertions passed: the proof sequence is built, sent and logged, and the settings form answered, only on a dev-shaped boot that opts in, and the release image does not carry it.\n' "$PASSES"

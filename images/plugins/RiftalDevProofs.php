@@ -80,6 +80,14 @@ final class ProofSequence{
 	public const LOGO_PARTICLE = "bbstudio:ash_burst";
 
 	/**
+	 * Opt-in on top of DevEnvGate. The shared dev stack admits every instance
+	 * through the gate, so the sequence would otherwise run on every client that
+	 * joins it and the LOWEST settings handler would hide the effects settings
+	 * form. Only the exact value 1 admits, and nothing committed sets it.
+	 */
+	public const OPT_IN_ENV_VAR = "RIFTAL_DEV_PROOFS";
+
+	/**
 	 * The proof tone's length. It sets the carry walk, which has to outlast a
 	 * 40 block walk at walking pace, and the re-send interval of proof 4d,
 	 * which is one tick short of it. The studio's tone must be this long.
@@ -130,9 +138,10 @@ final class ProofSequence{
 		}
 		$steps[] = new ProofStep(164.0, "4e-loop-count", $tone(1.0, 3, false));
 		$steps[] = new ProofStep(190.0, "4e-stop", static fn() : array => [StopSoundPacket::create(self::PACK_SOUND, false, false)]);
-		$steps[] = new ProofStep(194.0, "4f-far-no-bypass", $tone(1.0, 0, false, 100.0));
-		$steps[] = new ProofStep(200.0, "4f-far-bypass", $tone(1.0, 0, true, 100.0));
-		$steps[] = new ProofStep(206.0, "5-open-settings-now", $sample);
+		$far = 194.0;
+		$steps[] = new ProofStep($far, "4f-far-no-bypass", $tone(1.0, 0, false, 100.0));
+		$steps[] = new ProofStep($far + self::TONE_SECONDS, "4f-far-bypass", $tone(1.0, 0, true, 100.0));
+		$steps[] = new ProofStep($far + self::TONE_SECONDS + 6.0, "5-open-settings-now", $sample);
 		usort($steps, static fn(ProofStep $a, ProofStep $b) : int => $a->atSeconds <=> $b->atSeconds);
 		return $steps;
 	}
@@ -180,10 +189,10 @@ final class ProofSequence{
 
 /**
  * Plan section 10's proof sender. Present only under RiftalDevBots'
- * DevEnvGate: without --riftal-dev-bots=on, xbox-auth off and RIFTAL_DEV_ENV=1
- * no listener exists, and without RiftalDevBots core refuses to load this
- * plugin at all. It has no command. A dev bot is skipped, since it renders
- * nothing. dev-proofs/selftest.sh holds the gate, the sequence and the boot
+ * DevEnvGate and RIFTAL_DEV_PROOFS=1: without --riftal-dev-bots=on, xbox-auth
+ * off, RIFTAL_DEV_ENV=1 and that opt-in no listener exists, and without
+ * RiftalDevBots core refuses to load this plugin at all. It has no command.
+ * A dev bot is skipped, since it renders nothing. dev-proofs/selftest.sh holds the gate, the sequence and the boot
  * refusals.
  *
  * Every send and every settings message is one server log line starting
@@ -199,7 +208,7 @@ final class Main extends PluginBase{
 	protected function onLoad() : void{
 		$server = $this->getServer();
 		$envValue = getenv(DevEnvGate::ENV_VAR);
-		$this->on = DevEnvGate::shouldAdmit(
+		$this->on = getenv(ProofSequence::OPT_IN_ENV_VAR) === "1" && DevEnvGate::shouldAdmit(
 			$server->getConfigGroup()->getConfigBool("riftal-dev-bots", false),
 			$server->requiresAuthentication(),
 			$envValue === false ? null : $envValue
